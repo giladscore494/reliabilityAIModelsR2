@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: yedaarechev
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120
+    autoDeploy: true
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      # חובה להגדיר דרך Render Dashboard:
+      # - SECRET_KEY
+      # - DATABASE_URL (אם יש DB)
+      # - GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (אם OAuth פעיל)
+      # - OWNER_EMAILS (אופציונלי, מופרד בפסיקים)
