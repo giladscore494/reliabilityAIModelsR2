@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===================================================================
 # 🚗 Car Reliability Analyzer – Israel
-# v7.4.1 (Render DB Hard-Fail + Single-run create_all)
+# v7.4.2 (Render DB Hard-Fail + No double create_app + /healthz + date fix)
 # ===================================================================
 
 import os, re, json, traceback
@@ -166,7 +166,7 @@ def build_prompt(make, model, sub_model, year, fuel_type, transmission, mileage_
     "recalls_score": "מספר (1-10)"
   }},
   "base_score_calculated": "מספר (0-100)",
-  "common_issues": ["תקלות נפוצות רלוונטיות לק\"מ"],
+  "common_issues": ["תקלות נפוצות רלוונטיות לק\\"מ"],
   "avg_repair_cost_ILS": "מספר ממוצע",
   "issues_with_costs": [
     {{"issue": "שם התקלה", "avg_cost_ILS": "מספר", "source": "מקור", "severity": "נמוך/בינוני/גבוה"}}
@@ -529,10 +529,12 @@ def create_app():
         db_url = db_url.replace("postgres://", "postgresql://", 1)
 
     # If running on Render, refuse to boot without DATABASE_URL
-    # Render sets RENDER=1 for services; fallback to sqlite only for local dev.
     is_render = os.environ.get("RENDER", "").strip() != ""
     if is_render and not db_url:
-        raise RuntimeError("DATABASE_URL is missing on Render. Set DATABASE_URL (Internal Postgres URL) in Render Environment Variables.")
+        raise RuntimeError(
+            "DATABASE_URL is missing on Render. "
+            "Set DATABASE_URL (Internal Postgres URL) in Render Environment Variables."
+        )
 
     # Config
     app.config["SQLALCHEMY_DATABASE_URI"] = db_url if db_url else "sqlite:///:memory:"
@@ -554,8 +556,6 @@ def create_app():
     # ==========================
     # ✅ Run create_all ONLY ONCE
     # ==========================
-    # Prevent duplicate init when multiple workers/imports happen.
-    # Works reliably on a single Render web service instance.
     with app.app_context():
         try:
             lock_path = "/tmp/.db_inited.lock"
@@ -565,7 +565,6 @@ def create_app():
                 print("[DB] ⏭️ create_all skipped (lock exists)")
             else:
                 db.create_all()
-                # Create lock file so it won't rerun on the same instance lifecycle
                 try:
                     with open(lock_path, "w", encoding="utf-8") as f:
                         f.write(str(datetime.utcnow()))
@@ -608,6 +607,12 @@ def create_app():
     # ------------------
     # ===== ROUTES =====
     # ------------------
+
+    # Health check endpoint (Render Health Checks can hit /healthz)
+    @app.route('/healthz')
+    def healthz():
+        return "ok", 200
+
     @app.route('/')
     def index():
         return render_template(
@@ -934,7 +939,8 @@ def create_app():
             ).order_by(SearchHistory.timestamp.desc()).first()
             if cached:
                 result = json.loads(cached.result_json)
-                result['source_tag'] = f"מקור: מטמון DB (נשמר ב-{cached.timestamp.strftime('%Y-%d-%m')})"
+                # ✅ date format fix: YYYY-MM-DD
+                result['source_tag'] = f"מקור: מטמון DB (נשמר ב-{cached.timestamp.strftime('%Y-%m-%d')})"
                 return jsonify(result)
         except Exception as e:
             print(f"[CACHE] ⚠️ {e}")
@@ -988,10 +994,12 @@ def create_app():
 # ===================================================================
 # ===== 5. נקודת כניסה (Gunicorn/Flask) =====
 # ===================================================================
-app = create_app()
+# Render מריץ עם:
+# gunicorn "app:create_app()" --bind 0.0.0.0:$PORT ...
+# לכן אסור ליצור app בזמן import (אחרת זה יאתחל פעמיים).
 
 if __name__ == '__main__':
-    # Local dev entrypoint. In Render/Gunicorn this block is ignored.
+    app = create_app()
     port = int(os.environ.get('PORT', 5001))
     debug = os.environ.get('FLASK_DEBUG', '').lower() in ('1', 'true', 'yes')
     app.run(host='0.0.0.0', port=port, debug=debug)
