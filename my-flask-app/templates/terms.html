@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>תקנון שימוש – yedaarechevAI</title>
+
+  <!-- Tailwind + Heebo -->
+  <script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet"/>
+
+  <style>
+    :root{ --bg-dark:#0F172A; --text-light:#E2E8F0; --primary:#6366F1; --secondary:#EC4899; }
+    body{ font-family:'Heebo',system-ui,-apple-system,sans-serif; background:var(--bg-dark); color:var(--text-light); }
+    .fade-in{ animation:fadeIn .6s cubic-bezier(.4,0,.2,1) forwards; opacity:0 }
+    @keyframes fadeIn{ from{opacity:0; transform:translateY(20px)} to{opacity:1; transform:none} }
+  </style>
+
+  <script>
+    tailwind.config = {
+      darkMode:'class',
+      theme:{ extend:{ colors:{ primary:'#6366F1', secondary:'#EC4899', dark:'#0F172A', 'dark-lighter':'#1E293B', success:'#10B981', warning:'#F59E0B', danger:'#EF4444' } } }
+    }
+  </script>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- NAV -->
+  <header class="sticky top-0 z-50 bg-dark/80 backdrop-blur-lg border-b border-slate-800/80">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+      <a href="/" class="flex items-center space-x-2 space-x-reverse group">
+        <h1 class="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-primary via-purple-500 to-secondary">
+          yedaarechevAI
+        </h1>
+      </a>
+      <div class="flex items-center gap-3 sm:gap-6 text-sm font-medium">
+        {% if user and user.is_authenticated %}
+        <a href="/dashboard" class="px-4 py-2 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition">החיפושים שלי</a>
+        <a href="/logout" class="px-4 py-2 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition">התנתק</a>
+        {% else %}
+        <a href="/login" class="px-6 py-2 rounded-full font-bold bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 transition-all text-white shadow-lg">התחברות</a>
+        {% endif %}
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN -->
+  <main class="flex-grow container mx-auto px-4 sm:px-6 lg:px-8 py-16 md:py-24">
+    <div class="max-w-4xl mx-auto bg-dark-lighter/50 backdrop-blur-xl shadow-xl p-10 rounded-3xl border border-slate-700/50 fade-in">
+      <h2 class="text-4xl md:text-5xl font-extrabold text-white mb-6">תקנון תנאי שימוש</h2>
+      <p class="text-slate-400 mb-4"><strong>עודכן לאחרונה:</strong> 8 בנובמבר 2025</p>
+
+      <p class="text-slate-300 leading-relaxed mb-6">
+        מסמך זה מהווה הסכם בין המשתמש (״אתה״) לבין yedaarechevAI (״המפעיל״, ״השירות״).
+        שימוש בשירות מהווה הסכמה לתנאי תקנון זה במלואם.
+      </p>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">1. מהות השירות</h3>
+      <p class="text-slate-300 mb-6">
+        yedaarechevAI מספק כלי מקוון לבדיקת אמינות רכב באמצעות AI. השירות אינו מהווה תחליף לבדיקה פיזית או ייעוץ מקצועי מוסמך.
+      </p>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">2. הגבלת אחריות</h3>
+      <p class="text-slate-300 font-semibold text-danger mb-6">
+        השירות ניתן ״כמות שהוא״ (AS-IS), ללא אחריות לתוצאות, לדיוק או לזמינות. כל שימוש נעשה באחריות המשתמש בלבד.
+        yedaarechevAI לא יישא בשום אחריות לנזק ישיר, עקיף, כספי או אחר הנובע משימוש בתוכן או בשירות.
+      </p>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">3. שימוש פרטי ואיסור שימוש מסחרי</h3>
+      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+        <li>הגישה לשירות מיועדת לשימוש אישי בלבד.</li>
+        <li>אין להשתמש בשירות לצרכים מסחריים, אוטומציה, בדיקת רכבים עבור צד ג׳ או כל שימוש מקצועי אחר, ללא הסכמה מפורשת בכתב.</li>
+      </ul>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">4. רישום והתחברות</h3>
+      <p class="text-slate-300 mb-6">
+        ההתחברות לשירות מתבצעת באמצעות Google OAuth בלבד. בעת התחברותך, הנך מאשר כי קראת, הבנת והסכמת לתנאים אלה ולמדיניות הפרטיות.
+      </p>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">5. מגבלות שימוש</h3>
+      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+        <li>כל משתמש רשום מוגבל ל־5 חיפושים ביממה.</li>
+        <li>ניסיון לעקוף מגבלות אלה באמצעות VPN, אוטומציה, חשבונות מרובים או אמצעים אחרים – יגרום לחסימת גישה.</li>
+      </ul>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">6. שינויים והפסקת פעילות</h3>
+      <p class="text-slate-300 mb-6">
+        yedaarechevAI שומר לעצמו את הזכות לשנות או להפסיק את השירות בכל עת, ללא הודעה מוקדמת וללא כל התחייבות.
+      </p>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">7. קניין רוחני</h3>
+      <p class="text-slate-300 mb-6">
+        כל התוכן, הקוד, העיצוב, הלוגו והתוצרים הם רכושו הבלעדי של המפעיל. אין להעתיק, לשכפל, להפיץ או לבצע הנדסה לאחור ללא רשות בכתב.
+      </p>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">8. גיל מינימלי</h3>
+      <p class="text-slate-300 mb-6">השירות מיועד לבני 18 ומעלה בלבד.</p>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">9. דין וסמכות שיפוט</h3>
+      <p class="text-slate-300 mb-6">
+        תקנון זה כפוף לדיני מדינת ישראל. כל מחלוקת תתברר בבתי המשפט במחוז תל אביב בלבד.
+      </p>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">10. יצירת קשר</h3>
+      <p class="text-slate-300 leading-relaxed">
+        לשאלות משפטיות או פניות אחרות: <a class="text-primary hover:underline" href="mailto:support@yedaarechev.com">support@yedaarechev.com</a>
+      </p>
+    </div>
+  </main>
+
+  <!-- FOOTER -->
+  <footer class="mt-10 py-10 text-center border-t border-slate-800/50 bg-dark-lighter/30 backdrop-blur-md">
+    <div class="max-w-7xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-6">
+      <div class="flex items-center gap-3 opacity-75 hover:opacity-100 transition">
+        <span class="font-bold text-white">yedaarechevAI</span>
+      </div>
+      <p class="text-slate-500 text-sm">© 2025 ידע רכב. פותח בישראל 🇮🇱.</p>
+      <div class="flex gap-6 text-sm font-medium">
+        <a href="{{ url_for('privacy') }}" class="text-slate-400 hover:text-primary transition">מדיניות פרטיות</a>
+        <a href="{{ url_for('terms') }}" class="text-slate-400 hover:text-primary transition">תקנון שימוש</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>
