@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===================================================================
 # 🚗 Car Reliability Analyzer – Israel
-# v7.4.0 (Dashboard Fix + Owner Flag + Car Advisor API + AdvisorHistory)
+# v7.4.1 (Render DB Hard-Fail + Single-run create_all)
 # ===================================================================
 
 import os, re, json, traceback
@@ -518,20 +518,31 @@ def create_app():
         print(f"[AUTH] Using redirect_uri={uri} (host={host})")
         return uri
 
-    # Secrets
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
-    # Render / some providers may use postgres:// (deprecated for SQLAlchemy) — normalize to postgresql://
-    if app.config['SQLALCHEMY_DATABASE_URI'] and app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgres://'):
-        app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLALCHEMY_DATABASE_URI'].replace('postgres://', 'postgresql://', 1)
+    # ======================
+    # ✅ Render DB hard-fail
+    # ======================
+    db_url = os.environ.get("DATABASE_URL", "").strip()
+    secret_key = os.environ.get("SECRET_KEY", "").strip()
 
-    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY')
+    # Normalize deprecated prefix for SQLAlchemy
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
 
-    if not app.config['SQLALCHEMY_DATABASE_URI']:
-        print("[BOOT] ⚠️ DATABASE_URL not set. Using in-memory sqlite.")
-        app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
-    if not app.config['SECRET_KEY']:
-        print("[BOOT] ⚠️ SECRET_KEY not set. Using dev fallback.")
-        app.config['SECRET_KEY'] = 'dev-secret-key-that-is-not-secret'
+    # If running on Render, refuse to boot without DATABASE_URL
+    # Render sets RENDER=1 for services; fallback to sqlite only for local dev.
+    is_render = os.environ.get("RENDER", "").strip() != ""
+    if is_render and not db_url:
+        raise RuntimeError("DATABASE_URL is missing on Render. Set DATABASE_URL (Internal Postgres URL) in Render Environment Variables.")
+
+    # Config
+    app.config["SQLALCHEMY_DATABASE_URI"] = db_url if db_url else "sqlite:///:memory:"
+    app.config["SECRET_KEY"] = secret_key if secret_key else "dev-secret-key-that-is-not-secret"
+    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+    if not db_url:
+        print("[BOOT] ⚠️ DATABASE_URL not set. Using in-memory sqlite (LOCAL DEV ONLY).")
+    if not secret_key:
+        print("[BOOT] ⚠️ SECRET_KEY not set. Using dev fallback (LOCAL DEV ONLY).")
 
     # Init
     db.init_app(app)
@@ -540,11 +551,27 @@ def create_app():
 
     login_manager.login_view = 'login'
 
-    # יצירת טבלאות (כולל AdvisorHistory) אם חסרות
+    # ==========================
+    # ✅ Run create_all ONLY ONCE
+    # ==========================
+    # Prevent duplicate init when multiple workers/imports happen.
+    # Works reliably on a single Render web service instance.
     with app.app_context():
         try:
-            db.create_all()
-            print("[DB] ✅ create_all executed")
+            lock_path = "/tmp/.db_inited.lock"
+            if os.environ.get("SKIP_CREATE_ALL", "").lower() in ("1", "true", "yes"):
+                print("[DB] ⏭️ SKIP_CREATE_ALL enabled - skipping db.create_all()")
+            elif os.path.exists(lock_path):
+                print("[DB] ⏭️ create_all skipped (lock exists)")
+            else:
+                db.create_all()
+                # Create lock file so it won't rerun on the same instance lifecycle
+                try:
+                    with open(lock_path, "w", encoding="utf-8") as f:
+                        f.write(str(datetime.utcnow()))
+                except Exception:
+                    pass
+                print("[DB] ✅ create_all executed")
         except Exception as e:
             print(f"[DB] ⚠️ create_all failed: {e}")
 
@@ -907,7 +934,7 @@ def create_app():
             ).order_by(SearchHistory.timestamp.desc()).first()
             if cached:
                 result = json.loads(cached.result_json)
-                result['source_tag'] = f"מקור: מטמון DB (נשמר ב-{cached.timestamp.strftime('%Y-%m-%d')})"
+                result['source_tag'] = f"מקור: מטמון DB (נשמר ב-{cached.timestamp.strftime('%Y-%d-%m')})"
                 return jsonify(result)
         except Exception as e:
             print(f"[CACHE] ⚠️ {e}")
