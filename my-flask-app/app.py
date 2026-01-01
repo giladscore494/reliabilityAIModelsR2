@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===================================================================
 # 🚗 Car Reliability Analyzer – Israel
-# v7.6.1 (Owner Debug Console + Render Log Summary + Fix Prompt + ErrorEvent DB)
+# v7.6.2 (Synced Fixes: CF IP + TZ Quota + Limiter Key + qerr passthrough + origin passthrough)
 # ===================================================================
 
 import os, re, json, traceback, hashlib, uuid, sys, platform, logging
@@ -36,6 +36,12 @@ import google.generativeai as genai
 # --- Gemini 3 (SDK החדש) ---
 from google import genai as genai3
 from google.genai import types as genai_types
+
+# --- Timezone (daily quota day) ---
+try:
+    from zoneinfo import ZoneInfo
+except Exception:
+    ZoneInfo = None
 
 
 # ==================================
@@ -94,6 +100,9 @@ ALLOWED_ORIGINS = [
     for o in os.environ.get("ALLOWED_ORIGINS", "").split(",")
     if o.strip()
 ]
+
+# Daily quota timezone (default Israel)
+QUOTA_TZ = (os.environ.get("QUOTA_TZ") or "Asia/Jerusalem").strip()
 
 
 # ===========================
@@ -222,6 +231,19 @@ def _now_utc() -> datetime:
     return datetime.utcnow()
 
 
+def quota_today() -> date:
+    """
+    Daily quota day should follow Israel time by default (Asia/Jerusalem),
+    so you don't get weird midnight/UTC behavior.
+    """
+    if ZoneInfo:
+        try:
+            return datetime.now(ZoneInfo(QUOTA_TZ)).date()
+        except Exception:
+            pass
+    return datetime.utcnow().date()
+
+
 def truncate(s: Any, n: int) -> str:
     s = "" if s is None else str(s)
     if len(s) <= n:
@@ -245,9 +267,19 @@ def normalize_text(s: Any) -> str:
 
 
 def get_client_ip() -> str:
-    return (request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-            or request.remote_addr
-            or "")
+    """
+    ✅ Fix: behind Cloudflare/Render, X-Forwarded-For can be proxy IP.
+    Prefer CF-Connecting-IP when present.
+    """
+    cf = (request.headers.get("CF-Connecting-IP") or "").strip()
+    if cf:
+        return cf
+
+    xff = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+    if xff:
+        return xff
+
+    return request.remote_addr or ""
 
 
 def payload_sha256(obj: Any) -> str:
@@ -512,7 +544,8 @@ def parse_json_body() -> Tuple[Optional[dict], Optional[Tuple[Any, int]]]:
 
 
 def quota_increment_or_block(endpoint: str, user_limit: int) -> Optional[Tuple[Any, int]]:
-    today = datetime.utcnow().date()
+    # ✅ Fix: day is Israel-time (by default), not UTC.
+    today = quota_today()
 
     try:
         g = DailyQuota.query.filter_by(day=today, scope_type="global", scope_id=0, endpoint=endpoint).first()
@@ -525,7 +558,7 @@ def quota_increment_or_block(endpoint: str, user_limit: int) -> Optional[Tuple[A
             db.session.rollback()
             return jsonify({"error": "המערכת עמוסה: הגעת למכסת שימוש יומית כללית. נסה שוב מחר."}), 429
         g.count += 1
-        g.updated_at = datetime.utcnow()
+        g.updated_at = _now_utc()
 
         if not current_user.is_authenticated:
             log_abuse("Unauthenticated quota attempt", endpoint)
@@ -542,7 +575,7 @@ def quota_increment_or_block(endpoint: str, user_limit: int) -> Optional[Tuple[A
             db.session.rollback()
             return jsonify({"error": f"ניצלת את {user_limit} החיפושים/הפעלות היומיים שלך. נסה שוב מחר."}), 429
         u.count += 1
-        u.updated_at = datetime.utcnow()
+        u.updated_at = _now_utc()
 
         db.session.commit()
         return None
@@ -955,7 +988,6 @@ def report_problem(
 
         _cleanup_error_events()
 
-        # ✅ SHORT Render log summary (searchable)
         logger.warning(
             f"[DBG] status={status_code} path={request.path} method={request.method} "
             f"req_id={getattr(request,'req_id',None)} event_id={ev.id} type={err_type} msg={truncate(err_msg,160)}"
@@ -989,7 +1021,6 @@ def make_error_response(
         extra=extra or {},
     )
 
-    # store on request (for after_request logging if needed)
     try:
         request.debug_event_id = event_id
     except Exception:
@@ -1044,17 +1075,9 @@ def create_app():
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
-    # ✅ Share session for apex + www
-    try:
-        host = (os.environ.get("PUBLIC_HOST", "") or "").strip().lower()
-        # optional explicit override via env: PUBLIC_HOST=yedaarechev.com
-        if (not host) and hasattr(request, "host"):
-            host = (request.host or "").lower()
-    except Exception:
-        host = (os.environ.get("PUBLIC_HOST", "") or "").strip().lower()
-
-    # Set cookie domain when using your domain
-    if "yedaarechev.com" in (host or "yedaarechev.com"):
+    # ✅ Share session for apex + www (use env only; no request context here)
+    host = (os.environ.get("PUBLIC_HOST", "") or "yedaarechev.com").strip().lower()
+    if "yedaarechev.com" in host:
         app.config["SESSION_COOKIE_DOMAIN"] = ".yedaarechev.com"
 
     force_secure_cookie = (os.environ.get("SESSION_COOKIE_SECURE", "") or "").lower() in ("1", "true", "yes")
@@ -1094,7 +1117,6 @@ def create_app():
         if getattr(request, "req_id", None):
             resp.headers["X-Request-ID"] = request.req_id
 
-        # ✅ short summary for all API errors (even if not from make_error_response)
         try:
             if resp.status_code >= 400 and _is_api_path():
                 ev_id = getattr(request, "debug_event_id", None)
@@ -1145,12 +1167,11 @@ def create_app():
     redis_url = (os.environ.get("REDIS_URL") or os.environ.get("VALKEY_URL") or "").strip()
     storage_uri = redis_url if redis_url else "memory://"
 
+    # ✅ Fix: stable limiter key by authenticated user id
     def limiter_key():
-        uid = session.get("_user_id")
-        if uid:
-            return f"user:{uid}"
-        ip = get_client_ip() or "unknown"
-        return f"ip:{ip}"
+        if current_user.is_authenticated:
+            return f"user:{current_user.id}"
+        return f"ip:{get_client_ip() or 'unknown'}"
 
     limiter = Limiter(
         key_func=limiter_key,
@@ -1300,8 +1321,8 @@ def create_app():
         )
 
     def get_redirect_uri():
-        host = (request.host or "").lower()
-        if "yedaarechev.com" in host:
+        host_ = (request.host or "").lower()
+        if "yedaarechev.com" in host_:
             uri = "https://yedaarechev.com/auth"
         else:
             uri = request.url_root.rstrip("/") + "/auth"
@@ -1440,16 +1461,13 @@ def create_app():
     def advisor_api():
         origin_block = enforce_origin_if_configured()
         if origin_block:
-            return make_error_response(
-                "חסימת אבטחה: מקור הבקשה לא מורשה.",
-                403,
-                payload=None,
-                extra={"where": "advisor_api", "phase": "origin_check"}
-            )
+            # ✅ Fix: return original origin response (no wrapping)
+            return origin_block
 
         payload, err = parse_json_body()
         if err:
-            return make_error_response("קלט JSON לא תקין", 400, payload=None, extra={"where": "advisor_api", "phase": "parse_json"})
+            # ✅ Fix: return original JSON error (no wrapping)
+            return err
 
         allowed_keys = {
             "budget_min", "budget_max", "year_min", "year_max",
@@ -1527,7 +1545,8 @@ def create_app():
 
         qerr = quota_increment_or_block("advisor", USER_DAILY_LIMIT_ADVISOR)
         if qerr:
-            return make_error_response("הגעת למגבלת שימוש (advisor).", 429, payload=payload, extra={"where": "advisor_api", "phase": "quota"})
+            # ✅ Fix: pass through the original quota response (keeps real message + status)
+            return qerr
 
         fuels = [fuel_map.get(f, "gasoline") for f in fuels_he] if fuels_he else ["gasoline"]
         if "חשמלי" in fuels_he:
@@ -1584,11 +1603,13 @@ def create_app():
     def analyze_car():
         origin_block = enforce_origin_if_configured()
         if origin_block:
-            return make_error_response("חסימת אבטחה: מקור הבקשה לא מורשה.", 403, extra={"where": "analyze_car", "phase": "origin_check"})
+            # ✅ Fix: return original origin response (no wrapping)
+            return origin_block
 
         payload, err = parse_json_body()
         if err:
-            return make_error_response("קלט JSON לא תקין", 400, extra={"where": "analyze_car", "phase": "parse_json"})
+            # ✅ Fix: return original JSON error (no wrapping)
+            return err
 
         allowed_keys = {"make", "model", "sub_model", "year", "mileage_range", "fuel_type", "transmission"}
         data = {k: payload.get(k) for k in allowed_keys if k in payload}
@@ -1609,7 +1630,8 @@ def create_app():
 
         qerr = quota_increment_or_block("analyze", USER_DAILY_LIMIT_ANALYZE)
         if qerr:
-            return make_error_response("הגעת למגבלת שימוש (analyze).", 429, payload=data, extra={"where": "analyze_car", "phase": "quota"})
+            # ✅ Fix: pass through the original quota response (keeps real message + status)
+            return qerr
 
         req_obj = {
             "make": final_make,
@@ -1681,6 +1703,7 @@ def create_app():
 
     @app.errorhandler(429)
     def handle_429(e):
+        # This handler is for Limiter's 429 only. Manual quota 429 responses bypass this.
         if _is_api_path():
             return make_error_response("הגעת למגבלת בקשות. נסה שוב מאוחר יותר.", 429, exception=e, extra={"where": "RateLimit"})
         return "Too Many Requests", 429
