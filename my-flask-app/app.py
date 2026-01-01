@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 # ===================================================================
 # 🚗 Car Reliability Analyzer – Israel
@@ -24,7 +23,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import HTTPException
 from json_repair import repair_json
 
-from flask_wtf.csrf import CSRFProtect, generate_csrf
+from flask_wtf.csrf import CSRFProtect, generate_csrf, CSRFError
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
@@ -217,12 +216,21 @@ def enforce_origin_if_configured():
     Adds friction vs curl/Postman and blocks cross-site.
     Not a cryptographic guarantee (Origin can be spoofed),
     but helps with abuse + CSRF posture.
+
+    FIX: always allow same-origin host_url to avoid accidental lockouts.
     """
     if not ALLOWED_ORIGINS:
         return
 
     origin = (request.headers.get("Origin") or "").lower().rstrip("/")
     referer = (request.headers.get("Referer") or "").lower()
+    host_origin = (request.host_url or "").lower().rstrip("/")
+
+    # Always allow same-origin
+    if origin and origin == host_origin:
+        return
+    if (not origin) and host_origin and (host_origin in referer):
+        return
 
     # If browser POST, Origin should exist. If missing => block (strong posture).
     if not origin:
@@ -636,6 +644,8 @@ def car_advisor_postprocess(profile: dict, parsed: dict) -> dict:
 def create_app():
     global limiter, advisor_client
 
+    is_render = (os.environ.get("RENDER", "") or "").strip() != ""
+
     app = Flask(__name__)
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
@@ -649,7 +659,10 @@ def create_app():
     # Cookies hardening (commercial baseline)
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-    app.config["SESSION_COOKIE_SECURE"] = True  # requires HTTPS (Cloudflare/Render)
+
+    # FIX: Secure cookie only when HTTPS (Render) or forced
+    force_secure_cookie = (os.environ.get("SESSION_COOKIE_SECURE", "") or "").lower() in ("1", "true", "yes")
+    app.config["SESSION_COOKIE_SECURE"] = True if (is_render or force_secure_cookie) else False
 
     # ---- Owner emails ----
     OWNER_EMAILS = [
@@ -689,8 +702,6 @@ def create_app():
     # Optional: strict CORS if installed
     if CORS is not None:
         cors_origins = ALLOWED_ORIGINS if ALLOWED_ORIGINS else None
-        # If you set ALLOWED_ORIGINS, it will enforce it.
-        # If empty, we do NOT open CORS broadly (same-origin browser usage still works).
         if cors_origins:
             CORS(app, resources={r"/*": {"origins": cors_origins}}, supports_credentials=True)
 
@@ -703,7 +714,6 @@ def create_app():
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
 
-    is_render = (os.environ.get("RENDER", "") or "").strip() != ""
     if is_render and not db_url:
         raise RuntimeError("DATABASE_URL missing on Render (set Internal Postgres URL).")
     if is_render and not secret_key:
@@ -734,7 +744,6 @@ def create_app():
     storage_uri = redis_url if redis_url else "memory://"
 
     def limiter_key():
-        # Combine user + IP to reduce bypass
         uid = str(current_user.id) if current_user.is_authenticated else "anon"
         ip = get_client_ip()
         return f"{uid}:{ip}"
@@ -810,9 +819,10 @@ def create_app():
 
     @app.route("/api/csrf", methods=["GET"])
     def api_csrf():
-        # returns token for JS to include in headers
         token = generate_csrf()
-        return jsonify({"csrf_token": token})
+        resp = jsonify({"csrf_token": token})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
 
     @app.route("/")
     def index():
@@ -835,7 +845,6 @@ def create_app():
     @app.route("/login")
     def login():
         redirect_uri = get_redirect_uri()
-        # IMPORTANT: do NOT set state=None (Authlib will create/verify state)
         return oauth.google.authorize_redirect(redirect_uri)
 
     @app.route("/auth")
@@ -986,16 +995,17 @@ def create_app():
         }
         payload = {k: payload.get(k) for k in allowed_keys if k in payload}
 
-        # Quota (increment before everything)
-        qerr = quota_increment_or_block("advisor", USER_DAILY_LIMIT_ADVISOR)
-        if qerr:
-            return qerr
-
+        # Validate FIRST (avoid burning daily quota on invalid input)
         try:
             budget_min = clamp_float(payload.get("budget_min", 0), 0, 1_000_000, 0)
             budget_max = clamp_float(payload.get("budget_max", 0), 0, 1_000_000, 0)
             year_min = clamp_int(payload.get("year_min", 2000), 1990, 2030, 2000)
             year_max = clamp_int(payload.get("year_max", 2026), 1990, 2030, 2026)
+
+            if budget_max <= 0 or budget_min > budget_max:
+                return jsonify({"error": "תקציב לא תקין (min/max)."}), 400
+            if year_min > year_max:
+                return jsonify({"error": "טווח שנים לא תקין."}), 400
 
             fuels_he = payload.get("fuels_he") or []
             gears_he = payload.get("gears_he") or []
@@ -1024,7 +1034,6 @@ def create_app():
             }
             if not isinstance(weights, dict):
                 weights = {"reliability": 5, "resale": 3, "fuel": 4, "performance": 2, "comfort": 3}
-            # cap weights 1..5
             for k in list(weights.keys()):
                 weights[k] = clamp_int(weights.get(k, 3), 1, 5, 3)
 
@@ -1048,6 +1057,11 @@ def create_app():
         except Exception as e:
             log_abuse(f"Advisor input validation failed: {e}", "advisor_api", payload)
             return jsonify({"error": "שגיאת קלט: נתונים לא תקינים"}), 400
+
+        # Quota AFTER validation / BEFORE AI
+        qerr = quota_increment_or_block("advisor", USER_DAILY_LIMIT_ADVISOR)
+        if qerr:
+            return qerr
 
         fuels = [fuel_map.get(f, "gasoline") for f in fuels_he] if fuels_he else ["gasoline"]
         if "חשמלי" in fuels_he:
@@ -1075,14 +1089,12 @@ def create_app():
 
         parsed = car_advisor_call_gemini_with_search(user_profile)
         if parsed.get("_error"):
-            # do not leak raw unless owner
             if is_owner_user():
                 return jsonify({"error": parsed["_error"], "raw": parsed.get("_raw")}), 500
             return jsonify({"error": "שגיאת AI במנוע ההמלצות. נסה שוב מאוחר יותר."}), 500
 
         result = car_advisor_postprocess(user_profile, parsed)
 
-        # Save history (server-side)
         if current_user.is_authenticated:
             try:
                 rec_log = AdvisorHistory(
@@ -1092,7 +1104,7 @@ def create_app():
                 )
                 db.session.add(rec_log)
                 db.session.commit()
-            except Exception as e:
+            except Exception:
                 db.session.rollback()
 
         return jsonify(result)
@@ -1115,12 +1127,7 @@ def create_app():
         allowed_keys = {"make", "model", "sub_model", "year", "mileage_range", "fuel_type", "transmission"}
         data = {k: payload.get(k) for k in allowed_keys if k in payload}
 
-        # Quota increment BEFORE cache and BEFORE AI
-        qerr = quota_increment_or_block("analyze", USER_DAILY_LIMIT_ANALYZE)
-        if qerr:
-            return qerr
-
-        # Validation (caps + required)
+        # Validation first (avoid quota burn on invalid)
         try:
             final_make = normalize_text(cap_str(data.get("make"), 60))
             final_model = normalize_text(cap_str(data.get("model"), 60))
@@ -1137,6 +1144,11 @@ def create_app():
         except Exception as e:
             log_abuse(f"Analyze input validation exception: {e}", "analyze", data)
             return jsonify({"error": "שגיאת קלט: נתונים לא תקינים"}), 400
+
+        # Quota increment AFTER validation / BEFORE cache+AI
+        qerr = quota_increment_or_block("analyze", USER_DAILY_LIMIT_ANALYZE)
+        if qerr:
+            return qerr
 
         # Cache key
         req_obj = {
@@ -1162,7 +1174,7 @@ def create_app():
                 result = json.loads(cached.result_json)
                 result["source_tag"] = f"מקור: מטמון DB (נשמר ב-{cached.timestamp.strftime('%Y-%m-%d')})"
                 return jsonify(result)
-        except Exception as e:
+        except Exception:
             pass
 
         # AI call
@@ -1209,13 +1221,35 @@ def create_app():
             db.create_all()
         print("Initialized the database tables.")
 
-    # Global error handling (no leaks)
+    # ----------------------------
+    # Error handlers (JSON for API)
+    # ----------------------------
+    def _is_api_path() -> bool:
+        p = request.path or ""
+        return p.startswith("/analyze") or p.startswith("/advisor_api") or p.startswith("/api/")
+
+    @app.errorhandler(CSRFError)
+    def handle_csrf_error(e):
+        if _is_api_path():
+            return jsonify({"error": "שגיאת אבטחה (CSRF). רענן את הדף ונסה שוב."}), 403
+        return redirect(url_for("index"))
+
+    @app.errorhandler(429)
+    def handle_429(e):
+        if _is_api_path():
+            return jsonify({"error": "הגעת למגבלת בקשות. נסה שוב מאוחר יותר."}), 429
+        return "Too Many Requests", 429
+
+    @app.errorhandler(HTTPException)
+    def handle_http_exception(e):
+        if _is_api_path():
+            msg = getattr(e, "description", None) or "שגיאת בקשה"
+            return jsonify({"error": msg}), int(getattr(e, "code", 500) or 500)
+        return e
+
     @app.errorhandler(Exception)
     def handle_exception(e):
-        if isinstance(e, HTTPException):
-            return e
         traceback.print_exc()
-        # Don’t leak stack traces to client
         return jsonify({"error": "שגיאת שרת פנימית"}), 500
 
     return app
