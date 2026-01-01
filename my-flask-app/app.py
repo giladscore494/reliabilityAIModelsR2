@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 # ===================================================================
 # 🚗 Car Reliability Analyzer – Israel
-# v8.2.0 (FULL PRODUCTION CODE: SDK v3, Cookie Fix, Relaxed Limits)
+# v7.9.1 (FULL CODE: Fixed Cookies + Quota Reserve/Release + Split Global Limits + History Fix)
 # ===================================================================
 
 import os, re, json, traceback, hashlib, uuid, sys, platform, logging
 import time as pytime
 from typing import Optional, Tuple, Any, Dict, List
 from datetime import datetime, timedelta, date
+from urllib.parse import urlparse
 
 from flask import (
     Flask, render_template, request, jsonify, redirect, url_for, session
@@ -24,6 +25,12 @@ from json_repair import repair_json
 
 from flask_wtf.csrf import CSRFProtect, generate_csrf, CSRFError
 from flask_limiter import Limiter
+
+from sqlalchemy import func
+try:
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+except Exception:
+    pg_insert = None
 
 # Optional but recommended
 try:
@@ -65,9 +72,10 @@ oauth = OAuth()
 csrf = CSRFProtect()
 limiter = None
 
-# Unified Gemini 3 Client
+# Unified Gemini Client
 genai_client = None
-GEMINI3_MODEL_ID = "gemini-2.0-flash" 
+GEMINI3_MODEL_ID = "gemini-2.0-flash"  # מודל ברירת מחדל מהיר
+
 
 # =========================
 # ========= CONFIG ========
@@ -78,8 +86,11 @@ FALLBACK_MODEL = os.environ.get("FALLBACK_MODEL", "gemini-1.5-flash")
 RETRIES = int(os.environ.get("RETRIES", "2"))
 RETRY_BACKOFF_SEC = float(os.environ.get("RETRY_BACKOFF_SEC", "1.5"))
 
-GLOBAL_DAILY_LIMIT = int(os.environ.get("GLOBAL_DAILY_LIMIT", "1000"))
-# ברירת מחדל: 5 בקשות ביום למשתמש
+# Global Daily Limits (split by tool) — לפי הדרישה:
+GLOBAL_DAILY_LIMIT_ANALYZE = int(os.environ.get("GLOBAL_DAILY_LIMIT_ANALYZE", "1000"))
+GLOBAL_DAILY_LIMIT_ADVISOR = int(os.environ.get("GLOBAL_DAILY_LIMIT_ADVISOR", "300"))
+
+# User Daily Limits (split by tool) — 5 ליום לכל כלי:
 USER_DAILY_LIMIT_ANALYZE = int(os.environ.get("USER_DAILY_LIMIT_ANALYZE", "5"))
 USER_DAILY_LIMIT_ADVISOR = int(os.environ.get("USER_DAILY_LIMIT_ADVISOR", "5"))
 
@@ -102,6 +113,11 @@ ALLOWED_ORIGINS = [
 
 # Daily quota timezone (default Israel)
 QUOTA_TZ = (os.environ.get("QUOTA_TZ") or "Asia/Jerusalem").strip()
+
+# Cookie domain (IMPORTANT):
+# במקום לשנות DOMAIN פר-בקשה (שובר sessions), מגדירים פעם אחת:
+# לפרודקשן עם apex+www: SESSION_COOKIE_DOMAIN=.yedaarechev.com
+SESSION_COOKIE_DOMAIN = (os.environ.get("SESSION_COOKIE_DOMAIN", "") or "").strip()  # e.g. ".yedaarechev.com"
 
 
 # ===========================
@@ -265,14 +281,29 @@ def normalize_text(s: Any) -> str:
     return _re.sub(r"\s+", " ", s)
 
 
+def _is_render() -> bool:
+    return bool((os.environ.get("RENDER", "") or "").strip())
+
+
 def get_client_ip() -> str:
     """
-    ✅ Fix: behind Cloudflare/Render, X-Forwarded-For can be proxy IP.
-    Prefer CF-Connecting-IP when present.
+    Behind proxies: prefer ProxyFix + XFF.
+    CF-Connecting-IP is trusted ONLY if you know you are behind Cloudflare.
     """
-    cf = (request.headers.get("CF-Connecting-IP") or "").strip()
-    if cf:
-        return cf
+    # If you explicitly set TRUST_CF_HEADERS=1 and you use Cloudflare:
+    trust_cf = (os.environ.get("TRUST_CF_HEADERS", "") or "").strip().lower() in ("1", "true", "yes")
+
+    if trust_cf:
+        cf = (request.headers.get("CF-Connecting-IP") or "").strip()
+        if cf:
+            return cf
+
+    # ProxyFix should populate access_route properly
+    try:
+        if request.access_route:
+            return (request.access_route[0] or "").strip()
+    except Exception:
+        pass
 
     xff = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
     if xff:
@@ -295,7 +326,7 @@ def log_abuse(reason: str, endpoint: str, payload: Any = None):
             user_id=(current_user.id if current_user.is_authenticated else None),
             ip=get_client_ip(),
             endpoint=endpoint,
-            reason=reason[:200],
+            reason=(reason or "")[:200],
             req_id=getattr(request, "req_id", None),
             payload_hash=(payload_sha256(payload) if payload is not None else None),
         )
@@ -337,7 +368,7 @@ def sanitize_env_snapshot() -> Dict[str, Any]:
         return "set"
 
     return {
-        "is_render": bool((os.environ.get("RENDER", "") or "").strip()),
+        "is_render": _is_render(),
         "python": sys.version.split()[0],
         "platform": platform.platform()[:120],
         "primary_model": PRIMARY_MODEL,
@@ -349,8 +380,10 @@ def sanitize_env_snapshot() -> Dict[str, Any]:
         "google_client_id": env_flag("GOOGLE_CLIENT_ID"),
         "google_client_secret": env_flag("GOOGLE_CLIENT_SECRET"),
         "secret_key": env_flag("SECRET_KEY"),
+        "session_cookie_domain": SESSION_COOKIE_DOMAIN or "not-set",
         "limits": {
-            "GLOBAL_DAILY_LIMIT": GLOBAL_DAILY_LIMIT,
+            "GLOBAL_DAILY_LIMIT_ANALYZE": GLOBAL_DAILY_LIMIT_ANALYZE,
+            "GLOBAL_DAILY_LIMIT_ADVISOR": GLOBAL_DAILY_LIMIT_ADVISOR,
             "USER_DAILY_LIMIT_ANALYZE": USER_DAILY_LIMIT_ANALYZE,
             "USER_DAILY_LIMIT_ADVISOR": USER_DAILY_LIMIT_ADVISOR,
         }
@@ -371,34 +404,32 @@ def build_suggestions(error_type: str, message: str, tb_text: str, status_code: 
 
     if status_code == 403:
         if "csrf" in et or "csrf" in msg or "csrf" in tb_low:
-            probable.append("חסימת CSRF: הטוקן לא נשלח / לא תקין / חסר cookies של session.")
+            probable.append("חסימת CSRF: הטוקן לא נשלח / לא תקין / cookies/session לא יציב.")
             steps += [
-                "ב־JS ודא fetch עם credentials: 'same-origin'.",
-                "ודא שקודם קוראים GET /api/csrf ומעבירים X-CSRFToken בכותרת.",
+                "ודא שב־JS fetch הוא same-origin ושולח cookies (credentials).",
+                "ודא שקודם קוראים GET /api/csrf ומעבירים X-CSRFToken.",
                 "ודא שהבקשה היא Content-Type: application/json.",
-                "אם יש www + apex – מומלץ SESSION_COOKIE_DOMAIN='.yedaarechev.com'.",
+                "ודא SESSION_COOKIE_DOMAIN קבוע (לא משתנה פר-בקשה).",
             ]
         if "origin" in msg or "origin" in tb_low or "מקור" in msg:
             probable.append("חסימת Origin: ה־Origin לא בתוך ALLOWED_ORIGINS או חסר.")
             steps += [
-                "הגדר ALLOWED_ORIGINS ב־Render: 'https://yedaarechev.com,https://www.yedaarechev.com,https://<your-app>.onrender.com'.",
-                "בדוק שהבקשה מגיעה מהדומיין שלך ולא מ־preview/iframe/extension.",
+                "הגדר ALLOWED_ORIGINS: https://yedaarechev.com,https://www.yedaarechev.com",
+                "ודא שהקליינט לא קורא ל־API בדומיין אחר (כמו onrender.com) בזמן שהאתר על yedaarechev.com.",
             ]
 
     if status_code == 429:
-        probable.append("Rate Limit / Quota: חריגה ממגבלת בקשות (Limiter או DailyQuota).")
+        probable.append("Rate Limit / Quota: חריגה ממגבלות (Limiter או DailyQuota).")
         steps += [
-            "בדוק headers בתגובה: Retry-After / X-RateLimit-Remaining (אם קיים).",
-            "הגדל USER_DAILY_LIMIT_* או GLOBAL_DAILY_LIMIT לפי צורך.",
-            "אם Redis לא מוגדר – memory:// יכול להיראות 'מחמיר' בריבוי אינסטנסים; מומלץ REDIS_URL/VALKEY_URL.",
+            "אם Redis לא מוגדר – memory:// מחמיר במולטי-אינסטנס; מומלץ REDIS_URL/VALKEY_URL.",
+            "בדוק שהמונה מחייב רק אחרי הצלחה (Reserve/Release).",
         ]
 
     if "sqlalchemy" in tb_low or "psycopg" in tb_low or "database" in tb_low:
         probable.append("שגיאת DB: DATABASE_URL לא תקין / חיבור נופל / טבלה חסרה.")
         steps += [
             "ב־Render ודא DATABASE_URL מוגדר ל־Internal Postgres URL.",
-            "אם זה postgres:// – הקוד ממיר ל־postgresql://.",
-            "בדוק שה־db.create_all רץ (בלוג: [DB] ✅ create_all executed).",
+            "בדוק שה־db.create_all רץ או השתמש במיגרציות.",
         ]
 
     if "gemini" in tb_low or "generative" in tb_low or "api key" in tb_low:
@@ -417,9 +448,9 @@ def build_suggestions(error_type: str, message: str, tb_text: str, status_code: 
         ]
 
     if not probable:
-        probable.append("שגיאה כללית: צריך לראות traceback והקשר כדי לקבוע סיבה מדויקת.")
+        probable.append("שגיאה כללית: צריך traceback + הקשר כדי לקבוע סיבה מדויקת.")
         steps += [
-            "פתח את event דרך /owner/debug/events/<id> וקח את prompt_for_fix.",
+            "פתח אירוע דרך /owner/debug/events/<id> וקח prompt_for_fix.",
         ]
 
     def uniq(seq):
@@ -449,49 +480,63 @@ def build_prompt_for_fix(bundle: Dict[str, Any]) -> str:
 """
 
 
+def _origin_from_url(u: str) -> str:
+    try:
+        p = urlparse(u or "")
+        if not p.scheme or not p.netloc:
+            return ""
+        return f"{p.scheme.lower()}://{p.netloc.lower()}".rstrip("/")
+    except Exception:
+        return ""
+
+
 def enforce_origin_if_configured():
     """
-    ✅ Hardened but avoids false-positive 403:
-    - Always allow same-origin (Origin == host_url)
-    - Allow if Referer clearly matches host_url (some browsers omit Origin)
+    Hardened but avoids false-positive 403:
+    - Same-origin always allowed
+    - If Origin missing: allow only if Sec-Fetch-Site says same-origin/site and Referer origin matches host
     - If ALLOWED_ORIGINS empty -> do nothing
-    - Otherwise require origin in allowlist (or referer contains allowlist)
+    - Otherwise require Origin OR Referer-origin to be in allowlist
     """
-    origin = (request.headers.get("Origin") or "").lower().rstrip("/")
-    referer = (request.headers.get("Referer") or "").lower()
-    host_origin = (request.host_url or "").lower().rstrip("/")
+    host_origin = _origin_from_url(request.host_url or "")
+    origin_hdr = (request.headers.get("Origin") or "").strip()
+    referer_hdr = (request.headers.get("Referer") or "").strip()
+
+    origin = _origin_from_url(origin_hdr)
+    referer_origin = _origin_from_url(referer_hdr)
+
+    sec_fetch_site = (request.headers.get("Sec-Fetch-Site") or "").lower().strip()
 
     # Same-origin allow
     if origin and host_origin and origin == host_origin:
         return None
-
-    # Some browsers omit Origin for same-origin
-    if (not origin) and host_origin and (host_origin in referer):
+    if (not origin) and host_origin and referer_origin == host_origin:
         return None
-
-    sec_fetch_site = (request.headers.get("Sec-Fetch-Site") or "").lower()
-    if (not origin) and sec_fetch_site in ("same-origin", "same-site"):
+    if (not origin) and sec_fetch_site in ("same-origin", "same-site") and (not ALLOWED_ORIGINS):
         return None
 
     # No allowlist configured => no blocking
     if not ALLOWED_ORIGINS:
         return None
 
-    if not origin:
-        # Relaxed check: if no origin but same-site detected, let it pass or log warning
-        if sec_fetch_site in ("same-origin", "same-site"):
-             return None
-        # Block only if strictly suspicious
-        log_abuse("Missing Origin header", request.path)
-        return jsonify({"error": "חסימת אבטחה: בקשה לא מזוהה (Origin חסר)."}), 403
-
     allowed = set(ALLOWED_ORIGINS)
 
-    if origin in allowed:
+    # Origin present
+    if origin and origin.rstrip("/") in allowed:
         return None
 
-    if any(o in referer for o in allowed):
+    # Fall back to referer origin
+    if referer_origin and referer_origin.rstrip("/") in allowed:
         return None
+
+    # Missing origin but same-site-ish => still allow only if referer matched allowlist (above)
+    if not origin and sec_fetch_site in ("same-origin", "same-site") and referer_origin:
+        # referer_origin already checked; if not allowed, block
+        pass
+
+    if not origin:
+        log_abuse("Missing Origin header (blocked)", request.path)
+        return jsonify({"error": "חסימת אבטחה: בקשה לא מזוהה (Origin חסר)."}), 403
 
     log_abuse(f"Origin not allowed: {origin}", request.path)
     return jsonify({"error": "חסימת אבטחה: מקור הבקשה לא מורשה."}), 403
@@ -535,6 +580,10 @@ def parse_json_body() -> Tuple[Optional[dict], Optional[Tuple[Any, int]]]:
         log_abuse("Body too large", request.path)
         return None, (jsonify({"error": "קלט גדול מדי (מוגבל אבטחתית)."}), 413)
 
+    if not request.is_json:
+        log_abuse("Non-JSON Content-Type", request.path)
+        return None, (jsonify({"error": "Content-Type חייב להיות application/json"}), 415)
+
     try:
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
@@ -546,50 +595,130 @@ def parse_json_body() -> Tuple[Optional[dict], Optional[Tuple[Any, int]]]:
         return None, (jsonify({"error": "קלט JSON לא תקין"}), 400)
 
 
-def quota_increment_or_block(endpoint: str, user_limit: int) -> Optional[Tuple[Any, int]]:
-    # ✅ Fix: day is Israel-time (by default), not UTC.
+# =========================
+# ====== QUOTA (RESERVE/RELEASE) =====
+# =========================
+class QuotaExceeded(Exception):
+    def __init__(self, scope: str, limit: int):
+        super().__init__(scope)
+        self.scope = scope
+        self.limit = limit
+
+
+def _quota_limits(endpoint: str) -> Tuple[int, int]:
+    if endpoint == "analyze":
+        return GLOBAL_DAILY_LIMIT_ANALYZE, USER_DAILY_LIMIT_ANALYZE
+    if endpoint == "advisor":
+        return GLOBAL_DAILY_LIMIT_ADVISOR, USER_DAILY_LIMIT_ADVISOR
+    # fallback
+    return max(GLOBAL_DAILY_LIMIT_ANALYZE, GLOBAL_DAILY_LIMIT_ADVISOR), 5
+
+
+def _quota_upsert_inc(day: date, scope_type: str, scope_id: int, endpoint: str) -> int:
+    """
+    Atomic ++ for Postgres. Fallback to SELECT FOR UPDATE for others.
+    Returns the new count.
+    """
+    now = _now_utc()
+    dialect = ""
+    try:
+        dialect = (db.session.bind.dialect.name or "")
+    except Exception:
+        dialect = ""
+
+    if pg_insert is not None and "postgres" in dialect:
+        stmt = pg_insert(DailyQuota).values(
+            day=day, scope_type=scope_type, scope_id=scope_id, endpoint=endpoint,
+            count=1, updated_at=now
+        ).on_conflict_do_update(
+            index_elements=["day", "scope_type", "scope_id", "endpoint"],
+            set_={"count": DailyQuota.count + 1, "updated_at": now}
+        ).returning(DailyQuota.count)
+        new_count = db.session.execute(stmt).scalar_one()
+        return int(new_count)
+
+    # Fallback (dev): lock + update
+    row = (DailyQuota.query
+           .filter_by(day=day, scope_type=scope_type, scope_id=scope_id, endpoint=endpoint)
+           .with_for_update()
+           .first())
+    if not row:
+        row = DailyQuota(day=day, scope_type=scope_type, scope_id=scope_id, endpoint=endpoint, count=0)
+        db.session.add(row)
+        db.session.flush()
+    row.count = int(row.count or 0) + 1
+    row.updated_at = now
+    db.session.flush()
+    return int(row.count)
+
+
+def _quota_dec(day: date, scope_type: str, scope_id: int, endpoint: str):
+    now = _now_utc()
+    q = DailyQuota.query.filter_by(day=day, scope_type=scope_type, scope_id=scope_id, endpoint=endpoint)
+    q.update(
+        {DailyQuota.count: func.greatest(DailyQuota.count - 1, 0), DailyQuota.updated_at: now},
+        synchronize_session=False
+    )
+
+
+def quota_reserve_or_block(endpoint: str) -> Optional[Tuple[Any, int]]:
+    """
+    Reserve 1 quota unit BEFORE AI call.
+    If AI fails later -> call quota_release(endpoint) to compensate.
+    """
+    if not current_user.is_authenticated:
+        log_abuse("Unauthenticated quota attempt", endpoint)
+        return jsonify({"error": "נדרש להתחבר כדי להשתמש בשירות."}), 401
+
     today = quota_today()
+    global_limit, user_limit = _quota_limits(endpoint)
 
     try:
-        g = DailyQuota.query.filter_by(day=today, scope_type="global", scope_id=0, endpoint=endpoint).first()
-        if not g:
-            g = DailyQuota(day=today, scope_type="global", scope_id=0, endpoint=endpoint, count=0)
-            db.session.add(g)
-            db.session.flush()
-        if g.count >= GLOBAL_DAILY_LIMIT:
-            log_abuse("Global daily limit exceeded", endpoint)
-            db.session.rollback()
-            return jsonify({"error": "המערכת עמוסה: הגעת למכסת שימוש יומית כללית. נסה שוב מחר."}), 429
-        g.count += 1
-        g.updated_at = _now_utc()
+        with db.session.begin():
+            g_new = _quota_upsert_inc(today, "global", 0, endpoint)
+            if g_new > global_limit:
+                raise QuotaExceeded("global", global_limit)
 
-        if not current_user.is_authenticated:
-            log_abuse("Unauthenticated quota attempt", endpoint)
-            db.session.rollback()
-            return jsonify({"error": "נדרש להתחבר כדי להשתמש בשירות."}), 401
+            u_new = _quota_upsert_inc(today, "user", current_user.id, endpoint)
+            if u_new > user_limit:
+                raise QuotaExceeded("user", user_limit)
 
-        u = DailyQuota.query.filter_by(day=today, scope_type="user", scope_id=current_user.id, endpoint=endpoint).first()
-        if not u:
-            u = DailyQuota(day=today, scope_type="user", scope_id=current_user.id, endpoint=endpoint, count=0)
-            db.session.add(u)
-            db.session.flush()
-        if u.count >= user_limit:
-            log_abuse("User daily limit exceeded", endpoint)
-            db.session.rollback()
-            return jsonify({"error": f"ניצלת את {user_limit} הבקשות היומיות שלך. נסה שוב מחר."}), 429
-        u.count += 1
-        u.updated_at = _now_utc()
-
-        db.session.commit()
         return None
+
+    except QuotaExceeded as qe:
+        db.session.rollback()
+        if qe.scope == "global":
+            log_abuse("Global daily limit exceeded", endpoint)
+            return jsonify({"error": f"המערכת עמוסה: הגעת למכסה יומית כללית לכלי זה. נסה שוב מחר."}), 429
+        log_abuse("User daily limit exceeded", endpoint)
+        return jsonify({"error": f"ניצלת את {user_limit} הבקשות היומיות שלך לכלי זה. נסה שוב מחר."}), 429
 
     except Exception:
         db.session.rollback()
         traceback.print_exc()
-        # במקרה של שגיאת DB במונה - אנחנו לא חוסמים את המשתמש
+        # תקלה במנגנון מכסה - לא חוסמים (best-effort)
         return None
 
 
+def quota_release(endpoint: str):
+    """
+    Release reservation if AI call failed (so you don't charge failures).
+    Best-effort.
+    """
+    try:
+        if not current_user.is_authenticated:
+            return
+        today = quota_today()
+        with db.session.begin():
+            _quota_dec(today, "global", 0, endpoint)
+            _quota_dec(today, "user", current_user.id, endpoint)
+    except Exception:
+        db.session.rollback()
+
+
+# =========================
+# ===== Mileage logic =====
+# =========================
 def mileage_adjustment(mileage_range: str) -> Tuple[int, Optional[str]]:
     m = normalize_text(mileage_range or "")
     if not m:
@@ -621,6 +750,9 @@ def apply_mileage_logic(model_output: dict, mileage_range: str) -> Tuple[dict, O
         return model_output, None
 
 
+# =========================
+# ===== Prompt builder =====
+# =========================
 def build_prompt(make, model, sub_model, year, fuel_type, transmission, mileage_range):
     extra = f" תת-דגם/תצורה: {sub_model}" if sub_model else ""
     return f"""
@@ -667,7 +799,7 @@ def build_prompt(make, model, sub_model, year, fuel_type, transmission, mileage_
 
 
 # ======================================================
-# === 🤖 UNIFIED AI FUNCTION (REPLACES OLD RETRY LOGIC) ===
+# === 🤖 UNIFIED AI FUNCTION (Analyze) ===
 # ======================================================
 def call_model_with_retry(prompt: str) -> dict:
     """
@@ -678,9 +810,8 @@ def call_model_with_retry(prompt: str) -> dict:
         raise RuntimeError("GenAI client not initialized")
 
     last_err = None
-    # Try updated models
     models = [PRIMARY_MODEL, FALLBACK_MODEL]
-    
+
     config = genai_types.GenerateContentConfig(
         temperature=0.2,
         response_mime_type="application/json"
@@ -689,19 +820,15 @@ def call_model_with_retry(prompt: str) -> dict:
     for model_name in models:
         for attempt in range(1, RETRIES + 1):
             try:
-                # New SDK call
                 resp = genai_client.models.generate_content(
                     model=model_name,
                     contents=prompt,
                     config=config
                 )
                 raw = (resp.text or "").strip()
-                
-                # Repair JSON if needed
                 data = json.loads(repair_json(raw))
                 if not isinstance(data, dict):
                     raise ValueError("Model output is not a JSON object")
-                
                 return data
 
             except Exception as e:
@@ -709,12 +836,12 @@ def call_model_with_retry(prompt: str) -> dict:
                 if attempt < RETRIES:
                     pytime.sleep(RETRY_BACKOFF_SEC)
                 continue
-    
+
     raise RuntimeError(f"All AI attempts failed: {repr(last_err)}")
 
 
 # ======================================================
-# === Car Advisor helpers (existing)
+# === Car Advisor helpers ===
 # ======================================================
 fuel_map = {"בנזין": "gasoline", "היברידי": "hybrid", "דיזל היברידי": "hybrid-diesel", "דיזל": "diesel", "חשמלי": "electric"}
 gear_map = {"אוטומטית": "automatic", "ידנית": "manual"}
@@ -777,9 +904,8 @@ Hard constraints:
 
 Return ONLY raw JSON.
 """
-    # חיפוש גוגל מופעל
+
     tools = [genai_types.Tool(google_search=genai_types.GoogleSearch())]
-    
     config = genai_types.GenerateContentConfig(
         temperature=0.3,
         tools=tools,
@@ -885,10 +1011,6 @@ def _is_api_path() -> bool:
     return p.startswith("/analyze") or p.startswith("/advisor_api") or p.startswith("/api/") or p.startswith("/owner/debug")
 
 
-def _is_render() -> bool:
-    return bool((os.environ.get("RENDER", "") or "").strip())
-
-
 def _request_context_snapshot(payload: Any = None) -> Dict[str, Any]:
     body_preview = None
     if payload is None:
@@ -939,6 +1061,84 @@ def _cleanup_error_events():
         db.session.rollback()
 
 
+def report_problem(
+    user_message: str,
+    status_code: int,
+    level: str = "ERROR",
+    payload: Any = None,
+    exception: Exception = None,
+    extra: Dict[str, Any] = None,
+) -> Optional[int]:
+    """
+    Writes an ErrorEvent row (best-effort). Returns event_id or None.
+    """
+    extra = extra or {}
+    try:
+        _cleanup_error_events()
+    except Exception:
+        pass
+
+    try:
+        tb_text = ""
+        err_type = ""
+        err_msg = ""
+
+        if exception is not None:
+            err_type = type(exception).__name__
+            err_msg = truncate(str(exception), 500)
+            try:
+                tb_text = traceback.format_exc()
+            except Exception:
+                tb_text = ""
+        else:
+            err_type = "AppError"
+            err_msg = truncate(user_message, 500)
+
+        tb_text = truncate(tb_text, DEBUG_MAX_TRACE_CHARS)
+
+        snap = _request_context_snapshot(payload=payload)
+        suggestions = build_suggestions(err_type, user_message, tb_text, status_code, snap.get("path", ""))
+
+        debug_bundle = {
+            "user_message": user_message,
+            "status_code": status_code,
+            "error_type": err_type,
+            "error_message": err_msg,
+            "env": sanitize_env_snapshot(),
+            "request": snap,
+            "extra": extra,
+            "suggestions": suggestions,
+        }
+        prompt_for_fix = build_prompt_for_fix(debug_bundle)
+
+        ev = ErrorEvent(
+            level=(level or "ERROR")[:10],
+            status_code=int(status_code) if status_code is not None else None,
+            req_id=getattr(request, "req_id", None),
+            user_id=(current_user.id if current_user.is_authenticated else None),
+            ip=get_client_ip(),
+            method=(request.method if request else None),
+            path=(request.path if request else None),
+            error_type=err_type,
+            error_message=truncate(user_message, 500),
+            request_context_json=json.dumps(snap, ensure_ascii=False),
+            traceback_text=tb_text,
+            debug_bundle_json=json.dumps(debug_bundle, ensure_ascii=False),
+            prompt_for_fix=prompt_for_fix,
+        )
+
+        db.session.add(ev)
+        db.session.commit()
+        return ev.id
+
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return None
+
+
 def make_error_response(
     user_message: str,
     status_code: int,
@@ -966,10 +1166,7 @@ def make_error_response(
     except Exception:
         pass
 
-    base = {
-        "error": user_message,
-        "req_id": getattr(request, "req_id", None),
-    }
+    base = {"error": user_message, "req_id": getattr(request, "req_id", None)}
 
     if hasattr(request, "is_owner") and request.is_owner:
         try:
@@ -1001,7 +1198,6 @@ def create_app():
     global limiter, genai_client
 
     is_render = _is_render()
-
     app = Flask(__name__)
 
     # ✅ Render: often more than one proxy hop
@@ -1011,22 +1207,10 @@ def create_app():
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.config["WTF_CSRF_HEADERS"] = ["X-CSRFToken", "X-CSRF-Token"]
 
-    # Cookies
+    # Cookies (SECURE + STABLE)
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-
-    # ✅ Fix: Dynamic Session Domain
-    # מונע את בעיית ה-302 והניתוקים. מגדיר דומיין רק אם אנחנו באמת בכתובת הראשית.
-    public_host = (os.environ.get("PUBLIC_HOST", "") or "yedaarechev.com").strip().lower()
-    
-    @app.before_request
-    def set_cookie_domain():
-        # רק אם הבקשה מגיעה מהדומיין הראשי, ננעל את ה-Cookie עליו
-        if public_host in request.host:
-            app.config["SESSION_COOKIE_DOMAIN"] = f".{public_host}"
-        else:
-            # אחרת (למשל Render dev url), ניתן לדפדפן להחליט
-            app.config["SESSION_COOKIE_DOMAIN"] = None
+    app.config["SESSION_COOKIE_DOMAIN"] = SESSION_COOKIE_DOMAIN if SESSION_COOKIE_DOMAIN else None
 
     force_secure_cookie = (os.environ.get("SESSION_COOKIE_SECURE", "") or "").lower() in ("1", "true", "yes")
     app.config["SESSION_COOKIE_SECURE"] = True if (is_render or force_secure_cookie) else False
@@ -1062,6 +1246,7 @@ def create_app():
         resp.headers["X-Frame-Options"] = "DENY"
         resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         resp.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        resp.headers["Cache-Control"] = resp.headers.get("Cache-Control", "no-store")
         if getattr(request, "req_id", None):
             resp.headers["X-Request-ID"] = request.req_id
 
@@ -1115,7 +1300,6 @@ def create_app():
     redis_url = (os.environ.get("REDIS_URL") or os.environ.get("VALKEY_URL") or "").strip()
     storage_uri = redis_url if redis_url else "memory://"
 
-    # ✅ Fix: stable limiter key by authenticated user id
     def limiter_key():
         if current_user.is_authenticated:
             return f"user:{current_user.id}"
@@ -1263,16 +1447,15 @@ def create_app():
             "index.html",
             car_models_data=israeli_car_market_full_compilation,
             user=current_user,
-            is_owner=request.is_owner,
+            is_owner=getattr(request, "is_owner", False),
         )
 
     def get_redirect_uri():
+        # אם SESSION_COOKIE_DOMAIN מוגדר לדומיין שלך, אתה אמור לעבוד על הדומיין הזה בפרודקשן.
         host_ = (request.host or "").lower()
         if "yedaarechev.com" in host_:
-            uri = "https://yedaarechev.com/auth"
-        else:
-            uri = request.url_root.rstrip("/") + "/auth"
-        return uri
+            return "https://yedaarechev.com/auth"
+        return request.url_root.rstrip("/") + "/auth"
 
     @app.route("/login")
     def login():
@@ -1299,8 +1482,15 @@ def create_app():
                 db.session.add(user)
                 db.session.commit()
 
+            # harden: clear session to reduce fixation risk
+            try:
+                session.clear()
+            except Exception:
+                pass
+
             login_user(user)
             return redirect(url_for("index"))
+
         except Exception as e:
             traceback.print_exc()
             report_problem("OAuth flow failed", 500, exception=e, extra={"stage": "auth"})
@@ -1321,11 +1511,11 @@ def create_app():
 
     @app.route("/privacy")
     def privacy():
-        return render_template("privacy.html", user=current_user, is_owner=request.is_owner)
+        return render_template("privacy.html", user=current_user, is_owner=getattr(request, "is_owner", False))
 
     @app.route("/terms")
     def terms():
-        return render_template("terms.html", user=current_user, is_owner=request.is_owner)
+        return render_template("terms.html", user=current_user, is_owner=getattr(request, "is_owner", False))
 
     @app.route("/dashboard")
     def dashboard():
@@ -1335,6 +1525,10 @@ def create_app():
             user_searches = SearchHistory.query.filter_by(user_id=current_user.id).order_by(SearchHistory.timestamp.desc()).all()
             searches_data = []
             for s in user_searches:
+                try:
+                    data_obj = json.loads(s.result_json)
+                except Exception:
+                    data_obj = {"_error": "שגיאה בטעינת JSON לרשומה זו"}
                 searches_data.append({
                     "id": s.id,
                     "timestamp": s.timestamp.strftime("%d/%m/%Y %H:%M"),
@@ -1344,7 +1538,7 @@ def create_app():
                     "mileage_range": s.mileage_range or "",
                     "fuel_type": s.fuel_type or "",
                     "transmission": s.transmission or "",
-                    "data": json.loads(s.result_json),
+                    "data": data_obj,
                 })
 
             advisor_entries = AdvisorHistory.query.filter_by(user_id=current_user.id).order_by(AdvisorHistory.timestamp.desc()).all()
@@ -1355,7 +1549,7 @@ def create_app():
                 searches=searches_data,
                 advisor_count=advisor_count,
                 user=current_user,
-                is_owner=request.is_owner,
+                is_owner=getattr(request, "is_owner", False),
             )
         except Exception as e:
             report_problem("Dashboard render failed", 500, exception=e)
@@ -1380,9 +1574,11 @@ def create_app():
                 "fuel_type": s.fuel_type,
                 "transmission": s.transmission,
             }
-            return jsonify({"meta": meta, "data": json.loads(s.result_json)})
+
+            resp = jsonify({"meta": meta, "data": json.loads(s.result_json)})
             resp.headers["Cache-Control"] = "no-store"
             return resp
+
         except Exception as e:
             return make_error_response("שגיאת שרת בשליפת נתוני חיפוש", 500, exception=e)
 
@@ -1395,7 +1591,7 @@ def create_app():
             "recommendations.html",
             user=current_user,
             user_email=user_email,
-            is_owner=request.is_owner,
+            is_owner=getattr(request, "is_owner", False),
         )
 
     # ===========================
@@ -1403,7 +1599,7 @@ def create_app():
     # ===========================
     @app.route("/advisor_api", methods=["POST"])
     @login_required
-    @limiter.limit("30/minute") # ✅ Relaxed to avoid choking before daily quota
+    @limiter.limit("30/minute")  # relaxed - daily quota is the main cost control
     def advisor_api():
         origin_block = enforce_origin_if_configured()
         if origin_block:
@@ -1487,7 +1683,8 @@ def create_app():
         except Exception as e:
             return make_error_response("שגיאת קלט: נתונים לא תקינים", 400, payload=payload, exception=e, extra={"where": "advisor_api", "phase": "validate_exception"})
 
-        qerr = quota_increment_or_block("advisor", USER_DAILY_LIMIT_ADVISOR)
+        # ✅ Reserve quota BEFORE AI (and release if AI fails)
+        qerr = quota_reserve_or_block("advisor")
         if qerr:
             return qerr
 
@@ -1517,6 +1714,8 @@ def create_app():
 
         parsed = car_advisor_call_gemini_with_search(user_profile)
         if parsed.get("_error"):
+            # AI failed => release quota (so user isn't charged for failure)
+            quota_release("advisor")
             if request.is_owner:
                 return make_error_response(parsed.get("_error"), 500, payload=user_profile, extra={"raw": parsed.get("_raw"), "where": "advisor_api", "phase": "gemini"})
             return make_error_response("שגיאת AI במנוע ההמלצות. נסה שוב מאוחר יותר.", 500, payload=user_profile, extra={"where": "advisor_api", "phase": "gemini"})
@@ -1535,14 +1734,16 @@ def create_app():
             db.session.rollback()
             report_problem("Failed to save AdvisorHistory", 500, exception=e, extra={"where": "advisor_api", "phase": "db_save"})
 
-        return jsonify(result)
+        resp = jsonify(result)
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
 
     # ===========================
     # 🔹 Reliability analyze – API
     # ===========================
     @app.route("/analyze", methods=["POST"])
     @login_required
-    @limiter.limit("30/minute") # ✅ Relaxed to avoid choking before daily quota
+    @limiter.limit("30/minute")
     def analyze_car():
         origin_block = enforce_origin_if_configured()
         if origin_block:
@@ -1569,10 +1770,6 @@ def create_app():
         except Exception as e:
             return make_error_response("שגיאת קלט: נתונים לא תקינים", 400, payload=data, exception=e, extra={"where": "analyze_car", "phase": "validate_exception"})
 
-        qerr = quota_increment_or_block("analyze", USER_DAILY_LIMIT_ANALYZE)
-        if qerr:
-            return qerr
-
         req_obj = {
             "make": final_make,
             "model": final_model,
@@ -1584,19 +1781,50 @@ def create_app():
         }
         req_hash = payload_sha256(req_obj)
 
+        # 1) Cache check FIRST (cache hit should NOT consume quota)
+        cached = None
         try:
             cutoff_date = datetime.utcnow() - timedelta(days=MAX_CACHE_DAYS)
             cached = SearchHistory.query.filter(
                 SearchHistory.req_hash == req_hash,
                 SearchHistory.timestamp >= cutoff_date
             ).order_by(SearchHistory.timestamp.desc()).first()
-
-            if cached:
-                result = json.loads(cached.result_json)
-                result["source_tag"] = f"מקור: מטמון DB (נשמר ב-{cached.timestamp.strftime('%Y-%m-%d')})"
-                return jsonify(result)
         except Exception as e:
             report_problem("Cache lookup failed", 500, exception=e, extra={"where": "analyze_car", "phase": "cache"})
+
+        if cached:
+            try:
+                # Record to user's history (so they see it), but do NOT charge quota.
+                try:
+                    new_log = SearchHistory(
+                        user_id=current_user.id,
+                        make=final_make,
+                        model=final_model,
+                        year=final_year,
+                        mileage_range=final_mileage,
+                        fuel_type=final_fuel,
+                        transmission=final_trans,
+                        req_hash=req_hash,
+                        result_json=cached.result_json,
+                    )
+                    db.session.add(new_log)
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+
+                result = json.loads(cached.result_json)
+                result["source_tag"] = f"מקור: מטמון DB (נשמר ב-{cached.timestamp.strftime('%Y-%m-%d')})"
+                result["km_warn"] = False
+                resp = jsonify(result)
+                resp.headers["Cache-Control"] = "no-store"
+                return resp
+            except Exception as e:
+                report_problem("Cache hit parse failed", 500, exception=e, extra={"where": "analyze_car", "phase": "cache_parse"})
+
+        # 2) Reserve quota BEFORE AI call, release on AI failure
+        qerr = quota_reserve_or_block("analyze")
+        if qerr:
+            return qerr
 
         try:
             prompt = build_prompt(
@@ -1605,6 +1833,7 @@ def create_app():
             )
             model_output = call_model_with_retry(prompt)
         except Exception as e:
+            quota_release("analyze")
             return make_error_response("שגיאת AI בעת ניתוח. נסה שוב מאוחר יותר.", 500, payload=req_obj, exception=e, extra={"where": "analyze_car", "phase": "model_call"})
 
         model_output, note = apply_mileage_logic(model_output, final_mileage)
@@ -1630,7 +1859,10 @@ def create_app():
         model_output["source_tag"] = "מקור: ניתוח AI חדש"
         model_output["mileage_note"] = note
         model_output["km_warn"] = False
-        return jsonify(model_output)
+
+        resp = jsonify(model_output)
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
 
     # ===========================
     # Error handlers
