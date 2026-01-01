@@ -47,6 +47,7 @@
   let _csrfToken = null;
   async function getCsrfToken() {
     if (_csrfToken) return _csrfToken;
+
     const res = await fetch("/api/csrf", {
       credentials: "same-origin",
       cache: "no-store",
@@ -54,7 +55,13 @@
         "X-Requested-With": "XMLHttpRequest",
         "Accept": "application/json",
       },
-    });
+    }).catch(() => null);
+
+    if (!res || !res.ok) {
+      _csrfToken = "";
+      return _csrfToken;
+    }
+
     const data = await res.json().catch(() => ({}));
     _csrfToken = data.csrf_token || "";
     return _csrfToken;
@@ -527,10 +534,9 @@
   }
 
   // =========================
-  // History navigation fix (UI bug, not "security")
+  // History navigation fix (UI bug)
   // =========================
   function bindHistoryFix() {
-    // If you have a specific element id/class for history, set it here (best).
     const el =
       document.querySelector("#history-link") ||
       document.querySelector("#history-btn") ||
@@ -540,15 +546,12 @@
 
     if (!el) return;
 
-    // Override in capture phase to stop other buggy handlers
     el.addEventListener(
       "click",
       (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
         ev.stopImmediatePropagation();
-
-        // ✅ Put the correct history URL here if needed
         window.location.href = el.dataset.href || el.getAttribute("href") || "/history";
       },
       true
@@ -558,10 +561,16 @@
   bindHistoryFix();
 
   // =========================
-  // Submit handler (critical fix)
+  // Submit handler (fixed 429 messaging)
   // =========================
-  let inFlight = false;          // ✅ stops double-submit reliably
-  let controller = null;         // only for abort on unload if you want
+  let inFlight = false;
+  let controller = null;
+
+  function isDailyQuotaMessage(msg) {
+    const t = String(msg || "");
+    // Typical phrases from your server-side quota messages
+    return /מחר|מכסת|מכסה|יומית|יומיים|נס(ה)? שוב מחר/.test(t);
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -579,7 +588,6 @@
       return;
     }
 
-    // ✅ This is the important part: don't abort previous and don't start a second request
     if (inFlight) {
       showError("כבר מעבד בקשה… המתן לתוצאה לפני ניסיון נוסף.");
       return;
@@ -622,9 +630,11 @@
 
       if (!res.ok || data.error) {
         if (res.status === 429) {
+          // ✅ Don't lie with "60 seconds" when it's daily quota
           const retryAfter = res.headers.get("Retry-After");
-          const extra = retryAfter ? ` (נסה שוב בעוד ${retryAfter} שניות)` : "";
-          showError((data.error || "Rate limit (429). נסה שוב מאוחר יותר.") + extra, meta);
+          const msg = data.error || "נחסמת עקב מגבלת בקשות (429). נסה שוב מאוחר יותר.";
+          const extra = (!isDailyQuotaMessage(msg) && retryAfter) ? ` (נסה שוב בעוד ${retryAfter} שניות)` : "";
+          showError(msg + extra, meta);
         } else if (res.status === 403) {
           showError(data.error || "חסימת אבטחה (403). רענן את הדף ונסה שוב.", meta);
         } else {
@@ -645,7 +655,6 @@
     }
   }
 
-  // Binding guard
   if (!form.dataset.bound) {
     form.dataset.bound = "1";
     form.addEventListener("submit", handleSubmit);
