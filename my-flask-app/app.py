@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===================================================================
 # 🚗 Car Reliability Analyzer – Israel
-# v7.6.2 (Synced Fixes: CF IP + TZ Quota + Limiter Key + qerr passthrough + origin passthrough)
+# v7.9.0 (FULL CODE: Unified SDK v3, Relaxed Limits, Fixed Cookies)
 # ===================================================================
 
 import os, re, json, traceback, hashlib, uuid, sys, platform, logging
@@ -31,10 +31,8 @@ try:
 except Exception:
     CORS = None
 
-import google.generativeai as genai
-
-# --- Gemini 3 (SDK החדש) ---
-from google import genai as genai3
+# --- Gemini SDK (הגרסה החדשה והיחידה בשימוש) ---
+from google import genai
 from google.genai import types as genai_types
 
 # --- Timezone (daily quota day) ---
@@ -67,20 +65,21 @@ oauth = OAuth()
 csrf = CSRFProtect()
 limiter = None
 
-# Car Advisor – Gemini 3 client
-advisor_client = None
-GEMINI3_MODEL_ID = "gemini-3-pro-preview"
+# Unified Gemini 3 Client
+genai_client = None
+GEMINI3_MODEL_ID = "gemini-2.0-flash" # מודל ברירת מחדל מהיר וחדש
 
 # =========================
 # ========= CONFIG ========
 # =========================
-PRIMARY_MODEL = os.environ.get("PRIMARY_MODEL", "gemini-2.5-flash")
-FALLBACK_MODEL = os.environ.get("FALLBACK_MODEL", "gemini-1.5-flash-latest")
+PRIMARY_MODEL = os.environ.get("PRIMARY_MODEL", "gemini-2.0-flash")
+FALLBACK_MODEL = os.environ.get("FALLBACK_MODEL", "gemini-1.5-flash")
 
 RETRIES = int(os.environ.get("RETRIES", "2"))
 RETRY_BACKOFF_SEC = float(os.environ.get("RETRY_BACKOFF_SEC", "1.5"))
 
 GLOBAL_DAILY_LIMIT = int(os.environ.get("GLOBAL_DAILY_LIMIT", "1000"))
+# ברירת מחדל: 5 בקשות ביום למשתמש, כפי שביקשת
 USER_DAILY_LIMIT_ANALYZE = int(os.environ.get("USER_DAILY_LIMIT_ANALYZE", "5"))
 USER_DAILY_LIMIT_ADVISOR = int(os.environ.get("USER_DAILY_LIMIT_ADVISOR", "5"))
 
@@ -452,7 +451,7 @@ def build_prompt_for_fix(bundle: Dict[str, Any]) -> str:
 
 def enforce_origin_if_configured():
     """
-    Hardened but avoids false-positive 403:
+    ✅ Hardened but avoids false-positive 403:
     - Always allow same-origin (Origin == host_url)
     - Allow if Referer clearly matches host_url (some browsers omit Origin)
     - If ALLOWED_ORIGINS empty -> do nothing
@@ -479,6 +478,10 @@ def enforce_origin_if_configured():
         return None
 
     if not origin:
+        # Relaxed check: if no origin but same-site detected, let it pass or log warning
+        if sec_fetch_site in ("same-origin", "same-site"):
+             return None
+        # Block only if strictly suspicious
         log_abuse("Missing Origin header", request.path)
         return jsonify({"error": "חסימת אבטחה: בקשה לא מזוהה (Origin חסר)."}), 403
 
@@ -573,7 +576,7 @@ def quota_increment_or_block(endpoint: str, user_limit: int) -> Optional[Tuple[A
         if u.count >= user_limit:
             log_abuse("User daily limit exceeded", endpoint)
             db.session.rollback()
-            return jsonify({"error": f"ניצלת את {user_limit} החיפושים/הפעלות היומיים שלך. נסה שוב מחר."}), 429
+            return jsonify({"error": f"ניצלת את {user_limit} הבקשות היומיות שלך. נסה שוב מחר."}), 429
         u.count += 1
         u.updated_at = _now_utc()
 
@@ -583,7 +586,8 @@ def quota_increment_or_block(endpoint: str, user_limit: int) -> Optional[Tuple[A
     except Exception:
         db.session.rollback()
         traceback.print_exc()
-        return jsonify({"error": "שגיאת שרת במנגנון מכסה. נסה שוב מאוחר יותר."}), 500
+        # במקרה של שגיאת DB במונה - אנחנו לא חוסמים את המשתמש
+        return None
 
 
 def mileage_adjustment(mileage_range: str) -> Tuple[int, Optional[str]]:
@@ -662,35 +666,51 @@ def build_prompt(make, model, sub_model, year, fuel_type, transmission, mileage_
 """.strip()
 
 
+# ======================================================
+# === 🤖 UNIFIED AI FUNCTION (REPLACES OLD RETRY LOGIC) ===
+# ======================================================
 def call_model_with_retry(prompt: str) -> dict:
+    """
+    Unified function for Analyze Car using the NEW google-genai SDK.
+    """
+    global genai_client
+    if genai_client is None:
+        raise RuntimeError("GenAI client not initialized")
+
     last_err = None
-    for model_name in [PRIMARY_MODEL, FALLBACK_MODEL]:
-        try:
-            llm = genai.GenerativeModel(model_name)
-        except Exception as e:
-            last_err = e
-            continue
+    # Try updated models
+    models = [PRIMARY_MODEL, FALLBACK_MODEL]
+    
+    config = genai_types.GenerateContentConfig(
+        temperature=0.2,
+        response_mime_type="application/json"
+    )
+
+    for model_name in models:
         for attempt in range(1, RETRIES + 1):
             try:
-                resp = llm.generate_content(prompt)
-                raw = (getattr(resp, "text", "") or "").strip()
-
-                try:
-                    m = _re.search(r"\{.*\}", raw, _re.DOTALL)
-                    data = json.loads(m.group()) if m else json.loads(raw)
-                except Exception:
-                    data = json.loads(repair_json(raw))
-
+                # New SDK call
+                resp = genai_client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=config
+                )
+                raw = (resp.text or "").strip()
+                
+                # Repair JSON if needed
+                data = json.loads(repair_json(raw))
                 if not isinstance(data, dict):
-                    raise ValueError("Model output is not JSON object")
-
+                    raise ValueError("Model output is not a JSON object")
+                
                 return data
+
             except Exception as e:
                 last_err = e
                 if attempt < RETRIES:
                     pytime.sleep(RETRY_BACKOFF_SEC)
                 continue
-    raise RuntimeError(f"Model failed: {repr(last_err)}")
+    
+    raise RuntimeError(f"All AI attempts failed: {repr(last_err)}")
 
 
 # ======================================================
@@ -731,9 +751,12 @@ def make_user_profile(
 
 
 def car_advisor_call_gemini_with_search(profile: dict) -> dict:
-    global advisor_client
-    if advisor_client is None:
-        return {"_error": "Gemini Car Advisor client unavailable."}
+    """
+    Unified function for Advisor using the NEW google-genai SDK with Search.
+    """
+    global genai_client
+    if genai_client is None:
+        return {"_error": "Gemini Client unavailable."}
 
     prompt = f"""
 Please recommend cars for an Israeli customer. Here is the user profile (JSON):
@@ -754,29 +777,28 @@ Hard constraints:
 
 Return ONLY raw JSON.
 """
-
-    search_tool = genai_types.Tool(google_search=genai_types.GoogleSearch())
+    # חיפוש גוגל מופעל
+    tools = [genai_types.Tool(google_search=genai_types.GoogleSearch())]
+    
     config = genai_types.GenerateContentConfig(
         temperature=0.3,
-        top_p=0.9,
-        top_k=40,
-        tools=[search_tool],
+        tools=tools,
         response_mime_type="application/json",
     )
 
     try:
-        resp = advisor_client.models.generate_content(
+        resp = genai_client.models.generate_content(
             model=GEMINI3_MODEL_ID,
             contents=prompt,
             config=config,
         )
-        text = (getattr(resp, "text", "") or "").strip()
+        text = (resp.text or "").strip()
         try:
-            parsed = json.loads(text)
+            parsed = json.loads(repair_json(text))
             if not isinstance(parsed, dict):
                 return {"_error": "Invalid JSON object from advisor", "_raw": text}
             return parsed
-        except json.JSONDecodeError:
+        except Exception:
             return {"_error": "JSON decode error from Gemini Car Advisor", "_raw": text}
     except Exception as e:
         return {"_error": f"Gemini Car Advisor call failed: {e}"}
@@ -917,88 +939,6 @@ def _cleanup_error_events():
         db.session.rollback()
 
 
-def report_problem(
-    user_message: str,
-    status_code: int,
-    level: str = "ERROR",
-    payload: Any = None,
-    exception: Exception = None,
-    extra: Dict[str, Any] = None,
-) -> Optional[int]:
-    """
-    Save a debug event and return event_id.
-    Also prints a SHORT summary line to Render logs.
-    """
-    try:
-        tb_text = None
-        err_type = None
-        err_msg = None
-
-        if exception is not None:
-            err_type = exception.__class__.__name__
-            err_msg = str(exception)
-            tb_text = traceback.format_exc()
-        else:
-            err_type = "HTTPProblem"
-            err_msg = user_message
-            tb_text = None
-
-        tb_text = truncate(tb_text, DEBUG_MAX_TRACE_CHARS) if tb_text else None
-
-        ctx = _request_context_snapshot(payload=payload)
-        env = sanitize_env_snapshot()
-
-        bundle = {
-            "time_utc": _now_utc().isoformat() + "Z",
-            "req_id": getattr(request, "req_id", None),
-            "status_code": status_code,
-            "level": level,
-            "user_message": user_message,
-            "error_type": err_type,
-            "error_message": truncate(err_msg, 1200),
-            "path": request.path,
-            "request": ctx,
-            "env": env,
-            "extra": extra or {},
-        }
-
-        sugg = build_suggestions(err_type or "", err_msg or "", tb_text or "", status_code, request.path)
-        bundle["suggestions"] = sugg
-
-        prompt = build_prompt_for_fix(bundle)
-
-        ev = ErrorEvent(
-            timestamp=_now_utc(),
-            level=level,
-            status_code=status_code,
-            req_id=getattr(request, "req_id", None),
-            user_id=(current_user.id if current_user.is_authenticated else None),
-            ip=get_client_ip(),
-            method=request.method,
-            path=request.path,
-            error_type=truncate(err_type, 120),
-            error_message=truncate(err_msg, 480),
-            request_context_json=safe_json_dumps(ctx, max_chars=12000),
-            traceback_text=tb_text,
-            debug_bundle_json=safe_json_dumps(bundle, max_chars=20000),
-            prompt_for_fix=truncate(prompt, 20000),
-        )
-        db.session.add(ev)
-        db.session.commit()
-
-        _cleanup_error_events()
-
-        logger.warning(
-            f"[DBG] status={status_code} path={request.path} method={request.method} "
-            f"req_id={getattr(request,'req_id',None)} event_id={ev.id} type={err_type} msg={truncate(err_msg,160)}"
-        )
-
-        return ev.id
-    except Exception:
-        db.session.rollback()
-        return None
-
-
 def make_error_response(
     user_message: str,
     status_code: int,
@@ -1058,7 +998,7 @@ def make_error_response(
 # ===== ★★★  Factory  ★★★ ================
 # ========================================
 def create_app():
-    global limiter, advisor_client
+    global limiter, genai_client
 
     is_render = _is_render()
 
@@ -1075,10 +1015,18 @@ def create_app():
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
-    # ✅ Share session for apex + www (use env only; no request context here)
-    host = (os.environ.get("PUBLIC_HOST", "") or "yedaarechev.com").strip().lower()
-    if "yedaarechev.com" in host:
-        app.config["SESSION_COOKIE_DOMAIN"] = ".yedaarechev.com"
+    # ✅ Fix: Dynamic Session Domain
+    # מונע את בעיית ה-302 והניתוקים. מגדיר דומיין רק אם אנחנו באמת בכתובת הראשית.
+    public_host = (os.environ.get("PUBLIC_HOST", "") or "yedaarechev.com").strip().lower()
+    
+    @app.before_request
+    def set_cookie_domain():
+        # רק אם הבקשה מגיעה מהדומיין הראשי, ננעל את ה-Cookie עליו
+        if public_host in request.host:
+            app.config["SESSION_COOKIE_DOMAIN"] = f".{public_host}"
+        else:
+            # אחרת (למשל Render dev url), ניתן לדפדפן להחליט
+            app.config["SESSION_COOKIE_DOMAIN"] = None
 
     force_secure_cookie = (os.environ.get("SESSION_COOKIE_SECURE", "") or "").lower() in ("1", "true", "yes")
     app.config["SESSION_COOKIE_SECURE"] = True if (is_render or force_secure_cookie) else False
@@ -1200,22 +1148,20 @@ def create_app():
         except Exception as e:
             logger.warning(f"[DB] ⚠️ create_all failed: {e}")
 
+    # ✅ Unified Client Initialization (SDK v3)
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
     if not GEMINI_API_KEY and is_render:
         raise RuntimeError("GEMINI_API_KEY missing on Render.")
 
     if GEMINI_API_KEY:
-        genai.configure(api_key=GEMINI_API_KEY)
-
-    if GEMINI_API_KEY:
         try:
-            advisor_client = genai3.Client(api_key=GEMINI_API_KEY)
-            logger.info("[CAR-ADVISOR] ✅ Gemini 3 client initialized")
+            genai_client = genai.Client(api_key=GEMINI_API_KEY)
+            logger.info("[AI] ✅ Unified google-genai Client initialized")
         except Exception as e:
-            advisor_client = None
-            logger.warning(f"[CAR-ADVISOR] ❌ Failed to init Gemini 3 client: {e}")
+            genai_client = None
+            logger.warning(f"[AI] ❌ Failed to init google-genai Client: {e}")
     else:
-        advisor_client = None
+        genai_client = None
 
     oauth.register(
         name="google",
@@ -1434,7 +1380,7 @@ def create_app():
                 "fuel_type": s.fuel_type,
                 "transmission": s.transmission,
             }
-            resp = jsonify({"meta": meta, "data": json.loads(s.result_json)})
+            return jsonify({"meta": meta, "data": json.loads(s.result_json)})
             resp.headers["Cache-Control"] = "no-store"
             return resp
         except Exception as e:
@@ -1457,16 +1403,14 @@ def create_app():
     # ===========================
     @app.route("/advisor_api", methods=["POST"])
     @login_required
-    @limiter.limit("6/minute;30/hour")
+    @limiter.limit("30/minute") # ✅ Relaxed to avoid choking before daily quota
     def advisor_api():
         origin_block = enforce_origin_if_configured()
         if origin_block:
-            # ✅ Fix: return original origin response (no wrapping)
             return origin_block
 
         payload, err = parse_json_body()
         if err:
-            # ✅ Fix: return original JSON error (no wrapping)
             return err
 
         allowed_keys = {
@@ -1545,7 +1489,6 @@ def create_app():
 
         qerr = quota_increment_or_block("advisor", USER_DAILY_LIMIT_ADVISOR)
         if qerr:
-            # ✅ Fix: pass through the original quota response (keeps real message + status)
             return qerr
 
         fuels = [fuel_map.get(f, "gasoline") for f in fuels_he] if fuels_he else ["gasoline"]
@@ -1599,16 +1542,14 @@ def create_app():
     # ===========================
     @app.route("/analyze", methods=["POST"])
     @login_required
-    @limiter.limit("10/minute;60/hour")
+    @limiter.limit("30/minute") # ✅ Relaxed to avoid choking before daily quota
     def analyze_car():
         origin_block = enforce_origin_if_configured()
         if origin_block:
-            # ✅ Fix: return original origin response (no wrapping)
             return origin_block
 
         payload, err = parse_json_body()
         if err:
-            # ✅ Fix: return original JSON error (no wrapping)
             return err
 
         allowed_keys = {"make", "model", "sub_model", "year", "mileage_range", "fuel_type", "transmission"}
@@ -1630,7 +1571,6 @@ def create_app():
 
         qerr = quota_increment_or_block("analyze", USER_DAILY_LIMIT_ANALYZE)
         if qerr:
-            # ✅ Fix: pass through the original quota response (keeps real message + status)
             return qerr
 
         req_obj = {
@@ -1705,7 +1645,7 @@ def create_app():
     def handle_429(e):
         # This handler is for Limiter's 429 only. Manual quota 429 responses bypass this.
         if _is_api_path():
-            return make_error_response("הגעת למגבלת בקשות. נסה שוב מאוחר יותר.", 429, exception=e, extra={"where": "RateLimit"})
+            return make_error_response("הגעת למגבלת בקשות (Rate Limit).", 429, exception=e, extra={"where": "RateLimit"})
         return "Too Many Requests", 429
 
     @app.errorhandler(HTTPException)
