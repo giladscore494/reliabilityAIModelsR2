@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 # ===================================================================
 # 🚗 Car Reliability Analyzer – Israel
-# v7.5.1 (Origin check fixed + Dashboard XSS closed in template)
+# v7.6.0 (Owner Debug Console + Fix Prompt + ErrorEvent DB)
 # ===================================================================
 
-import os, re, json, traceback, hashlib, uuid
+import os, re, json, traceback, hashlib, uuid, sys, platform
 import time as pytime
-from typing import Optional, Tuple, Any, Dict
-from datetime import datetime, timedelta
+from typing import Optional, Tuple, Any, Dict, List
+from datetime import datetime, timedelta, date
 
 from flask import (
     Flask, render_template, request, jsonify, redirect, url_for, session
@@ -25,7 +25,7 @@ from json_repair import repair_json
 from flask_wtf.csrf import CSRFProtect, generate_csrf, CSRFError
 from flask_limiter import Limiter
 
-# Optional but recommended (won't break if not installed)
+# Optional but recommended
 try:
     from flask_cors import CORS
 except Exception:
@@ -67,12 +67,19 @@ MAX_CACHE_DAYS = int(os.environ.get("MAX_CACHE_DAYS", "45"))
 
 MAX_JSON_BODY_BYTES = int(os.environ.get("MAX_JSON_BODY_BYTES", str(64 * 1024)))
 
+# Debug retention
+ERROR_EVENTS_MAX_KEEP = int(os.environ.get("ERROR_EVENTS_MAX_KEEP", "800"))
+ERROR_EVENTS_MAX_DAYS = int(os.environ.get("ERROR_EVENTS_MAX_DAYS", "14"))
+DEBUG_MAX_TRACE_CHARS = int(os.environ.get("DEBUG_MAX_TRACE_CHARS", "12000"))
+DEBUG_MAX_BODY_CHARS = int(os.environ.get("DEBUG_MAX_BODY_CHARS", "6000"))
+
 # Origins allowlist (comma-separated)
 ALLOWED_ORIGINS = [
     o.strip().lower().rstrip("/")
     for o in os.environ.get("ALLOWED_ORIGINS", "").split(",")
     if o.strip()
 ]
+
 
 # ===========================
 # ====== DB MODELS ==========
@@ -140,6 +147,34 @@ class AbuseLog(db.Model):
     payload_hash = db.Column(db.String(64), nullable=True)
 
 
+class ErrorEvent(db.Model):
+    """
+    Advanced debug events.
+    Stores sanitized request context + traceback + a ready-to-paste fix prompt.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    level = db.Column(db.String(10), nullable=False, default="ERROR")  # INFO/WARN/ERROR
+    status_code = db.Column(db.Integer, nullable=True)
+
+    req_id = db.Column(db.String(36), nullable=True, index=True)
+    user_id = db.Column(db.Integer, nullable=True)
+    ip = db.Column(db.String(80), nullable=True)
+
+    method = db.Column(db.String(10), nullable=True)
+    path = db.Column(db.String(200), nullable=True, index=True)
+
+    error_type = db.Column(db.String(120), nullable=True)
+    error_message = db.Column(db.String(500), nullable=True)
+
+    request_context_json = db.Column(db.Text, nullable=True)
+    traceback_text = db.Column(db.Text, nullable=True)
+
+    debug_bundle_json = db.Column(db.Text, nullable=True)
+    prompt_for_fix = db.Column(db.Text, nullable=True)
+
+
 # =========================
 # ========= HELPERS =======
 # =========================
@@ -166,6 +201,25 @@ except Exception as e:
     print("[DICT] ⚠️ Fallback applied — Toyota only")
 
 import re as _re
+
+
+def _now_utc() -> datetime:
+    return datetime.utcnow()
+
+
+def truncate(s: Any, n: int) -> str:
+    s = "" if s is None else str(s)
+    if len(s) <= n:
+        return s
+    return s[:n] + f"...[truncated {len(s)-n} chars]"
+
+
+def safe_json_dumps(obj: Any, max_chars: int = 8000) -> str:
+    try:
+        raw = json.dumps(obj, ensure_ascii=False, sort_keys=True)
+    except Exception:
+        raw = str(obj)
+    return truncate(raw, max_chars)
 
 
 def normalize_text(s: Any) -> str:
@@ -205,6 +259,168 @@ def log_abuse(reason: str, endpoint: str, payload: Any = None):
         db.session.rollback()
 
 
+def sanitize_headers(h: Dict[str, str]) -> Dict[str, str]:
+    """
+    Remove sensitive headers. Keep only safe debug signals.
+    """
+    if not isinstance(h, dict):
+        return {}
+    blocked = {
+        "authorization", "cookie", "set-cookie",
+        "x-csrftoken", "x-csrf-token", "x-csrf",
+        "x-api-key", "x-forwarded-client-cert",
+    }
+    safe = {}
+    for k, v in h.items():
+        lk = str(k).lower().strip()
+        if lk in blocked:
+            continue
+        # cap values
+        safe[str(k)] = truncate(v, 300)
+    return safe
+
+
+def sanitize_env_snapshot() -> Dict[str, Any]:
+    """
+    Minimal non-secret runtime snapshot.
+    NEVER include secrets, tokens, keys.
+    """
+    def env_flag(name: str) -> str:
+        v = (os.environ.get(name, "") or "").strip()
+        if not v:
+            return "missing"
+        return "set"
+
+    # explicit non-secret config only
+    return {
+        "is_render": bool((os.environ.get("RENDER", "") or "").strip()),
+        "python": sys.version.split()[0],
+        "platform": platform.platform()[:120],
+        "primary_model": PRIMARY_MODEL,
+        "fallback_model": FALLBACK_MODEL,
+        "allowed_origins": ALLOWED_ORIGINS[:10],
+        "db_url": "set" if (os.environ.get("DATABASE_URL", "") or "").strip() else "missing",
+        "redis_url": "set" if (os.environ.get("REDIS_URL") or os.environ.get("VALKEY_URL") or "").strip() else "missing",
+        "gemini_api_key": env_flag("GEMINI_API_KEY"),
+        "google_client_id": env_flag("GOOGLE_CLIENT_ID"),
+        "google_client_secret": env_flag("GOOGLE_CLIENT_SECRET"),
+        "secret_key": env_flag("SECRET_KEY"),
+        "limits": {
+            "GLOBAL_DAILY_LIMIT": GLOBAL_DAILY_LIMIT,
+            "USER_DAILY_LIMIT_ANALYZE": USER_DAILY_LIMIT_ANALYZE,
+            "USER_DAILY_LIMIT_ADVISOR": USER_DAILY_LIMIT_ADVISOR,
+        }
+    }
+
+
+def build_suggestions(error_type: str, message: str, tb_text: str, status_code: Optional[int], path: str) -> Dict[str, Any]:
+    """
+    Heuristic mapping to 'probable_cause' + 'fix_steps'.
+    """
+    et = (error_type or "").lower()
+    msg = (message or "").lower()
+    tb_low = (tb_text or "").lower()
+    p = (path or "")
+
+    probable = []
+    steps = []
+
+    # 403 patterns
+    if status_code == 403:
+        if "csrf" in et or "csrf" in msg or "csrf" in tb_low:
+            probable.append("חסימת CSRF: הטוקן לא נשלח / לא תקין / חסר cookies של session.")
+            steps += [
+                "ב־JS ודא fetch עם credentials: 'same-origin'.",
+                "ודא שקודם קוראים GET /api/csrf ומעבירים X-CSRFToken בכותרת.",
+                "ודא שהבקשה היא Content-Type: application/json.",
+                "בדוק שב־Render SESSION_COOKIE_SECURE מוגדר נכון (או השארנו auto לפי is_render).",
+            ]
+        if "origin" in msg or "origin" in tb_low or "מקור" in msg:
+            probable.append("חסימת Origin: ה־Origin לא בתוך ALLOWED_ORIGINS או חסר.")
+            steps += [
+                "הגדר ALLOWED_ORIGINS ב־Render: 'https://yedaarechev.com,https://www.yedaarechev.com,https://<your-app>.onrender.com'.",
+                "בדוק שהבקשה מגיעה מהדומיין שלך ולא מ־preview/iframe/extension.",
+                "אם אתה עושה בדיקות מקומית – אל תגדיר ALLOWED_ORIGINS (ריק) או תוסיף localhost.",
+            ]
+
+    # 429 patterns
+    if status_code == 429:
+        probable.append("Rate Limit / Quota: חריגה ממגבלת בקשות (Limiter או DailyQuota).")
+        steps += [
+            "בדוק headers בתגובה: Retry-After / X-RateLimit-Remaining (אם קיים).",
+            "הגדל USER_DAILY_LIMIT_* או GLOBAL_DAILY_LIMIT לפי צורך.",
+            "בדוק Limiter rules: limiter.limit('...') על הנתיב.",
+            "אם Redis לא מוגדר – memory:// יכול להיראות 'מחמיר' בריבוי אינסטנסים; מומלץ REDIS_URL/VALKEY_URL.",
+        ]
+
+    # DB issues
+    if "sqlalchemy" in tb_low or "psycopg" in tb_low or "database" in tb_low:
+        probable.append("שגיאת DB: DATABASE_URL לא תקין / חיבור נופל / טבלה חסרה.")
+        steps += [
+            "ב־Render ודא DATABASE_URL מוגדר ל־Internal Postgres URL.",
+            "אם זה postgres:// – הקוד כבר ממיר ל־postgresql://.",
+            "בדוק שה־db.create_all רץ (רשום בלוג: [DB] ✅ create_all executed).",
+            "אם יש multi-instance – ודא שה־lock file לא גורם לטבלאות להחסר (במידה והקמת DB חדשה).",
+        ]
+
+    # Gemini issues
+    if "gemini" in tb_low or "generative" in tb_low or "api key" in tb_low or "403" in tb_low:
+        probable.append("שגיאת Gemini: GEMINI_API_KEY חסר/שגוי או מכסת API.")
+        steps += [
+            "ודא GEMINI_API_KEY מוגדר ב־Render (Environment).",
+            "בדוק Billing/Quota בקונסול של Google AI Studio.",
+            "נסה להחליף PRIMARY_MODEL למודל זמין לך.",
+        ]
+
+    # JSON issues
+    if status_code == 400 and ("json" in msg or "invalid json" in msg or "קלט json" in msg):
+        probable.append("קלט JSON לא תקין: גוף הבקשה לא JSON או Content-Type לא נכון.")
+        steps += [
+            "ודא fetch עם headers: Content-Type: application/json.",
+            "ודא body הוא JSON.stringify(payload).",
+            "ודא שאין trailing commas או שדות לא serializable.",
+        ]
+
+    # General fallback
+    if not probable:
+        probable.append("שגיאה כללית: נדרש לראות traceback והקשר הבקשה כדי לקבוע סיבה מדויקת.")
+        steps += [
+            "פתח את event דרך /owner/debug/events/<id> וקח את prompt_for_fix.",
+            "בדוק האם זה קורה רק בנתיב מסוים / רק ב־Render / רק עם משתמשים מסוימים.",
+        ]
+
+    # de-dup
+    def uniq(seq):
+        out, seen = [], set()
+        for x in seq:
+            if x not in seen:
+                out.append(x)
+                seen.add(x)
+        return out
+
+    return {
+        "probable_cause": uniq(probable)[:6],
+        "fix_steps": uniq(steps)[:12],
+    }
+
+
+def build_prompt_for_fix(bundle: Dict[str, Any]) -> str:
+    """
+    Ready-to-paste prompt (Hebrew) with context.
+    """
+    # Keep it compact but complete
+    return f"""אתה מהנדס תוכנה בכיר (Flask/Render/SQLAlchemy/CSRF/RateLimit).
+אני מצרף אירוע תקלה מתוך אפליקציית Flask. תן:
+1) Root-cause מדויק (מה שבר ומה הטריגר).
+2) תיקון מומלץ: שינוי קוד ספציפי (איפה ומה), כולל snippet/patch.
+3) בדיקות אימות: איך לוודא שהבעיה נפתרה.
+4) אם יש סיכון אבטחה/רגרסיה – תציין.
+
+נתוני תקלה (JSON):
+{safe_json_dumps(bundle, max_chars=9000)}
+"""
+
+
 def enforce_origin_if_configured():
     """
     Hardened but avoids false-positive 403:
@@ -218,15 +434,15 @@ def enforce_origin_if_configured():
     referer = (request.headers.get("Referer") or "").lower()
     host_origin = (request.host_url or "").lower().rstrip("/")
 
-    # Same-origin allow (best)
+    # Same-origin allow
     if origin and origin == host_origin:
         return None
 
-    # Some browsers may omit Origin for same-origin. Use Referer as fallback.
+    # Some browsers omit Origin for same-origin
     if (not origin) and host_origin and (host_origin in referer):
         return None
 
-    # Extra browser hint (not security-critical, only to avoid blocking legit)
+    # Browser hint
     sec_fetch_site = (request.headers.get("Sec-Fetch-Site") or "").lower()
     if (not origin) and sec_fetch_site in ("same-origin", "same-site"):
         return None
@@ -621,13 +837,208 @@ def car_advisor_postprocess(profile: dict, parsed: dict) -> dict:
     }
 
 
+def _is_api_path() -> bool:
+    p = request.path or ""
+    return p.startswith("/analyze") or p.startswith("/advisor_api") or p.startswith("/api/") or p.startswith("/owner/debug")
+
+
+def _is_render() -> bool:
+    return bool((os.environ.get("RENDER", "") or "").strip())
+
+
+def _request_context_snapshot(payload: Any = None) -> Dict[str, Any]:
+    # try to capture JSON body if not provided
+    body_preview = None
+    if payload is None:
+        try:
+            raw = request.get_data(cache=False, as_text=True)
+            body_preview = truncate(raw, DEBUG_MAX_BODY_CHARS)
+        except Exception:
+            body_preview = None
+    else:
+        body_preview = truncate(safe_json_dumps(payload, max_chars=DEBUG_MAX_BODY_CHARS), DEBUG_MAX_BODY_CHARS)
+
+    snap = {
+        "method": request.method,
+        "path": request.path,
+        "full_path": request.full_path,
+        "remote_addr": request.remote_addr,
+        "ip": get_client_ip(),
+        "user_agent": truncate(request.headers.get("User-Agent", ""), 220),
+        "origin": truncate(request.headers.get("Origin", ""), 200),
+        "referer": truncate(request.headers.get("Referer", ""), 240),
+        "sec_fetch_site": truncate(request.headers.get("Sec-Fetch-Site", ""), 40),
+        "content_type": truncate(request.headers.get("Content-Type", ""), 80),
+        "content_length": request.content_length,
+        "query_args": {k: truncate(v, 200) for k, v in request.args.items()},
+        "headers": sanitize_headers(dict(request.headers)),
+        "body_preview": body_preview,
+    }
+    return snap
+
+
+def _cleanup_error_events():
+    """
+    retention cleanup: keep last N and last X days.
+    Safe best-effort.
+    """
+    try:
+        # delete older than X days
+        cutoff = _now_utc() - timedelta(days=ERROR_EVENTS_MAX_DAYS)
+        ErrorEvent.query.filter(ErrorEvent.timestamp < cutoff).delete(synchronize_session=False)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    try:
+        # keep only last N
+        count = ErrorEvent.query.count()
+        if count > ERROR_EVENTS_MAX_KEEP:
+            # delete oldest extra
+            extra = count - ERROR_EVENTS_MAX_KEEP
+            olds = ErrorEvent.query.order_by(ErrorEvent.timestamp.asc()).limit(extra).all()
+            for ev in olds:
+                db.session.delete(ev)
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
+def report_problem(
+    user_message: str,
+    status_code: int,
+    level: str = "ERROR",
+    payload: Any = None,
+    exception: Exception = None,
+    extra: Dict[str, Any] = None,
+) -> Optional[int]:
+    """
+    Save a debug event and return event_id.
+    """
+    try:
+        tb_text = None
+        err_type = None
+        err_msg = None
+
+        if exception is not None:
+            err_type = exception.__class__.__name__
+            err_msg = str(exception)
+            tb_text = traceback.format_exc()
+        else:
+            err_type = "HTTPProblem"
+            err_msg = user_message
+            tb_text = None
+
+        tb_text = truncate(tb_text, DEBUG_MAX_TRACE_CHARS) if tb_text else None
+
+        ctx = _request_context_snapshot(payload=payload)
+        env = sanitize_env_snapshot()
+
+        bundle = {
+            "time_utc": _now_utc().isoformat() + "Z",
+            "req_id": getattr(request, "req_id", None),
+            "status_code": status_code,
+            "level": level,
+            "user_message": user_message,
+            "error_type": err_type,
+            "error_message": truncate(err_msg, 1200),
+            "path": request.path,
+            "request": ctx,
+            "env": env,
+            "extra": extra or {},
+        }
+
+        sugg = build_suggestions(err_type or "", err_msg or "", tb_text or "", status_code, request.path)
+        bundle["suggestions"] = sugg
+
+        prompt = build_prompt_for_fix(bundle)
+
+        ev = ErrorEvent(
+            timestamp=_now_utc(),
+            level=level,
+            status_code=status_code,
+            req_id=getattr(request, "req_id", None),
+            user_id=(current_user.id if current_user.is_authenticated else None),
+            ip=get_client_ip(),
+            method=request.method,
+            path=request.path,
+            error_type=truncate(err_type, 120),
+            error_message=truncate(err_msg, 480),
+            request_context_json=safe_json_dumps(ctx, max_chars=12000),
+            traceback_text=tb_text,
+            debug_bundle_json=safe_json_dumps(bundle, max_chars=20000),
+            prompt_for_fix=truncate(prompt, 20000),
+        )
+        db.session.add(ev)
+        db.session.commit()
+
+        # retention cleanup (best effort)
+        _cleanup_error_events()
+
+        return ev.id
+    except Exception:
+        db.session.rollback()
+        return None
+
+
+def make_error_response(
+    user_message: str,
+    status_code: int,
+    payload: Any = None,
+    exception: Exception = None,
+    extra: Dict[str, Any] = None,
+):
+    """
+    Standard error response:
+    - Always returns JSON for API routes.
+    - For OWNER: include detailed debug + prompt_for_fix.
+    - For non-owner: keep minimal.
+    """
+    event_id = report_problem(
+        user_message=user_message,
+        status_code=status_code,
+        level="ERROR" if status_code >= 500 else ("WARN" if status_code >= 400 else "INFO"),
+        payload=payload,
+        exception=exception,
+        extra=extra or {},
+    )
+
+    base = {
+        "error": user_message,
+        "req_id": getattr(request, "req_id", None),
+    }
+
+    # Owner gets full
+    if hasattr(request, "is_owner") and request.is_owner:
+        try:
+            ev = ErrorEvent.query.get(event_id) if event_id else None
+            base["debug_event_id"] = event_id
+            if ev and ev.debug_bundle_json:
+                base["debug_bundle"] = json.loads(ev.debug_bundle_json)
+            if ev and ev.prompt_for_fix:
+                base["prompt_for_fix"] = ev.prompt_for_fix
+        except Exception:
+            base["debug_event_id"] = event_id
+            base["debug_bundle"] = {"note": "Failed to load debug bundle from DB."}
+            base["prompt_for_fix"] = "Failed to build prompt."
+
+    resp = jsonify(base)
+    resp.status_code = status_code
+    resp.headers["Cache-Control"] = "no-store"
+    if getattr(request, "req_id", None):
+        resp.headers["X-Request-ID"] = request.req_id
+    if event_id:
+        resp.headers["X-Debug-Event-ID"] = str(event_id)
+    return resp
+
+
 # ========================================
 # ===== ★★★  Factory  ★★★ ================
 # ========================================
 def create_app():
     global limiter, advisor_client
 
-    is_render = (os.environ.get("RENDER", "") or "").strip() != ""
+    is_render = _is_render()
 
     app = Flask(__name__)
 
@@ -665,8 +1076,9 @@ def create_app():
         }
 
     @app.before_request
-    def attach_req_id():
+    def attach_req_id_and_owner():
         request.req_id = str(uuid.uuid4())
+        request.is_owner = is_owner_user()
 
     @app.after_request
     def security_headers(resp):
@@ -674,6 +1086,8 @@ def create_app():
         resp.headers["X-Frame-Options"] = "DENY"
         resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         resp.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        if getattr(request, "req_id", None):
+            resp.headers["X-Request-ID"] = request.req_id
         return resp
 
     if CORS is not None:
@@ -704,8 +1118,8 @@ def create_app():
 
     @login_manager.unauthorized_handler
     def unauthorized():
-        if request.path.startswith("/analyze") or request.path.startswith("/advisor_api") or request.path.startswith("/api/"):
-            return jsonify({"error": "נדרש להתחבר כדי להשתמש בשירות."}), 401
+        if _is_api_path():
+            return make_error_response("נדרש להתחבר כדי להשתמש בשירות.", 401)
         return redirect(url_for("login"))
 
     # ----------------------
@@ -776,6 +1190,75 @@ def create_app():
         claims_options={"iss": {"values": ["https://accounts.google.com", "accounts.google.com"]}},
     )
 
+    # ===========================
+    # Debug routes (OWNER only)
+    # ===========================
+    @app.route("/owner/debug/events", methods=["GET"])
+    @login_required
+    def owner_debug_events():
+        if not request.is_owner:
+            return make_error_response("גישה נדחתה.", 403)
+
+        limit = clamp_int(request.args.get("limit", 20), 1, 200, 20)
+        evs = ErrorEvent.query.order_by(ErrorEvent.timestamp.desc()).limit(limit).all()
+        out = []
+        for e in evs:
+            out.append({
+                "id": e.id,
+                "timestamp_utc": e.timestamp.isoformat() + "Z",
+                "level": e.level,
+                "status_code": e.status_code,
+                "path": e.path,
+                "method": e.method,
+                "req_id": e.req_id,
+                "error_type": e.error_type,
+                "error_message": e.error_message,
+            })
+        resp = jsonify({"events": out, "count": len(out)})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    @app.route("/owner/debug/events/<int:event_id>", methods=["GET"])
+    @login_required
+    def owner_debug_event(event_id: int):
+        if not request.is_owner:
+            return make_error_response("גישה נדחתה.", 403)
+
+        ev = ErrorEvent.query.get(event_id)
+        if not ev:
+            return make_error_response("אירוע לא נמצא.", 404)
+
+        payload = {
+            "id": ev.id,
+            "timestamp_utc": ev.timestamp.isoformat() + "Z",
+            "level": ev.level,
+            "status_code": ev.status_code,
+            "req_id": ev.req_id,
+            "user_id": ev.user_id,
+            "ip": ev.ip,
+            "method": ev.method,
+            "path": ev.path,
+            "error_type": ev.error_type,
+            "error_message": ev.error_message,
+            "request_context": json.loads(ev.request_context_json) if ev.request_context_json else None,
+            "traceback": ev.traceback_text,
+            "debug_bundle": json.loads(ev.debug_bundle_json) if ev.debug_bundle_json else None,
+            "prompt_for_fix": ev.prompt_for_fix,
+        }
+        resp = jsonify(payload)
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    @app.route("/owner/debug/ping", methods=["GET"])
+    @login_required
+    def owner_debug_ping():
+        if not request.is_owner:
+            return make_error_response("גישה נדחתה.", 403)
+        return jsonify({"ok": True, "time_utc": _now_utc().isoformat() + "Z", "env": sanitize_env_snapshot()})
+
+    # ===========================
+    # Health + CSRF
+    # ===========================
     @app.route("/healthz")
     def healthz():
         return "ok", 200
@@ -787,13 +1270,16 @@ def create_app():
         resp.headers["Cache-Control"] = "no-store"
         return resp
 
+    # ===========================
+    # Pages
+    # ===========================
     @app.route("/")
     def index():
         return render_template(
             "index.html",
             car_models_data=israeli_car_market_full_compilation,
             user=current_user,
-            is_owner=is_owner_user(),
+            is_owner=request.is_owner,
         )
 
     def get_redirect_uri():
@@ -820,7 +1306,7 @@ def create_app():
             name = userinfo.get("name", "")
 
             if not google_id or not email:
-                log_abuse("OAuth missing id/email", "auth")
+                report_problem("OAuth missing id/email", 400, level="WARN", extra={"stage": "auth"})
                 return redirect(url_for("index"))
 
             user = User.query.filter_by(google_id=google_id).first()
@@ -832,8 +1318,8 @@ def create_app():
             login_user(user)
             return redirect(url_for("index"))
         except Exception as e:
-            print(f"[AUTH] ❌ {e}")
             traceback.print_exc()
+            report_problem("OAuth flow failed", 500, exception=e, extra={"stage": "auth"})
             try:
                 logout_user()
             except Exception:
@@ -851,11 +1337,11 @@ def create_app():
 
     @app.route("/privacy")
     def privacy():
-        return render_template("privacy.html", user=current_user, is_owner=is_owner_user())
+        return render_template("privacy.html", user=current_user, is_owner=request.is_owner)
 
     @app.route("/terms")
     def terms():
-        return render_template("terms.html", user=current_user, is_owner=is_owner_user())
+        return render_template("terms.html", user=current_user, is_owner=request.is_owner)
 
     @app.route("/dashboard")
     def dashboard():
@@ -885,20 +1371,20 @@ def create_app():
                 searches=searches_data,
                 advisor_count=advisor_count,
                 user=current_user,
-                is_owner=is_owner_user(),
+                is_owner=request.is_owner,
             )
         except Exception as e:
-            print(f"[DASH] ❌ {e}")
+            report_problem("Dashboard render failed", 500, exception=e)
             return redirect(url_for("index"))
 
     @app.route("/search-details/<int:search_id>")
     def search_details(search_id):
         if not current_user.is_authenticated:
-            return jsonify({"error": "נדרש להתחבר"}), 401
+            return make_error_response("נדרש להתחבר", 401)
         try:
             s = SearchHistory.query.filter_by(id=search_id, user_id=current_user.id).first()
             if not s:
-                return jsonify({"error": "לא נמצא רישום מתאים"}), 404
+                return make_error_response("לא נמצא רישום מתאים", 404)
 
             meta = {
                 "id": s.id,
@@ -914,8 +1400,7 @@ def create_app():
             resp.headers["Cache-Control"] = "no-store"
             return resp
         except Exception as e:
-            print(f"[DETAILS] ❌ {e}")
-            return jsonify({"error": "שגיאת שרת בשליפת נתוני חיפוש"}), 500
+            return make_error_response("שגיאת שרת בשליפת נתוני חיפוש", 500, exception=e)
 
     @app.route("/recommendations")
     def recommendations():
@@ -926,7 +1411,7 @@ def create_app():
             "recommendations.html",
             user=current_user,
             user_email=user_email,
-            is_owner=is_owner_user(),
+            is_owner=request.is_owner,
         )
 
     # ===========================
@@ -938,11 +1423,13 @@ def create_app():
     def advisor_api():
         origin_block = enforce_origin_if_configured()
         if origin_block:
-            return origin_block
+            # log as problem too
+            return make_error_response("חסימת אבטחה: מקור הבקשה לא מורשה.", 403, payload=None, extra={"where": "advisor_api", "phase": "origin_check"})
 
         payload, err = parse_json_body()
         if err:
-            return err
+            # wrap existing error to include owner debug
+            return make_error_response("קלט JSON לא תקין", 400, payload=None, extra={"where": "advisor_api", "phase": "parse_json"})
 
         allowed_keys = {
             "budget_min", "budget_max", "year_min", "year_max",
@@ -966,9 +1453,9 @@ def create_app():
             year_max = clamp_int(payload.get("year_max", 2026), 1990, 2030, 2026)
 
             if budget_max <= 0 or budget_min > budget_max:
-                return jsonify({"error": "תקציב לא תקין (min/max)."}), 400
+                return make_error_response("תקציב לא תקין (min/max).", 400, payload=payload, extra={"where": "advisor_api", "phase": "validate"})
             if year_min > year_max:
-                return jsonify({"error": "טווח שנים לא תקין."}), 400
+                return make_error_response("טווח שנים לא תקין.", 400, payload=payload, extra={"where": "advisor_api", "phase": "validate"})
 
             fuels_he = payload.get("fuels_he") or []
             gears_he = payload.get("gears_he") or []
@@ -1016,12 +1503,12 @@ def create_app():
             electricity_price = clamp_float(payload.get("electricity_price", 0.65), 0, 10.0, 0.65)
 
         except Exception as e:
-            log_abuse(f"Advisor input validation failed: {e}", "advisor_api", payload)
-            return jsonify({"error": "שגיאת קלט: נתונים לא תקינים"}), 400
+            return make_error_response("שגיאת קלט: נתונים לא תקינים", 400, payload=payload, exception=e, extra={"where": "advisor_api", "phase": "validate_exception"})
 
         qerr = quota_increment_or_block("advisor", USER_DAILY_LIMIT_ADVISOR)
         if qerr:
-            return qerr
+            # keep existing but wrap
+            return make_error_response("הגעת למגבלת שימוש (advisor).", 429, payload=payload, extra={"where": "advisor_api", "phase": "quota"})
 
         fuels = [fuel_map.get(f, "gasoline") for f in fuels_he] if fuels_he else ["gasoline"]
         if "חשמלי" in fuels_he:
@@ -1049,9 +1536,9 @@ def create_app():
 
         parsed = car_advisor_call_gemini_with_search(user_profile)
         if parsed.get("_error"):
-            if is_owner_user():
-                return jsonify({"error": parsed["_error"], "raw": parsed.get("_raw")}), 500
-            return jsonify({"error": "שגיאת AI במנוע ההמלצות. נסה שוב מאוחר יותר."}), 500
+            if request.is_owner:
+                return make_error_response(parsed.get("_error"), 500, payload=user_profile, extra={"raw": parsed.get("_raw"), "where": "advisor_api", "phase": "gemini"})
+            return make_error_response("שגיאת AI במנוע ההמלצות. נסה שוב מאוחר יותר.", 500, payload=user_profile, extra={"where": "advisor_api", "phase": "gemini"})
 
         result = car_advisor_postprocess(user_profile, parsed)
 
@@ -1063,8 +1550,9 @@ def create_app():
             )
             db.session.add(rec_log)
             db.session.commit()
-        except Exception:
+        except Exception as e:
             db.session.rollback()
+            report_problem("Failed to save AdvisorHistory", 500, exception=e, extra={"where": "advisor_api", "phase": "db_save"})
 
         return jsonify(result)
 
@@ -1077,11 +1565,11 @@ def create_app():
     def analyze_car():
         origin_block = enforce_origin_if_configured()
         if origin_block:
-            return origin_block
+            return make_error_response("חסימת אבטחה: מקור הבקשה לא מורשה.", 403, extra={"where": "analyze_car", "phase": "origin_check"})
 
         payload, err = parse_json_body()
         if err:
-            return err
+            return make_error_response("קלט JSON לא תקין", 400, extra={"where": "analyze_car", "phase": "parse_json"})
 
         allowed_keys = {"make", "model", "sub_model", "year", "mileage_range", "fuel_type", "transmission"}
         data = {k: payload.get(k) for k in allowed_keys if k in payload}
@@ -1096,16 +1584,13 @@ def create_app():
             final_trans = cap_str(data.get("transmission"), 30)
 
             if not (final_make and final_model and final_year):
-                log_abuse("Missing required fields", "analyze", data)
-                return jsonify({"error": "נא למלא יצרן, דגם ושנה"}), 400
-
+                return make_error_response("נא למלא יצרן, דגם ושנה", 400, payload=data, extra={"where": "analyze_car", "phase": "validate"})
         except Exception as e:
-            log_abuse(f"Analyze input validation exception: {e}", "analyze", data)
-            return jsonify({"error": "שגיאת קלט: נתונים לא תקינים"}), 400
+            return make_error_response("שגיאת קלט: נתונים לא תקינים", 400, payload=data, exception=e, extra={"where": "analyze_car", "phase": "validate_exception"})
 
         qerr = quota_increment_or_block("analyze", USER_DAILY_LIMIT_ANALYZE)
         if qerr:
-            return qerr
+            return make_error_response("הגעת למגבלת שימוש (analyze).", 429, payload=data, extra={"where": "analyze_car", "phase": "quota"})
 
         req_obj = {
             "make": final_make,
@@ -1129,8 +1614,8 @@ def create_app():
                 result = json.loads(cached.result_json)
                 result["source_tag"] = f"מקור: מטמון DB (נשמר ב-{cached.timestamp.strftime('%Y-%m-%d')})"
                 return jsonify(result)
-        except Exception:
-            pass
+        except Exception as e:
+            report_problem("Cache lookup failed", 500, exception=e, extra={"where": "analyze_car", "phase": "cache"})
 
         try:
             prompt = build_prompt(
@@ -1138,9 +1623,8 @@ def create_app():
                 final_year, final_fuel, final_trans, final_mileage
             )
             model_output = call_model_with_retry(prompt)
-        except Exception:
-            traceback.print_exc()
-            return jsonify({"error": "שגיאת AI בעת ניתוח. נסה שוב מאוחר יותר."}), 500
+        except Exception as e:
+            return make_error_response("שגיאת AI בעת ניתוח. נסה שוב מאוחר יותר.", 500, payload=req_obj, exception=e, extra={"where": "analyze_car", "phase": "model_call"})
 
         model_output, note = apply_mileage_logic(model_output, final_mileage)
 
@@ -1158,41 +1642,46 @@ def create_app():
             )
             db.session.add(new_log)
             db.session.commit()
-        except Exception:
+        except Exception as e:
             db.session.rollback()
+            report_problem("Failed to save SearchHistory", 500, exception=e, extra={"where": "analyze_car", "phase": "db_save"})
 
         model_output["source_tag"] = "מקור: ניתוח AI חדש"
         model_output["mileage_note"] = note
         model_output["km_warn"] = False
         return jsonify(model_output)
 
-    def _is_api_path() -> bool:
-        p = request.path or ""
-        return p.startswith("/analyze") or p.startswith("/advisor_api") or p.startswith("/api/")
-
+    # ===========================
+    # Error handlers (all go through make_error_response for API)
+    # ===========================
     @app.errorhandler(CSRFError)
     def handle_csrf_error(e):
         if _is_api_path():
-            return jsonify({"error": "שגיאת אבטחה (CSRF). רענן את הדף ונסה שוב."}), 403
+            return make_error_response("שגיאת אבטחה (CSRF). רענן את הדף ונסה שוב.", 403, exception=e, extra={"where": "CSRFError"})
         return redirect(url_for("index"))
 
     @app.errorhandler(429)
     def handle_429(e):
         if _is_api_path():
-            return jsonify({"error": "הגעת למגבלת בקשות. נסה שוב מאוחר יותר."}), 429
+            return make_error_response("הגעת למגבלת בקשות. נסה שוב מאוחר יותר.", 429, exception=e, extra={"where": "RateLimit"})
         return "Too Many Requests", 429
 
     @app.errorhandler(HTTPException)
     def handle_http_exception(e):
         if _is_api_path():
+            code = int(getattr(e, "code", 500) or 500)
             msg = getattr(e, "description", None) or "שגיאת בקשה"
-            return jsonify({"error": msg}), int(getattr(e, "code", 500) or 500)
+            return make_error_response(msg, code, exception=e, extra={"where": "HTTPException"})
         return e
 
     @app.errorhandler(Exception)
     def handle_exception(e):
-        traceback.print_exc()
-        return jsonify({"error": "שגיאת שרת פנימית"}), 500
+        # Never leak to non-owner, but always store event
+        if _is_api_path():
+            return make_error_response("שגיאת שרת פנימית", 500, exception=e, extra={"where": "UnhandledException"})
+        # non-api: keep safe redirect or simple
+        report_problem("Unhandled non-API exception", 500, exception=e, extra={"where": "UnhandledException", "path": request.path})
+        return "Internal Server Error", 500
 
     return app
 
@@ -1200,6 +1689,5 @@ def create_app():
 if __name__ == "__main__":
     app = create_app()
     port = int(os.environ.get("PORT", 5001))
-    is_render = (os.environ.get("RENDER", "") or "").strip() != ""
-    debug = (os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true", "yes")) and (not is_render)
+    debug = (os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true", "yes")) and (not _is_render())
     app.run(host="0.0.0.0", port=port, debug=debug)
