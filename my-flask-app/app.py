@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 # ===================================================================
 # 🚗 Car Reliability Analyzer – Israel
-# v7.6.0 (Owner Debug Console + Fix Prompt + ErrorEvent DB)
+# v7.6.1 (Owner Debug Console + Render Log Summary + Fix Prompt + ErrorEvent DB)
 # ===================================================================
 
-import os, re, json, traceback, hashlib, uuid, sys, platform
+import os, re, json, traceback, hashlib, uuid, sys, platform, logging
 import time as pytime
 from typing import Optional, Tuple, Any, Dict, List
 from datetime import datetime, timedelta, date
@@ -36,6 +36,21 @@ import google.generativeai as genai
 # --- Gemini 3 (SDK החדש) ---
 from google import genai as genai3
 from google.genai import types as genai_types
+
+
+# ==================================
+# === LOGGING ======================
+# ==================================
+logger = logging.getLogger("car_app")
+if not logger.handlers:
+    _h = logging.StreamHandler(sys.stdout)
+    _h.setFormatter(logging.Formatter(
+        fmt="%(asctime)s %(levelname)s [CAR-APP] %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S"
+    ))
+    logger.addHandler(_h)
+logger.setLevel(logging.INFO)
+
 
 # ==================================
 # === 1. יצירת אובייקטים גלובליים ===
@@ -189,16 +204,16 @@ def load_user(user_id):
 # --- טעינת המילון ---
 try:
     from car_models_dict import israeli_car_market_full_compilation
-    print(f"[DICT] ✅ Loaded car_models_dict. Manufacturers: {len(israeli_car_market_full_compilation)}")
+    logger.info(f"[DICT] ✅ Loaded car_models_dict. Manufacturers: {len(israeli_car_market_full_compilation)}")
     try:
         _total_models = sum(len(models) for models in israeli_car_market_full_compilation.values())
-        print(f"[DICT] ✅ Total models loaded: {_total_models}")
+        logger.info(f"[DICT] ✅ Total models loaded: {_total_models}")
     except Exception as inner_e:
-        print(f"[DICT] ⚠️ Count models failed: {inner_e}")
+        logger.warning(f"[DICT] ⚠️ Count models failed: {inner_e}")
 except Exception as e:
-    print(f"[DICT] ❌ Failed to import car_models_dict: {e}")
+    logger.error(f"[DICT] ❌ Failed to import car_models_dict: {e}")
     israeli_car_market_full_compilation = {"Toyota": ["Corolla (2008-2025)"]}
-    print("[DICT] ⚠️ Fallback applied — Toyota only")
+    logger.warning("[DICT] ⚠️ Fallback applied — Toyota only")
 
 import re as _re
 
@@ -275,7 +290,6 @@ def sanitize_headers(h: Dict[str, str]) -> Dict[str, str]:
         lk = str(k).lower().strip()
         if lk in blocked:
             continue
-        # cap values
         safe[str(k)] = truncate(v, 300)
     return safe
 
@@ -291,7 +305,6 @@ def sanitize_env_snapshot() -> Dict[str, Any]:
             return "missing"
         return "set"
 
-    # explicit non-secret config only
     return {
         "is_render": bool((os.environ.get("RENDER", "") or "").strip()),
         "python": sys.version.split()[0],
@@ -325,7 +338,6 @@ def build_suggestions(error_type: str, message: str, tb_text: str, status_code: 
     probable = []
     steps = []
 
-    # 403 patterns
     if status_code == 403:
         if "csrf" in et or "csrf" in msg or "csrf" in tb_low:
             probable.append("חסימת CSRF: הטוקן לא נשלח / לא תקין / חסר cookies של session.")
@@ -333,63 +345,52 @@ def build_suggestions(error_type: str, message: str, tb_text: str, status_code: 
                 "ב־JS ודא fetch עם credentials: 'same-origin'.",
                 "ודא שקודם קוראים GET /api/csrf ומעבירים X-CSRFToken בכותרת.",
                 "ודא שהבקשה היא Content-Type: application/json.",
-                "בדוק שב־Render SESSION_COOKIE_SECURE מוגדר נכון (או השארנו auto לפי is_render).",
+                "אם יש www + apex – מומלץ SESSION_COOKIE_DOMAIN='.yedaarechev.com'.",
             ]
         if "origin" in msg or "origin" in tb_low or "מקור" in msg:
             probable.append("חסימת Origin: ה־Origin לא בתוך ALLOWED_ORIGINS או חסר.")
             steps += [
                 "הגדר ALLOWED_ORIGINS ב־Render: 'https://yedaarechev.com,https://www.yedaarechev.com,https://<your-app>.onrender.com'.",
                 "בדוק שהבקשה מגיעה מהדומיין שלך ולא מ־preview/iframe/extension.",
-                "אם אתה עושה בדיקות מקומית – אל תגדיר ALLOWED_ORIGINS (ריק) או תוסיף localhost.",
             ]
 
-    # 429 patterns
     if status_code == 429:
         probable.append("Rate Limit / Quota: חריגה ממגבלת בקשות (Limiter או DailyQuota).")
         steps += [
             "בדוק headers בתגובה: Retry-After / X-RateLimit-Remaining (אם קיים).",
             "הגדל USER_DAILY_LIMIT_* או GLOBAL_DAILY_LIMIT לפי צורך.",
-            "בדוק Limiter rules: limiter.limit('...') על הנתיב.",
             "אם Redis לא מוגדר – memory:// יכול להיראות 'מחמיר' בריבוי אינסטנסים; מומלץ REDIS_URL/VALKEY_URL.",
         ]
 
-    # DB issues
     if "sqlalchemy" in tb_low or "psycopg" in tb_low or "database" in tb_low:
         probable.append("שגיאת DB: DATABASE_URL לא תקין / חיבור נופל / טבלה חסרה.")
         steps += [
             "ב־Render ודא DATABASE_URL מוגדר ל־Internal Postgres URL.",
-            "אם זה postgres:// – הקוד כבר ממיר ל־postgresql://.",
-            "בדוק שה־db.create_all רץ (רשום בלוג: [DB] ✅ create_all executed).",
-            "אם יש multi-instance – ודא שה־lock file לא גורם לטבלאות להחסר (במידה והקמת DB חדשה).",
+            "אם זה postgres:// – הקוד ממיר ל־postgresql://.",
+            "בדוק שה־db.create_all רץ (בלוג: [DB] ✅ create_all executed).",
         ]
 
-    # Gemini issues
-    if "gemini" in tb_low or "generative" in tb_low or "api key" in tb_low or "403" in tb_low:
+    if "gemini" in tb_low or "generative" in tb_low or "api key" in tb_low:
         probable.append("שגיאת Gemini: GEMINI_API_KEY חסר/שגוי או מכסת API.")
         steps += [
-            "ודא GEMINI_API_KEY מוגדר ב־Render (Environment).",
-            "בדוק Billing/Quota בקונסול של Google AI Studio.",
+            "ודא GEMINI_API_KEY מוגדר ב־Render.",
+            "בדוק Quota/Billing ב־Google AI Studio.",
             "נסה להחליף PRIMARY_MODEL למודל זמין לך.",
         ]
 
-    # JSON issues
     if status_code == 400 and ("json" in msg or "invalid json" in msg or "קלט json" in msg):
         probable.append("קלט JSON לא תקין: גוף הבקשה לא JSON או Content-Type לא נכון.")
         steps += [
-            "ודא fetch עם headers: Content-Type: application/json.",
+            "ודא headers: Content-Type: application/json.",
             "ודא body הוא JSON.stringify(payload).",
-            "ודא שאין trailing commas או שדות לא serializable.",
         ]
 
-    # General fallback
     if not probable:
-        probable.append("שגיאה כללית: נדרש לראות traceback והקשר הבקשה כדי לקבוע סיבה מדויקת.")
+        probable.append("שגיאה כללית: צריך לראות traceback והקשר כדי לקבוע סיבה מדויקת.")
         steps += [
             "פתח את event דרך /owner/debug/events/<id> וקח את prompt_for_fix.",
-            "בדוק האם זה קורה רק בנתיב מסוים / רק ב־Render / רק עם משתמשים מסוימים.",
         ]
 
-    # de-dup
     def uniq(seq):
         out, seen = [], set()
         for x in seq:
@@ -405,10 +406,6 @@ def build_suggestions(error_type: str, message: str, tb_text: str, status_code: 
 
 
 def build_prompt_for_fix(bundle: Dict[str, Any]) -> str:
-    """
-    Ready-to-paste prompt (Hebrew) with context.
-    """
-    # Keep it compact but complete
     return f"""אתה מהנדס תוכנה בכיר (Flask/Render/SQLAlchemy/CSRF/RateLimit).
 אני מצרף אירוע תקלה מתוך אפליקציית Flask. תן:
 1) Root-cause מדויק (מה שבר ומה הטריגר).
@@ -427,7 +424,6 @@ def enforce_origin_if_configured():
     - Always allow same-origin (Origin == host_url)
     - Allow if Referer clearly matches host_url (some browsers omit Origin)
     - If ALLOWED_ORIGINS empty -> do nothing
-    - In non-Render, allow localhost dev
     - Otherwise require origin in allowlist (or referer contains allowlist)
     """
     origin = (request.headers.get("Origin") or "").lower().rstrip("/")
@@ -435,14 +431,13 @@ def enforce_origin_if_configured():
     host_origin = (request.host_url or "").lower().rstrip("/")
 
     # Same-origin allow
-    if origin and origin == host_origin:
+    if origin and host_origin and origin == host_origin:
         return None
 
     # Some browsers omit Origin for same-origin
     if (not origin) and host_origin and (host_origin in referer):
         return None
 
-    # Browser hint
     sec_fetch_site = (request.headers.get("Sec-Fetch-Site") or "").lower()
     if (not origin) and sec_fetch_site in ("same-origin", "same-site"):
         return None
@@ -450,12 +445,6 @@ def enforce_origin_if_configured():
     # No allowlist configured => no blocking
     if not ALLOWED_ORIGINS:
         return None
-
-    # Dev allow (only when not Render)
-    is_render = (os.environ.get("RENDER", "") or "").strip() != ""
-    if not is_render:
-        if host_origin.startswith(("http://localhost", "http://127.0.0.1", "https://localhost", "https://127.0.0.1")):
-            return None
 
     if not origin:
         log_abuse("Missing Origin header", request.path)
@@ -466,7 +455,6 @@ def enforce_origin_if_configured():
     if origin in allowed:
         return None
 
-    # fallback: if referer contains allowed origin
     if any(o in referer for o in allowed):
         return None
 
@@ -673,7 +661,7 @@ def call_model_with_retry(prompt: str) -> dict:
 
 
 # ======================================================
-# === Car Advisor helpers (existing) ===
+# === Car Advisor helpers (existing)
 # ======================================================
 fuel_map = {"בנזין": "gasoline", "היברידי": "hybrid", "דיזל היברידי": "hybrid-diesel", "דיזל": "diesel", "חשמלי": "electric"}
 gear_map = {"אוטומטית": "automatic", "ידנית": "manual"}
@@ -847,7 +835,6 @@ def _is_render() -> bool:
 
 
 def _request_context_snapshot(payload: Any = None) -> Dict[str, Any]:
-    # try to capture JSON body if not provided
     body_preview = None
     if payload is None:
         try:
@@ -878,12 +865,7 @@ def _request_context_snapshot(payload: Any = None) -> Dict[str, Any]:
 
 
 def _cleanup_error_events():
-    """
-    retention cleanup: keep last N and last X days.
-    Safe best-effort.
-    """
     try:
-        # delete older than X days
         cutoff = _now_utc() - timedelta(days=ERROR_EVENTS_MAX_DAYS)
         ErrorEvent.query.filter(ErrorEvent.timestamp < cutoff).delete(synchronize_session=False)
         db.session.commit()
@@ -891,10 +873,8 @@ def _cleanup_error_events():
         db.session.rollback()
 
     try:
-        # keep only last N
         count = ErrorEvent.query.count()
         if count > ERROR_EVENTS_MAX_KEEP:
-            # delete oldest extra
             extra = count - ERROR_EVENTS_MAX_KEEP
             olds = ErrorEvent.query.order_by(ErrorEvent.timestamp.asc()).limit(extra).all()
             for ev in olds:
@@ -914,6 +894,7 @@ def report_problem(
 ) -> Optional[int]:
     """
     Save a debug event and return event_id.
+    Also prints a SHORT summary line to Render logs.
     """
     try:
         tb_text = None
@@ -972,8 +953,13 @@ def report_problem(
         db.session.add(ev)
         db.session.commit()
 
-        # retention cleanup (best effort)
         _cleanup_error_events()
+
+        # ✅ SHORT Render log summary (searchable)
+        logger.warning(
+            f"[DBG] status={status_code} path={request.path} method={request.method} "
+            f"req_id={getattr(request,'req_id',None)} event_id={ev.id} type={err_type} msg={truncate(err_msg,160)}"
+        )
 
         return ev.id
     except Exception:
@@ -1003,12 +989,17 @@ def make_error_response(
         extra=extra or {},
     )
 
+    # store on request (for after_request logging if needed)
+    try:
+        request.debug_event_id = event_id
+    except Exception:
+        pass
+
     base = {
         "error": user_message,
         "req_id": getattr(request, "req_id", None),
     }
 
-    # Owner gets full
     if hasattr(request, "is_owner") and request.is_owner:
         try:
             ev = ErrorEvent.query.get(event_id) if event_id else None
@@ -1049,8 +1040,22 @@ def create_app():
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.config["WTF_CSRF_HEADERS"] = ["X-CSRFToken", "X-CSRF-Token"]
 
+    # Cookies
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+
+    # ✅ Share session for apex + www
+    try:
+        host = (os.environ.get("PUBLIC_HOST", "") or "").strip().lower()
+        # optional explicit override via env: PUBLIC_HOST=yedaarechev.com
+        if (not host) and hasattr(request, "host"):
+            host = (request.host or "").lower()
+    except Exception:
+        host = (os.environ.get("PUBLIC_HOST", "") or "").strip().lower()
+
+    # Set cookie domain when using your domain
+    if "yedaarechev.com" in (host or "yedaarechev.com"):
+        app.config["SESSION_COOKIE_DOMAIN"] = ".yedaarechev.com"
 
     force_secure_cookie = (os.environ.get("SESSION_COOKIE_SECURE", "") or "").lower() in ("1", "true", "yes")
     app.config["SESSION_COOKIE_SECURE"] = True if (is_render or force_secure_cookie) else False
@@ -1088,6 +1093,18 @@ def create_app():
         resp.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
         if getattr(request, "req_id", None):
             resp.headers["X-Request-ID"] = request.req_id
+
+        # ✅ short summary for all API errors (even if not from make_error_response)
+        try:
+            if resp.status_code >= 400 and _is_api_path():
+                ev_id = getattr(request, "debug_event_id", None)
+                logger.warning(
+                    f"[API-ERR] status={resp.status_code} path={request.path} method={request.method} "
+                    f"req_id={getattr(request,'req_id',None)} event_id={ev_id}"
+                )
+        except Exception:
+            pass
+
         return resp
 
     if CORS is not None:
@@ -1129,7 +1146,7 @@ def create_app():
     storage_uri = redis_url if redis_url else "memory://"
 
     def limiter_key():
-        uid = session.get("_user_id")  # Flask-Login stores here
+        uid = session.get("_user_id")
         if uid:
             return f"user:{uid}"
         ip = get_client_ip() or "unknown"
@@ -1148,9 +1165,9 @@ def create_app():
         try:
             lock_path = "/tmp/.db_inited.lock"
             if os.environ.get("SKIP_CREATE_ALL", "").lower() in ("1", "true", "yes"):
-                print("[DB] ⏭️ SKIP_CREATE_ALL enabled - skipping db.create_all()")
+                logger.info("[DB] ⏭️ SKIP_CREATE_ALL enabled - skipping db.create_all()")
             elif os.path.exists(lock_path):
-                print("[DB] ⏭️ create_all skipped (lock exists)")
+                logger.info("[DB] ⏭️ create_all skipped (lock exists)")
             else:
                 db.create_all()
                 try:
@@ -1158,9 +1175,9 @@ def create_app():
                         f.write(str(datetime.utcnow()))
                 except Exception:
                     pass
-                print("[DB] ✅ create_all executed")
+                logger.info("[DB] ✅ create_all executed")
         except Exception as e:
-            print(f"[DB] ⚠️ create_all failed: {e}")
+            logger.warning(f"[DB] ⚠️ create_all failed: {e}")
 
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
     if not GEMINI_API_KEY and is_render:
@@ -1172,10 +1189,10 @@ def create_app():
     if GEMINI_API_KEY:
         try:
             advisor_client = genai3.Client(api_key=GEMINI_API_KEY)
-            print("[CAR-ADVISOR] ✅ Gemini 3 client initialized")
+            logger.info("[CAR-ADVISOR] ✅ Gemini 3 client initialized")
         except Exception as e:
             advisor_client = None
-            print(f"[CAR-ADVISOR] ❌ Failed to init Gemini 3 client: {e}")
+            logger.warning(f"[CAR-ADVISOR] ❌ Failed to init Gemini 3 client: {e}")
     else:
         advisor_client = None
 
@@ -1423,12 +1440,15 @@ def create_app():
     def advisor_api():
         origin_block = enforce_origin_if_configured()
         if origin_block:
-            # log as problem too
-            return make_error_response("חסימת אבטחה: מקור הבקשה לא מורשה.", 403, payload=None, extra={"where": "advisor_api", "phase": "origin_check"})
+            return make_error_response(
+                "חסימת אבטחה: מקור הבקשה לא מורשה.",
+                403,
+                payload=None,
+                extra={"where": "advisor_api", "phase": "origin_check"}
+            )
 
         payload, err = parse_json_body()
         if err:
-            # wrap existing error to include owner debug
             return make_error_response("קלט JSON לא תקין", 400, payload=None, extra={"where": "advisor_api", "phase": "parse_json"})
 
         allowed_keys = {
@@ -1507,7 +1527,6 @@ def create_app():
 
         qerr = quota_increment_or_block("advisor", USER_DAILY_LIMIT_ADVISOR)
         if qerr:
-            # keep existing but wrap
             return make_error_response("הגעת למגבלת שימוש (advisor).", 429, payload=payload, extra={"where": "advisor_api", "phase": "quota"})
 
         fuels = [fuel_map.get(f, "gasoline") for f in fuels_he] if fuels_he else ["gasoline"]
@@ -1652,7 +1671,7 @@ def create_app():
         return jsonify(model_output)
 
     # ===========================
-    # Error handlers (all go through make_error_response for API)
+    # Error handlers
     # ===========================
     @app.errorhandler(CSRFError)
     def handle_csrf_error(e):
@@ -1676,10 +1695,8 @@ def create_app():
 
     @app.errorhandler(Exception)
     def handle_exception(e):
-        # Never leak to non-owner, but always store event
         if _is_api_path():
             return make_error_response("שגיאת שרת פנימית", 500, exception=e, extra={"where": "UnhandledException"})
-        # non-api: keep safe redirect or simple
         report_problem("Unhandled non-API exception", 500, exception=e, extra={"where": "UnhandledException", "path": request.path})
         return "Internal Server Error", 500
 
