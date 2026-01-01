@@ -54,7 +54,8 @@
         const r = await fetch("/api/csrf", {
           method: "GET",
           credentials: "same-origin",
-          headers: { "X-Requested-With": "XMLHttpRequest" },
+          cache: "no-store",
+          headers: { "X-Requested-With": "XMLHttpRequest", "Accept": "application/json" },
         });
         const data = await r.json().catch(() => null);
         if (r.ok && data && data.csrf_token) {
@@ -69,7 +70,7 @@
   // ---------------------------
   // Read injected data from HTML
   // ---------------------------
-  const CAR_DATA = readJsonScriptTag("car-data"); // <-- matches your HTML
+  const CAR_DATA = readJsonScriptTag("car-data");
   const IS_AUTH = (() => {
     const raw = (document.getElementById("auth-data")?.textContent || "").trim();
     return raw === "true";
@@ -88,10 +89,10 @@
   const fuelSelect = document.getElementById("fuel_type");
   const transSelect = document.getElementById("transmission");
 
-  const subModelInput = document.getElementById("sub_model"); // <-- INPUT (text), not select
+  const subModelInput = document.getElementById("sub_model"); // INPUT (text)
   const legalCheckbox = document.getElementById("legal-confirm");
 
-  // Result DOM (match your HTML)
+  // Result DOM
   const resultsContainer = document.getElementById("results-container");
   const scoreContainer = document.getElementById("reliability-score-container");
 
@@ -127,14 +128,16 @@
   // ---------------------------
   function populateMakes() {
     if (!makeSelect) return;
-    // In your HTML, makes are already rendered server-side.
-    // We'll keep them but also support cases where they are empty.
+
+    // In your HTML, makes are often rendered server-side.
     const hasServerOptions = makeSelect.options.length > 1;
     if (hasServerOptions) return;
 
     makeSelect.innerHTML = "";
     addOption(makeSelect, "", "Select Make...", true);
-    Object.keys(CAR_DATA || {}).sort().forEach((make) => addOption(makeSelect, make, make));
+    Object.keys(CAR_DATA || {})
+      .sort()
+      .forEach((make) => addOption(makeSelect, make, make));
   }
 
   function getModelsForMake(make) {
@@ -149,7 +152,7 @@
     const entry = (CAR_DATA || {})[make];
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
     const v = entry[model];
-    // If v is an array of years, use it
+
     if (Array.isArray(v) && v.length) {
       const years = v
         .map((x) => String(x).trim())
@@ -169,15 +172,17 @@
     addOption(modelSelect, "", "-- Select Make First --", true);
 
     modelSelect.disabled = true;
-    yearSelect && (yearSelect.disabled = true);
+    if (yearSelect) yearSelect.disabled = true;
 
     if (!make) return;
 
-    const models = getModelsForMake(make).sort((a, b) => String(a).localeCompare(String(b)));
+    const models = getModelsForMake(make).sort((a, b) =>
+      String(a).localeCompare(String(b))
+    );
+
     modelSelect.innerHTML = "";
     addOption(modelSelect, "", "בחר דגם...", true);
     models.forEach((m) => addOption(modelSelect, m, m));
-
     modelSelect.disabled = false;
 
     if (yearSelect) {
@@ -216,14 +221,14 @@
   }
 
   // ---------------------------
-  // Render results safely (no HTML injection)
+  // Render results safely
   // ---------------------------
   function renderScore(score, label = "ציון אמינות") {
     if (!scoreContainer) return;
+
     const s = Number(score);
     const safeScore = Number.isFinite(s) ? Math.round(s) : null;
 
-    // minimal circle: keep it simple + safe
     scoreContainer.innerHTML = `
       <div class="score-circle" style="background: rgba(99,102,241,0.35); border: 1px solid rgba(99,102,241,0.35);">
         <div style="font-size:14px; opacity:.9;">${escapeHtml(label)}</div>
@@ -235,7 +240,6 @@
   function renderTextBlock(el, text) {
     if (!el) return;
     const safe = escapeHtml(text || "");
-    // keep newlines readable without allowing HTML
     el.innerHTML = safe.replaceAll("\n", "<br/>");
   }
 
@@ -253,12 +257,12 @@
   async function handleSubmit(e) {
     e.preventDefault();
 
+    const legalError = document.getElementById("legal-error");
+
     if (legalCheckbox && !legalCheckbox.checked) {
-      const legalError = document.getElementById("legal-error");
       if (legalError) legalError.classList.remove("hidden");
       return;
     } else {
-      const legalError = document.getElementById("legal-error");
       if (legalError) legalError.classList.add("hidden");
     }
 
@@ -319,18 +323,23 @@
           (res.status === 429
             ? "הגעת למגבלת שימוש (429). נסה שוב מאוחר יותר."
             : res.status === 403
-              ? "חסימת אבטחה (403). רענן את הדף ונסה שוב."
-              : "שגיאה בשרת");
+            ? "חסימת אבטחה (403). רענן את הדף ונסה שוב."
+            : "שגיאה בשרת");
         alert(msg);
         return;
       }
 
-      // Expected fields (adjust if your backend uses different names)
       const score = data.base_score_calculated ?? data.score ?? null;
       renderScore(score);
 
-      renderTextBlock(summarySimpleEl, data.reliability_summary_simple ?? data.summary_simple ?? "");
-      renderTextBlock(summaryDetailedEl, data.reliability_summary ?? data.summary ?? "");
+      renderTextBlock(
+        summarySimpleEl,
+        data.reliability_summary_simple ?? data.summary_simple ?? ""
+      );
+      renderTextBlock(
+        summaryDetailedEl,
+        data.reliability_summary ?? data.summary ?? ""
+      );
 
       renderTextBlock(faultsEl, data.common_faults ?? data.faults ?? "");
       renderTextBlock(costsEl, data.maintenance_costs ?? data.costs ?? "");
@@ -358,15 +367,13 @@
 
   // Bind change listeners
   if (makeSelect) {
-    makeSelect.addEventListener("change", () => {
-      populateModels(makeSelect.value);
-    });
+    makeSelect.addEventListener("change", () => populateModels(makeSelect.value));
   }
 
   if (modelSelect) {
-    modelSelect.addEventListener("change", () => {
-      populateYears(makeSelect?.value || "", modelSelect.value || "");
-    });
+    modelSelect.addEventListener("change", () =>
+      populateYears(makeSelect?.value || "", modelSelect.value || "")
+    );
   }
 
   if (!form.dataset.bound) {
@@ -376,7 +383,6 @@
 
   // Init
   populateMakes();
-  // Keep model/year disabled until selection
   if (modelSelect) modelSelect.disabled = true;
   if (yearSelect) yearSelect.disabled = true;
 })();
