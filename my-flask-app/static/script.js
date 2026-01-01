@@ -1,298 +1,235 @@
-// static/script.js
-(() => {
-  "use strict";
+/* static/script.js
+   Car Reliability Analyzer – client
+   - CSRF fetch & cache
+   - Prevent double submit
+   - Safe JSON POST to /analyze
+   - Friendly error handling (401/403/429/500)
+*/
 
-  const SEL = {
-    form: "#reliabilityForm",
-    btn: "#analyzeBtn",
-    results: "#resultsBox",
-    error: "#errorBox",
-    loading: "#loadingBox",
+"use strict";
 
-    make: "#make",
-    model: "#model",
-    subModel: "#sub_model",
-    year: "#year",
-    mileage: "#mileage_range",
-    fuel: "#fuel_type",
-    trans: "#transmission",
+const API = {
+  csrf: "/api/csrf",
+  analyze: "/analyze",
+};
+
+let _csrfToken = null;
+let _csrfPromise = null;
+
+function $(sel, root = document) {
+  return root.querySelector(sel);
+}
+
+function ensureResultBox() {
+  let box = $("#resultBox") || $("#results") || $("#result") || $("#output");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "resultBox";
+    box.style.marginTop = "16px";
+    const anchor = $("#analyzeForm") || $("form") || document.body;
+    anchor.parentNode.insertBefore(box, anchor.nextSibling);
+  }
+  return box;
+}
+
+function setStatus(html, kind = "info") {
+  const box = ensureResultBox();
+  const color =
+    kind === "error" ? "#b00020" :
+    kind === "success" ? "#0b6b2f" :
+    "#1f2a37";
+  box.innerHTML = `<div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px;color:${color};background:#fff">
+    ${html}
+  </div>`;
+}
+
+async function getCSRFToken() {
+  if (_csrfToken) return _csrfToken;
+  if (_csrfPromise) return _csrfPromise;
+
+  _csrfPromise = fetch(API.csrf, {
+    method: "GET",
+    credentials: "same-origin",
+    headers: { "Accept": "application/json" },
+  })
+    .then(async (r) => {
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.csrf_token) {
+        throw new Error("CSRF token fetch failed");
+      }
+      _csrfToken = data.csrf_token;
+      return _csrfToken;
+    })
+    .finally(() => {
+      _csrfPromise = null;
+    });
+
+  return _csrfPromise;
+}
+
+function readFormPayload(form) {
+  const fd = new FormData(form);
+
+  // Use "name" attributes primarily (best practice), fallback to IDs if needed.
+  const get = (name, fallbackId = null) => {
+    const v = fd.get(name);
+    if (v !== null && v !== undefined) return String(v).trim();
+    if (fallbackId) {
+      const el = document.getElementById(fallbackId);
+      if (el) return String(el.value || "").trim();
+    }
+    return "";
   };
 
-  let CSRF_TOKEN = null;
+  const make = get("make", "make");
+  const model = get("model", "model");
+  const sub_model = get("sub_model", "sub_model");
+  const yearRaw = get("year", "year");
+  const mileage_range = get("mileage_range", "mileage_range");
+  const fuel_type = get("fuel_type", "fuel_type");
+  const transmission = get("transmission", "transmission");
 
-  function $(q) { return document.querySelector(q); }
+  const year = yearRaw ? Number(yearRaw) : 0;
 
-  function setVisible(el, show) {
-    if (!el) return;
-    el.style.display = show ? "" : "none";
+  return {
+    make,
+    model,
+    sub_model,
+    year,
+    mileage_range,
+    fuel_type,
+    transmission,
+  };
+}
+
+function pretty(obj) {
+  try {
+    return JSON.stringify(obj, null, 2);
+  } catch {
+    return String(obj);
+  }
+}
+
+let _inFlight = null;
+
+async function postAnalyze(payload) {
+  const csrf = await getCSRFToken();
+
+  // Abort previous request (prevents spam/double submit)
+  if (_inFlight && _inFlight.abort) _inFlight.abort();
+  const controller = new AbortController();
+  _inFlight = controller;
+
+  const resp = await fetch(API.analyze, {
+    method: "POST",
+    credentials: "same-origin",
+    signal: controller.signal,
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "X-CSRFToken": csrf,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  let data = null;
+  const text = await resp.text().catch(() => "");
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = { _raw: text };
   }
 
-  function setText(el, text) {
-    if (!el) return;
-    el.textContent = text ?? "";
+  if (!resp.ok) {
+    const msg = (data && data.error) ? data.error : `שגיאה (${resp.status})`;
+    const err = new Error(msg);
+    err.status = resp.status;
+    err.data = data;
+    throw err;
   }
 
-  async function fetchCsrfToken() {
-    if (CSRF_TOKEN) return CSRF_TOKEN;
-    const r = await fetch("/api/csrf", { method: "GET", credentials: "same-origin" });
-    const j = await r.json();
-    CSRF_TOKEN = j.csrf_token || null;
-    return CSRF_TOKEN;
-  }
+  return data;
+}
 
-  function clearUI() {
-    const results = $(SEL.results);
-    const error = $(SEL.error);
-    if (results) results.innerHTML = "";
-    setText(error, "");
-    setVisible(error, false);
-  }
+function renderAnalyzeResult(data) {
+  // Minimal, robust rendering without assuming schema beyond "error" absence.
+  const tag = data.source_tag ? `<div style="opacity:.8;margin-bottom:6px">${data.source_tag}</div>` : "";
+  const note = data.mileage_note ? `<div style="margin:8px 0;padding:8px;border-radius:10px;background:#f9fafb">${data.mileage_note}</div>` : "";
 
-  function showError(msg) {
-    const error = $(SEL.error);
-    setText(error, msg || "שגיאה לא ידועה");
-    setVisible(error, true);
-  }
+  // Show key values if exist
+  const base = (data.base_score_calculated !== undefined && data.base_score_calculated !== null)
+    ? `<div style="font-size:20px;font-weight:700;margin:8px 0">ציון בסיס: ${data.base_score_calculated}</div>`
+    : "";
 
-  function safeNumber(x) {
-    const n = Number(x);
-    return Number.isFinite(n) ? n : null;
-  }
+  const summary = data.reliability_summary
+    ? `<div style="margin-top:8px;white-space:pre-wrap">${escapeHtml(String(data.reliability_summary))}</div>`
+    : "";
 
-  function el(tag, cls) {
-    const node = document.createElement(tag);
-    if (cls) node.className = cls;
-    return node;
-  }
+  const sources = Array.isArray(data.sources) && data.sources.length
+    ? `<div style="margin-top:10px"><b>מקורות:</b><ul>${data.sources.map(s => `<li>${escapeHtml(String(s))}</li>`).join("")}</ul></div>`
+    : "";
 
-  function renderResult(data) {
-    const box = $(SEL.results);
-    if (!box) return;
+  const raw = `<details style="margin-top:10px"><summary>JSON מלא</summary><pre style="white-space:pre-wrap">${escapeHtml(pretty(data))}</pre></details>`;
 
-    const title = el("h3");
-    title.textContent = "תוצאות ניתוח אמינות";
-    box.appendChild(title);
+  setStatus(`${tag}${base}${note}${summary}${sources}${raw}`, "success");
+}
 
-    // Score
-    const score = safeNumber(data.base_score_calculated);
-    const scoreLine = el("div");
-    scoreLine.textContent = (score !== null)
-      ? `ציון בסיס: ${score}/100`
-      : `ציון בסיס: לא זמין`;
-    box.appendChild(scoreLine);
+function escapeHtml(s) {
+  return s
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
 
-    // Source tag / mileage note
-    if (data.source_tag) {
-      const st = el("div");
-      st.textContent = String(data.source_tag);
-      box.appendChild(st);
-    }
-    if (data.mileage_note) {
-      const mn = el("div");
-      mn.textContent = String(data.mileage_note);
-      box.appendChild(mn);
-    }
+function wire() {
+  const form = $("#analyzeForm") || $("form[data-role='analyze']") || $("form");
+  if (!form) return;
 
-    // Breakdown
-    if (data.score_breakdown && typeof data.score_breakdown === "object") {
-      const h = el("h4");
-      h.textContent = "פירוט ציונים";
-      box.appendChild(h);
+  // Prevent accidental multiple binding
+  if (form.dataset.bound === "1") return;
+  form.dataset.bound = "1";
 
-      const ul = el("ul");
-      const map = {
-        engine_transmission_score: "מנוע/גיר",
-        electrical_score: "חשמל",
-        suspension_brakes_score: "מתלים/בלמים",
-        maintenance_cost_score: "עלות תחזוקה",
-        satisfaction_score: "שביעות רצון",
-        recalls_score: "ריקולים",
-      };
+  const submitBtn = form.querySelector("[type='submit']");
 
-      for (const [k, label] of Object.entries(map)) {
-        if (k in data.score_breakdown) {
-          const li = el("li");
-          li.textContent = `${label}: ${String(data.score_breakdown[k])}`;
-          ul.appendChild(li);
-        }
-      }
-      box.appendChild(ul);
-    }
-
-    // Summary
-    if (data.reliability_summary) {
-      const h = el("h4");
-      h.textContent = "סיכום מקצועי";
-      box.appendChild(h);
-
-      const p = el("p");
-      p.textContent = String(data.reliability_summary);
-      box.appendChild(p);
-    }
-
-    if (data.reliability_summary_simple) {
-      const h = el("h4");
-      h.textContent = "סיכום קצר";
-      box.appendChild(h);
-
-      const p = el("p");
-      p.textContent = String(data.reliability_summary_simple);
-      box.appendChild(p);
-    }
-
-    // Common issues
-    if (Array.isArray(data.common_issues) && data.common_issues.length) {
-      const h = el("h4");
-      h.textContent = "תקלות נפוצות";
-      box.appendChild(h);
-
-      const ul = el("ul");
-      data.common_issues.slice(0, 12).forEach((x) => {
-        const li = el("li");
-        li.textContent = String(x);
-        ul.appendChild(li);
-      });
-      box.appendChild(ul);
-    }
-
-    // Issues with costs
-    if (Array.isArray(data.issues_with_costs) && data.issues_with_costs.length) {
-      const h = el("h4");
-      h.textContent = "תקלות + עלויות";
-      box.appendChild(h);
-
-      const table = el("table");
-      const thead = el("thead");
-      const trh = el("tr");
-      ["תקלה", "עלות ממוצעת (₪)", "חומרה", "מקור"].forEach((t) => {
-        const th = el("th");
-        th.textContent = t;
-        trh.appendChild(th);
-      });
-      thead.appendChild(trh);
-      table.appendChild(thead);
-
-      const tbody = el("tbody");
-      data.issues_with_costs.slice(0, 12).forEach((row) => {
-        if (!row || typeof row !== "object") return;
-        const tr = el("tr");
-
-        const td1 = el("td"); td1.textContent = String(row.issue ?? "");
-        const td2 = el("td"); td2.textContent = String(row.avg_cost_ILS ?? "");
-        const td3 = el("td"); td3.textContent = String(row.severity ?? "");
-        const td4 = el("td"); td4.textContent = String(row.source ?? "");
-
-        tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tr.appendChild(td4);
-        tbody.appendChild(tr);
-      });
-      table.appendChild(tbody);
-      box.appendChild(table);
-    }
-
-    // Recommended checks
-    if (Array.isArray(data.recommended_checks) && data.recommended_checks.length) {
-      const h = el("h4");
-      h.textContent = "בדיקות מומלצות";
-      box.appendChild(h);
-
-      const ul = el("ul");
-      data.recommended_checks.slice(0, 12).forEach((x) => {
-        const li = el("li");
-        li.textContent = String(x);
-        ul.appendChild(li);
-      });
-      box.appendChild(ul);
-    }
-
-    // Competitors
-    if (Array.isArray(data.common_competitors_brief) && data.common_competitors_brief.length) {
-      const h = el("h4");
-      h.textContent = "מתחרים נפוצים (בקצרה)";
-      box.appendChild(h);
-
-      const ul = el("ul");
-      data.common_competitors_brief.slice(0, 8).forEach((c) => {
-        if (!c || typeof c !== "object") return;
-        const li = el("li");
-        li.textContent = `${String(c.model ?? "")}: ${String(c.brief_summary ?? "")}`;
-        ul.appendChild(li);
-      });
-      box.appendChild(ul);
-    }
-
-    // Sources
-    if (Array.isArray(data.sources) && data.sources.length) {
-      const h = el("h4");
-      h.textContent = "מקורות";
-      box.appendChild(h);
-
-      const ul = el("ul");
-      data.sources.slice(0, 10).forEach((x) => {
-        const li = el("li");
-        li.textContent = String(x);
-        ul.appendChild(li);
-      });
-      box.appendChild(ul);
-    }
-  }
-
-  async function submitAnalyze(e) {
+  form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    clearUI();
 
-    const btn = $(SEL.btn);
-    const loading = $(SEL.loading);
+    const payload = readFormPayload(form);
 
-    setVisible(loading, true);
-    if (btn) btn.disabled = true;
+    // Basic client validation (server still enforces)
+    if (!payload.make || !payload.model || !payload.year) {
+      setStatus("נא למלא יצרן, דגם ושנה.", "error");
+      return;
+    }
 
     try {
-      const csrf = await fetchCsrfToken();
-      if (!csrf) throw new Error("CSRF token missing");
+      if (submitBtn) submitBtn.disabled = true;
+      setStatus("מנתח…", "info");
 
-      const payload = {
-        make: ($(SEL.make)?.value || "").trim(),
-        model: ($(SEL.model)?.value || "").trim(),
-        sub_model: ($(SEL.subModel)?.value || "").trim(),
-        year: Number(($(SEL.year)?.value || "").trim()),
-        mileage_range: ($(SEL.mileage)?.value || "").trim(),
-        fuel_type: ($(SEL.fuel)?.value || "").trim(),
-        transmission: ($(SEL.trans)?.value || "").trim(),
-      };
+      const data = await postAnalyze(payload);
+      renderAnalyzeResult(data);
 
-      const r = await fetch("/analyze", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRFToken": csrf,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        showError(data.error || `שגיאה (${r.status})`);
-        return;
-      }
-      renderResult(data);
     } catch (err) {
-      showError(err?.message || "שגיאה לא ידועה");
+      const st = err && err.status ? err.status : 0;
+
+      if (st === 401) {
+        setStatus('נדרש להתחבר כדי להשתמש בשירות. <a href="/login">התחברות</a>', "error");
+      } else if (st === 403) {
+        setStatus(err.message || "חסימת אבטחה (403).", "error");
+      } else if (st === 429) {
+        setStatus(err.message || "נחסמת זמנית עקב מגבלות שימוש (429). נסה שוב מאוחר יותר.", "error");
+      } else if (st === 0 && String(err).includes("Abort")) {
+        // user spam-clicked; ignore
+        setStatus("הבקשה הקודמת בוטלה (נשלחה בקשה חדשה).", "info");
+      } else {
+        setStatus(err.message || "שגיאה לא צפויה. נסה שוב.", "error");
+      }
     } finally {
-      setVisible(loading, false);
-      if (btn) btn.disabled = false;
+      if (submitBtn) submitBtn.disabled = false;
     }
-  }
+  });
+}
 
-  function init() {
-    const form = $(SEL.form);
-    if (!form) return;
-
-    // preload csrf (reduces first-click failures)
-    fetchCsrfToken().catch(() => {});
-
-    form.addEventListener("submit", submitAnalyze);
-  }
-
-  document.addEventListener("DOMContentLoaded", init);
-})();
+document.addEventListener("DOMContentLoaded", wire);
