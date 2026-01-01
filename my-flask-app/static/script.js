@@ -72,7 +72,6 @@
 
   if (!form) return;
 
-  // Helper: create <option>
   function addOption(selectEl, value, label, selected = false) {
     const opt = document.createElement("option");
     opt.value = value;
@@ -81,7 +80,6 @@
     selectEl.appendChild(opt);
   }
 
-  // Populate makes on load
   function populateMakes() {
     if (!makeSelect) return;
     makeSelect.innerHTML = "";
@@ -89,7 +87,6 @@
     Object.keys(CAR_DATA).sort().forEach((make) => addOption(makeSelect, make, make));
   }
 
-  // Populate models for a make
   function populateModels(make) {
     if (!modelSelect || !subModelSelect) return;
 
@@ -110,7 +107,6 @@
     }
   }
 
-  // Populate submodels (optional)
   function populateSubModels(make, model) {
     if (!subModelSelect) return;
 
@@ -128,7 +124,6 @@
     subs.forEach((s) => addOption(subModelSelect, s, s));
   }
 
-  // Populate years
   function populateYears() {
     if (!yearSelect) return;
     const nowYear = new Date().getFullYear();
@@ -155,7 +150,6 @@
     const card = document.createElement("div");
     card.className = "result-card";
 
-    // Escape everything (AI output must be treated as untrusted)
     card.innerHTML = `
       <h2>תוצאות</h2>
       <div class="score-line">ציון בסיס: <b>${escapeHtml(score)}</b></div>
@@ -249,7 +243,6 @@
     }
   }
 
-  // Events
   if (makeSelect) {
     makeSelect.addEventListener("change", () => {
       populateModels(makeSelect.value);
@@ -268,7 +261,6 @@
     form.addEventListener("submit", handleSubmit);
   }
 
-  // Init
   populateMakes();
   populateModels(makeSelect?.value || "");
   populateYears();
