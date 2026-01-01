@@ -52,7 +52,12 @@
                     <span>{{ user.name.split(' ')[0] if user.name else 'אורח' }}</span>
                 </div>
 
-                <a href="{{ url_for('dashboard') }}" class="relative px-5 py-2.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/50 transition-all hover:-translate-y-0.5">
+                <!-- ✅ FIX: add id + data-action + data-href -->
+                <a id="nav-history"
+                   data-action="history"
+                   data-href="{{ url_for('dashboard') }}"
+                   href="{{ url_for('dashboard') }}"
+                   class="relative px-5 py-2.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/50 transition-all hover:-translate-y-0.5">
                     החיפושים שלי
                 </a>
 
