@@ -8,17 +8,21 @@
   const form = document.getElementById("advisor-form");
   if (!form) return;
 
-  const submitBtn = document.getElementById("advisor-submit-btn");
-  const loadingEl = document.getElementById("advisor-loading");
+  // ✅ IDs that actually exist in your HTML
+  const submitBtn = document.getElementById("advisor-submit"); // was advisor-submit-btn
   const errorEl = document.getElementById("advisor-error");
 
   const resultsSection = document.getElementById("advisor-results");
-  const profileSummaryEl = document.getElementById("profile-summary");
-  const queriesEl = document.getElementById("search-queries");
-  const highlightCardsEl = document.getElementById("highlight-cards");
-  const tableWrapper = document.getElementById("advisor-results-wrapper");
+  const profileSummaryEl = document.getElementById("advisor-profile-summary");
+  const queriesEl = document.getElementById("advisor-search-queries");
+  const highlightCardsEl = document.getElementById("advisor-highlight-cards");
+  const tableWrapper = document.getElementById("advisor-table-wrapper");
 
-  const consentCheckbox = document.getElementById("consent-checkbox");
+  const consentCheckbox = document.getElementById("advisor-consent"); // was consent-checkbox
+
+  // Spinner inside the button (exists)
+  const spinnerEl = submitBtn ? submitBtn.querySelector(".spinner") : null;
+  const buttonTextEl = submitBtn ? submitBtn.querySelector(".button-text") : null;
 
   // =========================
   // Security + sanitization
@@ -69,7 +73,10 @@
 
   function setSubmitting(on) {
     if (submitBtn) submitBtn.disabled = !!on;
-    if (loadingEl) loadingEl.classList.toggle("hidden", !on);
+    if (spinnerEl) spinnerEl.classList.toggle("hidden", !on);
+    if (buttonTextEl) {
+      buttonTextEl.classList.toggle("opacity-60", !!on);
+    }
   }
 
   function showError(msg, meta = {}) {
@@ -115,7 +122,7 @@
   }
 
   // =========================
-  // Payload builder
+  // Payload builder (fixed radios by NAME)
   // =========================
   function buildPayload() {
     const getVal = (id) => (document.getElementById(id)?.value || "").trim();
@@ -132,12 +139,12 @@
     const fuels_he = Array.from(document.querySelectorAll('input[name="fuels_he"]:checked')).map((x) => x.value);
     const gears_he = Array.from(document.querySelectorAll('input[name="gears_he"]:checked')).map((x) => x.value);
 
-    const turbo_choice_he = getVal("turbo_choice_he") || "לא משנה";
+    const turbo_choice_he =
+      document.querySelector('input[name="turbo_choice_he"]:checked')?.value || "לא משנה";
 
     const main_use = getVal("main_use");
     const annual_km = num(getVal("annual_km"), 15000);
     const driver_age = num(getVal("driver_age"), 21);
-
     const license_years = num(getVal("license_years"), 0);
     const driver_gender = getVal("driver_gender") || "זכר";
 
@@ -164,10 +171,13 @@
     const family_size = getVal("family_size") || "1-2";
     const cargo_need = getVal("cargo_need") || "בינוני";
 
-    const safety_required = getVal("safety_required") || getVal("safety_required_radio") || "כן";
+    const safety_required =
+      document.querySelector('input[name="safety_required_radio"]:checked')?.value || "כן";
+
     const trim_level = getVal("trim_level") || "סטנדרטי";
 
-    const consider_supply = getVal("consider_supply") || "כן";
+    const consider_supply =
+      document.querySelector('input[name="consider_supply"]:checked')?.value || "כן";
 
     const fuel_price = num(getVal("fuel_price"), 7.0);
     const electricity_price = num(getVal("electricity_price"), 0.65);
@@ -203,7 +213,7 @@
   }
 
   // =========================
-  // Render (kept as-is)
+  // Render (kept as-is, but with correct elements)
   // =========================
   function renderProfileSummary() {
     if (!profileSummaryEl) return;
@@ -317,20 +327,6 @@
       .join("");
   }
 
-  const methodLabelMap = {
-    fuel_method: "שיטת חישוב צריכת דלק/חשמל",
-    fee_method: "שיטת חישוב אגרת רישוי",
-    reliability_method: "שיטת חישוב אמינות",
-    maintenance_method: "שיטת חישוב תחזוקה",
-    safety_method: "שיטת חישוב בטיחות",
-    insurance_method: "שיטת חישוב ביטוח",
-    resale_method: "שיטת חישוב שמירת ערך",
-    performance_method: "שיטת חישוב ביצועים",
-    comfort_method: "שיטת חישוב נוחות ואבזור",
-    suitability_method: "שיטת חישוב התאמה לנהג",
-    supply_method: "שיטת היצע בשוק",
-  };
-
   function renderCarCard(car) {
     const title = `${car.brand || ""} ${car.model || ""}`.trim();
     const year = car.year || "";
@@ -349,17 +345,6 @@
           : `${safeNum(car.avg_fuel_consumption, 1)} ק״מ לליטר`
         : "";
 
-    const annualFee = car.annual_fee != null ? `${safeNum(car.annual_fee)} ₪` : "";
-    const reliabilityScore = car.reliability_score != null ? safeNum(car.reliability_score, 1) : "";
-    const maintenanceCost = car.maintenance_cost != null ? `${safeNum(car.maintenance_cost)} ₪` : "";
-    const safetyRating = car.safety_rating != null ? safeNum(car.safety_rating, 1) : "";
-    const insuranceCost = car.insurance_cost != null ? `${safeNum(car.insurance_cost)} ₪` : "";
-    const resaleValue = car.resale_value != null ? safeNum(car.resale_value, 1) : "";
-    const performanceScore = car.performance_score != null ? safeNum(car.performance_score, 1) : "";
-    const comfortFeatures = car.comfort_features != null ? safeNum(car.comfort_features, 1) : "";
-    const suitability = car.suitability != null ? safeNum(car.suitability, 1) : "";
-    const marketSupply = car.market_supply || "";
-
     const fit = car.fit_score != null ? Math.round(car.fit_score) : null;
     let fitClass = "bg-slate-800 text-slate-100";
     if (fit !== null) {
@@ -367,21 +352,6 @@
       else if (fit >= 70) fitClass = "bg-amber-500/90 text-slate-900";
       else fitClass = "bg-slate-700 text-slate-100";
     }
-
-    const comparisonComment = car.comparison_comment || "";
-    const notRecommendedReason = car.not_recommended_reason || "";
-
-    const fuelMethod = car.fuel_method || "";
-    const feeMethod = car.fee_method || "";
-    const reliabilityMethod = car.reliability_method || "";
-    const maintenanceMethod = car.maintenance_method || "";
-    const safetyMethod = car.safety_method || "";
-    const insuranceMethod = car.insurance_method || "";
-    const resaleMethod = car.resale_method || "";
-    const performanceMethod = car.performance_method || "";
-    const comfortMethod = car.comfort_method || "";
-    const suitabilityMethod = car.suitability_method || "";
-    const supplyMethod = car.supply_method || "";
 
     return `
       <article class="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 md:p-5 space-y-3">
@@ -398,15 +368,6 @@
             <span class="inline-flex items-center justify-center min-w-[52px] px-2 py-1 rounded-full text-[11px] font-bold ${fitClass}">
               ${fit !== null ? fit + "% Fit" : "?"}
             </span>
-            ${
-              marketSupply
-                ? `
-              <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-800 text-[10px] text-slate-100 border border-slate-700">
-                היצע בשוק: ${marketSupply}
-              </span>
-            `
-                : ""
-            }
           </div>
         </div>
 
@@ -417,61 +378,10 @@
               <tr><th class="px-2 py-1 font-semibold text-slate-300">שנה</th><td class="px-2 py-1 text-slate-100">${year || "-"}</td></tr>
               <tr><th class="px-2 py-1 font-semibold text-slate-300">נפח מנוע</th><td class="px-2 py-1 text-slate-100">${engineCc || "-"}</td></tr>
               <tr><th class="px-2 py-1 font-semibold text-slate-300">טווח מחיר משוער (₪)</th><td class="px-2 py-1 text-slate-100">${priceRange || "-"}</td></tr>
-
               <tr><th class="px-2 py-1 font-semibold text-slate-300">צריכת דלק/חשמל ממוצעת</th><td class="px-2 py-1 text-slate-100">${avgFuel || "-"}</td></tr>
-              ${fuelMethod ? `<tr><th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.fuel_method}</th><td class="px-2 py-1 text-slate-200">${fuelMethod}</td></tr>` : ""}
-
-              <tr><th class="px-2 py-1 font-semibold text-slate-300">אגרת רישוי שנתית (₪)</th><td class="px-2 py-1 text-slate-100">${annualFee || "-"}</td></tr>
-              ${feeMethod ? `<tr><th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.fee_method}</th><td class="px-2 py-1 text-slate-200">${feeMethod}</td></tr>` : ""}
-
-              <tr><th class="px-2 py-1 font-semibold text-slate-300">ציון אמינות (1–10)</th><td class="px-2 py-1 text-slate-100">${reliabilityScore || "-"}</td></tr>
-              ${reliabilityMethod ? `<tr><th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.reliability_method}</th><td class="px-2 py-1 text-slate-200">${reliabilityMethod}</td></tr>` : ""}
-
-              <tr><th class="px-2 py-1 font-semibold text-slate-300">עלות אחזקה שנתית (₪)</th><td class="px-2 py-1 text-slate-100">${maintenanceCost || "-"}</td></tr>
-              ${maintenanceMethod ? `<tr><th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.maintenance_method}</th><td class="px-2 py-1 text-slate-200">${maintenanceMethod}</td></tr>` : ""}
-
-              <tr><th class="px-2 py-1 font-semibold text-slate-300">ציון בטיחות (1–10)</th><td class="px-2 py-1 text-slate-100">${safetyRating || "-"}</td></tr>
-              ${safetyMethod ? `<tr><th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.safety_method}</th><td class="px-2 py-1 text-slate-200">${safetyMethod}</td></tr>` : ""}
-
-              <tr><th class="px-2 py-1 font-semibold text-slate-300">עלות ביטוח שנתית (₪)</th><td class="px-2 py-1 text-slate-100">${insuranceCost || "-"}</td></tr>
-              ${insuranceMethod ? `<tr><th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.insurance_method}</th><td class="px-2 py-1 text-slate-200">${insuranceMethod}</td></tr>` : ""}
-
-              <tr><th class="px-2 py-1 font-semibold text-slate-300">שמירת ערך (1–10)</th><td class="px-2 py-1 text-slate-100">${resaleValue || "-"}</td></tr>
-              ${resaleMethod ? `<tr><th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.resale_method}</th><td class="px-2 py-1 text-slate-200">${resaleMethod}</td></tr>` : ""}
-
-              <tr><th class="px-2 py-1 font-semibold text-slate-300">ביצועים (1–10)</th><td class="px-2 py-1 text-slate-100">${performanceScore || "-"}</td></tr>
-              ${performanceMethod ? `<tr><th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.performance_method}</th><td class="px-2 py-1 text-slate-200">${performanceMethod}</td></tr>` : ""}
-
-              <tr><th class="px-2 py-1 font-semibold text-slate-300">נוחות ואבזור (1–10)</th><td class="px-2 py-1 text-slate-100">${comfortFeatures || "-"}</td></tr>
-              ${comfortMethod ? `<tr><th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.comfort_method}</th><td class="px-2 py-1 text-slate-200">${comfortMethod}</td></tr>` : ""}
-
-              <tr><th class="px-2 py-1 font-semibold text-slate-300">התאמה לנהג (1–10)</th><td class="px-2 py-1 text-slate-100">${suitability || "-"}</td></tr>
-              ${suitabilityMethod ? `<tr><th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.suitability_method}</th><td class="px-2 py-1 text-slate-200">${suitabilityMethod}</td></tr>` : ""}
-
-              ${supplyMethod ? `<tr><th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.supply_method}</th><td class="px-2 py-1 text-slate-200">${supplyMethod}</td></tr>` : ""}
             </tbody>
           </table>
         </div>
-
-        ${
-          comparisonComment
-            ? `
-          <div class="mt-2 text-[11px] md:text-xs text-slate-300 leading-relaxed">
-            <span class="font-semibold text-slate-100">הסבר כללי:</span><br>${comparisonComment}
-          </div>
-        `
-            : ""
-        }
-
-        ${
-          notRecommendedReason
-            ? `
-          <div class="mt-2 text-[11px] md:text-xs text-red-300 leading-relaxed border border-red-500/40 bg-red-900/20 rounded-xl px-3 py-2">
-            <span class="font-semibold">סיבה לאי-המלצה/הסתייגות:</span><br>${notRecommendedReason}
-          </div>
-        `
-            : ""
-        }
       </article>
     `;
   }
@@ -511,14 +421,7 @@
     renderHighlightCards(cars);
 
     cars.sort((a, b) => (b.fit_score || 0) - (a.fit_score || 0));
-    const cardsHtml = cars.map((car) => renderCarCard(car)).join("");
-
-    tableWrapper.innerHTML = `
-      <div class="mb-2 text-[11px] text-slate-400">
-        לכל רכב מוצגת כרטיסייה נפרדת עם כל הפרמטרים, כולל השיטות שבהן חושבו הנתונים.
-      </div>
-      <div class="space-y-4">${cardsHtml}</div>
-    `;
+    tableWrapper.innerHTML = `<div class="space-y-4">${cars.map(renderCarCard).join("")}</div>`;
 
     resultsSection.classList.remove("hidden");
     resultsSection.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -534,15 +437,13 @@
   }
 
   // =========================
-  // History navigation fix (UI bug)
+  // ✅ History navigation fix (REAL)
   // =========================
   function bindHistoryFix() {
     const el =
-      document.querySelector("#history-link") ||
-      document.querySelector("#history-btn") ||
       document.querySelector("#nav-history") ||
-      document.querySelector('a[data-action="history"]') ||
-      document.querySelector('button[data-action="history"]');
+      document.querySelector('[data-action="history"]') ||
+      document.querySelector('a[href*="/dashboard"]');
 
     if (!el) return;
 
@@ -552,25 +453,25 @@
         ev.preventDefault();
         ev.stopPropagation();
         ev.stopImmediatePropagation();
-        window.location.href = el.dataset.href || el.getAttribute("href") || "/history";
+
+        const target =
+          el.dataset.href ||
+          el.getAttribute("href") ||
+          "/dashboard";
+
+        window.location.href = target;
       },
-      true
+      true // capture -> beats other listeners
     );
   }
 
   bindHistoryFix();
 
   // =========================
-  // Submit handler (fixed 429 messaging)
+  // Submit handler
   // =========================
   let inFlight = false;
   let controller = null;
-
-  function isDailyQuotaMessage(msg) {
-    const t = String(msg || "");
-    // Typical phrases from your server-side quota messages
-    return /מחר|מכסת|מכסה|יומית|יומיים|נס(ה)? שוב מחר/.test(t);
-  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -623,23 +524,9 @@
       }
 
       const data = await readJsonOrText(res);
-      const meta = {
-        req_id: data.req_id || res.headers.get("X-Request-ID") || "",
-        debug_event_id: data.debug_event_id || res.headers.get("X-Debug-Event-ID") || "",
-      };
 
       if (!res.ok || data.error) {
-        if (res.status === 429) {
-          // ✅ Don't lie with "60 seconds" when it's daily quota
-          const retryAfter = res.headers.get("Retry-After");
-          const msg = data.error || "נחסמת עקב מגבלת בקשות (429). נסה שוב מאוחר יותר.";
-          const extra = (!isDailyQuotaMessage(msg) && retryAfter) ? ` (נסה שוב בעוד ${retryAfter} שניות)` : "";
-          showError(msg + extra, meta);
-        } else if (res.status === 403) {
-          showError(data.error || "חסימת אבטחה (403). רענן את הדף ונסה שוב.", meta);
-        } else {
-          showError(data.error || `שגיאת שרת בעת הפעלת מנוע ההמלצות. (${res.status})`, meta);
-        }
+        showError(data.error || `שגיאת שרת. (${res.status})`);
         return;
       }
 
