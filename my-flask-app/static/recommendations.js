@@ -40,7 +40,11 @@
   let _csrfToken = null;
   async function getCsrfToken() {
     if (_csrfToken) return _csrfToken;
-    const res = await fetch("/api/csrf", { credentials: "same-origin" });
+    const res = await fetch("/api/csrf", {
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "X-Requested-With": "XMLHttpRequest", "Accept": "application/json" },
+    });
     const data = await res.json().catch(() => ({}));
     _csrfToken = data.csrf_token || "";
     return _csrfToken;
@@ -113,7 +117,9 @@
     const seats_choice = getVal("seats_choice") || "5";
 
     let excluded_colors = getVal("excluded_colors") || "";
-    excluded_colors = excluded_colors ? excluded_colors.split(",").map((s) => s.trim()).filter(Boolean) : [];
+    excluded_colors = excluded_colors
+      ? excluded_colors.split(",").map((s) => s.trim()).filter(Boolean)
+      : [];
 
     const weights = {
       reliability: num(getVal("w_reliability"), 5),
@@ -517,6 +523,7 @@
     inFlight = new AbortController();
 
     setSubmitting(true);
+
     try {
       const csrfToken = await getCsrfToken();
       if (!csrfToken) {
