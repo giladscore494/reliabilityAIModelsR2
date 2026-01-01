@@ -1,19 +1,9 @@
 (() => {
   "use strict";
 
-  // CAR_DATA comes from server-side injection (JSON)
-  let CAR_DATA = {};
-  try {
-    if (typeof window.CAR_DATA === "string") {
-      CAR_DATA = window.CAR_DATA ? JSON.parse(window.CAR_DATA) : {};
-    } else if (typeof window.CAR_DATA === "object" && window.CAR_DATA) {
-      CAR_DATA = window.CAR_DATA;
-    }
-  } catch (e) {
-    CAR_DATA = {};
-    console.warn("Failed to parse CAR_DATA:", e);
-  }
-
+  // ---------------------------
+  // Safe helpers
+  // ---------------------------
   function escapeHtml(str) {
     return String(str ?? "")
       .replaceAll("&", "&amp;")
@@ -21,6 +11,36 @@
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
+  }
+
+  function addOption(selectEl, value, label, selected = false) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = label;
+    if (selected) opt.selected = true;
+    selectEl.appendChild(opt);
+  }
+
+  function readJsonScriptTag(id) {
+    const el = document.getElementById(id);
+    if (!el) return {};
+    const raw = (el.textContent || "").trim();
+    if (!raw) return {};
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      console.warn(`Failed to parse ${id}:`, e);
+      return {};
+    }
+  }
+
+  async function readJsonOrText(res) {
+    const text = await res.text().catch(() => "");
+    try {
+      return text ? JSON.parse(text) : {};
+    } catch {
+      return { _raw: text };
+    }
   }
 
   // ---------------------------
@@ -46,155 +66,225 @@
     },
   };
 
-  async function readJsonOrText(res) {
-    const text = await res.text().catch(() => "");
-    try {
-      return text ? JSON.parse(text) : {};
-    } catch {
-      return { _raw: text };
-    }
-  }
+  // ---------------------------
+  // Read injected data from HTML
+  // ---------------------------
+  const CAR_DATA = readJsonScriptTag("car-data"); // <-- matches your HTML
+  const IS_AUTH = (() => {
+    const raw = (document.getElementById("auth-data")?.textContent || "").trim();
+    return raw === "true";
+  })();
 
-  // DOM elements
+  // If user is not logged in, form doesn't exist anyway.
+  const form = document.getElementById("car-form");
+  if (!form || !IS_AUTH) return;
+
+  // DOM elements (match your HTML)
   const makeSelect = document.getElementById("make");
   const modelSelect = document.getElementById("model");
-  const subModelSelect = document.getElementById("sub_model");
-
   const yearSelect = document.getElementById("year");
+
   const mileageSelect = document.getElementById("mileage_range");
   const fuelSelect = document.getElementById("fuel_type");
   const transSelect = document.getElementById("transmission");
 
-  const form = document.getElementById("analyze-form");
-  const resultContainer = document.getElementById("result-container");
-  const loadingOverlay = document.getElementById("loading-overlay");
-  const legalCheckbox = document.getElementById("legal-checkbox");
+  const subModelInput = document.getElementById("sub_model"); // <-- INPUT (text), not select
+  const legalCheckbox = document.getElementById("legal-confirm");
 
-  if (!form) return;
+  // Result DOM (match your HTML)
+  const resultsContainer = document.getElementById("results-container");
+  const scoreContainer = document.getElementById("reliability-score-container");
 
-  function addOption(selectEl, value, label, selected = false) {
-    const opt = document.createElement("option");
-    opt.value = value;
-    opt.textContent = label;
-    if (selected) opt.selected = true;
-    selectEl.appendChild(opt);
-  }
+  const summarySimpleEl = document.getElementById("summary-simple-text");
+  const summaryDetailedEl = document.getElementById("summary-detailed-text");
+  const summaryToggleBtn = document.getElementById("summary-toggle-btn");
+  const summaryDetailedBlock = document.getElementById("summary-detailed-block");
 
+  const faultsEl = document.getElementById("faults");
+  const costsEl = document.getElementById("costs");
+  const competitorsEl = document.getElementById("competitors");
+
+  const submitBtn = document.getElementById("submit-button");
+  const spinner = submitBtn?.querySelector(".spinner");
+  const btnText = submitBtn?.querySelector(".button-text");
+
+  // ---------------------------
+  // Tabs (your HTML calls window.openTab)
+  // ---------------------------
+  window.openTab = (evt, tabId) => {
+    const tabButtons = document.querySelectorAll(".tab-btn");
+    const tabContents = document.querySelectorAll(".tab-content");
+
+    tabButtons.forEach((b) => b.classList.remove("active"));
+    tabContents.forEach((c) => c.classList.remove("active"));
+
+    evt?.currentTarget?.classList.add("active");
+    document.getElementById(tabId)?.classList.add("active");
+  };
+
+  // ---------------------------
+  // Populate selects
+  // ---------------------------
   function populateMakes() {
     if (!makeSelect) return;
+    // In your HTML, makes are already rendered server-side.
+    // We'll keep them but also support cases where they are empty.
+    const hasServerOptions = makeSelect.options.length > 1;
+    if (hasServerOptions) return;
+
     makeSelect.innerHTML = "";
-    addOption(makeSelect, "", "בחר יצרן...", true);
-    Object.keys(CAR_DATA).sort().forEach((make) => addOption(makeSelect, make, make));
+    addOption(makeSelect, "", "Select Make...", true);
+    Object.keys(CAR_DATA || {}).sort().forEach((make) => addOption(makeSelect, make, make));
+  }
+
+  function getModelsForMake(make) {
+    const entry = (CAR_DATA || {})[make];
+    if (!entry) return [];
+    if (Array.isArray(entry)) return entry.slice();
+    if (typeof entry === "object") return Object.keys(entry);
+    return [];
+  }
+
+  function getYearsForMakeModel(make, model) {
+    const entry = (CAR_DATA || {})[make];
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+    const v = entry[model];
+    // If v is an array of years, use it
+    if (Array.isArray(v) && v.length) {
+      const years = v
+        .map((x) => String(x).trim())
+        .filter((x) => /^\d{4}$/.test(x))
+        .map((x) => parseInt(x, 10))
+        .filter((n) => n >= 1950 && n <= new Date().getFullYear() + 1)
+        .sort((a, b) => b - a);
+      return years.length ? years : null;
+    }
+    return null;
   }
 
   function populateModels(make) {
-    if (!modelSelect || !subModelSelect) return;
+    if (!modelSelect) return;
 
     modelSelect.innerHTML = "";
-    subModelSelect.innerHTML = "";
+    addOption(modelSelect, "", "-- Select Make First --", true);
 
+    modelSelect.disabled = true;
+    yearSelect && (yearSelect.disabled = true);
+
+    if (!make) return;
+
+    const models = getModelsForMake(make).sort((a, b) => String(a).localeCompare(String(b)));
+    modelSelect.innerHTML = "";
     addOption(modelSelect, "", "בחר דגם...", true);
-    addOption(subModelSelect, "", "בחר תת-דגם (אופציונלי)...", true);
+    models.forEach((m) => addOption(modelSelect, m, m));
 
-    if (!make || !CAR_DATA[make]) return;
+    modelSelect.disabled = false;
 
-    const entry = CAR_DATA[make];
-
-    if (Array.isArray(entry)) {
-      entry.forEach((m) => addOption(modelSelect, m, m));
-    } else if (typeof entry === "object") {
-      Object.keys(entry).sort().forEach((m) => addOption(modelSelect, m, m));
+    if (yearSelect) {
+      yearSelect.innerHTML = "";
+      addOption(yearSelect, "", "-- Select Model First --", true);
+      yearSelect.disabled = true;
     }
   }
 
-  function populateSubModels(make, model) {
-    if (!subModelSelect) return;
-
-    subModelSelect.innerHTML = "";
-    addOption(subModelSelect, "", "בחר תת-דגם (אופציונלי)...", true);
-
-    if (!make || !model) return;
-
-    const entry = CAR_DATA[make];
-    if (!entry || Array.isArray(entry)) return;
-
-    const subs = entry[model];
-    if (!subs || !Array.isArray(subs)) return;
-
-    subs.forEach((s) => addOption(subModelSelect, s, s));
-  }
-
-  function populateYears() {
+  function populateYears(make, model) {
     if (!yearSelect) return;
-    const nowYear = new Date().getFullYear();
+
     yearSelect.innerHTML = "";
     addOption(yearSelect, "", "בחר שנה...", true);
-    for (let y = nowYear; y >= 1990; y--) addOption(yearSelect, String(y), String(y));
+
+    const yearsFromData = getYearsForMakeModel(make, model);
+    if (yearsFromData) {
+      yearsFromData.forEach((y) => addOption(yearSelect, String(y), String(y)));
+      yearSelect.disabled = false;
+      return;
+    }
+
+    // fallback
+    const now = new Date().getFullYear();
+    for (let y = now; y >= 1990; y--) addOption(yearSelect, String(y), String(y));
+    yearSelect.disabled = false;
   }
 
-  function showLoading(show) {
-    if (!loadingOverlay) return;
-    loadingOverlay.style.display = show ? "flex" : "none";
+  // ---------------------------
+  // UI loading state
+  // ---------------------------
+  function setLoading(isLoading) {
+    if (spinner) spinner.classList.toggle("hidden", !isLoading);
+    if (btnText) btnText.style.opacity = isLoading ? "0.85" : "1";
+    if (submitBtn) submitBtn.disabled = !!isLoading;
   }
 
-  function renderResult(data) {
-    if (!resultContainer) return;
-    resultContainer.innerHTML = "";
+  // ---------------------------
+  // Render results safely (no HTML injection)
+  // ---------------------------
+  function renderScore(score, label = "ציון אמינות") {
+    if (!scoreContainer) return;
+    const s = Number(score);
+    const safeScore = Number.isFinite(s) ? Math.round(s) : null;
 
-    const score = data.base_score_calculated ?? "—";
-    const summary = data.reliability_summary ?? "";
-    const summarySimple = data.reliability_summary_simple ?? "";
-    const sourceTag = data.source_tag ?? "";
-    const mileageNote = data.mileage_note ?? "";
-
-    const card = document.createElement("div");
-    card.className = "result-card";
-
-    card.innerHTML = `
-      <h2>תוצאות</h2>
-      <div class="score-line">ציון בסיס: <b>${escapeHtml(score)}</b></div>
-      ${sourceTag ? `<div class="source-tag">${escapeHtml(sourceTag)}</div>` : ""}
-      ${mileageNote ? `<div class="mileage-note">${escapeHtml(mileageNote)}</div>` : ""}
-      <hr/>
-      <h3>סיכום</h3>
-      <p>${escapeHtml(summary)}</p>
-      <h3>סיכום פשוט</h3>
-      <p>${escapeHtml(summarySimple)}</p>
+    // minimal circle: keep it simple + safe
+    scoreContainer.innerHTML = `
+      <div class="score-circle" style="background: rgba(99,102,241,0.35); border: 1px solid rgba(99,102,241,0.35);">
+        <div style="font-size:14px; opacity:.9;">${escapeHtml(label)}</div>
+        <div style="font-size:52px; line-height:1; margin-top:6px;">${safeScore ?? "—"}</div>
+      </div>
     `;
-
-    resultContainer.appendChild(card);
-    resultContainer.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
+  function renderTextBlock(el, text) {
+    if (!el) return;
+    const safe = escapeHtml(text || "");
+    // keep newlines readable without allowing HTML
+    el.innerHTML = safe.replaceAll("\n", "<br/>");
+  }
+
+  function showResults() {
+    if (!resultsContainer) return;
+    resultsContainer.classList.remove("hidden");
+    resultsContainer.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // ---------------------------
+  // Submit
+  // ---------------------------
   let inFlight = null;
 
   async function handleSubmit(e) {
     e.preventDefault();
 
     if (legalCheckbox && !legalCheckbox.checked) {
-      alert("חובה לאשר את התנאים כדי להשתמש בשירות.");
+      const legalError = document.getElementById("legal-error");
+      if (legalError) legalError.classList.remove("hidden");
+      return;
+    } else {
+      const legalError = document.getElementById("legal-error");
+      if (legalError) legalError.classList.add("hidden");
+    }
+
+    const make = makeSelect?.value || "";
+    const model = modelSelect?.value || "";
+    const year = parseInt(yearSelect?.value || "0", 10);
+
+    if (!make || !model || !year) {
+      alert("נא למלא יצרן, דגם ושנה.");
       return;
     }
 
     const payload = {
-      make: makeSelect?.value || "",
-      model: modelSelect?.value || "",
-      sub_model: subModelSelect?.value || "",
-      year: parseInt(yearSelect?.value || "0", 10),
+      make,
+      model,
+      year,
+      sub_model: (subModelInput?.value || "").trim(),
       mileage_range: mileageSelect?.value || "",
       fuel_type: fuelSelect?.value || "",
       transmission: transSelect?.value || "",
     };
 
-    if (!payload.make || !payload.model || !payload.year) {
-      alert("נא למלא יצרן, דגם ושנה.");
-      return;
-    }
-
     if (inFlight) inFlight.abort();
     inFlight = new AbortController();
 
-    showLoading(true);
+    setLoading(true);
 
     try {
       const csrf = await CSRF.ensure();
@@ -223,36 +313,59 @@
 
       const data = await readJsonOrText(res);
 
-      if (!res.ok || data.error) {
+      if (!res.ok || data?.error) {
         const msg =
-          data.error ||
-          (res.status === 429 ? "הגעת למגבלת שימוש (429). נסה שוב מאוחר יותר / מחר." :
-           res.status === 403 ? "חסימת אבטחה (403). רענן את הדף ונסה שוב." :
-           "שגיאה בשרת");
+          data?.error ||
+          (res.status === 429
+            ? "הגעת למגבלת שימוש (429). נסה שוב מאוחר יותר."
+            : res.status === 403
+              ? "חסימת אבטחה (403). רענן את הדף ונסה שוב."
+              : "שגיאה בשרת");
         alert(msg);
         return;
       }
 
-      renderResult(data);
+      // Expected fields (adjust if your backend uses different names)
+      const score = data.base_score_calculated ?? data.score ?? null;
+      renderScore(score);
+
+      renderTextBlock(summarySimpleEl, data.reliability_summary_simple ?? data.summary_simple ?? "");
+      renderTextBlock(summaryDetailedEl, data.reliability_summary ?? data.summary ?? "");
+
+      renderTextBlock(faultsEl, data.common_faults ?? data.faults ?? "");
+      renderTextBlock(costsEl, data.maintenance_costs ?? data.costs ?? "");
+      renderTextBlock(competitorsEl, data.competitors ?? "");
+
+      showResults();
     } catch (err) {
       if (String(err).includes("AbortError")) return;
       console.error(err);
       alert("שגיאה לא צפויה. נסה שוב.");
     } finally {
-      showLoading(false);
+      setLoading(false);
     }
   }
 
+  // Toggle summary details
+  if (summaryToggleBtn && summaryDetailedBlock) {
+    summaryToggleBtn.addEventListener("click", () => {
+      summaryDetailedBlock.classList.toggle("hidden");
+      summaryToggleBtn.textContent = summaryDetailedBlock.classList.contains("hidden")
+        ? "להרחבה מקצועית"
+        : "להצגה מצומצמת";
+    });
+  }
+
+  // Bind change listeners
   if (makeSelect) {
     makeSelect.addEventListener("change", () => {
       populateModels(makeSelect.value);
-      populateSubModels(makeSelect.value, modelSelect?.value || "");
     });
   }
 
   if (modelSelect) {
     modelSelect.addEventListener("change", () => {
-      populateSubModels(makeSelect?.value || "", modelSelect.value);
+      populateYears(makeSelect?.value || "", modelSelect.value || "");
     });
   }
 
@@ -261,7 +374,9 @@
     form.addEventListener("submit", handleSubmit);
   }
 
+  // Init
   populateMakes();
-  populateModels(makeSelect?.value || "");
-  populateYears();
+  // Keep model/year disabled until selection
+  if (modelSelect) modelSelect.disabled = true;
+  if (yearSelect) yearSelect.disabled = true;
 })();
