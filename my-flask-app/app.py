@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===================================================================
 # 🚗 Car Reliability Analyzer – Israel
-# v7.9.0 (FULL CODE: Unified SDK v3, Relaxed Limits, Fixed Cookies)
+# v8.2.0 (FULL PRODUCTION CODE: SDK v3, Cookie Fix, Relaxed Limits)
 # ===================================================================
 
 import os, re, json, traceback, hashlib, uuid, sys, platform, logging
@@ -67,7 +67,7 @@ limiter = None
 
 # Unified Gemini 3 Client
 genai_client = None
-GEMINI3_MODEL_ID = "gemini-2.0-flash" # מודל ברירת מחדל מהיר וחדש
+GEMINI3_MODEL_ID = "gemini-2.0-flash" 
 
 # =========================
 # ========= CONFIG ========
@@ -79,7 +79,7 @@ RETRIES = int(os.environ.get("RETRIES", "2"))
 RETRY_BACKOFF_SEC = float(os.environ.get("RETRY_BACKOFF_SEC", "1.5"))
 
 GLOBAL_DAILY_LIMIT = int(os.environ.get("GLOBAL_DAILY_LIMIT", "1000"))
-# ברירת מחדל: 5 בקשות ביום למשתמש, כפי שביקשת
+# ברירת מחדל: 5 בקשות ביום למשתמש
 USER_DAILY_LIMIT_ANALYZE = int(os.environ.get("USER_DAILY_LIMIT_ANALYZE", "5"))
 USER_DAILY_LIMIT_ADVISOR = int(os.environ.get("USER_DAILY_LIMIT_ADVISOR", "5"))
 
