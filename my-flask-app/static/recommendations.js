@@ -513,7 +513,6 @@
       return;
     }
 
-    // Abort previous request (prevents double-submit spam)
     if (inFlight) inFlight.abort();
     inFlight = new AbortController();
 
@@ -566,7 +565,6 @@
     }
   }
 
-  // Bind once
   if (!form.dataset.bound) {
     form.dataset.bound = "1";
     form.addEventListener("submit", handleSubmit);
