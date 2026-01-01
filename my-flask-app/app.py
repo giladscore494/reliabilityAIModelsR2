@@ -16,7 +16,7 @@ from flask import (
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
     LoginManager, UserMixin, login_user, logout_user,
-    current_user
+    current_user, login_required
 )
 from authlib.integrations.flask_client import OAuth
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -100,7 +100,6 @@ class SearchHistory(db.Model):
     fuel_type = db.Column(db.String(100))
     transmission = db.Column(db.String(100))
 
-    # hash of normalized input to support cache lookups
     req_hash = db.Column(db.String(64), index=True)
     result_json = db.Column(db.Text, nullable=False)
 
@@ -115,10 +114,8 @@ class AdvisorHistory(db.Model):
 
 class DailyQuota(db.Model):
     """
-    Quota counter server-side (cannot be bypassed via cached responses).
+    Quota counter server-side.
     Unique: (day, scope_type, scope_id, endpoint)
-      scope_type: 'user' or 'global'
-      scope_id: user_id for 'user', 0 for 'global'
     """
     id = db.Column(db.Integer, primary_key=True)
     day = db.Column(db.Date, nullable=False, index=True)
@@ -181,7 +178,7 @@ def normalize_text(s: Any) -> str:
 
 
 def get_client_ip() -> str:
-    # ProxyFix already populates request.remote_addr based on X-Forwarded-For
+    # Prefer XFF (first hop), else remote_addr (ProxyFix adjusted)
     return (request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
             or request.remote_addr
             or "")
@@ -212,13 +209,6 @@ def log_abuse(reason: str, endpoint: str, payload: Any = None):
 
 
 def enforce_origin_if_configured():
-    """
-    Adds friction vs curl/Postman and blocks cross-site.
-    Not a cryptographic guarantee (Origin can be spoofed),
-    but helps with abuse + CSRF posture.
-
-    FIX: always allow same-origin host_url to avoid accidental lockouts.
-    """
     if not ALLOWED_ORIGINS:
         return
 
@@ -226,19 +216,16 @@ def enforce_origin_if_configured():
     referer = (request.headers.get("Referer") or "").lower()
     host_origin = (request.host_url or "").lower().rstrip("/")
 
-    # Always allow same-origin
     if origin and origin == host_origin:
         return
     if (not origin) and host_origin and (host_origin in referer):
         return
 
-    # If browser POST, Origin should exist. If missing => block (strong posture).
     if not origin:
         log_abuse("Missing Origin header", request.path)
         return jsonify({"error": "חסימת אבטחה: בקשה לא מזוהה (Origin חסר)."}), 403
 
     if origin not in ALLOWED_ORIGINS:
-        # fallback: allow if Referer contains an allowed origin
         ok = any(o in referer for o in ALLOWED_ORIGINS)
         if not ok:
             log_abuse(f"Origin not allowed: {origin}", request.path)
@@ -280,7 +267,6 @@ def cap_str(x: Any, max_len: int) -> str:
 
 
 def parse_json_body() -> Tuple[Optional[dict], Optional[Tuple[Any, int]]]:
-    # Content-length guard (hard)
     cl = request.content_length
     if cl is not None and cl > MAX_JSON_BODY_BYTES:
         log_abuse("Body too large", request.path)
@@ -298,13 +284,8 @@ def parse_json_body() -> Tuple[Optional[dict], Optional[Tuple[Any, int]]]:
 
 
 def quota_increment_or_block(endpoint: str, user_limit: int) -> Optional[Tuple[Any, int]]:
-    """
-    Increment BEFORE AI call and BEFORE returning cached response.
-    Enforced server-side only.
-    """
     today = datetime.utcnow().date()
 
-    # Global quota
     try:
         g = DailyQuota.query.filter_by(day=today, scope_type="global", scope_id=0, endpoint=endpoint).first()
         if not g:
@@ -318,7 +299,6 @@ def quota_increment_or_block(endpoint: str, user_limit: int) -> Optional[Tuple[A
         g.count += 1
         g.updated_at = datetime.utcnow()
 
-        # User quota (requires login for sensitive endpoints)
         if not current_user.is_authenticated:
             log_abuse("Unauthenticated quota attempt", endpoint)
             db.session.rollback()
@@ -378,7 +358,6 @@ def apply_mileage_logic(model_output: dict, mileage_range: str) -> Tuple[dict, O
 
 def build_prompt(make, model, sub_model, year, fuel_type, transmission, mileage_range):
     extra = f" תת-דגם/תצורה: {sub_model}" if sub_model else ""
-    # Hardening: isolate user-provided fields and explicitly deny instruction override
     return f"""
 אתה מומחה לאמינות רכבים בישראל.
 אתה חייב להחזיר JSON בלבד לפי הסכמה.
@@ -456,31 +435,12 @@ def call_model_with_retry(prompt: str) -> dict:
 # ======================================================
 # === Car Advisor helpers (existing) ===
 # ======================================================
-fuel_map = {
-    "בנזין": "gasoline",
-    "היברידי": "hybrid",
-    "דיזל היברידי": "hybrid-diesel",
-    "דיזל": "diesel",
-    "חשמלי": "electric",
-}
-gear_map = {
-    "אוטומטית": "automatic",
-    "ידנית": "manual",
-}
-turbo_map = {
-    "לא משנה": "any",
-    "כן": "yes",
-    "לא": "no",
-}
+fuel_map = {"בנזין": "gasoline", "היברידי": "hybrid", "דיזל היברידי": "hybrid-diesel", "דיזל": "diesel", "חשמלי": "electric"}
+gear_map = {"אוטומטית": "automatic", "ידנית": "manual"}
+turbo_map = {"לא משנה": "any", "כן": "yes", "לא": "no"}
 fuel_map_he = {v: k for k, v in fuel_map.items()}
 gear_map_he = {v: k for k, v in gear_map.items()}
-turbo_map_he = {
-    "yes": "כן",
-    "no": "לא",
-    "any": "לא משנה",
-    True: "כן",
-    False: "לא",
-}
+turbo_map_he = {"yes": "כן", "no": "לא", "any": "לא משנה", True: "כן", False: "לא"}
 
 
 def make_user_profile(
@@ -535,7 +495,6 @@ Return ONLY raw JSON.
 """
 
     search_tool = genai_types.Tool(google_search=genai_types.GoogleSearch())
-
     config = genai_types.GenerateContentConfig(
         temperature=0.3,
         top_p=0.9,
@@ -647,24 +606,20 @@ def create_app():
     is_render = (os.environ.get("RENDER", "") or "").strip() != ""
 
     app = Flask(__name__)
-    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
-    # ----------------------
-    # Secure defaults
-    # ----------------------
+    # ✅ Render: often more than one proxy hop
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=2, x_proto=1, x_host=1, x_prefix=1)
+
     app.config["MAX_CONTENT_LENGTH"] = MAX_JSON_BODY_BYTES
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.config["WTF_CSRF_HEADERS"] = ["X-CSRFToken", "X-CSRF-Token"]
 
-    # Cookies hardening (commercial baseline)
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
-    # FIX: Secure cookie only when HTTPS (Render) or forced
     force_secure_cookie = (os.environ.get("SESSION_COOKIE_SECURE", "") or "").lower() in ("1", "true", "yes")
     app.config["SESSION_COOKIE_SECURE"] = True if (is_render or force_secure_cookie) else False
 
-    # ---- Owner emails ----
     OWNER_EMAILS = [
         e.strip().lower()
         for e in os.environ.get("OWNER_EMAILS", "").split(",")
@@ -685,12 +640,10 @@ def create_app():
             "is_owner": is_owner_user(),
         }
 
-    # Request ID for internal logs
     @app.before_request
     def attach_req_id():
         request.req_id = str(uuid.uuid4())
 
-    # Add basic security headers
     @app.after_request
     def security_headers(resp):
         resp.headers["X-Content-Type-Options"] = "nosniff"
@@ -699,15 +652,11 @@ def create_app():
         resp.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
         return resp
 
-    # Optional: strict CORS if installed
     if CORS is not None:
         cors_origins = ALLOWED_ORIGINS if ALLOWED_ORIGINS else None
         if cors_origins:
             CORS(app, resources={r"/*": {"origins": cors_origins}}, supports_credentials=True)
 
-    # ----------------------
-    # DB hard-fail on Render
-    # ----------------------
     db_url = (os.environ.get("DATABASE_URL", "") or "").strip()
     secret_key = (os.environ.get("SECRET_KEY", "") or "").strip()
 
@@ -722,7 +671,6 @@ def create_app():
     app.config["SQLALCHEMY_DATABASE_URI"] = db_url if db_url else "sqlite:///:memory:"
     app.config["SECRET_KEY"] = secret_key if secret_key else "local-dev-only-unsafe"
 
-    # Init extensions
     db.init_app(app)
     login_manager.init_app(app)
     oauth.init_app(app)
@@ -730,7 +678,6 @@ def create_app():
 
     login_manager.login_view = "login"
 
-    # Unauthorized handler: JSON for API, redirect for pages
     @login_manager.unauthorized_handler
     def unauthorized():
         if request.path.startswith("/analyze") or request.path.startswith("/advisor_api") or request.path.startswith("/api/"):
@@ -743,22 +690,24 @@ def create_app():
     redis_url = (os.environ.get("REDIS_URL") or os.environ.get("VALKEY_URL") or "").strip()
     storage_uri = redis_url if redis_url else "memory://"
 
+    # ✅ key_func יציב שלא תלוי ב-current_user (יכול לרוץ לפני טעינת user)
     def limiter_key():
-        uid = str(current_user.id) if current_user.is_authenticated else "anon"
-        ip = get_client_ip()
-        return f"{uid}:{ip}"
+        uid = session.get("_user_id")  # Flask-Login stores here
+        if uid:
+            return f"user:{uid}"
+        # fallback for anon (if ever allowed)
+        ip = get_client_ip() or get_remote_address() or "unknown"
+        return f"ip:{ip}"
 
     limiter = Limiter(
         key_func=limiter_key,
         storage_uri=storage_uri,
         strategy="fixed-window",
-        default_limits=[]
+        default_limits=[],
+        headers_enabled=True,
     )
     limiter.init_app(app)
 
-    # ----------------------
-    # DB create_all (keep your lock logic)
-    # ----------------------
     with app.app_context():
         try:
             lock_path = "/tmp/.db_inited.lock"
@@ -777,9 +726,6 @@ def create_app():
         except Exception as e:
             print(f"[DB] ⚠️ create_all failed: {e}")
 
-    # ----------------------
-    # Gemini keys
-    # ----------------------
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
     if not GEMINI_API_KEY and is_render:
         raise RuntimeError("GEMINI_API_KEY missing on Render.")
@@ -787,7 +733,6 @@ def create_app():
     if GEMINI_API_KEY:
         genai.configure(api_key=GEMINI_API_KEY)
 
-    # Gemini 3 client (advisor)
     if GEMINI_API_KEY:
         try:
             advisor_client = genai3.Client(api_key=GEMINI_API_KEY)
@@ -798,7 +743,6 @@ def create_app():
     else:
         advisor_client = None
 
-    # OAuth (Authlib handles state automatically if you do NOT override it)
     oauth.register(
         name="google",
         client_id=os.environ.get("GOOGLE_CLIENT_ID"),
@@ -810,9 +754,6 @@ def create_app():
         claims_options={"iss": {"values": ["https://accounts.google.com", "accounts.google.com"]}},
     )
 
-    # ------------------
-    # Routes
-    # ------------------
     @app.route("/healthz")
     def healthz():
         return "ok", 200
@@ -833,7 +774,6 @@ def create_app():
             is_owner=is_owner_user(),
         )
 
-    # OAuth redirect URI logic
     def get_redirect_uri():
         host = (request.host or "").lower()
         if "yedaarechev.com" in host:
@@ -969,6 +909,7 @@ def create_app():
     # 🔹 Car Advisor – API JSON
     # ===========================
     @app.route("/advisor_api", methods=["POST"])
+    @login_required
     @limiter.limit("6/minute;30/hour")
     def advisor_api():
         origin_block = enforce_origin_if_configured()
@@ -979,7 +920,6 @@ def create_app():
         if err:
             return err
 
-        # Strict whitelist
         allowed_keys = {
             "budget_min", "budget_max", "year_min", "year_max",
             "fuels_he", "gears_he", "turbo_choice_he",
@@ -995,7 +935,6 @@ def create_app():
         }
         payload = {k: payload.get(k) for k in allowed_keys if k in payload}
 
-        # Validate FIRST (avoid burning daily quota on invalid input)
         try:
             budget_min = clamp_float(payload.get("budget_min", 0), 0, 1_000_000, 0)
             budget_max = clamp_float(payload.get("budget_max", 0), 0, 1_000_000, 0)
@@ -1029,9 +968,7 @@ def create_app():
                 excluded_colors = []
             excluded_colors = [cap_str(x, 20) for x in excluded_colors[:10]]
 
-            weights = payload.get("weights") or {
-                "reliability": 5, "resale": 3, "fuel": 4, "performance": 2, "comfort": 3
-            }
+            weights = payload.get("weights") or {"reliability": 5, "resale": 3, "fuel": 4, "performance": 2, "comfort": 3}
             if not isinstance(weights, dict):
                 weights = {"reliability": 5, "resale": 3, "fuel": 4, "performance": 2, "comfort": 3}
             for k in list(weights.keys()):
@@ -1058,7 +995,6 @@ def create_app():
             log_abuse(f"Advisor input validation failed: {e}", "advisor_api", payload)
             return jsonify({"error": "שגיאת קלט: נתונים לא תקינים"}), 400
 
-        # Quota AFTER validation / BEFORE AI
         qerr = quota_increment_or_block("advisor", USER_DAILY_LIMIT_ADVISOR)
         if qerr:
             return qerr
@@ -1095,17 +1031,16 @@ def create_app():
 
         result = car_advisor_postprocess(user_profile, parsed)
 
-        if current_user.is_authenticated:
-            try:
-                rec_log = AdvisorHistory(
-                    user_id=current_user.id,
-                    profile_json=json.dumps(user_profile, ensure_ascii=False),
-                    result_json=json.dumps(result, ensure_ascii=False),
-                )
-                db.session.add(rec_log)
-                db.session.commit()
-            except Exception:
-                db.session.rollback()
+        try:
+            rec_log = AdvisorHistory(
+                user_id=current_user.id,
+                profile_json=json.dumps(user_profile, ensure_ascii=False),
+                result_json=json.dumps(result, ensure_ascii=False),
+            )
+            db.session.add(rec_log)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
 
         return jsonify(result)
 
@@ -1113,6 +1048,7 @@ def create_app():
     # 🔹 Reliability analyze – API
     # ===========================
     @app.route("/analyze", methods=["POST"])
+    @login_required
     @limiter.limit("10/minute;60/hour")
     def analyze_car():
         origin_block = enforce_origin_if_configured()
@@ -1123,11 +1059,9 @@ def create_app():
         if err:
             return err
 
-        # Strict whitelist
         allowed_keys = {"make", "model", "sub_model", "year", "mileage_range", "fuel_type", "transmission"}
         data = {k: payload.get(k) for k in allowed_keys if k in payload}
 
-        # Validation first (avoid quota burn on invalid)
         try:
             final_make = normalize_text(cap_str(data.get("make"), 60))
             final_model = normalize_text(cap_str(data.get("model"), 60))
@@ -1145,12 +1079,10 @@ def create_app():
             log_abuse(f"Analyze input validation exception: {e}", "analyze", data)
             return jsonify({"error": "שגיאת קלט: נתונים לא תקינים"}), 400
 
-        # Quota increment AFTER validation / BEFORE cache+AI
         qerr = quota_increment_or_block("analyze", USER_DAILY_LIMIT_ANALYZE)
         if qerr:
             return qerr
 
-        # Cache key
         req_obj = {
             "make": final_make,
             "model": final_model,
@@ -1162,7 +1094,6 @@ def create_app():
         }
         req_hash = payload_sha256(req_obj)
 
-        # Cache lookup (still counted because quota already incremented)
         try:
             cutoff_date = datetime.utcnow() - timedelta(days=MAX_CACHE_DAYS)
             cached = SearchHistory.query.filter(
@@ -1177,7 +1108,6 @@ def create_app():
         except Exception:
             pass
 
-        # AI call
         try:
             prompt = build_prompt(
                 final_make, final_model, final_sub_model,
@@ -1188,10 +1118,8 @@ def create_app():
             traceback.print_exc()
             return jsonify({"error": "שגיאת AI בעת ניתוח. נסה שוב מאוחר יותר."}), 500
 
-        # Mileage logic
         model_output, note = apply_mileage_logic(model_output, final_mileage)
 
-        # Save
         try:
             new_log = SearchHistory(
                 user_id=current_user.id,
@@ -1214,16 +1142,12 @@ def create_app():
         model_output["km_warn"] = False
         return jsonify(model_output)
 
-    # CLI init
     @app.cli.command("init-db")
     def init_db_command():
         with app.app_context():
             db.create_all()
         print("Initialized the database tables.")
 
-    # ----------------------------
-    # Error handlers (JSON for API)
-    # ----------------------------
     def _is_api_path() -> bool:
         p = request.path or ""
         return p.startswith("/analyze") or p.startswith("/advisor_api") or p.startswith("/api/")
@@ -1255,12 +1179,6 @@ def create_app():
     return app
 
 
-# ===================================================================
-# Entry point (Gunicorn/Flask)
-# ===================================================================
-# Render runs:
-# gunicorn "app:create_app()" --bind 0.0.0.0:$PORT
-# Do NOT create app at import.
 if __name__ == "__main__":
     app = create_app()
     port = int(os.environ.get("PORT", 5001))
