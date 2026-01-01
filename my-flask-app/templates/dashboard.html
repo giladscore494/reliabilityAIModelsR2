@@ -237,15 +237,6 @@
     const detailsContentEl = document.getElementById('details-content');
     const detailsCloseBtn = document.getElementById('details-close-btn');
 
-    function escapeHtml(str) {
-        return String(str ?? "")
-            .replaceAll("&", "&amp;")
-            .replaceAll("<", "&lt;")
-            .replaceAll(">", "&gt;")
-            .replaceAll('"', "&quot;")
-            .replaceAll("'", "&#39;");
-    }
-
     function openDetails(searchId) {
         if (!searchId) return;
 
@@ -257,15 +248,12 @@
         overlayEl.classList.remove('hidden');
         document.body.style.overflow = 'hidden';
 
-        fetch(`/search-details/${searchId}`, {
-            credentials: "same-origin",
-            headers: { "Accept": "application/json" }
-        })
+        fetch(`/search-details/${searchId}`)
             .then(r => r.json())
             .then(payload => {
                 if (payload.error) {
                     detailsContentEl.innerHTML =
-                        `<div class="text-center py-8 text-sm text-red-400">${escapeHtml(payload.error)}</div>`;
+                        `<div class="text-center py-8 text-sm text-red-400">${payload.error}</div>`;
                     return;
                 }
                 renderDetails(payload.meta, payload.data);
@@ -327,7 +315,6 @@
         const fullSummary = data.reliability_summary || '';
         const mileageNote = data.mileage_note || null;
         const avgRepair = data.avg_repair_cost_ILS;
-
         const issues = Array.isArray(data.common_issues) ? data.common_issues : [];
         const issuesWithCosts = Array.isArray(data.issues_with_costs) ? data.issues_with_costs : [];
         const sources = Array.isArray(data.sources) ? data.sources : [];
@@ -352,14 +339,13 @@
             satisfaction_score: 'שביעות רצון בעלי רכב',
             recalls_score: 'קריאות תיקון'
         };
-
         Object.keys(labels).forEach(key => {
             if (scoreBreakdown[key] === undefined || scoreBreakdown[key] === null) return;
             const val = safeNumber(scoreBreakdown[key], 1);
             breakdownRows += `
                 <tr class="border-b border-slate-800/80">
-                    <td class="px-3 py-2 text-xs text-slate-300">${escapeHtml(labels[key])}</td>
-                    <td class="px-3 py-2 text-xs font-semibold text-slate-100">${escapeHtml(val)}</td>
+                    <td class="px-3 py-2 text-xs text-slate-300">${labels[key]}</td>
+                    <td class="px-3 py-2 text-xs font-semibold text-slate-100">${val}</td>
                 </tr>
             `;
         });
@@ -368,7 +354,7 @@
         if (issues.length) {
             issuesListHtml = `
                 <ul class="list-disc pr-5 space-y-1 text-xs text-slate-100">
-                    ${issues.map(i => `<li>${escapeHtml(i)}</li>`).join('')}
+                    ${issues.map(i => `<li>${i}</li>`).join('')}
                 </ul>
             `;
         }
@@ -389,10 +375,10 @@
                         <tbody>
                             ${issuesWithCosts.map(it => `
                                 <tr class="border-b border-slate-800/80">
-                                    <td class="px-2 py-1 text-slate-100">${escapeHtml(it.issue || '')}</td>
-                                    <td class="px-2 py-1 text-slate-100">${escapeHtml(it.avg_cost_ILS ?? '')}</td>
-                                    <td class="px-2 py-1 text-slate-100">${escapeHtml(it.severity || '')}</td>
-                                    <td class="px-2 py-1 text-slate-300 text-[11px]">${escapeHtml(it.source || '')}</td>
+                                    <td class="px-2 py-1 text-slate-100">${it.issue || ''}</td>
+                                    <td class="px-2 py-1 text-slate-100">${it.avg_cost_ILS || ''}</td>
+                                    <td class="px-2 py-1 text-slate-100">${it.severity || ''}</td>
+                                    <td class="px-2 py-1 text-slate-300 text-[11px]">${it.source || ''}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
@@ -405,7 +391,7 @@
         if (sources.length) {
             sourcesHtml = `
                 <ul class="list-disc pr-5 space-y-1 text-xs text-slate-300">
-                    ${sources.map(s => `<li>${escapeHtml(s)}</li>`).join('')}
+                    ${sources.map(s => `<li>${s}</li>`).join('')}
                 </ul>
             `;
         }
@@ -414,7 +400,7 @@
         if (checks.length) {
             checksHtml = `
                 <ul class="list-disc pr-5 space-y-1 text-xs text-slate-100">
-                    ${checks.map(c => `<li>${escapeHtml(c)}</li>`).join('')}
+                    ${checks.map(c => `<li>${c}</li>`).join('')}
                 </ul>
             `;
         }
@@ -425,8 +411,8 @@
                 <ul class="list-disc pr-5 space-y-1 text-xs text-slate-300">
                     ${competitors.map(c => `
                         <li>
-                            <span class="font-semibold text-slate-100">${escapeHtml(c.model || '')}:</span>
-                            <span>${escapeHtml(c.brief_summary || '')}</span>
+                            <span class="font-semibold text-slate-100">${c.model || ''}:</span>
+                            <span>${c.brief_summary || ''}</span>
                         </li>
                     `).join('')}
                 </ul>
@@ -435,30 +421,31 @@
 
         const avgRepairHtml = avgRepair !== undefined && avgRepair !== null
             ? `<div class="text-xs text-slate-300 mt-2">
-                   עלות תיקון ממוצעת: <span class="font-semibold text-slate-100">${escapeHtml(safeNumber(avgRepair, 0))} ₪</span>
+                   עלות תיקון ממוצעת: <span class="font-semibold text-slate-100">${safeNumber(avgRepair, 0)} ₪</span>
                </div>`
             : '';
 
         const mileageNoteHtml = mileageNote
             ? `<div class="mt-2 text-[11px] text-amber-300">
-                   ⚠ ${escapeHtml(mileageNote)}
+                   ⚠ ${mileageNote}
                </div>`
             : '';
 
         const sourceTagHtml = sourceTag
             ? `<div class="mt-4 text-[11px] text-slate-500 border-t border-slate-800 pt-2">
-                   ${escapeHtml(sourceTag)}
+                   ${sourceTag}
                </div>`
             : '';
 
         const simpleSummaryHtml = simpleSummary
-            ? `<p class="text-sm text-slate-100 leading-relaxed whitespace-pre-line">${escapeHtml(simpleSummary)}</p>`
+            ? `<p class="text-sm text-slate-100 leading-relaxed whitespace-pre-line">${simpleSummary}</p>`
             : '<p class="text-sm text-slate-400">אין סיכום פשוט זמין.</p>';
 
         const fullSummaryHtml = fullSummary
-            ? `<p class="text-sm text-slate-200 leading-relaxed whitespace-pre-line">${escapeHtml(fullSummary)}</p>`
+            ? `<p class="text-sm text-slate-200 leading-relaxed whitespace-pre-line">${fullSummary}</p>`
             : '<p class="text-sm text-slate-400">אין סיכום מקצועי זמין.</p>';
 
+        // --- NEW BUTTONS NAVIGATION (MODIFIED SECTION) ---
         const navButtons = `
           <div class="sticky top-0 z-30 bg-dark/95 backdrop-blur py-3 border-b border-slate-700/50 mb-6 flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4">
               <button onclick="document.getElementById('sec-competitors').scrollIntoView({behavior: 'smooth'})" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded flex items-center gap-2 text-xs text-slate-200 transition-colors shrink-0">
@@ -490,7 +477,7 @@
                         </div>
                         <div class="flex items-end gap-2">
                             <div class="text-3xl md:text-4xl font-black ${baseColor}">
-                                ${escapeHtml(baseScoreText || '?')}
+                                ${baseScoreText || '?'}
                             </div>
                             <div class="text-[11px] text-slate-400 mb-1">
                                 מתוך 100
