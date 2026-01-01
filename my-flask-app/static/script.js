@@ -1,234 +1,140 @@
-/* global window, document, fetch, navigator */
 (() => {
   "use strict";
 
-  // -----------------------------
-  // CSRF helper (cached)
-  // -----------------------------
-  let _csrfToken = null;
+  const form = document.getElementById("analyze-form");
+  if (!form) return;
 
-  async function getCsrfToken() {
-    if (_csrfToken) return _csrfToken;
-    const r = await fetch("/api/csrf", { headers: { "Accept": "application/json" } });
-    const j = await r.json().catch(() => ({}));
-    _csrfToken = j.csrf_token || j.token || null;
-    return _csrfToken;
+  const submitBtn = document.getElementById("submit-btn");
+  const loadingEl = document.getElementById("loading");
+  const errorEl = document.getElementById("error");
+  const resultsEl = document.getElementById("results");
+
+  function showLoading(on) {
+    if (submitBtn) submitBtn.disabled = !!on;
+    if (loadingEl) loadingEl.classList.toggle("hidden", !on);
   }
 
-  async function postJSON(url, payload, extraHeaders = {}) {
-    const token = await getCsrfToken();
-    const requestId = cryptoRandomId();
-    const headers = Object.assign(
-      {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "X-CSRFToken": token || "",
-        "X-Request-Id": requestId,
-      },
-      extraHeaders
-    );
+  function showError(msg, meta = {}) {
+    if (!errorEl) return;
 
-    const res = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload || {}),
+    const reqId = meta.req_id || "";
+    const evId = meta.debug_event_id || "";
+
+    let extra = "";
+    if (reqId) extra += `\nRequest ID: ${reqId}`;
+    if (evId) extra += `\nDebug Event ID: ${evId}`;
+    if (evId) extra += `\n/open: /owner/debug/events/${evId}`;
+
+    errorEl.textContent = (msg || "שגיאה לא צפויה") + (extra ? "\n" + extra : "");
+    errorEl.classList.remove("hidden");
+  }
+
+  function clearError() {
+    if (!errorEl) return;
+    errorEl.textContent = "";
+    errorEl.classList.add("hidden");
+  }
+
+  let _csrf = null;
+  async function getCsrf() {
+    if (_csrf) return _csrf;
+    const res = await fetch("/api/csrf", {
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "X-Requested-With": "XMLHttpRequest", "Accept": "application/json" },
     });
+    const data = await res.json().catch(() => ({}));
+    _csrf = data.csrf_token || "";
+    return _csrf;
+  }
 
-    let bodyText = null;
-    let bodyJson = null;
-    const ct = (res.headers.get("content-type") || "").toLowerCase();
+  function val(id) {
+    return (document.getElementById(id)?.value || "").trim();
+  }
 
-    if (ct.includes("application/json")) {
-      bodyJson = await res.json().catch(() => null);
-    } else {
-      bodyText = await res.text().catch(() => null);
-    }
-
+  function buildPayload() {
     return {
-      ok: res.ok,
-      status: res.status,
-      requestId: res.headers.get("X-Request-Id") || requestId,
-      json: bodyJson,
-      text: bodyText,
+      make: val("make"),
+      model: val("model"),
+      sub_model: val("sub_model"),
+      year: Number(val("year") || 0),
+      mileage_range: val("mileage_range"),
+      fuel_type: val("fuel_type"),
+      transmission: val("transmission"),
     };
   }
 
-  function cryptoRandomId() {
-    try {
-      if (window.crypto && crypto.getRandomValues) {
-        const a = new Uint32Array(2);
-        crypto.getRandomValues(a);
-        return (a[0].toString(16) + a[1].toString(16)).slice(0, 12);
-      }
-    } catch (_) {}
-    return Math.random().toString(16).slice(2, 14);
-  }
+  function renderResults(data) {
+    if (!resultsEl) return;
+    resultsEl.textContent = "";
+    resultsEl.classList.remove("hidden");
 
-  // -----------------------------
-  // Client error reporting
-  // -----------------------------
-  function sendClientError(payload) {
-    const data = Object.assign({}, payload, {
-      url: window.location.href,
-      ts: new Date().toISOString(),
-    });
-
-    try {
-      const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
-      if (navigator.sendBeacon) {
-        navigator.sendBeacon("/api/client-error", blob);
-        return;
-      }
-    } catch (_) {}
-
-    fetch("/api/client-error", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Accept": "application/json", "X-Client-Path": window.location.pathname },
-      body: JSON.stringify(data),
-    }).catch(() => {});
-  }
-
-  window.addEventListener("error", (e) => {
-    sendClientError({
-      type: "WindowError",
-      message: e.message || "Script error",
-      name: "Error",
-      stack: (e.error && e.error.stack) ? String(e.error.stack) : null,
-      file: e.filename,
-      line: e.lineno,
-      col: e.colno,
-    });
-  });
-
-  window.addEventListener("unhandledrejection", (e) => {
-    const reason = e.reason || {};
-    sendClientError({
-      type: "UnhandledRejection",
-      message: (reason && reason.message) ? String(reason.message) : String(reason),
-      name: (reason && reason.name) ? String(reason.name) : "PromiseRejection",
-      stack: (reason && reason.stack) ? String(reason.stack) : null,
-    });
-  });
-
-  // -----------------------------
-  // History click fix:
-  // - מונע refresh של <form> / <a> ומנסה למשוך פרטים
-  // - אם אין endpoint JSON, נופל לניווט רגיל /search-details/<id>
-  // -----------------------------
-  async function tryOpenHistoryDetails(id) {
-    // נסה JSON endpoint (אם קיים אצלך)
-    const candidates = [
-      `/api/history/${encodeURIComponent(id)}`,
-      `/api/search/${encodeURIComponent(id)}`,
-      `/search-details/${encodeURIComponent(id)}` // לפעמים מחזיר HTML, זה fallback
-    ];
-
-    for (const url of candidates) {
-      try {
-        const r = await fetch(url, { headers: { "Accept": "application/json" } });
-        const ct = (r.headers.get("content-type") || "").toLowerCase();
-
-        if (r.ok && ct.includes("application/json")) {
-          const j = await r.json().catch(() => null);
-          if (j) {
-            showModalJson(`Search #${id}`, j);
-            return;
-          }
-        }
-
-        // אם זה HTML או 404 — ממשיכים
-      } catch (err) {
-        // נרשום לקוחית
-        sendClientError({ type: "HistoryFetchError", message: String(err), name: "HistoryFetchError", stack: err && err.stack ? String(err.stack) : null });
-      }
-    }
-
-    // fallback: ניווט רגיל
-    window.location.href = `/search-details/${encodeURIComponent(id)}`;
-  }
-
-  function showModalJson(title, obj) {
-    const overlay = document.createElement("div");
-    overlay.style.position = "fixed";
-    overlay.style.inset = "0";
-    overlay.style.zIndex = "99999";
-    overlay.style.background = "rgba(0,0,0,0.65)";
-    overlay.style.display = "flex";
-    overlay.style.alignItems = "center";
-    overlay.style.justifyContent = "center";
-    overlay.style.padding = "20px";
-
-    const card = document.createElement("div");
-    card.style.maxWidth = "900px";
-    card.style.width = "100%";
-    card.style.maxHeight = "80vh";
-    card.style.overflow = "auto";
-    card.style.background = "#111";
-    card.style.color = "#fff";
-    card.style.borderRadius = "14px";
-    card.style.padding = "14px";
-    card.style.boxShadow = "0 10px 40px rgba(0,0,0,0.5)";
-
-    const h = document.createElement("div");
-    h.style.display = "flex";
-    h.style.justifyContent = "space-between";
-    h.style.alignItems = "center";
-    h.style.gap = "10px";
-
-    const t = document.createElement("div");
-    t.textContent = title;
-    t.style.fontWeight = "700";
-
-    const x = document.createElement("button");
-    x.textContent = "✕";
-    x.type = "button";
-    x.style.cursor = "pointer";
-    x.style.border = "0";
-    x.style.background = "transparent";
-    x.style.color = "#fff";
-    x.style.fontSize = "18px";
-    x.onclick = () => overlay.remove();
-
-    h.appendChild(t);
-    h.appendChild(x);
-
+    // פשוט — הדפסה יפה של JSON (אתה כבר כנראה מעצב ב-HTML שלך)
     const pre = document.createElement("pre");
     pre.style.whiteSpace = "pre-wrap";
     pre.style.wordBreak = "break-word";
-    pre.style.fontSize = "12px";
-    pre.style.marginTop = "10px";
-    pre.textContent = JSON.stringify(obj, null, 2);
-
-    card.appendChild(h);
-    card.appendChild(pre);
-    overlay.appendChild(card);
-
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) overlay.remove();
-    });
-
-    document.body.appendChild(overlay);
+    pre.textContent = JSON.stringify(data, null, 2);
+    resultsEl.appendChild(pre);
+    resultsEl.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  // Event delegation: כל אלמנט עם data-history-id
-  document.addEventListener("click", (e) => {
-    const el = e.target.closest("[data-history-id]");
-    if (!el) return;
+  async function readJsonOrText(res) {
+    const text = await res.text().catch(() => "");
+    try {
+      return text ? JSON.parse(text) : {};
+    } catch {
+      return { _raw: text };
+    }
+  }
 
-    // חשוב: מונע refresh
+  form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    e.stopPropagation();
+    clearError();
+    showLoading(true);
 
-    const id = el.getAttribute("data-history-id");
-    if (!id) return;
-    tryOpenHistoryDetails(id);
+    try {
+      const csrf = await getCsrf();
+      if (!csrf) {
+        showError("שגיאת אבטחה: לא התקבל CSRF Token. רענן את הדף ונסה שוב.");
+        return;
+      }
+
+      const payload = buildPayload();
+
+      const res = await fetch("/analyze", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "X-CSRFToken": csrf,
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
+
+      const data = await readJsonOrText(res);
+      const meta = {
+        req_id: data.req_id || res.headers.get("X-Request-ID") || "",
+        debug_event_id: data.debug_event_id || res.headers.get("X-Debug-Event-ID") || "",
+      };
+
+      if (!res.ok || data.error) {
+        showError(data.error || "שגיאה בעת ניתוח אמינות.", meta);
+        return;
+      }
+
+      renderResults(data);
+    } catch (err) {
+      console.error(err);
+      showError("שגיאת רשת / שרת. נסה שוב.");
+    } finally {
+      showLoading(false);
+    }
   });
-
-  // אופציונלי: אם יש לך כפתורים בתוך form, תן להם type=button אוטומטי
-  document.addEventListener("DOMContentLoaded", () => {
-    document.querySelectorAll("button[data-history-id]").forEach((btn) => {
-      try { btn.type = "button"; } catch (_) {}
-    });
-  });
-
 })();
