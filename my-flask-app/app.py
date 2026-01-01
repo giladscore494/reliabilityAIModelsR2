@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 # ===================================================================
 # 🚗 Car Reliability Analyzer – Israel
-# v7.5.0 (Security Hardened: strict JSON, server-side prompt, CSRF,
-# rate limiting, daily quota tables, no leaks, OAuth state fixed)
+# v7.5.1 (Origin check fixed + Dashboard XSS closed in template)
 # ===================================================================
 
 import os, re, json, traceback, hashlib, uuid
 import time as pytime
 from typing import Optional, Tuple, Any, Dict
-from datetime import datetime, time, timedelta, date
+from datetime import datetime, timedelta
 
 from flask import (
     Flask, render_template, request, jsonify, redirect, url_for, session
@@ -25,7 +24,6 @@ from json_repair import repair_json
 
 from flask_wtf.csrf import CSRFProtect, generate_csrf, CSRFError
 from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 
 # Optional but recommended (won't break if not installed)
 try:
@@ -178,7 +176,6 @@ def normalize_text(s: Any) -> str:
 
 
 def get_client_ip() -> str:
-    # Prefer XFF (first hop), else remote_addr (ProxyFix adjusted)
     return (request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
             or request.remote_addr
             or "")
@@ -209,29 +206,56 @@ def log_abuse(reason: str, endpoint: str, payload: Any = None):
 
 
 def enforce_origin_if_configured():
-    if not ALLOWED_ORIGINS:
-        return
-
+    """
+    Hardened but avoids false-positive 403:
+    - Always allow same-origin (Origin == host_url)
+    - Allow if Referer clearly matches host_url (some browsers omit Origin)
+    - If ALLOWED_ORIGINS empty -> do nothing
+    - In non-Render, allow localhost dev
+    - Otherwise require origin in allowlist (or referer contains allowlist)
+    """
     origin = (request.headers.get("Origin") or "").lower().rstrip("/")
     referer = (request.headers.get("Referer") or "").lower()
     host_origin = (request.host_url or "").lower().rstrip("/")
 
+    # Same-origin allow (best)
     if origin and origin == host_origin:
-        return
+        return None
+
+    # Some browsers may omit Origin for same-origin. Use Referer as fallback.
     if (not origin) and host_origin and (host_origin in referer):
-        return
+        return None
+
+    # Extra browser hint (not security-critical, only to avoid blocking legit)
+    sec_fetch_site = (request.headers.get("Sec-Fetch-Site") or "").lower()
+    if (not origin) and sec_fetch_site in ("same-origin", "same-site"):
+        return None
+
+    # No allowlist configured => no blocking
+    if not ALLOWED_ORIGINS:
+        return None
+
+    # Dev allow (only when not Render)
+    is_render = (os.environ.get("RENDER", "") or "").strip() != ""
+    if not is_render:
+        if host_origin.startswith(("http://localhost", "http://127.0.0.1", "https://localhost", "https://127.0.0.1")):
+            return None
 
     if not origin:
         log_abuse("Missing Origin header", request.path)
         return jsonify({"error": "חסימת אבטחה: בקשה לא מזוהה (Origin חסר)."}), 403
 
-    if origin not in ALLOWED_ORIGINS:
-        ok = any(o in referer for o in ALLOWED_ORIGINS)
-        if not ok:
-            log_abuse(f"Origin not allowed: {origin}", request.path)
-            return jsonify({"error": "חסימת אבטחה: מקור הבקשה לא מורשה."}), 403
+    allowed = set(ALLOWED_ORIGINS)
 
-    return
+    if origin in allowed:
+        return None
+
+    # fallback: if referer contains allowed origin
+    if any(o in referer for o in allowed):
+        return None
+
+    log_abuse(f"Origin not allowed: {origin}", request.path)
+    return jsonify({"error": "חסימת אבטחה: מקור הבקשה לא מורשה."}), 403
 
 
 def clamp_int(x: Any, lo: int, hi: int, default: int) -> int:
@@ -690,13 +714,11 @@ def create_app():
     redis_url = (os.environ.get("REDIS_URL") or os.environ.get("VALKEY_URL") or "").strip()
     storage_uri = redis_url if redis_url else "memory://"
 
-    # ✅ key_func יציב שלא תלוי ב-current_user (יכול לרוץ לפני טעינת user)
     def limiter_key():
         uid = session.get("_user_id")  # Flask-Login stores here
         if uid:
             return f"user:{uid}"
-        # fallback for anon (if ever allowed)
-        ip = get_client_ip() or get_remote_address() or "unknown"
+        ip = get_client_ip() or "unknown"
         return f"ip:{ip}"
 
     limiter = Limiter(
@@ -888,7 +910,9 @@ def create_app():
                 "fuel_type": s.fuel_type,
                 "transmission": s.transmission,
             }
-            return jsonify({"meta": meta, "data": json.loads(s.result_json)})
+            resp = jsonify({"meta": meta, "data": json.loads(s.result_json)})
+            resp.headers["Cache-Control"] = "no-store"
+            return resp
         except Exception as e:
             print(f"[DETAILS] ❌ {e}")
             return jsonify({"error": "שגיאת שרת בשליפת נתוני חיפוש"}), 500
@@ -1141,12 +1165,6 @@ def create_app():
         model_output["mileage_note"] = note
         model_output["km_warn"] = False
         return jsonify(model_output)
-
-    @app.cli.command("init-db")
-    def init_db_command():
-        with app.app_context():
-            db.create_all()
-        print("Initialized the database tables.")
 
     def _is_api_path() -> bool:
         p = request.path or ""
