@@ -1,6 +1,10 @@
 (() => {
   "use strict";
 
+  // Prevent double script init (if included twice)
+  if (window.__advisor_reco_js_initialized__) return;
+  window.__advisor_reco_js_initialized__ = true;
+
   const form = document.getElementById("advisor-form");
   if (!form) return;
 
@@ -16,6 +20,9 @@
 
   const consentCheckbox = document.getElementById("consent-checkbox");
 
+  // =========================
+  // Security + sanitization
+  // =========================
   function escapeHtml(str) {
     return String(str ?? "")
       .replaceAll("&", "&amp;")
@@ -43,7 +50,10 @@
     const res = await fetch("/api/csrf", {
       credentials: "same-origin",
       cache: "no-store",
-      headers: { "X-Requested-With": "XMLHttpRequest", "Accept": "application/json" },
+      headers: {
+        "X-Requested-With": "XMLHttpRequest",
+        "Accept": "application/json",
+      },
     });
     const data = await res.json().catch(() => ({}));
     _csrfToken = data.csrf_token || "";
@@ -64,8 +74,6 @@
     let extra = "";
     if (reqId) extra += `\nRequest ID: ${reqId}`;
     if (evId) extra += `\nDebug Event ID: ${evId}`;
-
-    // Owner convenience (works only if endpoint accessible)
     if (evId) extra += `\n/open: /owner/debug/events/${evId}`;
 
     errorEl.textContent = (msg || "שגיאה לא צפויה") + (extra ? "\n" + extra : "");
@@ -99,6 +107,9 @@
     return String(priceRange);
   }
 
+  // =========================
+  // Payload builder
+  // =========================
   function buildPayload() {
     const getVal = (id) => (document.getElementById(id)?.value || "").trim();
     const num = (v, d = 0) => {
@@ -184,6 +195,9 @@
     };
   }
 
+  // =========================
+  // Render (kept as-is)
+  // =========================
   function renderProfileSummary() {
     if (!profileSummaryEl) return;
     profileSummaryEl.innerHTML = "";
@@ -503,8 +517,6 @@
     resultsSection.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  let inFlight = null;
-
   async function readJsonOrText(res) {
     const text = await res.text().catch(() => "");
     try {
@@ -513,6 +525,43 @@
       return { _raw: text };
     }
   }
+
+  // =========================
+  // History navigation fix (UI bug, not "security")
+  // =========================
+  function bindHistoryFix() {
+    // If you have a specific element id/class for history, set it here (best).
+    const el =
+      document.querySelector("#history-link") ||
+      document.querySelector("#history-btn") ||
+      document.querySelector("#nav-history") ||
+      document.querySelector('a[data-action="history"]') ||
+      document.querySelector('button[data-action="history"]');
+
+    if (!el) return;
+
+    // Override in capture phase to stop other buggy handlers
+    el.addEventListener(
+      "click",
+      (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        ev.stopImmediatePropagation();
+
+        // ✅ Put the correct history URL here if needed
+        window.location.href = el.dataset.href || el.getAttribute("href") || "/history";
+      },
+      true
+    );
+  }
+
+  bindHistoryFix();
+
+  // =========================
+  // Submit handler (critical fix)
+  // =========================
+  let inFlight = false;          // ✅ stops double-submit reliably
+  let controller = null;         // only for abort on unload if you want
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -530,9 +579,14 @@
       return;
     }
 
-    if (inFlight) inFlight.abort();
-    inFlight = new AbortController();
+    // ✅ This is the important part: don't abort previous and don't start a second request
+    if (inFlight) {
+      showError("כבר מעבד בקשה… המתן לתוצאה לפני ניסיון נוסף.");
+      return;
+    }
 
+    inFlight = true;
+    controller = new AbortController();
     setSubmitting(true);
 
     try {
@@ -545,7 +599,7 @@
       const res = await fetch("/advisor_api", {
         method: "POST",
         credentials: "same-origin",
-        signal: inFlight.signal,
+        signal: controller.signal,
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json",
@@ -568,11 +622,13 @@
 
       if (!res.ok || data.error) {
         if (res.status === 429) {
-          showError(data.error || "הגעת למגבלת שימוש (429). נסה שוב מאוחר יותר / מחר.", meta);
+          const retryAfter = res.headers.get("Retry-After");
+          const extra = retryAfter ? ` (נסה שוב בעוד ${retryAfter} שניות)` : "";
+          showError((data.error || "Rate limit (429). נסה שוב מאוחר יותר.") + extra, meta);
         } else if (res.status === 403) {
           showError(data.error || "חסימת אבטחה (403). רענן את הדף ונסה שוב.", meta);
         } else {
-          showError(data.error || "שגיאת שרת בעת הפעלת מנוע ההמלצות.", meta);
+          showError(data.error || `שגיאת שרת בעת הפעלת מנוע ההמלצות. (${res.status})`, meta);
         }
         return;
       }
@@ -584,9 +640,12 @@
       showError("שגיאה כללית בחיבור לשרת. נסה שוב מאוחר יותר.");
     } finally {
       setSubmitting(false);
+      inFlight = false;
+      controller = null;
     }
   }
 
+  // Binding guard
   if (!form.dataset.bound) {
     form.dataset.bound = "1";
     form.addEventListener("submit", handleSubmit);
