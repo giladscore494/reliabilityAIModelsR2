@@ -55,9 +55,20 @@
     if (loadingEl) loadingEl.classList.toggle("hidden", !on);
   }
 
-  function showError(msg) {
+  function showError(msg, meta = {}) {
     if (!errorEl) return;
-    errorEl.textContent = msg || "שגיאה לא צפויה";
+
+    const reqId = meta.req_id || "";
+    const evId = meta.debug_event_id || "";
+
+    let extra = "";
+    if (reqId) extra += `\nRequest ID: ${reqId}`;
+    if (evId) extra += `\nDebug Event ID: ${evId}`;
+
+    // Owner convenience (works only if endpoint accessible)
+    if (evId) extra += `\n/open: /owner/debug/events/${evId}`;
+
+    errorEl.textContent = (msg || "שגיאה לא צפויה") + (extra ? "\n" + extra : "");
     errorEl.classList.remove("hidden");
   }
 
@@ -550,14 +561,18 @@
       }
 
       const data = await readJsonOrText(res);
+      const meta = {
+        req_id: data.req_id || res.headers.get("X-Request-ID") || "",
+        debug_event_id: data.debug_event_id || res.headers.get("X-Debug-Event-ID") || "",
+      };
 
       if (!res.ok || data.error) {
         if (res.status === 429) {
-          showError(data.error || "הגעת למגבלת שימוש (429). נסה שוב מאוחר יותר / מחר.");
+          showError(data.error || "הגעת למגבלת שימוש (429). נסה שוב מאוחר יותר / מחר.", meta);
         } else if (res.status === 403) {
-          showError(data.error || "חסימת אבטחה (403). רענן את הדף ונסה שוב.");
+          showError(data.error || "חסימת אבטחה (403). רענן את הדף ונסה שוב.", meta);
         } else {
-          showError(data.error || "שגיאת שרת בעת הפעלת מנוע ההמלצות.");
+          showError(data.error || "שגיאת שרת בעת הפעלת מנוע ההמלצות.", meta);
         }
         return;
       }
