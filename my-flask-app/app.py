@@ -25,6 +25,9 @@ import pandas as pd
 from google import genai as genai3
 from google.genai import types as genai_types
 
+# --- Input Validation (Security: Tier 2 - S3 + S4) ---
+from app.utils.validation import ValidationError, validate_analyze_request
+
 # ==================================
 # === 1. יצירת אובייקטים גלובליים ===
 # ==================================
@@ -812,6 +815,14 @@ def create_app():
             log_access_decision('/advisor_api', user_id, 'rejected', 'validation error: invalid JSON')
             return jsonify({"error": "קלט JSON לא תקין"}), 400
 
+        # Validate request before processing
+        try:
+            validated = validate_analyze_request(payload)
+            payload = validated
+        except ValidationError as e:
+            log_access_decision('/advisor_api', user_id, 'rejected', f'validation error: {e.field}')
+            return jsonify({'error': f'{e.field}: {e.message}'}), 400
+
         try:
             # ---- שלב 1: בסיסי ----
             budget_min = float(payload.get("budget_min", 0))
@@ -945,20 +956,29 @@ def create_app():
         user_id = current_user.id if current_user.is_authenticated else None
         log_access_decision('/analyze', user_id, 'allowed', 'authenticated user')
         
-        # 0) Input
+        # 0) Input validation
         try:
             data = request.json
-            print(f"[ANALYZE 0/6] user={current_user.id} payload: {data}")
-            final_make = normalize_text(data.get('make'))
-            final_model = normalize_text(data.get('model'))
-            final_sub_model = normalize_text(data.get('sub_model'))
-            final_year = int(data.get('year')) if data.get('year') else None
-            final_mileage = str(data.get('mileage_range'))
-            final_fuel = str(data.get('fuel_type'))
-            final_trans = str(data.get('transmission'))
+            if not data:
+                return jsonify({'error': 'Invalid JSON'}), 400
+            
+            # Validate request against schema
+            validated = validate_analyze_request(data)
+            
+            print(f"[ANALYZE 0/6] user={current_user.id} payload: {validated}")
+            final_make = normalize_text(validated.get('make'))
+            final_model = normalize_text(validated.get('model'))
+            final_sub_model = normalize_text(validated.get('sub_model'))
+            final_year = int(validated.get('year')) if validated.get('year') else None
+            final_mileage = str(validated.get('mileage_range'))
+            final_fuel = str(validated.get('fuel_type'))
+            final_trans = str(validated.get('transmission'))
             if not (final_make and final_model and final_year):
                 log_access_decision('/analyze', user_id, 'rejected', 'validation error: missing required fields')
                 return jsonify({"error": "שגיאת קלט (שלב 0): נא למלא יצרן, דגם ושנה"}), 400
+        except ValidationError as e:
+            log_access_decision('/analyze', user_id, 'rejected', f'validation error: {e.field}')
+            return jsonify({'error': f'{e.field}: {e.message}'}), 400
         except Exception as e:
             log_access_decision('/analyze', user_id, 'rejected', f'validation error: {str(e)}')
             return jsonify({"error": f"שגיאת קלט (שלב 0): {str(e)}"}), 400
