@@ -1,220 +1,437 @@
-# -*- coding: utf-8 -*-
-"""
-Output sanitization module for AI-generated responses.
-Implements strict whitelisting, type conversion, HTML escaping, and size limits.
-Commercial-grade: treats all AI output as hostile.
+"""Utility functions and allow-lists for sanitizing user/model supplied content.
+
+This module uses strict allowlisting, escaping, and size limits to prevent
+unexpected content from escaping into prompts, logs, templates, or downstream
+systems.
+
+Key principles:
+- Strict allowlisting of top-level fields.
+- Nested allowlisting for known structured fields.
+- HTML escaping for all strings.
+- Size limits (max string lengths, max list lengths, max dict keys).
+- Type coercion only when safe; otherwise drop.
+
+Note: This is not a general-purpose HTML sanitizer. It is a defensive
+serialization/sanitization helper for structured JSON-like payloads.
 """
 
-import html
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from __future__ import annotations
 
-# Strict allowlist for /analyze response fields
+from html import escape
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
+
+
+# --------------------------
+# Global limits / constants
+# --------------------------
+
+MAX_STRING_LENGTH = 4000
+MAX_SHORT_STRING_LENGTH = 500
+MAX_LIST_LENGTH = 200
+MAX_DICT_KEYS = 200
+MAX_RECURSION_DEPTH = 6
+
+
+# --------------------------
+# Allow-lists
+# --------------------------
+
+# Fields allowed in the "analyze" request payload / model output.
+# Keep this list tight; add fields only with explicit sanitization rules.
 ANALYZE_ALLOWED_FIELDS = {
-    "reliability_score",
-    "fuel_efficiency_score", 
-    "performance_score",
-    "comfort_score",
-    "safety_score",
-    "resale_value_score",
-    "overall_score",
-    "strengths",
-    "weaknesses",
-    "common_issues",
-    "maintenance_cost_estimate",
-    "rating_explanation",
-    "source_tag",
-    "mileage_note",
-    "km_warn"
+    # existing / commonly used
+    "car_details",
+    "country",
+    "currency",
+    "language",
+    "make",
+    "model",
+    "year",
+    "trim",
+    "mileage",
+    "vin",
+    "query",
+    "analysis",
+    "issues",
+    "recommendations",
+    "repair_costs",
+    "sources",
+    # newly added structured fields
+    "base_score_calculated",
+    "score_breakdown",
+    "avg_repair_cost_ILS",
+    "issues_with_costs",
+    "reliability_summary",
+    "reliability_summary_simple",
+    "recommended_checks",
+    "common_competitors_brief",
 }
 
-ADVISOR_ALLOWED_FIELDS = {
-    "search_performed",
-    "search_queries",
-    "recommended_cars"
-}
 
-CAR_FIELDS = {
-    "brand", "model", "year", "fuel", "gear", "turbo", "engine_cc",
-    "price_range_nis", "avg_fuel_consumption", "fuel_method",
-    "annual_fee", "fee_method", "reliability_score", "reliability_method",
-    "maintenance_cost", "maintenance_method", "safety_rating", "safety_method",
-    "insurance_cost", "insurance_method", "resale_value", "resale_method",
-    "performance_score", "performance_method", "comfort_features", "comfort_method",
-    "suitability", "suitability_method", "market_supply", "supply_method",
-    "fit_score", "comparison_comment", "not_recommended_reason",
-    "annual_energy_cost", "annual_fuel_cost", "total_annual_cost"
-}
+# --------------------------
+# Primitive sanitizers
+# --------------------------
 
-def escape_html(value: str) -> str:
-    """Escape HTML special characters in a string."""
+def _clamp_string(s: str, max_len: int = MAX_STRING_LENGTH) -> str:
+    if len(s) > max_len:
+        return s[:max_len]
+    return s
+
+
+def sanitize_string(value: Any, *, max_len: int = MAX_STRING_LENGTH) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, (int, float, bool)):
+        value = str(value)
     if not isinstance(value, str):
-        return str(value)
-    return html.escape(value, quote=True)
+        return None
+    # escape HTML special chars; also avoids accidental template injection
+    return _clamp_string(escape(value, quote=True), max_len=max_len)
 
-def sanitize_string(value: Any, max_length: int = 1000) -> Optional[str]:
-    """
-    Sanitize a string field.
-    - Converts to string
-    - Escapes HTML
-    - Enforces max length
-    """
+
+def sanitize_number(value: Any) -> Optional[Union[int, float]]:
     if value is None:
         return None
-    s = str(value).strip()
-    if len(s) > max_length:
-        s = s[:max_length]
-    return escape_html(s)
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    # allow numeric strings
+    if isinstance(value, str):
+        v = value.strip()
+        if not v:
+            return None
+        try:
+            if "." in v:
+                return float(v)
+            return int(v)
+        except ValueError:
+            return None
+    return None
 
-def sanitize_number(value: Any, min_val: float = None, max_val: float = None) -> Optional[float]:
-    """Sanitize numeric field with range checks."""
+
+def sanitize_bool(value: Any) -> Optional[bool]:
     if value is None:
         return None
-    try:
-        num = float(value)
-        if min_val is not None and num < min_val:
-            return min_val
-        if max_val is not None and num > max_val:
-            return max_val
-        return num
-    except (TypeError, ValueError):
-        return None
-
-def sanitize_boolean(value: Any) -> bool:
-    """Sanitize boolean field."""
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
-        return value.lower() in ("true", "yes", "1", "on")
-    return bool(value)
+        v = value.strip().lower()
+        if v in {"true", "1", "yes", "y"}:
+            return True
+        if v in {"false", "0", "no", "n"}:
+            return False
+    return None
 
-def sanitize_list(value: Any, max_items: int = 100, item_sanitizer=None) -> List:
+
+# --------------------------
+# Structured sanitizers
+# --------------------------
+
+def _sanitize_list(
+    value: Any,
+    item_sanitizer,
+    *,
+    max_len: int = MAX_LIST_LENGTH,
+) -> Optional[List[Any]]:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        return None
+    out: List[Any] = []
+    for item in value[:max_len]:
+        sanitized = item_sanitizer(item)
+        if sanitized is None:
+            continue
+        out.append(sanitized)
+    return out
+
+
+def _sanitize_dict_keys(d: Mapping[str, Any]) -> List[str]:
+    # Only string keys, escape and clamp; drop duplicates after sanitization
+    keys: List[str] = []
+    for k in d.keys():
+        if not isinstance(k, str):
+            continue
+        ks = sanitize_string(k, max_len=MAX_SHORT_STRING_LENGTH)
+        if not ks:
+            continue
+        if ks not in keys:
+            keys.append(ks)
+        if len(keys) >= MAX_DICT_KEYS:
+            break
+    return keys
+
+
+def sanitize_freeform_dict(
+    value: Any,
+    *,
+    depth: int = 0,
+    max_keys: int = MAX_DICT_KEYS,
+) -> Optional[Dict[str, Any]]:
+    """Sanitize a dict with unknown schema.
+
+    This is intentionally conservative: string values are escaped/clamped,
+    numbers/bools allowed; nested lists/dicts are sanitized recursively with
+    depth limit.
     """
-    Sanitize a list field.
-    - Enforces max item count
-    - Applies item sanitizer to each element
+    if value is None:
+        return None
+    if depth >= MAX_RECURSION_DEPTH:
+        return None
+    if not isinstance(value, Mapping):
+        return None
+
+    out: Dict[str, Any] = {}
+    keys = _sanitize_dict_keys(value)
+    for k in keys[:max_keys]:
+        v = value.get(k)
+        out[k] = sanitize_json_value(v, depth=depth + 1)
+    return out
+
+
+def sanitize_json_value(value: Any, *, depth: int = 0) -> Any:
+    if value is None:
+        return None
+    if depth >= MAX_RECURSION_DEPTH:
+        # stop recursion; stringify defensively
+        return sanitize_string(value, max_len=MAX_SHORT_STRING_LENGTH)
+
+    if isinstance(value, str):
+        return sanitize_string(value)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, list):
+        out: List[Any] = []
+        for item in value[:MAX_LIST_LENGTH]:
+            out.append(sanitize_json_value(item, depth=depth + 1))
+        return out
+    if isinstance(value, Mapping):
+        # unknown structure: sanitize keys and values
+        return sanitize_freeform_dict(value, depth=depth)
+
+    # fallback: stringify
+    return sanitize_string(value, max_len=MAX_SHORT_STRING_LENGTH)
+
+
+# --------------------------
+# Analyze payload sanitization
+# --------------------------
+
+# Nested allow-lists/schemas for newly added fields
+
+# score_breakdown: list[ {category, score, notes?, weight?} ]
+_SCORE_BREAKDOWN_ITEM_ALLOWED = {"category", "score", "notes", "weight"}
+
+# issues_with_costs: list[ {issue, description?, severity?, est_cost_ILS?, cost_range_ILS?, sources?} ]
+_ISSUE_WITH_COSTS_ALLOWED = {
+    "issue",
+    "description",
+    "severity",
+    "est_cost_ILS",
+    "cost_range_ILS",
+    "sources",
+}
+
+# recommended_checks: list[ {check, rationale?, priority?, estimated_cost_ILS?, notes?} ]
+_RECOMMENDED_CHECKS_ALLOWED = {
+    "check",
+    "rationale",
+    "priority",
+    "estimated_cost_ILS",
+    "notes",
+}
+
+# common_competitors_brief: list[ {make, model, years?, notes?} ]
+_COMPETITOR_ALLOWED = {"make", "model", "years", "notes"}
+
+
+def _sanitize_score_breakdown(value: Any) -> Optional[List[Dict[str, Any]]]:
+    if not isinstance(value, list):
+        return None
+
+    out: List[Dict[str, Any]] = []
+    for item in value[:MAX_LIST_LENGTH]:
+        if not isinstance(item, Mapping):
+            continue
+        cleaned: Dict[str, Any] = {}
+        for k in _SCORE_BREAKDOWN_ITEM_ALLOWED:
+            if k not in item:
+                continue
+            if k in {"category"}:
+                cleaned[k] = sanitize_string(item.get(k), max_len=MAX_SHORT_STRING_LENGTH)
+            elif k in {"notes"}:
+                cleaned[k] = sanitize_string(item.get(k), max_len=MAX_STRING_LENGTH)
+            elif k in {"score", "weight"}:
+                cleaned[k] = sanitize_number(item.get(k))
+        # Require at least category or score to keep an entry
+        if cleaned.get("category") or cleaned.get("score") is not None:
+            out.append(cleaned)
+    return out
+
+
+def _sanitize_sources(value: Any) -> Optional[List[Dict[str, Any]]]:
+    """Sanitize sources as list of dicts with tight schema.
+
+    Accepts list items like:
+      {"title": str, "url": str, "publisher": str, "date": str}
+    Unknown keys are dropped.
     """
     if not isinstance(value, list):
-        return []
-    if len(value) > max_items:
-        value = value[:max_items]
-    if item_sanitizer:
-        return [item_sanitizer(item) for item in value if item is not None]
-    return [str(item).strip() for item in value if item is not None and str(item).strip()]
+        return None
 
-def sanitize_analyze_response(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Sanitize /analyze endpoint response.
-    Strict allowlist: only known fields are returned.
-    """
-    if not isinstance(data, dict):
-        return {}
-    
-    sanitized = {}
-    
-    for field, value in data.items():
-        if field not in ANALYZE_ALLOWED_FIELDS:
-            continue  # Drop unknown fields
-        
-        # Type-specific sanitization
-        if field in ("reliability_score", "fuel_efficiency_score", "performance_score",
-                     "comfort_score", "safety_score", "resale_value_score", "overall_score"):
-            sanitized[field] = sanitize_number(value, min_val=0, max_val=10)
-        
-        elif field == "strengths":
-            sanitized[field] = sanitize_list(value, max_items=10, 
-                                             item_sanitizer=lambda x: sanitize_string(x, 200))
-        
-        elif field == "weaknesses":
-            sanitized[field] = sanitize_list(value, max_items=10,
-                                             item_sanitizer=lambda x: sanitize_string(x, 200))
-        
-        elif field == "common_issues":
-            sanitized[field] = sanitize_list(value, max_items=15,
-                                             item_sanitizer=lambda x: sanitize_string(x, 300))
-        
-        elif field in ("maintenance_cost_estimate", "rating_explanation", "source_tag", "mileage_note"):
-            sanitized[field] = sanitize_string(value, max_length=500)
-        
-        elif field == "km_warn":
-            sanitized[field] = sanitize_boolean(value)
-    
-    return sanitized
+    allowed = {"title", "url", "publisher", "date"}
+    out: List[Dict[str, Any]] = []
 
-def sanitize_advisor_response(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Sanitize /advisor_api endpoint response.
-    Whitelists top-level fields and recursively sanitizes car recommendations.
-    """
-    if not isinstance(data, dict):
-        return {}
-    
-    sanitized = {}
-    
-    for field, value in data.items():
-        if field not in ADVISOR_ALLOWED_FIELDS:
-            continue  # Drop unknown fields
-        
-        if field == "search_performed":
-            sanitized[field] = sanitize_boolean(value)
-        
-        elif field == "search_queries":
-            sanitized[field] = sanitize_list(value, max_items=6,
-                                             item_sanitizer=lambda x: sanitize_string(x, 200))
-        
-        elif field == "recommended_cars":
-            sanitized[field] = [sanitize_car_object(car) for car in value if isinstance(car, dict)]
-            if len(sanitized[field]) > 10:
-                sanitized[field] = sanitized[field][:10]
-    
-    return sanitized
+    for item in value[:MAX_LIST_LENGTH]:
+        if isinstance(item, str):
+            # allow simple string sources too
+            s = sanitize_string(item, max_len=MAX_STRING_LENGTH)
+            if s:
+                out.append({"title": s})
+            continue
+        if not isinstance(item, Mapping):
+            continue
 
-def sanitize_car_object(car: Dict[str, Any]) -> Dict[str, Any]:
-    """Sanitize a single car recommendation object."""
-    if not isinstance(car, dict):
+        cleaned: Dict[str, Any] = {}
+        for k in allowed:
+            if k not in item:
+                continue
+            cleaned[k] = sanitize_string(item.get(k), max_len=MAX_STRING_LENGTH)
+        if cleaned:
+            out.append(cleaned)
+
+    return out
+
+
+def _sanitize_issue_with_costs_list(value: Any) -> Optional[List[Dict[str, Any]]]:
+    if not isinstance(value, list):
+        return None
+
+    out: List[Dict[str, Any]] = []
+    for item in value[:MAX_LIST_LENGTH]:
+        if not isinstance(item, Mapping):
+            continue
+        cleaned: Dict[str, Any] = {}
+        for k in _ISSUE_WITH_COSTS_ALLOWED:
+            if k not in item:
+                continue
+            if k in {"issue", "severity"}:
+                cleaned[k] = sanitize_string(item.get(k), max_len=MAX_SHORT_STRING_LENGTH)
+            elif k in {"description"}:
+                cleaned[k] = sanitize_string(item.get(k), max_len=MAX_STRING_LENGTH)
+            elif k in {"est_cost_ILS"}:
+                cleaned[k] = sanitize_number(item.get(k))
+            elif k in {"cost_range_ILS"}:
+                # Accept dict with min/max
+                cr = item.get(k)
+                if isinstance(cr, Mapping):
+                    cleaned[k] = {
+                        "min": sanitize_number(cr.get("min")),
+                        "max": sanitize_number(cr.get("max")),
+                    }
+                else:
+                    cleaned[k] = None
+            elif k in {"sources"}:
+                cleaned[k] = _sanitize_sources(item.get(k))
+        if cleaned.get("issue"):
+            out.append(cleaned)
+    return out
+
+
+def _sanitize_recommended_checks(value: Any) -> Optional[List[Dict[str, Any]]]:
+    if not isinstance(value, list):
+        return None
+
+    out: List[Dict[str, Any]] = []
+    for item in value[:MAX_LIST_LENGTH]:
+        if not isinstance(item, Mapping):
+            continue
+        cleaned: Dict[str, Any] = {}
+        for k in _RECOMMENDED_CHECKS_ALLOWED:
+            if k not in item:
+                continue
+            if k in {"check", "priority"}:
+                cleaned[k] = sanitize_string(item.get(k), max_len=MAX_SHORT_STRING_LENGTH)
+            elif k in {"rationale", "notes"}:
+                cleaned[k] = sanitize_string(item.get(k), max_len=MAX_STRING_LENGTH)
+            elif k in {"estimated_cost_ILS"}:
+                cleaned[k] = sanitize_number(item.get(k))
+        if cleaned.get("check"):
+            out.append(cleaned)
+    return out
+
+
+def _sanitize_common_competitors(value: Any) -> Optional[List[Dict[str, Any]]]:
+    if not isinstance(value, list):
+        return None
+
+    out: List[Dict[str, Any]] = []
+    for item in value[:MAX_LIST_LENGTH]:
+        if not isinstance(item, Mapping):
+            continue
+        cleaned: Dict[str, Any] = {}
+        for k in _COMPETITOR_ALLOWED:
+            if k not in item:
+                continue
+            if k in {"make", "model"}:
+                cleaned[k] = sanitize_string(item.get(k), max_len=MAX_SHORT_STRING_LENGTH)
+            elif k in {"years"}:
+                if isinstance(item.get(k), list):
+                    years: List[int] = []
+                    for y in item.get(k)[:50]:
+                        yn = sanitize_number(y)
+                        if isinstance(yn, (int, float)):
+                            yi = int(yn)
+                            if 1900 <= yi <= 2100:
+                                years.append(yi)
+                    cleaned[k] = years
+                else:
+                    cleaned[k] = None
+            elif k in {"notes"}:
+                cleaned[k] = sanitize_string(item.get(k), max_len=MAX_STRING_LENGTH)
+        if cleaned.get("make") and cleaned.get("model"):
+            out.append(cleaned)
+    return out
+
+
+def sanitize_analyze_payload(payload: Any) -> Dict[str, Any]:
+    """Sanitize a dict representing analyze request/model output.
+
+    Drops any keys not in ANALYZE_ALLOWED_FIELDS.
+    Applies nested sanitization for known structured fields.
+    """
+    if not isinstance(payload, Mapping):
         return {}
-    
-    sanitized = {}
-    
-    for field, value in car.items():
-        if field not in CAR_FIELDS:
-            continue  # Drop unknown fields
-        
-        # Numeric fields (scores, prices, consumption)
-        if field in ("year", "engine_cc", "price_range_nis", "avg_fuel_consumption",
-                     "annual_fee", "reliability_score", "maintenance_cost", "safety_rating",
-                     "insurance_cost", "resale_value", "performance_score", "comfort_features",
-                     "suitability", "fit_score", "annual_energy_cost", "annual_fuel_cost",
-                     "total_annual_cost"):
-            if field == "year":
-                # Dynamic max year: current year + 1 (to allow next year models)
-                max_year = datetime.now().year + 1
-                sanitized[field] = sanitize_number(value, min_val=1990, max_val=max_year)
-            elif field == "fit_score":
-                sanitized[field] = sanitize_number(value, min_val=0, max_val=100)
-            elif "score" in field or "rating" in field:
-                sanitized[field] = sanitize_number(value, min_val=1, max_val=10)
-            else:
-                sanitized[field] = sanitize_number(value, min_val=0)
-        
-        # String fields (brand, model, fuel, gear, etc.)
-        elif field in ("brand", "model", "fuel", "gear", "turbo", "market_supply"):
-            sanitized[field] = sanitize_string(value, max_length=100)
-        
-        # Text explanation fields
-        elif field in ("comparison_comment", "not_recommended_reason", "fuel_method",
-                       "fee_method", "reliability_method", "maintenance_method",
-                       "safety_method", "insurance_method", "resale_method",
-                       "performance_method", "comfort_method", "suitability_method",
-                       "supply_method"):
-            sanitized[field] = sanitize_string(value, max_length=500)
-        
-        elif field == "turbo":
-            # Dual-type field: boolean or string (preserves compatibility with existing system)
-            # Frontend converts to string anyway: String(car.turbo)
-            if isinstance(value, bool):
-                sanitized[field] = value
-            else:
-                sanitized[field] = sanitize_string(value, max_length=50)
-    
-    return sanitized
+
+    result: Dict[str, Any] = {}
+
+    for key in ANALYZE_ALLOWED_FIELDS:
+        if key not in payload:
+            continue
+
+        value = payload.get(key)
+
+        # Nested handling for specific fields
+        if key in {"base_score_calculated", "avg_repair_cost_ILS"}:
+            result[key] = sanitize_number(value)
+        elif key in {"reliability_summary", "reliability_summary_simple"}:
+            result[key] = sanitize_string(value, max_len=MAX_STRING_LENGTH)
+        elif key == "score_breakdown":
+            result[key] = _sanitize_score_breakdown(value)
+        elif key == "issues_with_costs":
+            result[key] = _sanitize_issue_with_costs_list(value)
+        elif key == "sources":
+            result[key] = _sanitize_sources(value)
+        elif key == "recommended_checks":
+            result[key] = _sanitize_recommended_checks(value)
+        elif key == "common_competitors_brief":
+            result[key] = _sanitize_common_competitors(value)
+        else:
+            # Default: sanitize common JSON-like types conservatively
+            result[key] = sanitize_json_value(value)
+
+    # Remove Nones to keep payload compact
+    return {k: v for k, v in result.items() if v is not None}
