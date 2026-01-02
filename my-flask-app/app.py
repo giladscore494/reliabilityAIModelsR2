@@ -567,6 +567,11 @@ def create_app():
     app.config["SECRET_KEY"] = secret_key if secret_key else "dev-secret-key-that-is-not-secret"
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
+    # ===== SECURITY:  Session Cookie Configuration (Tier 1) =====
+    app.config["SESSION_COOKIE_SECURE"] = True
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+
     if not db_url:
         print("[BOOT] ⚠️ DATABASE_URL not set. Using in-memory sqlite (LOCAL DEV ONLY).")
     if not secret_key:
