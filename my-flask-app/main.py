@@ -9,6 +9,7 @@ import os, re, json, traceback, logging, uuid, random
 import time as pytime
 from typing import Optional, Tuple, Any, Dict
 from datetime import datetime, time, timedelta, date
+from zoneinfo import ZoneInfo
 from urllib.parse import urlparse
 from sqlalchemy import inspect
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -128,6 +129,43 @@ class AdvisorHistory(db.Model):
 # ==================================
 # === 3. פונקציות עזר (גלובלי) ===
 # ==================================
+
+def resolve_app_timezone() -> Tuple[ZoneInfo, str]:
+    """
+    Resolve application timezone from APP_TZ env with safe fallback to UTC.
+    """
+    tz_name = os.environ.get("APP_TZ", "UTC").strip() or "UTC"
+    try:
+        return ZoneInfo(tz_name), tz_name
+    except Exception:
+        fallback = "UTC"
+        print(f"[QUOTA] ⚠️ Invalid APP_TZ='{tz_name}', falling back to UTC")
+        return ZoneInfo(fallback), fallback
+
+
+def compute_quota_window(tz: ZoneInfo, *, now: Optional[datetime] = None) -> Tuple[date, datetime, datetime, datetime, datetime, int]:
+    """
+    Compute timezone-aware quota window boundaries and retry-after seconds.
+    """
+    now_tz = now.astimezone(tz) if now else datetime.now(tz)
+    day_key = now_tz.date()
+    window_start = datetime.combine(day_key, time.min, tzinfo=tz)
+    window_end = datetime.combine(day_key, time.max, tzinfo=tz)
+    resets_at = datetime.combine(day_key + timedelta(days=1), time.min, tzinfo=tz)
+    retry_after = max(0, int((resets_at - now_tz).total_seconds()))
+    return day_key, window_start, window_end, resets_at, now_tz, retry_after
+
+
+def parse_owner_emails(raw: str) -> list:
+    """
+    Normalize OWNER_EMAILS env var into a clean, lowercase list.
+    """
+    return [
+        item.strip().lower()
+        for item in (raw or "").split(",")
+        if item and item.strip()
+    ]
+
 
 def log_access_decision(route_name: str, user_id: Optional[int], decision: str, reason: str = ""):
     """
@@ -625,17 +663,15 @@ def car_advisor_postprocess(profile: dict, parsed: dict) -> dict:
     }
 
 
-def _get_today_bounds() -> Tuple[datetime, datetime]:
-    today = date.today()
-    start = datetime.combine(today, time.min)
-    end = datetime.combine(today, time.max)
+def _get_today_bounds(tz: ZoneInfo) -> Tuple[datetime, datetime]:
+    """Backward-compatible helper, now timezone-aware."""
+    _, start, end, _, _, _ = compute_quota_window(tz)
     return start, end
 
 
-def get_daily_quota_usage(user_id: int) -> int:
+def get_daily_quota_usage(user_id: int, day_key: date) -> int:
     """Return today's usage count without mutating state."""
-    today = date.today()
-    quota = DailyQuotaUsage.query.filter_by(user_id=user_id, day=today).first()
+    quota = DailyQuotaUsage.query.filter_by(user_id=user_id, day=day_key).first()
     return quota.count if quota else 0
 
 
@@ -643,7 +679,7 @@ def get_daily_quota_usage(user_id: int) -> int:
 # === Phase 1E: Atomic Quota Enforcement ===
 # ======================================================
 
-def check_and_increment_daily_quota(user_id: int, limit: int) -> Tuple[bool, int]:
+def check_and_increment_daily_quota(user_id: int, limit: int, day_key: date, now_utc: Optional[datetime] = None) -> Tuple[bool, int]:
     """
     Atomically check and increment the daily quota for a user.
     
@@ -659,27 +695,26 @@ def check_and_increment_daily_quota(user_id: int, limit: int) -> Tuple[bool, int
         - current_count: The count AFTER increment (if allowed) or current count (if rejected)
     """
 
-    today = date.today()
-    now = datetime.utcnow()
+    now = now_utc or datetime.utcnow()
 
     try:
         with db.session.begin_nested():
             try:
                 quota = (
                     db.session.query(DailyQuotaUsage)
-                    .filter_by(user_id=user_id, day=today)
+                    .filter_by(user_id=user_id, day=day_key)
                     .with_for_update()
                     .first()
                 )
             except SQLAlchemyError:
                 quota = (
                     db.session.query(DailyQuotaUsage)
-                    .filter_by(user_id=user_id, day=today)
+                    .filter_by(user_id=user_id, day=day_key)
                     .first()
                 )
 
             if quota is None:
-                quota = DailyQuotaUsage(user_id=user_id, day=today, count=0, updated_at=now)
+                quota = DailyQuotaUsage(user_id=user_id, day=day_key, count=0, updated_at=now)
                 db.session.add(quota)
                 db.session.flush()
 
@@ -700,13 +735,13 @@ def check_and_increment_daily_quota(user_id: int, limit: int) -> Tuple[bool, int
             with db.session.begin_nested():
                 quota = (
                     db.session.query(DailyQuotaUsage)
-                    .filter_by(user_id=user_id, day=today)
+                    .filter_by(user_id=user_id, day=day_key)
                     .with_for_update()
                     .first()
                 )
 
                 if quota is None:
-                    quota = DailyQuotaUsage(user_id=user_id, day=today, count=0, updated_at=now)
+                    quota = DailyQuotaUsage(user_id=user_id, day=day_key, count=0, updated_at=now)
                     db.session.add(quota)
                     db.session.flush()
 
@@ -731,6 +766,32 @@ def check_and_increment_daily_quota(user_id: int, limit: int) -> Tuple[bool, int
         return False, 0
 
 
+def rollback_quota_increment(user_id: int, day_key: date) -> int:
+    """
+    Roll back a previously recorded quota increment (best-effort).
+    """
+    try:
+        with db.session.begin_nested():
+            quota = (
+                db.session.query(DailyQuotaUsage)
+                .filter_by(user_id=user_id, day=day_key)
+                .with_for_update()
+                .first()
+            )
+            if quota and quota.count > 0:
+                quota.count -= 1
+                quota.updated_at = datetime.utcnow()
+                current = quota.count
+            else:
+                current = quota.count if quota else 0
+        db.session.commit()
+        return current
+    except SQLAlchemyError as e:
+        print(f"[QUOTA] ❌ rollback failed for user {user_id}: {type(e).__name__}")
+        db.session.rollback()
+        return 0
+
+
 # ========================================
 # ===== ★★★ 4. פונקציית ה-Factory ★★★ =====
 # ========================================
@@ -744,6 +805,9 @@ def create_app():
         datefmt='%Y-%m-%d %H:%M:%S'
     )
     logger = logging.getLogger(__name__)
+    app_tz, app_tz_name = resolve_app_timezone()
+    app.config["APP_TZ"] = app_tz_name
+    logger.info(f"APP_TZ configured as {app_tz_name}")
     
     # Phase 2I: ProxyFix parameterization (Render + Cloudflare chain)
     # Cloudflare -> Render proxy chain typically needs x_for=1, x_proto=1, x_host=1
@@ -759,11 +823,7 @@ def create_app():
     logger.info(f"ProxyFix configured with trusted_proxy_count={trusted_proxy_count}")
 
     # ---- בעל מערכת (למנוע ההמלצות) ----
-    OWNER_EMAILS = [
-        e.strip().lower()
-        for e in os.environ.get("OWNER_EMAILS", "").split(",")
-        if e.strip()
-    ]
+    OWNER_EMAILS = parse_owner_emails(os.environ.get("OWNER_EMAILS", ""))
     OWNER_BYPASS_QUOTA = os.environ.get("OWNER_BYPASS_QUOTA", "1").lower() in ("1", "true", "yes")
     ADVISOR_OWNER_ONLY = os.environ.get("ADVISOR_OWNER_ONLY", "1").lower() in ("1", "true", "yes")
 
@@ -1369,7 +1429,7 @@ def create_app():
         parsed = car_advisor_call_gemini_with_search(user_profile)
         if parsed.get("_error"):
             log_access_decision('/advisor_api', user_id, 'error', f'AI error: {parsed.get("_error")}')
-            return jsonify({"error": parsed["_error"], "raw": parsed.get("_raw"), "request_id": get_request_id()}), 500
+            return jsonify({"error": parsed["_error"], "request_id": get_request_id()}), 502
 
         result = car_advisor_postprocess(user_profile, parsed)
 
@@ -1397,11 +1457,33 @@ def create_app():
         # Log access decision
         user_id = current_user.id if current_user.is_authenticated else None
         log_access_decision('/analyze', user_id, 'allowed', 'authenticated user')
+        day_key, _, _, resets_at, _, retry_after_seconds = compute_quota_window(app_tz)
+        cache_hit = False
+        usage_snapshot = get_daily_quota_usage(current_user.id, day_key)
+        quota_used_after = usage_snapshot
+        quota_incremented = False
+        quota_logged = False
+
+        def log_quota_event(cache_hit_flag: bool, used_after_val: Optional[int] = None, retry_after_val: Optional[int] = None):
+            nonlocal quota_logged
+            if quota_logged:
+                return
+            used_after_local = quota_used_after if used_after_val is None else used_after_val
+            limit_val = USER_DAILY_LIMIT
+            remaining = max(0, limit_val - used_after_local)
+            logger.info(
+                f"[QUOTA] request_id={get_request_id()} uid={user_id} email={getattr(current_user, 'email', '')} "
+                f"cache_hit={cache_hit_flag} used_before={usage_snapshot} used_after={used_after_local} "
+                f"limit={limit_val} remaining={remaining} resets_at={resets_at.isoformat()} "
+                f"retry_after={(retry_after_val if retry_after_val is not None else retry_after_seconds)}"
+            )
+            quota_logged = True
         
         # 0) Input validation
         try:
             data = request.json
             if not data:
+                log_quota_event(cache_hit, usage_snapshot)
                 return jsonify({'error': 'Invalid JSON', 'request_id': get_request_id()}), 400
             
             # Validate request against schema
@@ -1417,17 +1499,16 @@ def create_app():
             final_trans = str(validated.get('transmission'))
             if not (final_make and final_model and final_year):
                 log_access_decision('/analyze', user_id, 'rejected', 'validation error: missing required fields')
+                log_quota_event(cache_hit, usage_snapshot)
                 return jsonify({"error": "שגיאת קלט (שלב 0): נא למלא יצרן, דגם ושנה", "request_id": get_request_id()}), 400
         except ValidationError as e:
             log_access_decision('/analyze', user_id, 'rejected', f'validation error: {e.field}')
+            log_quota_event(cache_hit, usage_snapshot)
             return jsonify({'error': f'{e.field}: {e.message}', 'request_id': get_request_id()}), 400
         except Exception as e:
             log_access_decision('/analyze', user_id, 'rejected', f'validation error: {str(e)}')
+            log_quota_event(cache_hit, usage_snapshot)
             return jsonify({"error": f"שגיאת קלט (שלב 0): {str(e)}", "request_id": get_request_id()}), 400
-
-        today_start, today_end = _get_today_bounds()
-        cache_hit = False
-        usage_snapshot = get_daily_quota_usage(current_user.id)
 
         # 1) Cache first (no quota impact on hit)
         try:
@@ -1447,11 +1528,7 @@ def create_app():
                 result['source_tag'] = f"מקור: מטמון DB (נשמר ב-{cached.timestamp.strftime('%Y-%m-%d')})"
                 # Sanitize cached output before returning
                 result = sanitize_analyze_response(result)
-                logger.info(
-                    f"[QUOTA] request_id={get_request_id()} uid={user_id} email={getattr(current_user, 'email', '')} "
-                    f"searches_today={usage_snapshot} limit={USER_DAILY_LIMIT} "
-                    f"today_start={today_start.isoformat()} today_end={today_end.isoformat()} cache_hit=True bypass=False"
-                )
+                log_quota_event(True, usage_snapshot)
                 return jsonify(result)
         except Exception as e:
             print(f"[CACHE] ⚠️ {e}")
@@ -1461,43 +1538,38 @@ def create_app():
         bypass_owner = OWNER_BYPASS_QUOTA and is_owner_user()
         if not bypass_owner:
             try:
-                allowed, quota_used = check_and_increment_daily_quota(current_user.id, USER_DAILY_LIMIT)
+                allowed, quota_used = check_and_increment_daily_quota(
+                    current_user.id,
+                    USER_DAILY_LIMIT,
+                    day_key,
+                    now_utc=datetime.utcnow(),
+                )
+                quota_used_after = quota_used
+                quota_incremented = allowed
 
                 if not allowed:
                     log_access_decision('/analyze', user_id, 'rejected', f'quota exceeded: {quota_used}/{USER_DAILY_LIMIT}')
-                    retry_after = max(0, int((today_end - datetime.now()).total_seconds()))
+                    retry_after = retry_after_override if retry_after_override is not None else retry_after_seconds
                     response = jsonify({
                         "error": "שגיאת מגבלה: ניצלת את כל החיפושים להיום. נסה שוב מחר.",
                         "limit": USER_DAILY_LIMIT,
                         "used": quota_used,
                         "remaining": 0,
-                        "resets_at": today_end.isoformat()
+                        "resets_at": resets_at.isoformat()
                     })
                     response.status_code = 429
                     response.headers["Retry-After"] = str(retry_after)
-                    logger.info(
-                        f"[QUOTA] request_id={get_request_id()} uid={user_id} email={getattr(current_user, 'email', '')} "
-                        f"searches_today={quota_used} limit={USER_DAILY_LIMIT} "
-                        f"today_start={today_start.isoformat()} today_end={today_end.isoformat()} cache_hit=False bypass=False blocked=True"
-                    )
+                    log_quota_event(False, quota_used_after, retry_after)
                     return response
 
-                logger.info(
-                    f"[QUOTA] request_id={get_request_id()} uid={user_id} email={getattr(current_user, 'email', '')} "
-                    f"searches_today={quota_used} limit={USER_DAILY_LIMIT} "
-                    f"today_start={today_start.isoformat()} today_end={today_end.isoformat()} cache_hit=False bypass=False"
-                )
             except Exception as e:
                 log_rejection("server_error", f"Quota check failed: {type(e).__name__}")
                 traceback.print_exc()
                 log_access_decision('/analyze', user_id, 'error', f'server error in quota check: {str(e)}')
+                if quota_incremented:
+                    quota_used_after = rollback_quota_increment(current_user.id, day_key)
+                log_quota_event(False, quota_used_after)
                 return jsonify({"error": f"שגיאת שרת (שלב 1): {str(e)}", "request_id": get_request_id()}), 500
-        else:
-            logger.info(
-                f"[QUOTA] request_id={get_request_id()} uid={user_id} email={getattr(current_user, 'email', '')} "
-                f"searches_today={quota_used} limit={USER_DAILY_LIMIT} "
-                f"today_start={today_start.isoformat()} today_end={today_end.isoformat()} cache_hit=False bypass=True"
-            )
 
         # 3) AI call
         try:
@@ -1506,39 +1578,58 @@ def create_app():
                 final_fuel, final_trans, final_mileage
             )
             model_output = call_model_with_retry(prompt)
+            if not isinstance(model_output, dict):
+                raise ValueError("model_output_invalid")
         except Exception as e:
+            if quota_incremented:
+                quota_used_after = rollback_quota_increment(current_user.id, day_key)
+                quota_incremented = False
             log_rejection("server_error", f"AI model call failed: {type(e).__name__}")
             traceback.print_exc()
-            return jsonify({"error": f"שגיאת AI (שלב 4): {str(e)}", "request_id": get_request_id()}), 500
+            if isinstance(e, ValueError):
+                log_quota_event(False, quota_used_after, retry_after_seconds)
+                return jsonify({"error": "פלט AI לא תקין. נסה שוב בעוד מספר רגעים.", "request_id": get_request_id()}), 502
+            log_quota_event(False, quota_used_after, retry_after_seconds)
+            return jsonify({"error": f"שגיאת AI (שלב 4): {type(e).__name__}", "request_id": get_request_id()}), 500
 
-        # 5) Mileage logic
-        model_output, note = apply_mileage_logic(model_output, final_mileage)
-
-        # 6) Save
         try:
-            new_log = SearchHistory(
-                user_id=current_user.id,
-                make=final_make,
-                model=final_model,
-                year=final_year,
-                mileage_range=final_mileage,
-                fuel_type=final_fuel,
-                transmission=final_trans,
-                result_json=json.dumps(model_output, ensure_ascii=False)
-            )
-            db.session.add(new_log)
-            db.session.commit()
-        except Exception as e:
-            print(f"[DB] ⚠️ save failed: {e}")
-            db.session.rollback()
+            # 5) Mileage logic
+            model_output, note = apply_mileage_logic(model_output, final_mileage)
 
-        model_output['source_tag'] = f"מקור: ניתוח AI חדש (חיפוש {quota_used}/{USER_DAILY_LIMIT})"
-        model_output['mileage_note'] = note
-        model_output['km_warn'] = False
-        
-        # Sanitize output before returning
-        model_output = sanitize_analyze_response(model_output)
-        
+            # 6) Save
+            try:
+                new_log = SearchHistory(
+                    user_id=current_user.id,
+                    make=final_make,
+                    model=final_model,
+                    year=final_year,
+                    mileage_range=final_mileage,
+                    fuel_type=final_fuel,
+                    transmission=final_trans,
+                    result_json=json.dumps(model_output, ensure_ascii=False)
+                )
+                db.session.add(new_log)
+                db.session.commit()
+            except Exception as e:
+                print(f"[DB] ⚠️ save failed: {e}")
+                db.session.rollback()
+
+            model_output['source_tag'] = f"מקור: ניתוח AI חדש (חיפוש {quota_used}/{USER_DAILY_LIMIT})"
+            model_output['mileage_note'] = note
+            model_output['km_warn'] = False
+            
+            # Sanitize output before returning
+            model_output = sanitize_analyze_response(model_output)
+        except Exception as e:
+            if quota_incremented:
+                quota_used_after = rollback_quota_increment(current_user.id, day_key)
+                quota_incremented = False
+            log_rejection("server_error", f"Post-processing failed: {type(e).__name__}")
+            traceback.print_exc()
+            log_quota_event(False, quota_used_after)
+            return jsonify({"error": "שגיאת שרת (שלב 5)", "request_id": get_request_id()}), 500
+
+        log_quota_event(False, quota_used_after)
         return jsonify(model_output)
 
     @app.cli.command("init-db")
