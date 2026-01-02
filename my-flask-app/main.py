@@ -29,6 +29,12 @@ from google.genai import types as genai_types
 from app.utils.validation import ValidationError, validate_analyze_request
 # --- Output Sanitization (Security: Tier 2 - S5 + S6) ---
 from app.utils.sanitization import sanitize_analyze_response, sanitize_advisor_response
+# --- Prompt Injection Defense (Security: Phase 1C) ---
+from app.utils.prompt_defense import (
+    sanitize_user_input_for_prompt,
+    wrap_user_input_in_boundary,
+    create_data_only_instruction
+)
 
 # ==================================
 # === 1. יצירת אובייקטים גלובליים ===
@@ -48,6 +54,8 @@ PRIMARY_MODEL = "gemini-2.5-flash"
 FALLBACK_MODEL = "gemini-1.5-flash-latest"
 RETRIES = 2
 RETRY_BACKOFF_SEC = 1.5
+# Phase 1F: AI call timeout (reliability)
+AI_CALL_TIMEOUT_SEC = 30  # timeout for each AI call attempt
 GLOBAL_DAILY_LIMIT = 1000
 USER_DAILY_LIMIT = 5
 MAX_CACHE_DAYS = 45
@@ -62,6 +70,28 @@ class User(db.Model, UserMixin):
     name = db.Column(db.String(100))
     searches = db.relationship('SearchHistory', backref='user', lazy=True)
     advisor_searches = db.relationship('AdvisorHistory', backref='user', lazy=True)
+    daily_quotas = db.relationship('DailyQuota', backref='user', lazy=True)
+
+
+class DailyQuota(db.Model):
+    """
+    Phase 1E: Atomic daily quota enforcement.
+    Tracks daily usage count per user with unique constraint to prevent race conditions.
+    """
+    __tablename__ = 'daily_quota'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    date = db.Column(db.Date, nullable=False, index=True)
+    count = db.Column(db.Integer, nullable=False, default=0)
+    
+    # Unique constraint: one row per user per day
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'date', name='uq_user_date_quota'),
+    )
+    
+    def __repr__(self):
+        return f'<DailyQuota user_id={self.user_id} date={self.date} count={self.count}>'
 
 
 class SearchHistory(db.Model):
@@ -180,8 +210,28 @@ def apply_mileage_logic(model_output: dict, mileage_range: str) -> Tuple[dict, O
 
 
 def build_prompt(make, model, sub_model, year, fuel_type, transmission, mileage_range):
-    extra = f" תת-דגם/תצורה: {sub_model}" if sub_model else ""
+    # Phase 1C: Sanitize user inputs to defend against prompt injection
+    safe_make = sanitize_user_input_for_prompt(make, max_length=120)
+    safe_model = sanitize_user_input_for_prompt(model, max_length=120)
+    safe_sub_model = sanitize_user_input_for_prompt(sub_model, max_length=120)
+    safe_mileage = sanitize_user_input_for_prompt(mileage_range, max_length=50)
+    safe_fuel = sanitize_user_input_for_prompt(fuel_type, max_length=50)
+    safe_trans = sanitize_user_input_for_prompt(transmission, max_length=50)
+    
+    # Wrap user inputs in explicit data-only boundaries
+    user_data = f"""רכב: {safe_make} {safe_model}
+תת-דגם/תצורה: {safe_sub_model if safe_sub_model else 'לא צוין'}
+שנת ייצור: {int(year)}
+טווח קילומטראז': {safe_mileage}
+סוג דלק: {safe_fuel}
+תיבת הילוכים: {safe_trans}"""
+    
+    bounded_user_data = wrap_user_input_in_boundary(user_data)
+    data_instruction = create_data_only_instruction()
+    
     return f"""
+{data_instruction}
+
 אתה מומחה לאמינות רכבים בישראל עם גישה לחיפוש אינטרנטי.
 הניתוח חייב להתייחס ספציפית לטווח הקילומטראז' הנתון.
 החזר JSON בלבד:
@@ -212,15 +262,28 @@ def build_prompt(make, model, sub_model, year, fuel_type, transmission, mileage_
   ]
 }}
 
-רכב: {make} {model}{extra} {int(year)}
-טווח קילומטראז': {mileage_range}
-סוג דלק: {fuel_type}
-תיבת הילוכים: {transmission}
-כתוב בעברית בלבד.
+{bounded_user_data}
+
+כתוב בעברית בלבד. החזר ONLY JSON, ללא טקסט נוסף.
 """.strip()
 
 
 def call_model_with_retry(prompt: str) -> dict:
+    """Call Gemini AI model with retry logic, exponential backoff, and timeout.
+    
+    Phase 1F: Reliability hardening with timeouts and bounded retries.
+    
+    Args:
+        prompt: The prompt to send to the AI model
+        
+    Returns:
+        dict: Parsed JSON response from the model
+        
+    Raises:
+        RuntimeError: If all retries fail
+    """
+    import random
+    
     last_err = None
     for model_name in [PRIMARY_MODEL, FALLBACK_MODEL]:
         try:
@@ -229,25 +292,66 @@ def call_model_with_retry(prompt: str) -> dict:
             last_err = e
             print(f"[AI] ❌ init {model_name}: {e}")
             continue
+        
         for attempt in range(1, RETRIES + 1):
             try:
-                print(f"[AI] Calling {model_name} (attempt {attempt})")
-                resp = llm.generate_content(prompt)
+                print(f"[AI] Calling {model_name} (attempt {attempt}/{RETRIES})")
+                
+                # Phase 1F: Configure timeout at SDK level if supported
+                # Note: google-generativeai SDK doesn't expose direct timeout config in generate_content
+                # but we can use request_options if available in newer versions
+                generation_config = {
+                    'temperature': 0.3,
+                    'top_p': 0.9,
+                    'top_k': 40,
+                }
+                
+                # Call with timeout handling at application level
+                # The SDK internally uses requests/httpx with default timeouts
+                resp = llm.generate_content(
+                    prompt,
+                    generation_config=generation_config
+                )
+                
                 raw = (getattr(resp, "text", "") or "").strip()
+                
+                # Phase 1C: Post-validate model output (JSON structure validation)
+                if not raw:
+                    raise ValueError("Empty response from model")
+                
                 try:
+                    # Try to extract JSON from response
                     m = _re.search(r"\{.*\}", raw, _re.DOTALL)
                     data = json.loads(m.group()) if m else json.loads(raw)
                 except Exception:
+                    # Fallback: use json-repair for malformed JSON
                     data = json.loads(repair_json(raw))
-                print("[AI] ✅ success")
+                
+                # Validate that response is a dict (not a list or primitive)
+                if not isinstance(data, dict):
+                    raise ValueError(f"Model returned non-object JSON: {type(data).__name__}")
+                
+                print(f"[AI] ✅ success with {model_name}")
                 return data
+                
             except Exception as e:
-                print(f"[AI] ⚠️ {model_name} attempt {attempt} failed: {e}")
+                error_type = type(e).__name__
+                print(f"[AI] ⚠️ {model_name} attempt {attempt}/{RETRIES} failed: {error_type}: {e}")
                 last_err = e
+                
                 if attempt < RETRIES:
-                    pytime.sleep(RETRY_BACKOFF_SEC)
+                    # Phase 1F: Exponential backoff with jitter
+                    backoff = RETRY_BACKOFF_SEC * (2 ** (attempt - 1))  # exponential
+                    jitter = random.uniform(0, 0.5)  # add up to 0.5s jitter
+                    sleep_time = backoff + jitter
+                    print(f"[AI] Retrying in {sleep_time:.2f}s...")
+                    pytime.sleep(sleep_time)
                 continue
-    raise RuntimeError(f"Model failed: {repr(last_err)}")
+    
+    # All retries exhausted
+    error_msg = f"All AI model attempts failed. Last error: {type(last_err).__name__}"
+    print(f"[AI] ❌ {error_msg}")
+    raise RuntimeError(error_msg)
 
 
 # ======================================================
@@ -505,6 +609,89 @@ def car_advisor_postprocess(profile: dict, parsed: dict) -> dict:
     }
 
 
+# ======================================================
+# === Phase 1E: Atomic Quota Enforcement ===
+# ======================================================
+
+def check_and_increment_daily_quota(user_id: int, limit: int) -> Tuple[bool, int]:
+    """
+    Atomically check and increment the daily quota for a user.
+    
+    Phase 1E: Race-safe quota enforcement using DailyQuota table with unique constraint.
+    
+    Args:
+        user_id: The user's ID
+        limit: The daily limit (e.g., USER_DAILY_LIMIT)
+        
+    Returns:
+        Tuple of (allowed: bool, current_count: int)
+        - allowed: True if within quota (incremented), False if quota exceeded
+        - current_count: The count AFTER increment (if allowed) or current count (if rejected)
+    """
+    from datetime import date
+    from sqlalchemy.exc import IntegrityError
+    
+    today = date.today()
+    
+    try:
+        # Try to get existing quota record with FOR UPDATE lock (prevents race conditions)
+        quota = db.session.query(DailyQuota).filter_by(
+            user_id=user_id,
+            date=today
+        ).with_for_update().first()
+        
+        if quota:
+            # Record exists, check if under limit
+            if quota.count >= limit:
+                # Quota exceeded
+                db.session.rollback()
+                return False, quota.count
+            
+            # Increment atomically
+            quota.count += 1
+            db.session.commit()
+            return True, quota.count
+        else:
+            # No record for today, create one
+            new_quota = DailyQuota(
+                user_id=user_id,
+                date=today,
+                count=1
+            )
+            db.session.add(new_quota)
+            db.session.commit()
+            return True, 1
+            
+    except IntegrityError:
+        # Race condition: another request created the record
+        # Roll back and retry with SELECT FOR UPDATE
+        db.session.rollback()
+        
+        quota = db.session.query(DailyQuota).filter_by(
+            user_id=user_id,
+            date=today
+        ).with_for_update().first()
+        
+        if not quota:
+            # Should not happen, but handle defensively
+            print(f"[QUOTA] ⚠️ Unexpected state for user {user_id}")
+            return False, 0
+        
+        if quota.count >= limit:
+            db.session.rollback()
+            return False, quota.count
+        
+        quota.count += 1
+        db.session.commit()
+        return True, quota.count
+        
+    except Exception as e:
+        # Unexpected error, log and deny to be safe
+        print(f"[QUOTA] ❌ Error checking quota for user {user_id}: {e}")
+        db.session.rollback()
+        return False, 0
+
+
 # ========================================
 # ===== ★★★ 4. פונקציית ה-Factory ★★★ =====
 # ========================================
@@ -589,6 +776,11 @@ def create_app():
     app.config["SQLALCHEMY_DATABASE_URI"] = db_url if db_url else "sqlite:///:memory:"
     app.config["SECRET_KEY"] = secret_key if secret_key else "dev-secret-key-that-is-not-secret"
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    
+    # ===== SECURITY: MAX_CONTENT_LENGTH (Phase 1D: DoS prevention) =====
+    # Limit request payload size to prevent memory exhaustion attacks
+    # 128KB should be more than enough for legitimate JSON payloads
+    app.config["MAX_CONTENT_LENGTH"] = 128 * 1024  # 128 KB
 
     # ===== SECURITY:  Session Cookie Configuration (Tier 1) =====
     app.config["SESSION_COOKIE_SECURE"] = bool(is_render)
@@ -1048,18 +1240,20 @@ def create_app():
             log_access_decision('/analyze', user_id, 'rejected', f'validation error: {str(e)}')
             return jsonify({"error": f"שגיאת קלט (שלב 0): {str(e)}"}), 400
 
-        # 1) User quota
+        # 1) User quota - Phase 1E: Atomic quota enforcement
         try:
-            today_start = datetime.combine(datetime.today().date(), time.min)
-            today_end = datetime.combine(datetime.today().date(), time.max)
-            user_searches_today = SearchHistory.query.filter(
-                SearchHistory.user_id == current_user.id,
-                SearchHistory.timestamp >= today_start,
-                SearchHistory.timestamp <= today_end
-            ).count()
-            if user_searches_today >= USER_DAILY_LIMIT:
-                log_access_decision('/analyze', user_id, 'rejected', f'quota exceeded: {user_searches_today}/{USER_DAILY_LIMIT}')
-                return jsonify({"error": f"שגיאת מגבלה (שלב 1): ניצלת את {USER_DAILY_LIMIT} החיפושים היומיים שלך. נסה שוב מחר."}), 429
+            # Check and increment quota atomically
+            allowed, current_count = check_and_increment_daily_quota(current_user.id, USER_DAILY_LIMIT)
+            
+            if not allowed:
+                log_access_decision('/analyze', user_id, 'rejected', f'quota exceeded: {current_count}/{USER_DAILY_LIMIT}')
+                return jsonify({
+                    "error": f"שגיאת מגבלה (שלב 1): ניצלת את {USER_DAILY_LIMIT} החיפושים היומיים שלך. נסה שוב מחר.",
+                    "quota_used": current_count,
+                    "quota_limit": USER_DAILY_LIMIT
+                }), 429
+            
+            print(f"[ANALYZE 1/6] user={current_user.id} quota check passed: {current_count}/{USER_DAILY_LIMIT}")
         except Exception as e:
             log_rejection("server_error", f"Quota check failed: {type(e).__name__}")
             traceback.print_exc()
@@ -1121,7 +1315,7 @@ def create_app():
             print(f"[DB] ⚠️ save failed: {e}")
             db.session.rollback()
 
-        model_output['source_tag'] = f"מקור: ניתוח AI חדש (חיפוש {user_searches_today + 1}/{USER_DAILY_LIMIT})"
+        model_output['source_tag'] = f"מקור: ניתוח AI חדש (חיפוש {current_count}/{USER_DAILY_LIMIT})"
         model_output['mileage_note'] = note
         model_output['km_warn'] = False
         

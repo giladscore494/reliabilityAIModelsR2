@@ -74,12 +74,65 @@ def validate_form_data(data: Mapping[str, Any], required_fields: Mapping[str, ty
     return validated
 
 
+# Field length limits for DoS prevention (Phase 1D)
+_FIELD_MAX_LENGTHS = {
+    'make': 120,
+    'model': 120,
+    'sub_model': 120,
+    'mileage_range': 50,
+    'fuel_type': 50,
+    'transmission': 50,
+    'main_use': 300,
+    'body_style': 50,
+    'driving_style': 100,
+    'family_size': 20,
+    'cargo_need': 50,
+    'safety_required': 20,
+    'trim_level': 50,
+    'insurance_history': 300,
+    'violations': 100,
+    'excluded_colors': 200,
+    'driver_gender': 20,
+    'seats_choice': 10,
+}
+
+
+def _check_field_length(field: str, value: Any, max_length: int) -> None:
+    """Check if a field exceeds maximum allowed length.
+    
+    Parameters
+    ----------
+    field:
+        Field name.
+    value:
+        Field value.
+    max_length:
+        Maximum allowed length.
+    
+    Raises
+    ------
+    ValidationError
+        If the field exceeds the maximum length.
+    """
+    if value is None:
+        return
+    
+    str_value = str(value)
+    if len(str_value) > max_length:
+        raise ValidationError(
+            field,
+            f"Field exceeds maximum length of {max_length} characters (got {len(str_value)})"
+        )
+
+
 def validate_analyze_request(payload: Mapping[str, Any]) -> Dict[str, Any]:
     """Validate an /analyze request payload and return the validated payload.
 
     This is a small wrapper around :func:`validate_form_data` that standardizes
     error handling and ensures :class:`ValidationError` is raised with ``field``
     and ``message`` attributes.
+    
+    Additionally enforces per-field length limits for DoS prevention.
 
     Parameters
     ----------
@@ -98,10 +151,15 @@ def validate_analyze_request(payload: Mapping[str, Any]) -> Dict[str, Any]:
     """
 
     try:
-        # If the app already defines required fields elsewhere, callers can
-        # still pass them directly to validate_form_data; here we just validate
-        # whatever payload is supplied.
-        return validate_form_data(payload)
+        # Basic validation
+        validated = validate_form_data(payload)
+        
+        # Enforce field length limits (Phase 1D: DoS prevention)
+        for field, max_length in _FIELD_MAX_LENGTHS.items():
+            if field in validated:
+                _check_field_length(field, validated[field], max_length)
+        
+        return validated
     except ValidationError:
         # Preserve field/message and re-raise.
         raise
