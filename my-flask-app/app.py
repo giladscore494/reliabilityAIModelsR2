@@ -88,6 +88,19 @@ class AdvisorHistory(db.Model):
 # ==================================
 # === 3. פונקציות עזר (גלובלי) ===
 # ==================================
+
+def log_access_decision(route_name: str, user_id: Optional[int], decision: str, reason: str = ""):
+    """
+    Safe logging helper for access control decisions.
+    Logs route access attempts without exposing sensitive data.
+    """
+    user_info = f"user_id={user_id}" if user_id else "anonymous"
+    log_msg = f"[ACCESS] {route_name} | {user_info} | {decision}"
+    if reason:
+        log_msg += f" | {reason}"
+    print(log_msg)
+
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
@@ -784,9 +797,14 @@ def create_app():
         בונה user_profile מלא כמו ב-Car Advisor (Streamlit),
         קורא ל-Gemini 3 Pro, שומר היסטוריה ומחזיר JSON מוכן להצגה.
         """
+        # Log access decision
+        user_id = current_user.id if current_user.is_authenticated else None
+        log_access_decision('/advisor_api', user_id, 'allowed', 'authenticated user')
+        
         try:
             payload = request.get_json(force=True) or {}
         except Exception:
+            log_access_decision('/advisor_api', user_id, 'rejected', 'validation error: invalid JSON')
             return jsonify({"error": "קלט JSON לא תקין"}), 400
 
         try:
@@ -849,6 +867,7 @@ def create_app():
             electricity_price = float(payload.get("electricity_price", 0.65))
 
         except Exception as e:
+            log_access_decision('/advisor_api', user_id, 'rejected', f'validation error: {str(e)}')
             return jsonify({"error": f"שגיאת קלט: {e}"}), 400
 
         # --- מיפוי דלק/גיר/טורבו מהעברית לערכים לוגיים ---
@@ -894,6 +913,7 @@ def create_app():
 
         parsed = car_advisor_call_gemini_with_search(user_profile)
         if parsed.get("_error"):
+            log_access_decision('/advisor_api', user_id, 'error', f'AI error: {parsed.get("_error")}')
             return jsonify({"error": parsed["_error"], "raw": parsed.get("_raw")}), 500
 
         result = car_advisor_postprocess(user_profile, parsed)
@@ -916,6 +936,10 @@ def create_app():
     @app.route('/analyze', methods=['POST'])
     @login_required
     def analyze_car():
+        # Log access decision
+        user_id = current_user.id if current_user.is_authenticated else None
+        log_access_decision('/analyze', user_id, 'allowed', 'authenticated user')
+        
         # 0) Input
         try:
             data = request.json
@@ -928,10 +952,10 @@ def create_app():
             final_fuel = str(data.get('fuel_type'))
             final_trans = str(data.get('transmission'))
             if not (final_make and final_model and final_year):
-                log_rejection("validation", f"Missing required fields: make={bool(final_make)} model={bool(final_model)} year={bool(final_year)}")
+                log_access_decision('/analyze', user_id, 'rejected', 'validation error: missing required fields')
                 return jsonify({"error": "שגיאת קלט (שלב 0): נא למלא יצרן, דגם ושנה"}), 400
         except Exception as e:
-            log_rejection("validation", f"Input parsing failed: {type(e).__name__}")
+            log_access_decision('/analyze', user_id, 'rejected', f'validation error: {str(e)}')
             return jsonify({"error": f"שגיאת קלט (שלב 0): {str(e)}"}), 400
 
         # 1) User quota
@@ -944,11 +968,12 @@ def create_app():
                 SearchHistory.timestamp <= today_end
             ).count()
             if user_searches_today >= USER_DAILY_LIMIT:
-                log_rejection("quota", f"User {current_user.id} exceeded daily limit: {user_searches_today}/{USER_DAILY_LIMIT}")
+                log_access_decision('/analyze', user_id, 'rejected', f'quota exceeded: {user_searches_today}/{USER_DAILY_LIMIT}')
                 return jsonify({"error": f"שגיאת מגבלה (שלב 1): ניצלת את {USER_DAILY_LIMIT} החיפושים היומיים שלך. נסה שוב מחר."}), 429
         except Exception as e:
             log_rejection("server_error", f"Quota check failed: {type(e).__name__}")
             traceback.print_exc()
+            log_access_decision('/analyze', user_id, 'error', f'server error in quota check: {str(e)}')
             return jsonify({"error": f"שגיאת שרת (שלב 1): {str(e)}"}), 500
 
         # 2–3) Cache

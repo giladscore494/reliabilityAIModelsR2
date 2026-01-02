@@ -338,36 +338,32 @@
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                credentials: 'include',  // ✅ Send session cookies
+                credentials: 'include',
                 body: JSON.stringify(payload)
             });
             const data = await res.json();
             
             // Handle different status codes
-            if (res.status === 401) {
-                // User not logged in - redirect to login
-                alert('אנא התחבר כדי להשתמש בשירות זה');
-                window.location.href = '/login';
+            if (!res.ok) {
+                if (res.status === 401) {
+                    alert('נדרשת התחברות. אנא התחבר למערכת.');
+                    window.location.href = '/login';
+                } else if (res.status === 403) {
+                    alert('אין לך הרשאה לבצע פעולה זו.');
+                } else if (res.status === 429) {
+                    alert(data.error || 'חרגת ממגבלת החיפושים היומית. נסה שוב מחר.');
+                } else if (res.status === 400) {
+                    alert(data.error || 'שגיאת קלט. אנא בדוק את הנתונים.');
+                } else if (res.status >= 500) {
+                    alert(data.error || 'שגיאת שרת. אנא נסה שוב מאוחר יותר.');
+                } else {
+                    alert(data.error || 'שגיאה לא ידועה');
+                }
                 return;
-            } else if (res.status === 403) {
-                // CSRF or permission issue - suggest refresh
-                alert('שגיאת הרשאה. אנא רענן את הדף ונסה שוב.');
-                return;
-            } else if (res.status === 429) {
-                // Rate limit exceeded
-                alert(data.error || 'חרגת ממכסת החיפושים היומית שלך. נסה שוב מחר.');
-                return;
-            } else if (res.status === 400) {
-                // Validation error - show the specific error
-                alert(data.error || 'שגיאת קלט. נא לבדוק שכל השדות מולאו כראוי.');
-                return;
-            } else if (res.status >= 500) {
-                // Server error
-                alert('שגיאת שרת. אנא נסה שוב מאוחר יותר.');
-                return;
-            } else if (!res.ok || data.error) {
-                // Generic error fallback
-                alert(data.error || 'שגיאה בשרת');
+            }
+            
+            if (data.error) {
+                alert(data.error);
                 return;
             }
             
