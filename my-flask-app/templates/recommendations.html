@@ -2,12 +2,6 @@
 <html lang="he" dir="rtl" class="scroll-smooth">
 <head>
     <meta charset="UTF-8">
-
-    <!-- ✅ CSRF token for JS fetch() (Flask-WTF / CSRFProtect) -->
-    {% if csrf_token is defined %}
-        <meta name="csrf-token" content="{{ csrf_token() }}">
-    {% endif %}
-
     <title>yedaarechevAI – מנוע המלצות רכב חכם</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
@@ -115,12 +109,6 @@
                 </header>
 
                 <form id="advisor-form" class="bg-dark-lighter/70 border border-slate-700/70 rounded-3xl p-6 md:p-8 space-y-8">
-
-                    <!-- ✅ hidden CSRF field so FormData includes it -->
-                    {% if csrf_token is defined %}
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    {% endif %}
-
                     <!-- בלוק 1 – תקציב ושנותון -->
                     <div class="space-y-4">
                         <h2 class="text-lg font-bold text-white flex items-center gap-2">
