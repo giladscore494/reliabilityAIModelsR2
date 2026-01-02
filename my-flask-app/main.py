@@ -2,9 +2,10 @@
 # ===================================================================
 # 🚗 Car Reliability Analyzer – Israel
 # v7.4.2 (Render DB Hard-Fail + No double create_app + /healthz + date fix)
+# Phase 1 & 2: Security hardening complete
 # ===================================================================
 
-import os, re, json, traceback
+import os, re, json, traceback, logging, uuid
 import time as pytime
 from typing import Optional, Tuple, Any, Dict
 from datetime import datetime, time, timedelta
@@ -697,7 +698,27 @@ def check_and_increment_daily_quota(user_id: int, limit: int) -> Tuple[bool, int
 # ========================================
 def create_app():
     app = Flask(__name__)
-    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+    
+    # Phase 2K: Configure Python logging (structured logging to stdout)
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s [%(levelname)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    logger = logging.getLogger(__name__)
+    
+    # Phase 2I: ProxyFix parameterization (Render + Cloudflare chain)
+    # Cloudflare -> Render proxy chain typically needs x_for=1, x_proto=1, x_host=1
+    # Can be overridden via TRUSTED_PROXY_COUNT env var if proxy chain changes
+    trusted_proxy_count = int(os.environ.get("TRUSTED_PROXY_COUNT", "1"))
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app,
+        x_for=trusted_proxy_count,
+        x_proto=trusted_proxy_count,
+        x_host=trusted_proxy_count,
+        x_prefix=0  # not using path prefix
+    )
+    logger.info(f"ProxyFix configured with trusted_proxy_count={trusted_proxy_count}")
 
     # ---- בעל מערכת (למנוע ההמלצות) ----
     OWNER_EMAILS = [
@@ -721,9 +742,16 @@ def create_app():
             reason: Short category (unauthenticated, quota, validation, server_error)
             details: Safe description of the issue (no secrets, API keys, or DB details)
         """
+        from flask import g
         user_id = current_user.id if current_user.is_authenticated else "anonymous"
         endpoint = request.endpoint or "unknown"
-        print(f"[REJECT] endpoint={endpoint} user={user_id} reason={reason} details={details}")
+        request_id = getattr(g, 'request_id', 'unknown')
+        logger.warning(f"[REJECT] request_id={request_id} endpoint={endpoint} user={user_id} reason={reason} details={details}")
+    
+    def get_request_id() -> str:
+        """Get the current request_id from Flask g object."""
+        from flask import g
+        return getattr(g, 'request_id', 'unknown')
 
     @app.context_processor
     def inject_template_globals():
@@ -748,6 +776,30 @@ def create_app():
             uri = request.url_root.rstrip("/") + "/auth"
         print(f"[AUTH] Using redirect_uri={uri} (host={host})")
         return uri
+    
+    # Phase 2G: Allowed hosts validation
+    ALLOWED_HOSTS = set()
+    allowed_hosts_env = os.environ.get("ALLOWED_HOSTS", "").strip()
+    if allowed_hosts_env:
+        ALLOWED_HOSTS = {h.strip().lower() for h in allowed_hosts_env.split(",") if h.strip()}
+    else:
+        # Default allowed hosts for production
+        ALLOWED_HOSTS = {
+            "yedaarechev.com",
+            "www.yedaarechev.com",
+            "yedaarechev.onrender.com",
+            "localhost",
+            "127.0.0.1",
+        }
+    print(f"[BOOT] Allowed hosts: {ALLOWED_HOSTS}")
+    
+    def is_host_allowed(host: str) -> bool:
+        """Check if the given host is in the allowed hosts list."""
+        if not host:
+            return False
+        # Strip port if present
+        host_no_port = host.split(":")[0].lower()
+        return host_no_port in ALLOWED_HOSTS
 
     # ======================
     # ✅ Render DB hard-fail
@@ -813,22 +865,109 @@ def create_app():
     oauth.init_app(app)
 
     login_manager.login_view = 'login'
+    
+    # Phase 2G: Host header validation middleware
+    @app.before_request
+    def validate_host_header():
+        """Validate the Host header to prevent host header injection attacks."""
+        host = request.host
+        if not is_host_allowed(host):
+            logger.warning(f"[SECURITY] Invalid host header: {host}")
+            # For API routes, return JSON error
+            if request.path.startswith('/analyze') or request.path.startswith('/advisor_api') or request.path.startswith('/search-details'):
+                return jsonify({"error": "Invalid host header", "request_id": get_request_id()}), 400
+            # For page routes, return HTML error
+            return "Invalid host header", 400
+    
+    # Phase 2H: Origin/Referer protection for session-auth POST endpoints (CSRF-safe without tokens)
+    @app.before_request
+    def check_origin_referer_for_posts():
+        """
+        Validate Origin or Referer header for session-based POST endpoints.
+        This provides CSRF protection without requiring CSRF tokens in fetch() calls.
+        """
+        # Only check POST requests to session-authenticated endpoints
+        if request.method != 'POST':
+            return None
+        
+        # Only check specific endpoints (not login/auth which may come from external OAuth flow)
+        protected_paths = ['/analyze', '/advisor_api']
+        if not any(request.path.startswith(p) for p in protected_paths):
+            return None
+        
+        # Get Origin or Referer header
+        origin = request.headers.get('Origin')
+        referer = request.headers.get('Referer')
+        
+        # Extract host from origin or referer
+        if origin:
+            # Origin format: https://example.com or https://example.com:port
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(origin)
+                origin_host = parsed.netloc or parsed.hostname
+            except Exception:
+                origin_host = None
+        else:
+            origin_host = None
+        
+        if referer and not origin_host:
+            # Referer format: https://example.com/path
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(referer)
+                origin_host = parsed.netloc or parsed.hostname
+            except Exception:
+                origin_host = None
+        
+        # Check if origin_host is allowed
+        if origin_host:
+            # Strip port for comparison
+            host_no_port = origin_host.split(':')[0].lower() if ':' in origin_host else origin_host.lower()
+            if host_no_port not in ALLOWED_HOSTS:
+                logger.warning(f"[CSRF] Blocked POST to {request.path} from disallowed origin: {origin_host}")
+                return jsonify({"error": "forbidden_origin", "message": "Request from unauthorized origin", "request_id": get_request_id()}), 403
+        else:
+            # No Origin or Referer header - this is suspicious for browser requests
+            # However, some legitimate tools/clients may not send these headers
+            # Log for monitoring but allow (can be tightened if needed)
+            logger.warning(f"[CSRF] POST to {request.path} with no Origin/Referer header")
+        
+        return None
 
     # Handle unauthorized access for AJAX/JSON requests
     @login_manager.unauthorized_handler
     def unauthorized():
         """Return 401 for AJAX/JSON requests, otherwise redirect to login."""
+        from flask import g
+        request_id = getattr(g, 'request_id', 'unknown')
+        
         if request.is_json or request.accept_mimetypes.accept_json:
             log_rejection("unauthenticated", "User not logged in, no valid session")
-            return jsonify({"error": "אנא התחבר כדי להשתמש בשירות זה"}), 401
+            return jsonify({
+                "error": "אנא התחבר כדי להשתמש בשירות זה",
+                "request_id": request_id
+            }), 401
         return redirect(url_for('login'))
 
     @app.before_request
     def log_request_metadata():
+        """Phase 2K: Generate request_id and log request metadata."""
+        # Generate unique request_id for this request
+        request_id = str(uuid.uuid4())
+        # Store in Flask's g object for access throughout the request
+        from flask import g
+        g.request_id = request_id
+        
         xfp = request.headers.get("X-Forwarded-Proto", "")
         xff = request.headers.get("X-Forwarded-For", "")
         auth_state = current_user.is_authenticated
-        print(f"[REQ] {request.method} {request.path} host={request.host} scheme={request.scheme} xfp={xfp} xff={xff} auth={auth_state}")
+        
+        # Phase 2K: Use logger instead of print
+        logger.info(
+            f"[REQ] request_id={request_id} {request.method} {request.path} "
+            f"host={request.host} scheme={request.scheme} xfp={xfp} xff={xff} auth={auth_state}"
+        )
 
     @app.after_request
     def apply_security_headers(response):
@@ -1017,7 +1156,7 @@ def create_app():
         try:
             s = SearchHistory.query.filter_by(id=search_id, user_id=current_user.id).first()
             if not s:
-                return jsonify({"error": "לא נמצא רישום מתאים"}), 404
+                return jsonify({"error": "לא נמצא רישום מתאים", "request_id": get_request_id()}), 404
 
             meta = {
                 "id": s.id,
@@ -1031,8 +1170,8 @@ def create_app():
             }
             return jsonify({"meta": meta, "data": json.loads(s.result_json)})
         except Exception as e:
-            print(f"[DETAILS] ❌ {e}")
-            return jsonify({"error": "שגיאת שרת בשליפת נתוני חיפוש"}), 500
+            logger.error(f"[DETAILS] Error fetching search details: {e}")
+            return jsonify({"error": "שגיאת שרת בשליפת נתוני חיפוש", "request_id": get_request_id()}), 500
 
     # ===========================
     # 🔹 Car Advisor – עמוד HTML
@@ -1067,7 +1206,7 @@ def create_app():
             payload = request.get_json(force=True) or {}
         except Exception:
             log_access_decision('/advisor_api', user_id, 'rejected', 'validation error: invalid JSON')
-            return jsonify({"error": "קלט JSON לא תקין"}), 400
+            return jsonify({"error": "קלט JSON לא תקין", "request_id": get_request_id()}), 400
 
         # Validate request before processing
         try:
@@ -1075,7 +1214,7 @@ def create_app():
             payload = validated
         except ValidationError as e:
             log_access_decision('/advisor_api', user_id, 'rejected', f'validation error: {e.field}')
-            return jsonify({'error': f'{e.field}: {e.message}'}), 400
+            return jsonify({'error': f'{e.field}: {e.message}', 'request_id': get_request_id()}), 400
 
         try:
             # ---- שלב 1: בסיסי ----
@@ -1138,7 +1277,7 @@ def create_app():
 
         except Exception as e:
             log_access_decision('/advisor_api', user_id, 'rejected', f'validation error: {str(e)}')
-            return jsonify({"error": f"שגיאת קלט: {e}"}), 400
+            return jsonify({"error": f"שגיאת קלט: {e}", "request_id": get_request_id()}), 400
 
         # --- מיפוי דלק/גיר/טורבו מהעברית לערכים לוגיים ---
         fuels = [fuel_map.get(f, "gasoline") for f in fuels_he] if fuels_he else ["gasoline"]
@@ -1184,7 +1323,7 @@ def create_app():
         parsed = car_advisor_call_gemini_with_search(user_profile)
         if parsed.get("_error"):
             log_access_decision('/advisor_api', user_id, 'error', f'AI error: {parsed.get("_error")}')
-            return jsonify({"error": parsed["_error"], "raw": parsed.get("_raw")}), 500
+            return jsonify({"error": parsed["_error"], "raw": parsed.get("_raw"), "request_id": get_request_id()}), 500
 
         result = car_advisor_postprocess(user_profile, parsed)
 
@@ -1217,12 +1356,12 @@ def create_app():
         try:
             data = request.json
             if not data:
-                return jsonify({'error': 'Invalid JSON'}), 400
+                return jsonify({'error': 'Invalid JSON', 'request_id': get_request_id()}), 400
             
             # Validate request against schema
             validated = validate_analyze_request(data)
             
-            print(f"[ANALYZE 0/6] user={current_user.id} payload: {validated}")
+            logger.info(f"[ANALYZE 0/6] request_id={get_request_id()} user={current_user.id} payload validated")
             final_make = normalize_text(validated.get('make'))
             final_model = normalize_text(validated.get('model'))
             final_sub_model = normalize_text(validated.get('sub_model'))
@@ -1232,13 +1371,13 @@ def create_app():
             final_trans = str(validated.get('transmission'))
             if not (final_make and final_model and final_year):
                 log_access_decision('/analyze', user_id, 'rejected', 'validation error: missing required fields')
-                return jsonify({"error": "שגיאת קלט (שלב 0): נא למלא יצרן, דגם ושנה"}), 400
+                return jsonify({"error": "שגיאת קלט (שלב 0): נא למלא יצרן, דגם ושנה", "request_id": get_request_id()}), 400
         except ValidationError as e:
             log_access_decision('/analyze', user_id, 'rejected', f'validation error: {e.field}')
-            return jsonify({'error': f'{e.field}: {e.message}'}), 400
+            return jsonify({'error': f'{e.field}: {e.message}', 'request_id': get_request_id()}), 400
         except Exception as e:
             log_access_decision('/analyze', user_id, 'rejected', f'validation error: {str(e)}')
-            return jsonify({"error": f"שגיאת קלט (שלב 0): {str(e)}"}), 400
+            return jsonify({"error": f"שגיאת קלט (שלב 0): {str(e)}", "request_id": get_request_id()}), 400
 
         # 1) User quota - Phase 1E: Atomic quota enforcement
         try:
@@ -1250,15 +1389,16 @@ def create_app():
                 return jsonify({
                     "error": f"שגיאת מגבלה (שלב 1): ניצלת את {USER_DAILY_LIMIT} החיפושים היומיים שלך. נסה שוב מחר.",
                     "quota_used": current_count,
-                    "quota_limit": USER_DAILY_LIMIT
+                    "quota_limit": USER_DAILY_LIMIT,
+                    "request_id": get_request_id()
                 }), 429
             
-            print(f"[ANALYZE 1/6] user={current_user.id} quota check passed: {current_count}/{USER_DAILY_LIMIT}")
+            logger.info(f"[ANALYZE 1/6] request_id={get_request_id()} user={current_user.id} quota check passed: {current_count}/{USER_DAILY_LIMIT}")
         except Exception as e:
             log_rejection("server_error", f"Quota check failed: {type(e).__name__}")
             traceback.print_exc()
             log_access_decision('/analyze', user_id, 'error', f'server error in quota check: {str(e)}')
-            return jsonify({"error": f"שגיאת שרת (שלב 1): {str(e)}"}), 500
+            return jsonify({"error": f"שגיאת שרת (שלב 1): {str(e)}", "request_id": get_request_id()}), 500
 
         # 2–3) Cache
         try:
@@ -1292,7 +1432,7 @@ def create_app():
         except Exception as e:
             log_rejection("server_error", f"AI model call failed: {type(e).__name__}")
             traceback.print_exc()
-            return jsonify({"error": f"שגיאת AI (שלב 4): {str(e)}"}), 500
+            return jsonify({"error": f"שגיאת AI (שלב 4): {str(e)}", "request_id": get_request_id()}), 500
 
         # 5) Mileage logic
         model_output, note = apply_mileage_logic(model_output, final_mileage)
