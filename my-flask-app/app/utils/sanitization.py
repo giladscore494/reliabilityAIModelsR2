@@ -1,137 +1,283 @@
-"""Utilities for sanitizing model responses.
+"""Sanitization utilities.
 
-The frontend expects stable response shapes. In the past we exposed
-`sanitize_analyze_response` and `sanitize_advisor_response` helpers which
-acted as backwards-compatible wrappers around the newer payload-based
-sanitizers.
+This module is used to harden model/LLM output before returning it to the
+front-end. It enforces *strict allowlisting* and *deep sanitization* to reduce
+XSS/injection risk and to keep payload sizes bounded.
 
-Some parts of the application (e.g. main.py imports) still rely on these
-symbols existing.
+The front-end (my-flask-app/static/script.js) expects specific fields in the
+/analyze response. Those fields are explicitly allowlisted in
+`sanitize_analyze_response`.
+
+Notes:
+- We escape HTML in all strings.
+- We clamp numeric ranges.
+- We bound string lengths and list sizes.
+- Unknown keys are dropped.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from html import escape
+from typing import Any, Dict, List, Optional
 
 
-# ---------------------------------------------------------------------------
-# Existing (newer) sanitizer helpers
-# ---------------------------------------------------------------------------
+# -------------------------
+# Generic sanitizers
+# -------------------------
 
-def _coerce_str(value: Any, *, default: str = "") -> str:
-    return value if isinstance(value, str) else default
-
-
-def _coerce_dict(value: Any, *, default: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    if isinstance(value, dict):
-        return value
-    return default or {}
+DEFAULT_MAX_STR_LEN = 1200
+DEFAULT_MAX_LIST_ITEMS = 30
+DEFAULT_MAX_NESTED_LIST_ITEMS = 50
 
 
-def sanitize_analyze_payload(payload: Any) -> Dict[str, Any]:
-    """Sanitize the payload returned by the "analyze" endpoint.
+def _to_str(v: Any) -> str:
+    if v is None:
+        return ""
+    if isinstance(v, str):
+        return v
+    # Avoid dumping very large objects; cast common scalar types.
+    if isinstance(v, (int, float, bool)):
+        return str(v)
+    return str(v)
 
-    This function enforces a minimal schema without being overly strict.
+
+def sanitize_string(
+    v: Any,
+    *,
+    max_len: int = DEFAULT_MAX_STR_LEN,
+    allow_newlines: bool = True,
+) -> str:
+    """Escape and bound a string."""
+    s = _to_str(v)
+    if not allow_newlines:
+        s = s.replace("\r", " ").replace("\n", " ")
+    # Escape HTML special chars to prevent XSS.
+    s = escape(s, quote=True)
+    # Trim and bound.
+    s = s.strip()
+    if len(s) > max_len:
+        s = s[:max_len]
+    return s
+
+
+def clamp_number(
+    v: Any,
+    *,
+    min_value: float,
+    max_value: float,
+    as_int: bool = False,
+    default: float = 0.0,
+) -> float | int:
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        n = float(default)
+    if n < min_value:
+        n = min_value
+    if n > max_value:
+        n = max_value
+    if as_int:
+        return int(round(n))
+    return n
+
+
+def sanitize_string_list(
+    v: Any,
+    *,
+    max_items: int = DEFAULT_MAX_LIST_ITEMS,
+    max_str_len: int = 500,
+) -> List[str]:
+    if not isinstance(v, list):
+        return []
+    out: List[str] = []
+    for item in v[:max_items]:
+        s = sanitize_string(item, max_len=max_str_len, allow_newlines=True)
+        if s:
+            out.append(s)
+    return out
+
+
+# -------------------------
+# Deep sanitizers for known payloads
+# -------------------------
+
+
+def sanitize_issue_with_costs_item(v: Any) -> Dict[str, Any]:
+    """Sanitize a single issues_with_costs entry.
+
+    Expected shape:
+    {
+      issue: str,
+      avg_cost_ILS: number,
+      source: str,
+      severity: str
+    }
+    """
+    if not isinstance(v, dict):
+        return {}
+
+    # Keep strings short; these show in UI.
+    issue = sanitize_string(v.get("issue", ""), max_len=250)
+    source = sanitize_string(v.get("source", ""), max_len=120)
+    severity = sanitize_string(v.get("severity", ""), max_len=60, allow_newlines=False)
+
+    # Costs in ILS: clamp to a reasonable range.
+    avg_cost_ils = clamp_number(v.get("avg_cost_ILS"), min_value=0, max_value=250000, default=0.0)
+
+    out: Dict[str, Any] = {}
+    if issue:
+        out["issue"] = issue
+    out["avg_cost_ILS"] = avg_cost_ils
+    if source:
+        out["source"] = source
+    if severity:
+        out["severity"] = severity
+    return out
+
+
+def sanitize_competitor_item(v: Any) -> Dict[str, Any]:
+    """Sanitize a competitor brief entry.
+
+    Expected shape:
+    { model: str, brief_summary: str }
+    """
+    if not isinstance(v, dict):
+        return {}
+    model = sanitize_string(v.get("model", ""), max_len=120, allow_newlines=False)
+    brief = sanitize_string(v.get("brief_summary", ""), max_len=500)
+
+    out: Dict[str, Any] = {}
+    if model:
+        out["model"] = model
+    if brief:
+        out["brief_summary"] = brief
+    return out
+
+
+def sanitize_analyze_response(payload: Any) -> Dict[str, Any]:
+    """Strictly allowlist and deeply sanitize the /analyze response."""
+    if not isinstance(payload, dict):
+        return {}
+
+    out: Dict[str, Any] = {}
+
+    # Simple scalar fields expected by the UI:
+    out["base_score_calculated"] = clamp_number(
+        payload.get("base_score_calculated"), min_value=0, max_value=100, default=0.0
+    )
+
+    source_tag = sanitize_string(payload.get("source_tag", ""), max_len=80, allow_newlines=False)
+    if source_tag:
+        out["source_tag"] = source_tag
+
+    mileage_note = sanitize_string(payload.get("mileage_note", ""), max_len=300)
+    if mileage_note:
+        out["mileage_note"] = mileage_note
+
+    rs = sanitize_string(payload.get("reliability_summary", ""), max_len=1200)
+    if rs:
+        out["reliability_summary"] = rs
+
+    rss = sanitize_string(payload.get("reliability_summary_simple", ""), max_len=400)
+    if rss:
+        out["reliability_summary_simple"] = rss
+
+    # Lists of strings:
+    out["common_issues"] = sanitize_string_list(
+        payload.get("common_issues"), max_items=25, max_str_len=300
+    )
+    out["recommended_checks"] = sanitize_string_list(
+        payload.get("recommended_checks"), max_items=25, max_str_len=300
+    )
+
+    # Numeric summary:
+    out["avg_repair_cost_ILS"] = clamp_number(
+        payload.get("avg_repair_cost_ILS"), min_value=0, max_value=250000, default=0.0
+    )
+
+    # List of objects:
+    issues = payload.get("issues_with_costs")
+    issues_out: List[Dict[str, Any]] = []
+    if isinstance(issues, list):
+        for item in issues[:DEFAULT_MAX_NESTED_LIST_ITEMS]:
+            s_item = sanitize_issue_with_costs_item(item)
+            if s_item:
+                issues_out.append(s_item)
+    out["issues_with_costs"] = issues_out
+
+    # Competitor briefs:
+    competitors = payload.get("common_competitors_brief")
+    competitors_out: List[Dict[str, Any]] = []
+    if isinstance(competitors, list):
+        for item in competitors[:20]:
+            s_item = sanitize_competitor_item(item)
+            if s_item:
+                competitors_out.append(s_item)
+    out["common_competitors_brief"] = competitors_out
+
+    return out
+
+
+# -------------------------
+# Advisor response sanitizer
+# -------------------------
+
+
+def sanitize_advisor_response(payload: Any) -> Dict[str, Any]:
+    """Sanitize advisor payload.
+
+    Compatibility:
+    - If this module (or an import cycle) defines a `sanitize_car_object` helper,
+      delegate to it.
+    - Otherwise fall back to a minimal safe allowlist to avoid leaking arbitrary
+      LLM keys.
+
+    The advisor payload is *not* the same as /analyze, but still must be
+    strictly bounded and escaped.
     """
 
-    data = _coerce_dict(payload)
+    # Delegate to existing logic if present (requested behavior).
+    sco = globals().get("sanitize_car_object")
+    if callable(sco):
+        try:
+            result = sco(payload)
+            return result if isinstance(result, dict) else {}
+        except Exception:
+            # Fail closed.
+            return {}
 
-    return {
-        "summary": _coerce_str(data.get("summary")),
-        "reliability_score": data.get("reliability_score")
-        if isinstance(data.get("reliability_score"), (int, float))
-        else None,
-        "issues": data.get("issues") if isinstance(data.get("issues"), list) else [],
-        "recommendations": data.get("recommendations")
-        if isinstance(data.get("recommendations"), list)
-        else [],
-        # pass-through/debug fields (safe)
-        "raw": data.get("raw") if isinstance(data.get("raw"), (str, dict, list)) else None,
+    if not isinstance(payload, dict):
+        return {}
+
+    # Minimal safe allowlist that covers typical advisor outputs without
+    # permitting arbitrary nested structures.
+    allow_scalar = {
+        "title": 120,
+        "summary": 1200,
+        "recommendation": 800,
+        "notes": 800,
+        "source_tag": 80,
+    }
+    allow_list = {
+        "recommended_checks": (25, 300),
+        "warnings": (20, 250),
+        "next_steps": (20, 250),
     }
 
+    out: Dict[str, Any] = {}
 
-def sanitize_advisor_payload(payload: Any) -> Dict[str, Any]:
-    """Sanitize the payload returned by the "advisor" endpoint."""
+    for k, max_len in allow_scalar.items():
+        if k in payload:
+            s = sanitize_string(payload.get(k), max_len=max_len)
+            if s:
+                out[k] = s
 
-    data = _coerce_dict(payload)
+    for k, (max_items, max_str_len) in allow_list.items():
+        if k in payload:
+            out[k] = sanitize_string_list(payload.get(k), max_items=max_items, max_str_len=max_str_len)
 
-    return {
-        "advisor_message": _coerce_str(
-            data.get("advisor_message")
-            or data.get("message")
-            or data.get("advisor")
-            or data.get("text")
-        ),
-        "action_items": data.get("action_items") if isinstance(data.get("action_items"), list) else [],
-        "citations": data.get("citations") if isinstance(data.get("citations"), list) else [],
-        "raw": data.get("raw") if isinstance(data.get("raw"), (str, dict, list)) else None,
-    }
+    # Optional numeric confidence-like field
+    if "confidence" in payload:
+        out["confidence"] = clamp_number(payload.get("confidence"), min_value=0, max_value=1, default=0.0)
 
-
-# ---------------------------------------------------------------------------
-# Backwards-compatible wrapper functions (reintroduced)
-# ---------------------------------------------------------------------------
-
-def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
-    """Backwards-compatible wrapper for analyze responses.
-
-    Historically, callers passed the model response directly and expected a
-    dict compatible with the frontend's keys. The newer sanitizer operates on a
-    payload.
-
-    We delegate to `sanitize_analyze_payload` and then ensure the shape includes
-    legacy keys that the frontend expects.
-    """
-
-    sanitized = sanitize_analyze_payload(response)
-
-    # Ensure legacy/frontend-compatible keys exist (even if empty/None)
-    # Some frontend versions used camelCase or different key names.
-    summary = sanitized.get("summary", "")
-    reliability_score = sanitized.get("reliability_score")
-    issues = sanitized.get("issues", [])
-    recommendations = sanitized.get("recommendations", [])
-
-    return {
-        # canonical keys
-        "summary": summary,
-        "reliability_score": reliability_score,
-        "issues": issues,
-        "recommendations": recommendations,
-        # backwards-compatible aliases
-        "reliabilityScore": reliability_score,
-        "actionItems": recommendations,
-        "raw": sanitized.get("raw"),
-    }
-
-
-def sanitize_advisor_response(response: Any) -> Dict[str, Any]:
-    """Backwards-compatible wrapper for advisor responses.
-
-    Preserve current behavior by delegating to existing sanitizer logic if
-    present. If not present, apply a minimal allowlist schema.
-    """
-
-    # If there's an existing/legacy implementation in this module, prefer it.
-    # (e.g. renamed helper kept for compatibility)
-    legacy_impl = globals().get("_sanitize_advisor_response")
-    if callable(legacy_impl):
-        return legacy_impl(response)  # type: ignore[misc]
-
-    # Otherwise delegate to the current payload-based sanitizer if available.
-    if "sanitize_advisor_payload" in globals() and callable(globals()["sanitize_advisor_payload"]):
-        return sanitize_advisor_payload(response)
-
-    # Minimal allowlist fallback (similar to older versions)
-    data = _coerce_dict(response)
-    return {
-        "advisor_message": _coerce_str(
-            data.get("advisor_message")
-            or data.get("message")
-            or data.get("advisor")
-            or data.get("text")
-        ),
-        "action_items": data.get("action_items") if isinstance(data.get("action_items"), list) else [],
-        "citations": data.get("citations") if isinstance(data.get("citations"), list) else [],
-        "raw": data.get("raw") if isinstance(data.get("raw"), (str, dict, list)) else None,
-    }
+    return out
