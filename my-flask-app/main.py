@@ -8,10 +8,11 @@
 import os, re, json, traceback, logging, uuid, random
 import time as pytime
 from typing import Optional, Tuple, Any, Dict
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, date
 from urllib.parse import urlparse
+from sqlalchemy import inspect
 
-from flask import Flask, render_template, request, jsonify, redirect, url_for
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
     LoginManager, UserMixin, login_user, logout_user,
@@ -35,7 +36,8 @@ from app.utils.sanitization import sanitize_analyze_response, sanitize_advisor_r
 from app.utils.prompt_defense import (
     sanitize_user_input_for_prompt,
     wrap_user_input_in_boundary,
-    create_data_only_instruction
+    create_data_only_instruction,
+    escape_prompt_input,
 )
 
 # ==================================
@@ -72,7 +74,7 @@ class User(db.Model, UserMixin):
     name = db.Column(db.String(100))
     searches = db.relationship('SearchHistory', backref='user', lazy=True)
     advisor_searches = db.relationship('AdvisorHistory', backref='user', lazy=True)
-    daily_quotas = db.relationship('DailyQuota', backref='user', lazy=True)
+    daily_quota_usages = db.relationship('DailyQuotaUsage', backref='user', lazy=True)
 
 
 class DailyQuota(db.Model):
@@ -94,6 +96,27 @@ class DailyQuota(db.Model):
     
     def __repr__(self):
         return f'<DailyQuota user_id={self.user_id} date={self.date} count={self.count}>'
+
+
+class DailyQuotaUsage(db.Model):
+    """
+    Tracks per-user daily quota usage with atomic increments.
+    """
+    __tablename__ = 'daily_quota_usage'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    day = db.Column(db.Date, nullable=False, index=True)
+    count = db.Column(db.Integer, nullable=False, default=0)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'day', name='uq_user_day_quota_usage'),
+        db.Index('ix_quota_day_user', 'day', 'user_id'),
+    )
+
+    def __repr__(self):
+        return f'<DailyQuotaUsage user_id={self.user_id} day={self.day} count={self.count}>'
 
 
 class SearchHistory(db.Model):
@@ -213,12 +236,12 @@ def apply_mileage_logic(model_output: dict, mileage_range: str) -> Tuple[dict, O
 
 def build_prompt(make, model, sub_model, year, fuel_type, transmission, mileage_range):
     # Phase 1C: Sanitize user inputs to defend against prompt injection
-    safe_make = sanitize_user_input_for_prompt(make, max_length=120)
-    safe_model = sanitize_user_input_for_prompt(model, max_length=120)
-    safe_sub_model = sanitize_user_input_for_prompt(sub_model, max_length=120)
-    safe_mileage = sanitize_user_input_for_prompt(mileage_range, max_length=50)
-    safe_fuel = sanitize_user_input_for_prompt(fuel_type, max_length=50)
-    safe_trans = sanitize_user_input_for_prompt(transmission, max_length=50)
+    safe_make = escape_prompt_input(make, max_length=120)
+    safe_model = escape_prompt_input(model, max_length=120)
+    safe_sub_model = escape_prompt_input(sub_model, max_length=120)
+    safe_mileage = escape_prompt_input(mileage_range, max_length=50)
+    safe_fuel = escape_prompt_input(fuel_type, max_length=50)
+    safe_trans = escape_prompt_input(transmission, max_length=50)
     
     # Wrap user inputs in explicit data-only boundaries
     user_data = f"""רכב: {safe_make} {safe_model}
@@ -425,6 +448,17 @@ def make_user_profile(
     }
 
 
+def sanitize_profile_for_prompt(profile: dict) -> dict:
+    """Recursively escape user profile fields before prompt construction."""
+    if isinstance(profile, dict):
+        return {k: sanitize_profile_for_prompt(v) for k, v in profile.items()}
+    if isinstance(profile, list):
+        return [sanitize_profile_for_prompt(v) for v in profile]
+    if isinstance(profile, str):
+        return escape_prompt_input(profile, max_length=300)
+    return profile
+
+
 def car_advisor_call_gemini_with_search(profile: dict) -> dict:
     """
     קריאה ל-Gemini 3 Pro (SDK החדש) עם Google Search ו-output כ-JSON בלבד.
@@ -433,9 +467,11 @@ def car_advisor_call_gemini_with_search(profile: dict) -> dict:
     if advisor_client is None:
         return {"_error": "Gemini Car Advisor client unavailable."}
 
+    sanitized_profile = sanitize_profile_for_prompt(profile)
+
     prompt = f"""
 Please recommend cars for an Israeli customer. Here is the user profile (JSON):
-{json.dumps(profile, ensure_ascii=False, indent=2)}
+{json.dumps(sanitized_profile, ensure_ascii=False, indent=2)}
 
 You are an independent automotive data analyst for the **Israeli used car market**.
 
@@ -609,6 +645,20 @@ def car_advisor_postprocess(profile: dict, parsed: dict) -> dict:
     }
 
 
+def _get_today_bounds() -> Tuple[datetime, datetime]:
+    today = date.today()
+    start = datetime.combine(today, time.min)
+    end = datetime.combine(today, time.max)
+    return start, end
+
+
+def get_daily_quota_usage(user_id: int) -> int:
+    """Return today's usage count without mutating state."""
+    today = date.today()
+    quota = DailyQuotaUsage.query.filter_by(user_id=user_id, day=today).first()
+    return quota.count if quota else 0
+
+
 # ======================================================
 # === Phase 1E: Atomic Quota Enforcement ===
 # ======================================================
@@ -617,7 +667,7 @@ def check_and_increment_daily_quota(user_id: int, limit: int) -> Tuple[bool, int
     """
     Atomically check and increment the daily quota for a user.
     
-    Phase 1E: Race-safe quota enforcement using DailyQuota table with unique constraint.
+    Phase 1E: Race-safe quota enforcement using DailyQuotaUsage table with unique constraint.
     
     Args:
         user_id: The user's ID
@@ -628,63 +678,73 @@ def check_and_increment_daily_quota(user_id: int, limit: int) -> Tuple[bool, int
         - allowed: True if within quota (incremented), False if quota exceeded
         - current_count: The count AFTER increment (if allowed) or current count (if rejected)
     """
-    from datetime import date
     from sqlalchemy.exc import IntegrityError
-    
+
     today = date.today()
-    
+    now = datetime.utcnow()
+
     try:
-        # Try to get existing quota record with FOR UPDATE lock (prevents race conditions)
-        quota = db.session.query(DailyQuota).filter_by(
-            user_id=user_id,
-            date=today
-        ).with_for_update().first()
-        
-        if quota:
-            # Record exists, check if under limit
+        with db.session.begin_nested():
+            try:
+                quota = (
+                    db.session.query(DailyQuotaUsage)
+                    .filter_by(user_id=user_id, day=today)
+                    .with_for_update()
+                    .first()
+                )
+            except Exception:
+                quota = (
+                    db.session.query(DailyQuotaUsage)
+                    .filter_by(user_id=user_id, day=today)
+                    .first()
+                )
+
+            if quota is None:
+                quota = DailyQuotaUsage(user_id=user_id, day=today, count=0, updated_at=now)
+                db.session.add(quota)
+                db.session.flush()
+
             if quota.count >= limit:
-                # Quota exceeded
                 db.session.rollback()
                 return False, quota.count
-            
-            # Increment atomically
+
             quota.count += 1
-            db.session.commit()
-            return True, quota.count
-        else:
-            # No record for today, create one
-            new_quota = DailyQuota(
-                user_id=user_id,
-                date=today,
-                count=1
-            )
-            db.session.add(new_quota)
-            db.session.commit()
-            return True, 1
-            
-    except IntegrityError:
-        # Race condition: another request created the record
-        # Roll back and retry with SELECT FOR UPDATE
-        db.session.rollback()
-        
-        quota = db.session.query(DailyQuota).filter_by(
-            user_id=user_id,
-            date=today
-        ).with_for_update().first()
-        
-        if not quota:
-            # Should not happen, but handle defensively
-            print(f"[QUOTA] ⚠️ Unexpected state for user {user_id}")
-            return False, 0
-        
-        if quota.count >= limit:
-            db.session.rollback()
-            return False, quota.count
-        
-        quota.count += 1
+            quota.updated_at = now
+
         db.session.commit()
         return True, quota.count
-        
+
+    except IntegrityError:
+        db.session.rollback()
+        # Retry once after handling potential race on insert
+        try:
+            with db.session.begin_nested():
+                quota = (
+                    db.session.query(DailyQuotaUsage)
+                    .filter_by(user_id=user_id, day=today)
+                    .with_for_update()
+                    .first()
+                )
+
+                if quota is None:
+                    quota = DailyQuotaUsage(user_id=user_id, day=today, count=0, updated_at=now)
+                    db.session.add(quota)
+                    db.session.flush()
+
+                if quota.count >= limit:
+                    db.session.rollback()
+                    return False, quota.count
+
+                quota.count += 1
+                quota.updated_at = now
+
+            db.session.commit()
+            return True, quota.count
+        except Exception as e:  # noqa: BLE001
+            print(f"[QUOTA] ❌ Error after retry for user {user_id}: {e}")
+            db.session.rollback()
+            return False, 0
+
     except Exception as e:
         # Unexpected error, log and deny to be safe
         print(f"[QUOTA] ❌ Error checking quota for user {user_id}: {e}")
@@ -725,6 +785,8 @@ def create_app():
         for e in os.environ.get("OWNER_EMAILS", "").split(",")
         if e.strip()
     ]
+    OWNER_BYPASS_QUOTA = os.environ.get("OWNER_BYPASS_QUOTA", "1").lower() in ("1", "true", "yes")
+    ADVISOR_OWNER_ONLY = os.environ.get("ADVISOR_OWNER_ONLY", "1").lower() in ("1", "true", "yes")
 
     def is_owner_user() -> bool:
         if not current_user.is_authenticated:
@@ -992,9 +1054,11 @@ def create_app():
     with app.app_context():
         try:
             lock_path = "/tmp/.db_inited.lock"
+            inspector = inspect(db.engine)
+            quota_usage_exists = inspector.has_table('daily_quota_usage')
             if os.environ.get("SKIP_CREATE_ALL", "").lower() in ("1", "true", "yes"):
                 print("[DB] ⏭️ SKIP_CREATE_ALL enabled - skipping db.create_all()")
-            elif os.path.exists(lock_path):
+            elif os.path.exists(lock_path) and quota_usage_exists:
                 print("[DB] ⏭️ create_all skipped (lock exists)")
             else:
                 db.create_all()
@@ -1176,6 +1240,9 @@ def create_app():
     @app.route('/recommendations')
     @login_required
     def recommendations():
+        if ADVISOR_OWNER_ONLY and not is_owner_user():
+            flash("גישה למנוע ההמלצות זמינה לבעלי המערכת בלבד.", "error")
+            return redirect(url_for('dashboard'))
         user_email = getattr(current_user, "email", "") if current_user.is_authenticated else ""
         return render_template(
             'recommendations.html',
@@ -1195,6 +1262,9 @@ def create_app():
         בונה user_profile מלא כמו ב-Car Advisor (Streamlit),
         קורא ל-Gemini 3 Pro, שומר היסטוריה ומחזיר JSON מוכן להצגה.
         """
+        if ADVISOR_OWNER_ONLY and not is_owner_user():
+            log_access_decision('/advisor_api', getattr(current_user, "id", None), 'rejected', 'owner only')
+            return jsonify({"error": "forbidden", "request_id": get_request_id()}), 403
         # Log access decision
         user_id = current_user.id if current_user.is_authenticated else None
         log_access_decision('/advisor_api', user_id, 'allowed', 'authenticated user')
@@ -1376,28 +1446,11 @@ def create_app():
             log_access_decision('/analyze', user_id, 'rejected', f'validation error: {str(e)}')
             return jsonify({"error": f"שגיאת קלט (שלב 0): {str(e)}", "request_id": get_request_id()}), 400
 
-        # 1) User quota - Phase 1E: Atomic quota enforcement
-        try:
-            # Check and increment quota atomically
-            allowed, current_count = check_and_increment_daily_quota(current_user.id, USER_DAILY_LIMIT)
-            
-            if not allowed:
-                log_access_decision('/analyze', user_id, 'rejected', f'quota exceeded: {current_count}/{USER_DAILY_LIMIT}')
-                return jsonify({
-                    "error": f"שגיאת מגבלה (שלב 1): ניצלת את {USER_DAILY_LIMIT} החיפושים היומיים שלך. נסה שוב מחר.",
-                    "quota_used": current_count,
-                    "quota_limit": USER_DAILY_LIMIT,
-                    "request_id": get_request_id()
-                }), 429
-            
-            logger.info(f"[ANALYZE 1/6] request_id={get_request_id()} user={current_user.id} quota check passed: {current_count}/{USER_DAILY_LIMIT}")
-        except Exception as e:
-            log_rejection("server_error", f"Quota check failed: {type(e).__name__}")
-            traceback.print_exc()
-            log_access_decision('/analyze', user_id, 'error', f'server error in quota check: {str(e)}')
-            return jsonify({"error": f"שגיאת שרת (שלב 1): {str(e)}", "request_id": get_request_id()}), 500
+        today_start, today_end = _get_today_bounds()
+        cache_hit = False
+        usage_snapshot = get_daily_quota_usage(current_user.id)
 
-        # 2–3) Cache
+        # 1) Cache first (no quota impact on hit)
         try:
             cutoff_date = datetime.now() - timedelta(days=MAX_CACHE_DAYS)
             cached = SearchHistory.query.filter(
@@ -1415,11 +1468,59 @@ def create_app():
                 result['source_tag'] = f"מקור: מטמון DB (נשמר ב-{cached.timestamp.strftime('%Y-%m-%d')})"
                 # Sanitize cached output before returning
                 result = sanitize_analyze_response(result)
+                logger.info(
+                    f"[QUOTA] request_id={get_request_id()} uid={user_id} email={getattr(current_user, 'email', '')} "
+                    f"searches_today={usage_snapshot} limit={USER_DAILY_LIMIT} "
+                    f"today_start={today_start.isoformat()} today_end={today_end.isoformat()} cache_hit=True bypass=False"
+                )
                 return jsonify(result)
         except Exception as e:
             print(f"[CACHE] ⚠️ {e}")
 
-        # 4) AI call
+        # 2) Quota enforcement (only on cache miss)
+        quota_used = usage_snapshot
+        bypass_owner = OWNER_BYPASS_QUOTA and is_owner_user()
+        if not bypass_owner:
+            try:
+                allowed, quota_used = check_and_increment_daily_quota(current_user.id, USER_DAILY_LIMIT)
+
+                if not allowed:
+                    log_access_decision('/analyze', user_id, 'rejected', f'quota exceeded: {quota_used}/{USER_DAILY_LIMIT}')
+                    retry_after = max(0, int((today_end - datetime.now()).total_seconds()))
+                    response = jsonify({
+                        "error": "שגיאת מגבלה: ניצלת את כל החיפושים להיום. נסה שוב מחר.",
+                        "limit": USER_DAILY_LIMIT,
+                        "used": quota_used,
+                        "remaining": 0,
+                        "resets_at": today_end.isoformat()
+                    })
+                    response.status_code = 429
+                    response.headers["Retry-After"] = str(retry_after)
+                    logger.info(
+                        f"[QUOTA] request_id={get_request_id()} uid={user_id} email={getattr(current_user, 'email', '')} "
+                        f"searches_today={quota_used} limit={USER_DAILY_LIMIT} "
+                        f"today_start={today_start.isoformat()} today_end={today_end.isoformat()} cache_hit=False bypass=False blocked=True"
+                    )
+                    return response
+
+                logger.info(
+                    f"[QUOTA] request_id={get_request_id()} uid={user_id} email={getattr(current_user, 'email', '')} "
+                    f"searches_today={quota_used} limit={USER_DAILY_LIMIT} "
+                    f"today_start={today_start.isoformat()} today_end={today_end.isoformat()} cache_hit=False bypass=False"
+                )
+            except Exception as e:
+                log_rejection("server_error", f"Quota check failed: {type(e).__name__}")
+                traceback.print_exc()
+                log_access_decision('/analyze', user_id, 'error', f'server error in quota check: {str(e)}')
+                return jsonify({"error": f"שגיאת שרת (שלב 1): {str(e)}", "request_id": get_request_id()}), 500
+        else:
+            logger.info(
+                f"[QUOTA] request_id={get_request_id()} uid={user_id} email={getattr(current_user, 'email', '')} "
+                f"searches_today={quota_used} limit={USER_DAILY_LIMIT} "
+                f"today_start={today_start.isoformat()} today_end={today_end.isoformat()} cache_hit=False bypass=True"
+            )
+
+        # 3) AI call
         try:
             prompt = build_prompt(
                 final_make, final_model, final_sub_model, final_year,
@@ -1452,7 +1553,7 @@ def create_app():
             print(f"[DB] ⚠️ save failed: {e}")
             db.session.rollback()
 
-        model_output['source_tag'] = f"מקור: ניתוח AI חדש (חיפוש {current_count}/{USER_DAILY_LIMIT})"
+        model_output['source_tag'] = f"מקור: ניתוח AI חדש (חיפוש {quota_used}/{USER_DAILY_LIMIT})"
         model_output['mileage_note'] = note
         model_output['km_warn'] = False
         

@@ -15,6 +15,16 @@
         }
     }
 
+    const escapeHtml = (value) => {
+        if (value === null || value === undefined) return '';
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    };
+
     const makeSelect = document.getElementById('make');
     const modelSelect = document.getElementById('model');
     const yearSelect = document.getElementById('year');
@@ -148,6 +158,7 @@
         if (!resultsContainer) return;
 
         resultsContainer.classList.remove('hidden');
+        const safe = (v) => escapeHtml(v);
 
         // ציון
         if (scoreContainer) {
@@ -227,7 +238,7 @@
             if (arr.length) {
                 html += '<h4 class="text-base font-semibold text-white mb-2">תקלות נפוצות על פי הנתונים</h4>';
                 html += '<ul class="list-disc list-inside space-y-1 text-sm text-slate-200">';
-                html += arr.map(x => `<li>${x}</li>`).join('');
+                html += arr.map(x => `<li>${safe(x)}</li>`).join('');
                 html += '</ul>';
             } else {
                 html += '<p class="text-sm text-slate-400">לא דווחו תקלות נפוצות ספציפיות לדגם הזה בקילומטראז׳ הנתון.</p>';
@@ -235,7 +246,7 @@
             if (checks.length) {
                 html += '<h4 class="mt-4 text-sm font-semibold text-white">בדיקות מומלצות לפני קניה</h4>';
                 html += '<ul class="list-disc list-inside space-y-1 text-sm text-slate-200">';
-                html += checks.map(x => `<li>${x}</li>`).join('');
+                html += checks.map(x => `<li>${safe(x)}</li>`).join('');
                 html += '</ul>';
             }
             faultsContainer.innerHTML = html;
@@ -247,15 +258,15 @@
             const list = Array.isArray(data.issues_with_costs) ? data.issues_with_costs : [];
             let html = '';
             if (avg !== undefined && avg !== null && avg !== '') {
-                html += `<p class="text-sm text-slate-300 mb-3">עלות תיקון ממוצעת משוערת: <span class="font-semibold">${avg} ₪</span></p>`;
+                html += `<p class="text-sm text-slate-300 mb-3">עלות תיקון ממוצעת משוערת: <span class="font-semibold">${safe(avg)} ₪</span></p>`;
             }
             if (list.length) {
                 html += '<div class="space-y-2">';
                 html += list.map(row => {
-                    const issue = row.issue || '';
-                    const cost = row.avg_cost_ILS || '';
-                    const severity = row.severity || '';
-                    const src = row.source || '';
+                    const issue = safe(row.issue || '');
+                    const cost = safe(row.avg_cost_ILS || '');
+                    const severity = safe(row.severity || '');
+                    const src = safe(row.source || '');
                     return `
                         <div class="flex flex-wrap items-center justify-between gap-2 text-sm bg-slate-900/40 border border-slate-700/70 rounded-xl px-3 py-2">
                             <div class="flex-1">
@@ -285,8 +296,8 @@
                 html += '<ul class="space-y-2 text-sm text-slate-200">';
                 html += arr.map(c => `
                     <li class="bg-slate-900/40 border border-slate-700/70 rounded-xl px-3 py-2">
-                        <span class="font-semibold">${c.model || ''}</span>
-                        <span class="text-slate-300"> – ${c.brief_summary || ''}</span>
+                        <span class="font-semibold">${safe(c.model || '')}</span>
+                        <span class="text-slate-300"> – ${safe(c.brief_summary || '')}</span>
                     </li>
                 `).join('');
                 html += '</ul>';

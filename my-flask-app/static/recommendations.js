@@ -17,6 +17,16 @@
 
     if (!form) return;
 
+    function escapeHtml(value) {
+        if (value === null || value === undefined) return '';
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     // === מיפוי שם פרמטרי ה-method לעברית (כמו ב-Python) ===
     const methodLabelMap = {
         fuel_method: "שיטת חישוב צריכת דלק/חשמל",
@@ -148,69 +158,74 @@
         const drivingStyle = form.driving_style.value || 'לא צוין';
         const bodyStyle = form.body_style.value || 'כללי';
 
+        const fuelsText = fuels.length ? escapeHtml(fuels.join(', ')) : 'לא צוין';
+        const gearsText = gears.length ? escapeHtml(gears.join(', ')) : 'לא צוין';
+
         const wReliability = document.getElementById('w_reliability')?.value || '5';
         const wFuel = document.getElementById('w_fuel')?.value || '4';
         const wResale = document.getElementById('w_resale')?.value || '3';
         const wPerf = document.getElementById('w_performance')?.value || '2';
         const wComfort = document.getElementById('w_comfort')?.value || '3';
 
+        const safe = (v) => escapeHtml(v);
+
         profileSummaryEl.innerHTML = `
             <div class="flex flex-wrap gap-2 mb-2">
                 <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-800 text-[11px] text-slate-100 border border-slate-700">
-                    תקציב: ${budgetMin} – ${budgetMax}
+                    תקציב: ${safe(budgetMin)} – ${safe(budgetMax)}
                 </span>
                 <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-800 text-[11px] text-slate-100 border border-slate-700">
-                    שנים: ${yearMin}–${yearMax}
+                    שנים: ${safe(yearMin)}–${safe(yearMax)}
                 </span>
                 <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-800 text-[11px] text-slate-100 border border-slate-700">
-                    ק״מ שנתי: ${annualKm}
+                    ק״מ שנתי: ${safe(annualKm)}
                 </span>
             </div>
 
             <div class="flex flex-wrap gap-2 mb-2">
                 <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-900 text-[11px] text-slate-100 border border-slate-700">
-                    גיל נהג: ${driverAge}
+                    גיל נהג: ${safe(driverAge)}
                 </span>
                 <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-900 text-[11px] text-slate-100 border border-slate-700">
-                    ותק רישיון: ${licenseYears} שנים
+                    ותק רישיון: ${safe(licenseYears)} שנים
                 </span>
                 <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-900 text-[11px] text-slate-100 border border-slate-700">
-                    משפחה: ${familySize}, ${seats} מושבים
+                    משפחה: ${safe(familySize)}, ${safe(seats)} מושבים
                 </span>
             </div>
 
             <div class="flex flex-wrap gap-2 mb-2">
                 <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-900 text-[11px] text-slate-100 border border-slate-700">
-                    שימוש: ${mainUse}
+                    שימוש: ${safe(mainUse)}
                 </span>
                 <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-900 text-[11px] text-slate-100 border border-slate-700">
-                    סגנון נהיגה: ${drivingStyle}
+                    סגנון נהיגה: ${safe(drivingStyle)}
                 </span>
                 <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-900 text-[11px] text-slate-100 border border-slate-700">
-                    מרכב מועדף: ${bodyStyle}
+                    מרכב מועדף: ${safe(bodyStyle)}
                 </span>
             </div>
 
             <div class="flex flex-wrap gap-2 mt-1">
                 <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/10 text-[11px] text-primary border border-primary/40">
-                    משקל אמינות: ${wReliability}/5
+                    משקל אמינות: ${safe(wReliability)}/5
                 </span>
                 <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/10 text-[11px] text-primary border border-primary/40">
-                    חיסכון בדלק: ${wFuel}/5
+                    חיסכון בדלק: ${safe(wFuel)}/5
                 </span>
                 <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/10 text-[11px] text-primary border border-primary/40">
-                    שמירת ערך: ${wResale}/5
+                    שמירת ערך: ${safe(wResale)}/5
                 </span>
                 <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/10 text-[11px] text-primary border border-primary/40">
-                    ביצועים: ${wPerf}/5
+                    ביצועים: ${safe(wPerf)}/5
                 </span>
                 <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/10 text-[11px] text-primary border border-primary/40">
-                    נוחות: ${wComfort}/5
+                    נוחות: ${safe(wComfort)}/5
                 </span>
             </div>
 
             <div class="mt-2 text-[11px] text-slate-400">
-                העדפות דלק: ${fuels.length ? fuels.join(', ') : 'לא צוין'} · גיר: ${gears.length ? gears.join(', ') : 'לא צוין'}
+                העדפות דלק: ${fuelsText} · גיר: ${gearsText}
             </div>
         `;
     }
@@ -282,28 +297,32 @@
         }
 
         highlightCardsEl.innerHTML = cards.map((card) => {
-            const title = `${card.car.brand || ''} ${card.car.model || ''}`.trim();
-            const year = card.car.year || '';
+            const title = escapeHtml(`${card.car.brand || ''} ${card.car.model || ''}`.trim());
+            const year = escapeHtml(card.car.year || '');
+            const badge = escapeHtml(card.badge || '');
+            const label = escapeHtml(card.label || '');
+            const chipText = card.chip ? escapeHtml(card.chip) : '';
+            const cardText = escapeHtml(card.text || '');
             return `
                 <article class="bg-slate-900/60 border border-slate-800 rounded-xl p-3 md:p-4 flex flex-col justify-between">
                     <div class="flex items-center justify-between mb-2">
                         <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-800 text-[10px] font-semibold text-slate-100 border border-slate-700">
-                            ${card.badge}
+                            ${badge}
                         </span>
-                        <span class="text-[11px] text-slate-400">${card.label}</span>
+                        <span class="text-[11px] text-slate-400">${label}</span>
                     </div>
                     <div class="mb-2">
                         <div class="text-sm md:text-base font-bold text-slate-100">
                             ${title} ${year ? '· ' + year : ''}
                         </div>
-                        ${card.chip ? `
+                        ${chipText ? `
                             <div class="mt-1 inline-flex items-center px-2 py-0.5 rounded-full bg-primary/15 text-[11px] text-primary border border-primary/40">
-                                ${card.chip}
+                                ${chipText}
                             </div>
                         ` : ''}
                     </div>
                     <p class="mt-1 text-[11px] md:text-xs text-slate-300 leading-relaxed">
-                        ${card.text}
+                        ${cardText}
                     </p>
                 </article>
             `;
@@ -363,15 +382,48 @@
         const suitabilityMethod = car.suitability_method || '';
         const supplyMethod = car.supply_method || '';
 
+        const h = (v, fallback = '') => escapeHtml(v != null && v !== '' ? v : fallback);
+        const safeTitle = h(title || 'דגם לא ידוע');
+        const safeYear = h(year);
+        const safeFuel = h(fuel || 'לא צוין');
+        const safeGear = h(gear || 'לא צוין');
+        const safeTurbo = turbo ? ` · טורבו: ${h(turbo)}` : '';
+        const safeEngineCc = h(engineCc || '-');
+        const safePriceRange = h(priceRange || '-');
+        const safeAvgFuel = h(avgFuel || '-');
+        const safeAnnualFee = h(annualFee || '-');
+        const safeReliabilityScore = h(reliabilityScore || '-');
+        const safeMaintenanceCost = h(maintenanceCost || '-');
+        const safeSafetyRating = h(safetyRating || '-');
+        const safeInsuranceCost = h(insuranceCost || '-');
+        const safeResaleValue = h(resaleValue || '-');
+        const safePerformanceScore = h(performanceScore || '-');
+        const safeComfortFeatures = h(comfortFeatures || '-');
+        const safeSuitability = h(suitability || '-');
+        const safeMarketSupply = h(marketSupply);
+        const safeComparisonComment = h(comparisonComment);
+        const safeNotRecommendedReason = h(notRecommendedReason);
+        const safeFuelMethod = h(fuelMethod);
+        const safeFeeMethod = h(feeMethod);
+        const safeReliabilityMethod = h(reliabilityMethod);
+        const safeMaintenanceMethod = h(maintenanceMethod);
+        const safeSafetyMethod = h(safetyMethod);
+        const safeInsuranceMethod = h(insuranceMethod);
+        const safeResaleMethod = h(resaleMethod);
+        const safePerformanceMethod = h(performanceMethod);
+        const safeComfortMethod = h(comfortMethod);
+        const safeSuitabilityMethod = h(suitabilityMethod);
+        const safeSupplyMethod = h(supplyMethod);
+
         return `
             <article class="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 md:p-5 space-y-3">
                 <div class="flex items-start justify-between gap-3">
                     <div>
                         <div class="text-sm md:text-base font-bold text-slate-100">
-                            ${title || 'דגם לא ידוע'} ${year ? '· ' + year : ''}
+                            ${safeTitle} ${safeYear ? '· ' + safeYear : ''}
                         </div>
                         <div class="text-[11px] md:text-xs text-slate-400 mt-0.5">
-                            דלק: ${fuel || 'לא צוין'} · גיר: ${gear || 'לא צוין'}${turbo ? ` · טורבו: ${turbo}` : ''}
+                            דלק: ${safeFuel} · גיר: ${safeGear}${safeTurbo}
                         </div>
                     </div>
                     <div class="flex flex-col items-end gap-1">
@@ -380,7 +432,7 @@
                         </span>
                         ${marketSupply ? `
                             <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-800 text-[10px] text-slate-100 border border-slate-700">
-                                היצע בשוק: ${marketSupply}
+                                היצע בשוק: ${safeMarketSupply}
                             </span>
                         ` : ''}
                     </div>
@@ -391,125 +443,125 @@
                         <tbody>
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300 w-40">מותג / דגם</th>
-                                <td class="px-2 py-1 text-slate-100">${title || '-'}</td>
+                                <td class="px-2 py-1 text-slate-100">${safeTitle || '-'}</td>
                             </tr>
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">שנה</th>
-                                <td class="px-2 py-1 text-slate-100">${year || '-'}</td>
+                                <td class="px-2 py-1 text-slate-100">${safeYear || '-'}</td>
                             </tr>
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">נפח מנוע</th>
-                                <td class="px-2 py-1 text-slate-100">${engineCc || '-'}</td>
+                                <td class="px-2 py-1 text-slate-100">${safeEngineCc}</td>
                             </tr>
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">טווח מחיר משוער (₪)</th>
-                                <td class="px-2 py-1 text-slate-100">${priceRange || '-'}</td>
+                                <td class="px-2 py-1 text-slate-100">${safePriceRange}</td>
                             </tr>
 
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">צריכת דלק/חשמל ממוצעת</th>
-                                <td class="px-2 py-1 text-slate-100">${avgFuel || '-'}</td>
+                                <td class="px-2 py-1 text-slate-100">${safeAvgFuel}</td>
                             </tr>
                             ${fuelMethod ? `
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.fuel_method}</th>
-                                <td class="px-2 py-1 text-slate-200">${fuelMethod}</td>
+                                <td class="px-2 py-1 text-slate-200">${safeFuelMethod}</td>
                             </tr>` : ''}
 
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">אגרת רישוי שנתית (₪)</th>
-                                <td class="px-2 py-1 text-slate-100">${annualFee || '-'}</td>
+                                <td class="px-2 py-1 text-slate-100">${safeAnnualFee}</td>
                             </tr>
                             ${feeMethod ? `
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.fee_method}</th>
-                                <td class="px-2 py-1 text-slate-200">${feeMethod}</td>
+                                <td class="px-2 py-1 text-slate-200">${safeFeeMethod}</td>
                             </tr>` : ''}
 
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">ציון אמינות (1–10)</th>
-                                <td class="px-2 py-1 text-slate-100">${reliabilityScore || '-'}</td>
+                                <td class="px-2 py-1 text-slate-100">${safeReliabilityScore}</td>
                             </tr>
                             ${reliabilityMethod ? `
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.reliability_method}</th>
-                                <td class="px-2 py-1 text-slate-200">${reliabilityMethod}</td>
+                                <td class="px-2 py-1 text-slate-200">${safeReliabilityMethod}</td>
                             </tr>` : ''}
 
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">עלות אחזקה שנתית (₪)</th>
-                                <td class="px-2 py-1 text-slate-100">${maintenanceCost || '-'}</td>
+                                <td class="px-2 py-1 text-slate-100">${safeMaintenanceCost}</td>
                             </tr>
                             ${maintenanceMethod ? `
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.maintenance_method}</th>
-                                <td class="px-2 py-1 text-slate-200">${maintenanceMethod}</td>
+                                <td class="px-2 py-1 text-slate-200">${safeMaintenanceMethod}</td>
                             </tr>` : ''}
 
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">ציון בטיחות (1–10)</th>
-                                <td class="px-2 py-1 text-slate-100">${safetyRating || '-'}</td>
+                                <td class="px-2 py-1 text-slate-100">${safeSafetyRating}</td>
                             </tr>
                             ${safetyMethod ? `
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.safety_method}</th>
-                                <td class="px-2 py-1 text-slate-200">${safetyMethod}</td>
+                                <td class="px-2 py-1 text-slate-200">${safeSafetyMethod}</td>
                             </tr>` : ''}
 
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">עלות ביטוח שנתית (₪)</th>
-                                <td class="px-2 py-1 text-slate-100">${insuranceCost || '-'}</td>
+                                <td class="px-2 py-1 text-slate-100">${safeInsuranceCost}</td>
                             </tr>
                             ${insuranceMethod ? `
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.insurance_method}</th>
-                                <td class="px-2 py-1 text-slate-200">${insuranceMethod}</td>
+                                <td class="px-2 py-1 text-slate-200">${safeInsuranceMethod}</td>
                             </tr>` : ''}
 
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">שמירת ערך (1–10)</th>
-                                <td class="px-2 py-1 text-slate-100">${resaleValue || '-'}</td>
+                                <td class="px-2 py-1 text-slate-100">${safeResaleValue}</td>
                             </tr>
                             ${resaleMethod ? `
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.resale_method}</th>
-                                <td class="px-2 py-1 text-slate-200">${resaleMethod}</td>
+                                <td class="px-2 py-1 text-slate-200">${safeResaleMethod}</td>
                             </tr>` : ''}
 
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">ביצועים (1–10)</th>
-                                <td class="px-2 py-1 text-slate-100">${performanceScore || '-'}</td>
+                                <td class="px-2 py-1 text-slate-100">${safePerformanceScore}</td>
                             </tr>
                             ${performanceMethod ? `
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.performance_method}</th>
-                                <td class="px-2 py-1 text-slate-200">${performanceMethod}</td>
+                                <td class="px-2 py-1 text-slate-200">${safePerformanceMethod}</td>
                             </tr>` : ''}
 
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">נוחות ואבזור (1–10)</th>
-                                <td class="px-2 py-1 text-slate-100">${comfortFeatures || '-'}</td>
+                                <td class="px-2 py-1 text-slate-100">${safeComfortFeatures}</td>
                             </tr>
                             ${comfortMethod ? `
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.comfort_method}</th>
-                                <td class="px-2 py-1 text-slate-200">${comfortMethod}</td>
+                                <td class="px-2 py-1 text-slate-200">${safeComfortMethod}</td>
                             </tr>` : ''}
 
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">התאמה לנהג (1–10)</th>
-                                <td class="px-2 py-1 text-slate-100">${suitability || '-'}</td>
+                                <td class="px-2 py-1 text-slate-100">${safeSuitability}</td>
                             </tr>
                             ${suitabilityMethod ? `
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.suitability_method}</th>
-                                <td class="px-2 py-1 text-slate-200">${suitabilityMethod}</td>
+                                <td class="px-2 py-1 text-slate-200">${safeSuitabilityMethod}</td>
                             </tr>` : ''}
 
                             ${supplyMethod ? `
                             <tr>
                                 <th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.supply_method}</th>
-                                <td class="px-2 py-1 text-slate-200">${supplyMethod}</td>
+                                <td class="px-2 py-1 text-slate-200">${safeSupplyMethod}</td>
                             </tr>` : ''}
                         </tbody>
                     </table>
@@ -518,14 +570,14 @@
                 ${comparisonComment ? `
                     <div class="mt-2 text-[11px] md:text-xs text-slate-300 leading-relaxed">
                         <span class="font-semibold text-slate-100">הסבר כללי:</span>
-                        <br>${comparisonComment}
+                        <br>${safeComparisonComment}
                     </div>
                 ` : ''}
 
                 ${notRecommendedReason ? `
                     <div class="mt-2 text-[11px] md:text-xs text-red-300 leading-relaxed border border-red-500/40 bg-red-900/20 rounded-xl px-3 py-2">
                         <span class="font-semibold">סיבה לאי-המלצה/הסתייגות:</span>
-                        <br>${notRecommendedReason}
+                        <br>${safeNotRecommendedReason}
                     </div>
                 ` : ''}
             </article>
@@ -543,7 +595,7 @@
                     <div class="text-[11px] text-slate-400">
                         <span class="font-semibold text-slate-300">שאילתות חיפוש שבוצעו:</span>
                         <ul class="mt-1 space-y-0.5">
-                            ${queries.map(q => `<li>• ${q}</li>`).join('')}
+                            ${queries.map(q => `<li>• ${escapeHtml(q)}</li>`).join('')}
                         </ul>
                     </div>
                 `;

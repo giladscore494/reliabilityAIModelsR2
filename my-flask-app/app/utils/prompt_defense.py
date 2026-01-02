@@ -37,50 +37,31 @@ RISKY_PATTERNS = [
 CONTROL_CHARS_PATTERN = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]')
 
 
-def sanitize_user_input_for_prompt(value: Any, max_length: int = MAX_USER_INPUT_LENGTH) -> str:
-    """Sanitize user input before incorporating it into an AI prompt.
-    
-    This function:
-    - Converts input to string
-    - Removes control characters
-    - Collapses excessive whitespace
-    - Removes high-risk prompt control tokens
-    - Caps length
-    - Preserves legitimate content (Hebrew, English, numbers, common punctuation)
-    
-    Parameters
-    ----------
-    value:
-        The user input to sanitize.
-    max_length:
-        Maximum length after sanitization (default 500).
-    
-    Returns
-    -------
-    str
-        The sanitized input string.
+def escape_prompt_input(value: Any, max_length: int = MAX_USER_INPUT_LENGTH) -> str:
+    """
+    Normalize and escape user-provided prompt fragments.
+    Removes control chars, collapses whitespace, strips common role tokens,
+    and caps length to reduce prompt-injection surface.
     """
     if value is None:
-        return ''
-    
-    # Convert to string
-    text = str(value).strip()
-    
-    # Remove control characters (except newline/tab)
-    text = CONTROL_CHARS_PATTERN.sub('', text)
-    
-    # Collapse excessive whitespace (multiple spaces/newlines to single space)
-    text = re.sub(r'\s+', ' ', text)
-    
-    # Remove or neutralize high-risk patterns
+        return ""
+
+    text = str(value)
+    text = CONTROL_CHARS_PATTERN.sub("", text)
+    text = re.sub(r"\s+", " ", text).strip()
+
     for pattern, replacement in RISKY_PATTERNS:
         text = pattern.sub(replacement, text)
-    
-    # Cap length
+
     if len(text) > max_length:
         text = text[:max_length].strip()
-    
-    return text.strip()
+
+    return text
+
+
+def sanitize_user_input_for_prompt(value: Any, max_length: int = MAX_USER_INPUT_LENGTH) -> str:
+    """Backward-compatible alias that now relies on escape_prompt_input()."""
+    return escape_prompt_input(value, max_length=max_length)
 
 
 def wrap_user_input_in_boundary(text: str, boundary_tag: str = "user_input") -> str:
