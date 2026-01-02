@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===================================================================
 # 🚗 Car Reliability Analyzer – Israel
-# v7.5.2 (Fix 403 CSRF + DB session cleanup + Factory only + stable quota tx)
+# v7.5.2 (GenAI SDK migration + CSRF/origin robustness)
 # Canonical: https://yedaarechev.com
 # ===================================================================
 
@@ -9,6 +9,7 @@ import os, json, traceback
 import time as pytime
 from typing import Optional, Tuple, Any, Dict, List
 from datetime import datetime, timedelta, date
+from urllib.parse import urlparse
 
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session
 from flask_sqlalchemy import SQLAlchemy
@@ -33,14 +34,11 @@ try:
 except Exception:
     CORS = None
 
-# Gemini (Analyze)
-import google.generativeai as genai
-
-# Gemini 3 SDK (Advisor)
-from google import genai as genai3
+# Gemini / GenAI SDK (NEW)
+from google import genai as genai_sdk
 from google.genai import types as genai_types
 
-# TZ
+# TZ for daily quota
 try:
     from zoneinfo import ZoneInfo
 except Exception:
@@ -58,7 +56,8 @@ oauth = OAuth()
 csrf = CSRFProtect()
 limiter = None
 
-advisor_client = None
+genai_client = None          # <-- used by Analyze + Advisor
+advisor_client = None        # <-- alias (kept for minimal diffs)
 GEMINI3_MODEL_ID = os.environ.get("GEMINI3_MODEL_ID", "gemini-3-pro-preview")
 
 # =========================
@@ -214,58 +213,40 @@ def get_client_ip() -> str:
     return request.remote_addr or ""
 
 
-def _origin_host() -> str:
-    origin = (request.headers.get("Origin") or "").strip().lower()
-    if not origin:
-        return ""
-    # origin format: scheme://host[:port]
+def _host_no_port(host: str) -> str:
+    host = (host or "").strip().lower()
+    return host.split(":")[0]
+
+
+def _origin_host(origin: str) -> str:
     try:
-        # minimal parse without urlparse dependency
-        origin = origin.rstrip("/")
-        if "://" in origin:
-            origin = origin.split("://", 1)[1]
-        return origin
+        u = urlparse(origin)
+        return _host_no_port(u.netloc)
     except Exception:
         return ""
 
 
-def _same_site_allowed_hosts() -> set:
-    hosts = set()
-    if CANONICAL_HOST:
-        hosts.add(CANONICAL_HOST)
-        hosts.add(f"www.{CANONICAL_HOST}")
-    if PUBLIC_HOST:
-        hosts.add(PUBLIC_HOST)
-        hosts.add(f"www.{PUBLIC_HOST}")
-    if not IS_RENDER:
-        hosts.update({"localhost", "127.0.0.1"})
-    return hosts
-
-
-def is_same_site_request() -> bool:
+def is_same_origin_request() -> bool:
     """
-    Robust "same-site" check for CSRF soft mode:
-    - Accepts yedaarechev.com and www.yedaarechev.com interchangeably.
-    - Falls back to Sec-Fetch-Site.
+    More robust than comparing scheme (http/https) which often differs behind proxies/CDN.
+    We compare hostnames only.
     """
-    allowed_hosts = _same_site_allowed_hosts()
+    req_host = _host_no_port(request.host or "")
+    origin = (request.headers.get("Origin") or "").strip().lower()
+    referer = (request.headers.get("Referer") or "").strip().lower()
+    sec_fetch_site = (request.headers.get("Sec-Fetch-Site") or "").strip().lower()
 
-    ohost = _origin_host()
-    if ohost:
-        ohost_no_port = ohost.split(":", 1)[0]
-        if ohost_no_port in allowed_hosts:
-            return True
-
-    # Referer fallback
-    ref = (request.headers.get("Referer") or "").strip().lower()
-    if ref:
-        for h in allowed_hosts:
-            if f"://{h}" in ref or f"://www.{h}" in ref:
-                return True
-
-    sec_fetch_site = (request.headers.get("Sec-Fetch-Site") or "").lower()
     if sec_fetch_site in ("same-origin", "same-site"):
         return True
+
+    if origin:
+        return _origin_host(origin) == req_host
+
+    if referer:
+        try:
+            return _host_no_port(urlparse(referer).netloc) == req_host
+        except Exception:
+            return False
 
     return False
 
@@ -275,27 +256,26 @@ def enforce_origin_if_configured() -> Optional[Tuple[Any, int]]:
         return None
 
     origin = (request.headers.get("Origin") or "").lower().rstrip("/")
+    referer = (request.headers.get("Referer") or "").lower()
+
     if not origin:
         return None
 
     allowed = set(ALLOWED_ORIGINS)
     if origin in allowed:
         return None
+    if any(o in referer for o in allowed):
+        return None
 
     return jsonify({"error": "חסימת אבטחה: מקור הבקשה לא מורשה."}), 403
 
 
 def soft_or_strict_csrf_for_api() -> Optional[Tuple[Any, int]]:
-    """
-    IMPORTANT:
-    /analyze and /advisor_api are EXEMPT from Flask-WTF CSRFProtect,
-    so THIS function is the only CSRF gate for API.
-    """
     if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
         return None
 
     p = request.path or ""
-    if p not in ("/analyze", "/advisor_api") and (not p.startswith("/api/")):
+    if not (p == "/analyze" or p == "/advisor_api" or p.startswith("/api/")):
         return None
 
     token = (request.headers.get("X-CSRFToken") or request.headers.get("X-CSRF-Token") or "").strip()
@@ -309,9 +289,7 @@ def soft_or_strict_csrf_for_api() -> Optional[Tuple[Any, int]]:
         except Exception:
             return jsonify({"error": "שגיאת אבטחה (CSRF): טוקן לא תקין. רענן את הדף ונסה שוב."}), 403
 
-    # Soft mode:
-    # - If token exists: must be valid
-    # - If token missing: allow only same-site
+    # Soft mode
     if token:
         try:
             validate_csrf(token)
@@ -319,7 +297,7 @@ def soft_or_strict_csrf_for_api() -> Optional[Tuple[Any, int]]:
         except Exception:
             return jsonify({"error": "שגיאת אבטחה (CSRF): טוקן לא תקין. רענן את הדף ונסה שוב."}), 403
 
-    if is_same_site_request():
+    if is_same_origin_request():
         return None
 
     return jsonify({"error": "חסימת אבטחה: בקשה לא מזוהה."}), 403
@@ -419,14 +397,23 @@ def apply_mileage_logic(model_output: dict, mileage_range: str) -> Tuple[dict, O
 
 
 def sanitize_analyze_output(d: dict) -> dict:
+    """Make sure the response matches what script.js renders."""
     if not isinstance(d, dict):
         return {}
+
     out = dict(d)
 
-    for k in ["common_issues", "recommended_checks", "common_competitors_brief", "issues_with_costs"]:
-        if not isinstance(out.get(k), list):
-            out[k] = []
+    # lists
+    if not isinstance(out.get("common_issues"), list):
+        out["common_issues"] = []
+    if not isinstance(out.get("recommended_checks"), list):
+        out["recommended_checks"] = []
+    if not isinstance(out.get("common_competitors_brief"), list):
+        out["common_competitors_brief"] = []
+    if not isinstance(out.get("issues_with_costs"), list):
+        out["issues_with_costs"] = []
 
+    # normalize issues_with_costs rows
     fixed_rows = []
     for row in out["issues_with_costs"]:
         if not isinstance(row, dict):
@@ -439,6 +426,7 @@ def sanitize_analyze_output(d: dict) -> dict:
         })
     out["issues_with_costs"] = fixed_rows
 
+    # competitors normalization
     fixed_comp = []
     for c in out["common_competitors_brief"]:
         if not isinstance(c, dict):
@@ -449,8 +437,10 @@ def sanitize_analyze_output(d: dict) -> dict:
         })
     out["common_competitors_brief"] = fixed_comp
 
+    # ensure summaries exist
     out["reliability_summary_simple"] = (out.get("reliability_summary_simple") or "").strip()
     out["reliability_summary"] = (out.get("reliability_summary") or "").strip()
+
     return out
 
 
@@ -496,34 +486,38 @@ def build_prompt(make, model, sub_model, year, fuel_type, transmission, mileage_
 
 
 def call_model_with_retry(prompt: str) -> dict:
+    """
+    Uses google.genai SDK client (genai.Client).
+    The client can read GEMINI_API_KEY/GOOGLE_API_KEY automatically,
+    or be provided explicitly when created. :contentReference[oaicite:1]{index=1}
+    """
+    global genai_client
+    if genai_client is None:
+        raise RuntimeError("GenAI client is not initialized")
+
     last_err = None
     for model_name in [PRIMARY_MODEL, FALLBACK_MODEL]:
-        try:
-            llm = genai.GenerativeModel(model_name)
-        except Exception as e:
-            last_err = e
-            print(f"[AI] ❌ init {model_name}: {e}")
-            continue
-
         for attempt in range(1, RETRIES + 1):
             try:
-                resp = llm.generate_content(prompt)
+                cfg = genai_types.GenerateContentConfig(
+                    temperature=0.2,
+                    response_mime_type="application/json",
+                )
+                resp = genai_client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=cfg,
+                )
                 raw = (getattr(resp, "text", "") or "").strip()
-                try:
-                    m = _re.search(r"\{.*\}", raw, _re.DOTALL)
-                    data = json.loads(m.group()) if m else json.loads(raw)
-                except Exception:
-                    data = json.loads(repair_json(raw))
-
-                if not isinstance(data, dict):
+                parsed = json.loads(repair_json(raw))
+                if not isinstance(parsed, dict):
                     raise ValueError("Model output is not a JSON object")
-                return data
+                return parsed
             except Exception as e:
                 last_err = e
                 if attempt < RETRIES:
                     pytime.sleep(RETRY_BACKOFF_SEC)
                 continue
-
     raise RuntimeError(f"Model failed: {repr(last_err)}")
 
 
@@ -570,10 +564,174 @@ def make_user_profile(
     }
 
 
+_ADVISOR_CANON_KEYS = [
+    "brand", "model", "year",
+    "engine_cc", "price_range_nis",
+    "fuel", "gear", "turbo",
+    "avg_fuel_consumption", "annual_fee",
+    "reliability_score", "maintenance_cost", "safety_rating",
+    "insurance_cost", "resale_value",
+    "performance_score", "comfort_features", "suitability",
+    "market_supply", "fit_score",
+    "comparison_comment", "not_recommended_reason",
+    "fuel_method", "fee_method", "reliability_method", "maintenance_method",
+    "safety_method", "insurance_method", "resale_method", "performance_method",
+    "comfort_method", "suitability_method", "supply_method",
+]
+
+_ADVISOR_SYNONYMS = {
+    "brand": ["brand", "make", "manufacturer"],
+    "model": ["model", "trim", "name"],
+    "year": ["year", "year_range", "best_year"],
+    "engine_cc": ["engine_cc", "engine", "engine_size_cc", "engine_displacement_cc"],
+    "price_range_nis": ["price_range_nis", "price_range", "price", "price_nis"],
+    "fuel": ["fuel", "fuel_type"],
+    "gear": ["gear", "transmission"],
+    "turbo": ["turbo", "turbo_required"],
+    "avg_fuel_consumption": ["avg_fuel_consumption", "fuel_consumption", "avg_consumption", "consumption"],
+    "annual_fee": ["annual_fee", "license_fee", "fee"],
+    "reliability_score": ["reliability_score", "reliability", "reliability_index"],
+    "maintenance_cost": ["maintenance_cost", "maintenance", "annual_maintenance_cost"],
+    "safety_rating": ["safety_rating", "safety", "safety_score"],
+    "insurance_cost": ["insurance_cost", "insurance", "annual_insurance_cost"],
+    "resale_value": ["resale_value", "resale", "resale_score", "value_retention"],
+    "performance_score": ["performance_score", "performance"],
+    "comfort_features": ["comfort_features", "comfort", "comfort_score"],
+    "suitability": ["suitability", "suitability_score", "match_score"],
+    "market_supply": ["market_supply", "supply", "availability"],
+    "fit_score": ["fit_score", "fit", "fit_percent"],
+    "comparison_comment": ["comparison_comment", "comment", "summary", "why"],
+    "not_recommended_reason": ["not_recommended_reason", "warning", "cons", "risks"],
+    "fuel_method": ["fuel_method", "fuel_calc_method"],
+    "fee_method": ["fee_method", "fee_calc_method"],
+    "reliability_method": ["reliability_method", "reliability_calc_method"],
+    "maintenance_method": ["maintenance_method", "maintenance_calc_method"],
+    "safety_method": ["safety_method", "safety_calc_method"],
+    "insurance_method": ["insurance_method", "insurance_calc_method"],
+    "resale_method": ["resale_method", "resale_calc_method"],
+    "performance_method": ["performance_method", "performance_calc_method"],
+    "comfort_method": ["comfort_method", "comfort_calc_method"],
+    "suitability_method": ["suitability_method", "suitability_calc_method"],
+    "supply_method": ["supply_method", "market_supply_method"],
+}
+
+
+def _first_present(d: dict, keys: List[str]):
+    for k in keys:
+        if k in d and d.get(k) is not None:
+            return d.get(k)
+    return None
+
+
+def normalize_advisor_car_item(car: dict) -> dict:
+    if not isinstance(car, dict):
+        return {}
+
+    raw = dict(car)
+    out: Dict[str, Any] = {}
+
+    for canon in _ADVISOR_CANON_KEYS:
+        out[canon] = _first_present(raw, _ADVISOR_SYNONYMS.get(canon, [canon]))
+
+    def to_float(x):
+        try:
+            if x is None or x == "":
+                return None
+            return float(x)
+        except Exception:
+            m = _re.search(r"-?\d+(\.\d+)?", str(x))
+            return float(m.group()) if m else None
+
+    def to_int(x):
+        try:
+            if x is None or x == "":
+                return None
+            return int(float(x))
+        except Exception:
+            m = _re.search(r"\d{4}", str(x))
+            return int(m.group()) if m else None
+
+    out["year"] = to_int(out.get("year"))
+    out["engine_cc"] = to_int(out.get("engine_cc"))
+    out["avg_fuel_consumption"] = to_float(out.get("avg_fuel_consumption"))
+    out["annual_fee"] = to_float(out.get("annual_fee"))
+    out["reliability_score"] = to_float(out.get("reliability_score"))
+    out["maintenance_cost"] = to_float(out.get("maintenance_cost"))
+    out["safety_rating"] = to_float(out.get("safety_rating"))
+    out["insurance_cost"] = to_float(out.get("insurance_cost"))
+    out["resale_value"] = to_float(out.get("resale_value"))
+    out["performance_score"] = to_float(out.get("performance_score"))
+    out["comfort_features"] = to_float(out.get("comfort_features"))
+    out["suitability"] = to_float(out.get("suitability"))
+    out["fit_score"] = to_float(out.get("fit_score"))
+
+    pr = out.get("price_range_nis")
+    if isinstance(pr, str):
+        nums = _re.findall(r"\d+", pr.replace(",", ""))
+        if len(nums) >= 2:
+            out["price_range_nis"] = [int(nums[0]), int(nums[1])]
+        elif len(nums) == 1:
+            n = int(nums[0])
+            out["price_range_nis"] = [n, n]
+    elif isinstance(pr, (list, tuple)) and len(pr) == 2:
+        try:
+            out["price_range_nis"] = [int(float(pr[0])), int(float(pr[1]))]
+        except Exception:
+            pass
+
+    for k in ["brand", "model", "fuel", "gear", "market_supply", "comparison_comment", "not_recommended_reason"]:
+        if out.get(k) is not None:
+            out[k] = str(out[k]).strip()
+
+    return out
+
+
 def car_advisor_call_gemini_with_search(profile: dict) -> dict:
     global advisor_client
     if advisor_client is None:
         return {"_error": "Gemini Car Advisor client unavailable."}
+
+    schema_hint = {
+        "search_performed": True,
+        "search_queries": ["(hebrew queries)"],
+        "recommended_cars": [
+            {
+                "brand": "string",
+                "model": "string",
+                "year": 2018,
+                "engine_cc": 1600,
+                "price_range_nis": [60000, 85000],
+                "fuel": "בנזין/היברידי/דיזל/חשמלי",
+                "gear": "אוטומטית/ידנית",
+                "turbo": "כן/לא/לא משנה",
+                "avg_fuel_consumption": 15.2,
+                "annual_fee": 1400,
+                "reliability_score": 8.7,
+                "maintenance_cost": 2500,
+                "safety_rating": 8.0,
+                "insurance_cost": 5200,
+                "resale_value": 7.8,
+                "performance_score": 6.5,
+                "comfort_features": 7.0,
+                "suitability": 8.2,
+                "market_supply": "גבוה/בינוני/נמוך",
+                "fit_score": 87,
+                "comparison_comment": "string",
+                "not_recommended_reason": "string or empty",
+                "fuel_method": "string",
+                "fee_method": "string",
+                "reliability_method": "string",
+                "maintenance_method": "string",
+                "safety_method": "string",
+                "insurance_method": "string",
+                "resale_method": "string",
+                "performance_method": "string",
+                "comfort_method": "string",
+                "suitability_method": "string",
+                "supply_method": "string",
+            }
+        ],
+    }
 
     prompt = f"""
 Please recommend cars for an Israeli customer. Here is the user profile (JSON):
@@ -584,17 +742,8 @@ You are an independent automotive data analyst for the **Israeli used car market
 CRITICAL:
 - Use Google Search tool.
 - Return ONLY ONE top-level JSON object.
-- Keys: "search_performed", "search_queries", "recommended_cars".
-- search_performed must be true.
-- search_queries: array of Hebrew queries (max 6).
-
-recommended_cars: array of 5–10 cars. Each car must include:
-brand, model, year, fuel, gear, turbo, engine_cc, price_range_nis,
-avg_fuel_consumption (number), annual_fee (number),
-reliability_score, maintenance_cost, safety_rating, insurance_cost,
-resale_value, performance_score, comfort_features, suitability,
-market_supply ("גבוה"/"בינוני"/"נמוך"), fit_score (0-100),
-comparison_comment (Hebrew), not_recommended_reason (Hebrew or null).
+- It MUST follow this schema exactly (keys + types), and MUST include "recommended_cars" array:
+{json.dumps(schema_hint, ensure_ascii=False, indent=2)}
 
 Return ONLY raw JSON. No backticks.
 """
@@ -637,47 +786,22 @@ def car_advisor_postprocess(profile: dict, parsed: dict) -> dict:
     fuel_price = profile.get("fuel_price_nis_per_liter", 7.0)
     elec_price = profile.get("electricity_price_nis_per_kwh", 0.65)
 
-    def to_float(x):
-        try:
-            if x is None or x == "":
-                return None
-            return float(x)
-        except Exception:
-            m = _re.search(r"-?\d+(\.\d+)?", str(x))
-            return float(m.group()) if m else None
-
-    def to_int(x):
-        try:
-            if x is None or x == "":
-                return None
-            return int(float(x))
-        except Exception:
-            m = _re.search(r"\d{4}", str(x))
-            return int(m.group()) if m else None
-
     processed = []
     for car in recommended:
         if not isinstance(car, dict):
             continue
-        c = dict(car)
 
-        # normalize key types
-        c["year"] = to_int(c.get("year"))
-        c["engine_cc"] = to_int(c.get("engine_cc"))
-        c["avg_fuel_consumption"] = to_float(c.get("avg_fuel_consumption"))
-        c["annual_fee"] = to_float(c.get("annual_fee"))
-        c["maintenance_cost"] = to_float(c.get("maintenance_cost")) or 0.0
-        c["insurance_cost"] = to_float(c.get("insurance_cost")) or 0.0
+        car_norm = normalize_advisor_car_item(car)
 
-        fuel_val = str(c.get("fuel", "")).strip()
-        gear_val = str(c.get("gear", "")).strip()
-        turbo_val = c.get("turbo")
+        fuel_val = str(car_norm.get("fuel", "")).strip()
+        gear_val = str(car_norm.get("gear", "")).strip()
+        turbo_val = car_norm.get("turbo")
 
         fuel_norm = fuel_map.get(fuel_val, fuel_val.lower())
         gear_norm = gear_map.get(gear_val, gear_val.lower())
         turbo_norm = turbo_map.get(turbo_val, turbo_val) if isinstance(turbo_val, str) else turbo_val
 
-        avg_fc_num = c.get("avg_fuel_consumption")
+        avg_fc_num = car_norm.get("avg_fuel_consumption")
         annual_energy_cost = None
         if isinstance(avg_fc_num, (int, float)) and avg_fc_num and avg_fc_num > 0:
             if fuel_norm == "electric":
@@ -685,26 +809,26 @@ def car_advisor_postprocess(profile: dict, parsed: dict) -> dict:
             else:
                 annual_energy_cost = (annual_km / float(avg_fc_num)) * float(fuel_price)
 
-        annual_fee = c.get("annual_fee") or 0.0
-        maintenance_cost = c.get("maintenance_cost") or 0.0
-        insurance_cost = c.get("insurance_cost") or 0.0
+        maintenance_cost = car_norm.get("maintenance_cost") or 0.0
+        insurance_cost = car_norm.get("insurance_cost") or 0.0
+        annual_fee = car_norm.get("annual_fee") or 0.0
 
         total_annual_cost = None
         if annual_energy_cost is not None:
             total_annual_cost = float(annual_energy_cost) + float(maintenance_cost) + float(insurance_cost) + float(annual_fee)
 
-        c["annual_energy_cost"] = round(annual_energy_cost, 0) if annual_energy_cost is not None else None
-        c["annual_fuel_cost"] = c["annual_energy_cost"]
-        c["annual_fee"] = round(float(annual_fee), 0)
-        c["maintenance_cost"] = round(float(maintenance_cost), 0)
-        c["insurance_cost"] = round(float(insurance_cost), 0)
-        c["total_annual_cost"] = round(total_annual_cost, 0) if total_annual_cost is not None else None
+        car_norm["annual_energy_cost"] = round(annual_energy_cost, 0) if annual_energy_cost is not None else None
+        car_norm["annual_fuel_cost"] = car_norm["annual_energy_cost"]
+        car_norm["maintenance_cost"] = round(float(maintenance_cost), 0) if maintenance_cost is not None else None
+        car_norm["insurance_cost"] = round(float(insurance_cost), 0) if insurance_cost is not None else None
+        car_norm["annual_fee"] = round(float(annual_fee), 0) if annual_fee is not None else None
+        car_norm["total_annual_cost"] = round(total_annual_cost, 0) if total_annual_cost is not None else None
 
-        c["fuel"] = fuel_map_he.get(fuel_norm, fuel_val or fuel_norm)
-        c["gear"] = gear_map_he.get(gear_norm, gear_val or gear_norm)
-        c["turbo"] = turbo_map_he.get(turbo_norm, turbo_val)
+        car_norm["fuel"] = fuel_map_he.get(fuel_norm, fuel_val or fuel_norm)
+        car_norm["gear"] = gear_map_he.get(gear_norm, gear_val or gear_norm)
+        car_norm["turbo"] = turbo_map_he.get(turbo_norm, turbo_val)
 
-        processed.append(c)
+        processed.append(car_norm)
 
     return {
         "search_performed": bool(parsed.get("search_performed", False)),
@@ -717,7 +841,7 @@ def car_advisor_postprocess(profile: dict, parsed: dict) -> dict:
 # ===== APP FACTORY ======================
 # ========================================
 def create_app():
-    global advisor_client, limiter
+    global advisor_client, limiter, genai_client
 
     app = Flask(__name__)
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=2, x_proto=1, x_host=1, x_prefix=1)
@@ -726,12 +850,15 @@ def create_app():
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.config["WTF_CSRF_HEADERS"] = ["X-CSRFToken", "X-CSRF-Token"]
 
-    # Cookies/session
+    # Cookies/session stability
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
     app.config["SESSION_COOKIE_SECURE"] = True if IS_RENDER else False
-    # IMPORTANT: don't force SESSION_COOKIE_DOMAIN (breaks preview domains)
-    app.config["SESSION_COOKIE_DOMAIN"] = None
+
+    if IS_RENDER and PUBLIC_HOST:
+        app.config["SESSION_COOKIE_DOMAIN"] = f".{PUBLIC_HOST}"
+    else:
+        app.config["SESSION_COOKIE_DOMAIN"] = None
 
     db_url = (os.environ.get('DATABASE_URL') or "").strip()
     if db_url.startswith("postgres://"):
@@ -767,7 +894,6 @@ def create_app():
             return jsonify({"error": "נדרש להתחבר כדי להשתמש בשירות."}), 401
         return redirect(url_for("login"))
 
-    # Optional CORS
     if CORS is not None and ALLOWED_ORIGINS:
         CORS(app, supports_credentials=True, resources={r"/*": {"origins": ALLOWED_ORIGINS}})
 
@@ -789,40 +915,27 @@ def create_app():
     )
     limiter.init_app(app)
 
-    # DB init (run once - lock like your old version)
     with app.app_context():
-        try:
-            lock_path = "/tmp/.db_inited.lock"
-            if os.environ.get("SKIP_CREATE_ALL", "").lower() in ("1", "true", "yes"):
-                print("[DB] ⏭️ SKIP_CREATE_ALL enabled - skipping db.create_all()")
-            elif os.path.exists(lock_path):
-                print("[DB] ⏭️ create_all skipped (lock exists)")
-            else:
-                db.create_all()
-                try:
-                    with open(lock_path, "w", encoding="utf-8") as f:
-                        f.write(str(datetime.utcnow()))
-                except Exception:
-                    pass
-                print("[DB] ✅ create_all executed")
-        except Exception as e:
-            print(f"[DB] ⚠️ create_all failed: {e}")
+        db.create_all()
+        print("[DB] ✅ create_all executed")
 
-    # Gemini key init
-    GEMINI_API_KEY = (os.environ.get("GEMINI_API_KEY") or "").strip()
+    # ==========================
+    # GenAI SDK init (NEW)
+    # ==========================
+    GEMINI_API_KEY = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
     if not GEMINI_API_KEY and IS_RENDER:
-        raise RuntimeError("GEMINI_API_KEY missing on Render.")
-    genai.configure(api_key=GEMINI_API_KEY)
+        raise RuntimeError("GEMINI_API_KEY/GOOGLE_API_KEY missing on Render.")
 
-    if GEMINI_API_KEY:
-        try:
-            advisor_client = genai3.Client(api_key=GEMINI_API_KEY)
-            print("[CAR-ADVISOR] ✅ Gemini 3 client initialized")
-        except Exception as e:
-            advisor_client = None
-            print(f"[CAR-ADVISOR] ❌ init failed: {e}")
+    # You can pass api_key explicitly (recommended for controlled envs). :contentReference[oaicite:2]{index=2}
+    try:
+        genai_client = genai_sdk.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else genai_sdk.Client()
+        advisor_client = genai_client
+        print("[GENAI] ✅ google.genai client initialized")
+    except Exception as e:
+        genai_client = None
+        advisor_client = None
+        print(f"[GENAI] ❌ Failed to init google.genai client: {e}")
 
-    # OAuth
     oauth.register(
         name='google',
         client_id=os.environ.get('GOOGLE_CLIENT_ID'),
@@ -860,25 +973,27 @@ def create_app():
             return f"https://{CANONICAL_HOST}/auth"
         return request.url_root.rstrip("/") + "/auth"
 
-    # Canonical redirect + API security gates
+    # Canonical redirect + security gates
     @app.before_request
     def canonical_and_security_gate():
         host = (request.host or "").lower()
         host_no_port = host.split(":")[0]
+
         if host_no_port.startswith("www.") and CANONICAL_HOST and host_no_port.endswith(CANONICAL_HOST):
             target = f"https://{CANONICAL_HOST}{request.full_path}"
             if target.endswith("?"):
                 target = target[:-1]
             return redirect(target, code=301)
 
-        # API endpoints security
         if request.path in ("/analyze", "/advisor_api") or request.path.startswith("/api/"):
             block = enforce_origin_if_configured()
             if block:
                 return block
+
             csrf_block = soft_or_strict_csrf_for_api()
             if csrf_block:
                 return csrf_block
+
         return None
 
     def _should_set_csrf_cookie() -> bool:
@@ -901,7 +1016,6 @@ def create_app():
         if request.path in ("/analyze", "/advisor_api") or request.path.startswith("/api/"):
             resp.headers["Cache-Control"] = "no-store"
 
-        # CSRF token cookie for JS
         if _should_set_csrf_cookie():
             try:
                 token = generate_csrf()
@@ -918,20 +1032,6 @@ def create_app():
                 pass
 
         return resp
-
-    @app.teardown_request
-    def teardown_db(exc):
-        # Prevent "InFailedSqlTransaction" leakage between requests
-        try:
-            if exc is not None:
-                db.session.rollback()
-        except Exception:
-            pass
-        finally:
-            try:
-                db.session.remove()
-            except Exception:
-                pass
 
     # ===========================
     # Health + CSRF
@@ -1098,7 +1198,6 @@ def create_app():
     # ===========================
     @app.route('/advisor_api', methods=['POST'])
     @login_required
-    @csrf.exempt  # <-- critical fix: prevent Flask-WTF CSRF from auto-blocking JSON POST
     @limiter.limit(RL_ADVISOR)
     def advisor_api():
         qerr = quota_precheck("advisor")
@@ -1188,12 +1287,18 @@ def create_app():
             return jsonify({"error": "שגיאת AI במנוע ההמלצות. נסה שוב מאוחר יותר."}), 500
 
         result = car_advisor_postprocess(user_profile, parsed)
+
         if not (isinstance(result, dict) and result.get("search_performed") is True and isinstance(result.get("recommended_cars"), list)):
             return jsonify({"error": "פלט AI לא תקין (Advisor)."}), 500
 
-        # ONE transaction: quota + history (prevents session getting stuck)
         try:
             quota_charge_success("advisor")
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"[QUOTA] advisor charge failed: {e}")
+
+        try:
             rec_log = AdvisorHistory(
                 user_id=current_user.id,
                 profile_json=json.dumps(user_profile, ensure_ascii=False),
@@ -1203,7 +1308,7 @@ def create_app():
             db.session.commit()
         except Exception as e:
             db.session.rollback()
-            print(f"[DB] ⚠️ advisor save/charge failed: {e}")
+            print(f"[DB] ⚠️ failed to save advisor history: {e}")
 
         return jsonify(result)
 
@@ -1212,7 +1317,6 @@ def create_app():
     # ===========================
     @app.route('/analyze', methods=['POST'])
     @login_required
-    @csrf.exempt  # <-- critical fix: prevent Flask-WTF CSRF from auto-blocking JSON POST
     @limiter.limit(RL_ANALYZE)
     def analyze_car():
         qerr = quota_precheck("analyze")
@@ -1252,7 +1356,8 @@ def create_app():
             ).order_by(SearchHistory.timestamp.desc()).first()
 
             if cached:
-                result = sanitize_analyze_output(json.loads(cached.result_json))
+                result = json.loads(cached.result_json)
+                result = sanitize_analyze_output(result)
                 result['source_tag'] = f"מקור: מטמון DB (נשמר ב-{cached.timestamp.strftime('%Y-%m-%d')})"
 
                 try:
@@ -1268,7 +1373,10 @@ def create_app():
 
         # AI call
         try:
-            prompt = build_prompt(final_make, final_model, final_sub_model, final_year, final_fuel, final_trans, final_mileage)
+            prompt = build_prompt(
+                final_make, final_model, final_sub_model, final_year,
+                final_fuel, final_trans, final_mileage
+            )
             model_output = call_model_with_retry(prompt)
         except Exception:
             traceback.print_exc()
@@ -1280,9 +1388,14 @@ def create_app():
         model_output, note = apply_mileage_logic(model_output, final_mileage)
         model_output = sanitize_analyze_output(model_output)
 
-        # ONE transaction: quota + save history
         try:
             quota_charge_success("analyze")
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"[QUOTA] analyze charge failed: {e}")
+
+        try:
             new_log = SearchHistory(
                 user_id=current_user.id,
                 make=final_make,
@@ -1297,7 +1410,7 @@ def create_app():
             db.session.commit()
         except Exception as e:
             db.session.rollback()
-            print(f"[DB] ⚠️ analyze save/charge failed: {e}")
+            print(f"[DB] ⚠️ save failed: {e}")
 
         model_output['source_tag'] = "מקור: ניתוח AI חדש"
         model_output['mileage_note'] = note
@@ -1309,7 +1422,6 @@ def create_app():
     # ===========================
     @app.errorhandler(CSRFError)
     def handle_csrf_error(e):
-        # Should not trigger for /analyze or /advisor_api (exempt), but keep safe
         return jsonify({"error": "שגיאת אבטחה (CSRF). רענן את הדף ונסה שוב."}), 403
 
     @app.errorhandler(429)
@@ -1318,10 +1430,6 @@ def create_app():
 
     @app.errorhandler(HTTPException)
     def handle_http_exception(e):
-        try:
-            db.session.rollback()
-        except Exception:
-            pass
         code = int(getattr(e, "code", 500) or 500)
         msg = getattr(e, "description", None) or "שגיאת בקשה"
         if request.path in ("/analyze", "/advisor_api") or request.path.startswith("/api/"):
@@ -1331,10 +1439,6 @@ def create_app():
     @app.errorhandler(Exception)
     def handle_exception(e):
         traceback.print_exc()
-        try:
-            db.session.rollback()
-        except Exception:
-            pass
         if request.path in ("/analyze", "/advisor_api") or request.path.startswith("/api/"):
             return jsonify({"error": "שגיאת שרת פנימית"}), 500
         return "Internal Server Error", 500
@@ -1345,11 +1449,9 @@ def create_app():
 # ===================================================================
 # Entry
 # ===================================================================
-# ✅ Render/Gunicorn should run:
-# gunicorn "app:create_app()" --bind 0.0.0.0:$PORT
-# IMPORTANT: do NOT create app at import time (prevents double init)
+app = create_app()
+
 if __name__ == '__main__':
-    app = create_app()
     port = int(os.environ.get('PORT', 5001))
     debug = os.environ.get('FLASK_DEBUG', '').lower() in ('1', 'true', 'yes') and (not IS_RENDER)
     app.run(host='0.0.0.0', port=port, debug=debug)
