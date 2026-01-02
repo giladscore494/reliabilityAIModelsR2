@@ -494,6 +494,17 @@ def create_app():
         email = (getattr(current_user, "email", "") or "").lower()
         return email in OWNER_EMAILS
 
+    def log_rejection(reason: str, details: str = "") -> None:
+        """
+        Safely log rejection reasons without exposing sensitive data.
+        Args:
+            reason: Short category (unauthenticated, quota, validation, server_error)
+            details: Safe description of the issue (no secrets, API keys, or DB details)
+        """
+        user_id = current_user.id if current_user.is_authenticated else "anonymous"
+        endpoint = request.endpoint or "unknown"
+        print(f"[REJECT] endpoint={endpoint} user={user_id} reason={reason} details={details}")
+
     @app.context_processor
     def inject_template_globals():
         return {
@@ -552,6 +563,15 @@ def create_app():
     oauth.init_app(app)
 
     login_manager.login_view = 'login'
+
+    # Handle unauthorized access for AJAX/JSON requests
+    @login_manager.unauthorized_handler
+    def unauthorized():
+        """Return 401 for AJAX/JSON requests, otherwise redirect to login."""
+        if request.is_json or request.accept_mimetypes.accept_json:
+            log_rejection("unauthenticated", "User not logged in, no valid session")
+            return jsonify({"error": "אנא התחבר כדי להשתמש בשירות זה"}), 401
+        return redirect(url_for('login'))
 
     # ==========================
     # ✅ Run create_all ONLY ONCE
@@ -906,8 +926,10 @@ def create_app():
             final_fuel = str(data.get('fuel_type'))
             final_trans = str(data.get('transmission'))
             if not (final_make and final_model and final_year):
+                log_rejection("validation", f"Missing required fields: make={bool(final_make)} model={bool(final_model)} year={bool(final_year)}")
                 return jsonify({"error": "שגיאת קלט (שלב 0): נא למלא יצרן, דגם ושנה"}), 400
         except Exception as e:
+            log_rejection("validation", f"Input parsing failed: {type(e).__name__}")
             return jsonify({"error": f"שגיאת קלט (שלב 0): {str(e)}"}), 400
 
         # 1) User quota
@@ -920,8 +942,10 @@ def create_app():
                 SearchHistory.timestamp <= today_end
             ).count()
             if user_searches_today >= USER_DAILY_LIMIT:
+                log_rejection("quota", f"User {current_user.id} exceeded daily limit: {user_searches_today}/{USER_DAILY_LIMIT}")
                 return jsonify({"error": f"שגיאת מגבלה (שלב 1): ניצלת את {USER_DAILY_LIMIT} החיפושים היומיים שלך. נסה שוב מחר."}), 429
         except Exception as e:
+            log_rejection("server_error", f"Quota check failed: {type(e).__name__}")
             traceback.print_exc()
             return jsonify({"error": f"שגיאת שרת (שלב 1): {str(e)}"}), 500
 
@@ -953,6 +977,7 @@ def create_app():
             )
             model_output = call_model_with_retry(prompt)
         except Exception as e:
+            log_rejection("server_error", f"AI model call failed: {type(e).__name__}")
             traceback.print_exc()
             return jsonify({"error": f"שגיאת AI (שלב 4): {str(e)}"}), 500
 

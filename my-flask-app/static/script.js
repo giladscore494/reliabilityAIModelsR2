@@ -338,17 +338,43 @@
                 headers: {
                     'Content-Type': 'application/json'
                 },
+                credentials: 'include',  // ✅ Send session cookies
                 body: JSON.stringify(payload)
             });
             const data = await res.json();
-            if (!res.ok || data.error) {
+            
+            // Handle different status codes
+            if (res.status === 401) {
+                // User not logged in - redirect to login
+                alert('אנא התחבר כדי להשתמש בשירות זה');
+                window.location.href = '/login';
+                return;
+            } else if (res.status === 403) {
+                // CSRF or permission issue - suggest refresh
+                alert('שגיאת הרשאה. אנא רענן את הדף ונסה שוב.');
+                return;
+            } else if (res.status === 429) {
+                // Rate limit exceeded
+                alert(data.error || 'חרגת ממכסת החיפושים היומית שלך. נסה שוב מחר.');
+                return;
+            } else if (res.status === 400) {
+                // Validation error - show the specific error
+                alert(data.error || 'שגיאת קלט. נא לבדוק שכל השדות מולאו כראוי.');
+                return;
+            } else if (res.status >= 500) {
+                // Server error
+                alert('שגיאת שרת. אנא נסה שוב מאוחר יותר.');
+                return;
+            } else if (!res.ok || data.error) {
+                // Generic error fallback
                 alert(data.error || 'שגיאה בשרת');
                 return;
             }
+            
             renderResults(data);
         } catch (err) {
             console.error(err);
-            alert('שגיאה כללית בשליחת הבקשה');
+            alert('שגיאה כללית בשליחת הבקשה. אנא בדוק את החיבור לאינטרנט.');
         } finally {
             setSubmitting(false);
         }
