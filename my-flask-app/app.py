@@ -106,7 +106,20 @@ def log_access_decision(route_name: str, user_id: Optional[int], decision: str, 
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    """
+    Load user by ID from database.
+    If DB connection fails, treat as unauthenticated (return None).
+    This prevents 500 errors on stale pool connections.
+    """
+    try:
+        return User.query.get(int(user_id))
+    except Exception as e:
+        # Log the error safely (no secrets, no user IDs)
+        print(f"[AUTH] ⚠️ load_user failed: {e.__class__.__name__}")
+        # Remove broken connection from pool
+        db.session.remove()
+        # Treat as unauthenticated instead of crashing
+        return None
 
 
 # --- טעינת המילון ---
@@ -574,6 +587,21 @@ def create_app():
     app.config["SESSION_COOKIE_SECURE"] = True
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+
+    # ===== FIX A: SQLAlchemy Connection Pool (prevents stale connections) =====
+    # pool_pre_ping:  test connection before reusing from pool
+    # pool_recycle:  recycle connections after 240 seconds (Postgres timeout ~300s)
+    # pool_size: base number of connections per worker
+    # max_overflow: additional connections when base is exhausted
+    if db_url and "postgresql" in db_url:
+        app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+            "pool_pre_ping": True,
+            "pool_recycle": 240,
+            "pool_size": 5,
+            "max_overflow": 10,
+            "connect_args": {"connect_timeout": 10, "sslmode": "prefer"}
+        }
+        print("[BOOT] SQLAlchemy configured with pool_pre_ping=True, pool_recycle=240")
 
     if not db_url:
         print("[BOOT] ⚠️ DATABASE_URL not set. Using in-memory sqlite (LOCAL DEV ONLY).")
