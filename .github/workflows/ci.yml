@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        cd my-flask-app
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Import smoke test
+      run: |
+        cd my-flask-app
+        python -c "from main import create_app; app = create_app(); print('✅ App import successful')"
+      env:
+        DATABASE_URL: sqlite:///:memory:
+        SECRET_KEY: test-secret-key-for-ci
+        SKIP_CREATE_ALL: "1"
+        
+    - name: Lint with ruff (if available)
+      continue-on-error: true
+      run: |
+        cd my-flask-app
+        pip install ruff || true
+        ruff check . --select E,F,W || echo "Ruff not available or found issues (non-blocking)"
+        
+    - name: Security audit with pip-audit
+      continue-on-error: true
+      run: |
+        pip install pip-audit
+        cd my-flask-app
+        pip-audit || echo "Security audit found issues (non-blocking for now)"
