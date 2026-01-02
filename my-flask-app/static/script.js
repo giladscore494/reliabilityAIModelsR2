@@ -338,11 +338,32 @@
                 headers: {
                     'Content-Type': 'application/json'
                 },
+                credentials: 'include',
                 body: JSON.stringify(payload)
             });
             const data = await res.json();
-            if (!res.ok || data.error) {
-                alert(data.error || 'שגיאה בשרת');
+            
+            // Handle different status codes
+            if (!res.ok) {
+                if (res.status === 401) {
+                    alert('נדרשת התחברות. אנא התחבר למערכת.');
+                    window.location.href = '/login';
+                } else if (res.status === 403) {
+                    alert('אין לך הרשאה לבצע פעולה זו.');
+                } else if (res.status === 429) {
+                    alert(data.error || 'חרגת ממגבלת החיפושים היומית. נסה שוב מחר.');
+                } else if (res.status === 400) {
+                    alert(data.error || 'שגיאת קלט. אנא בדוק את הנתונים.');
+                } else if (res.status >= 500) {
+                    alert(data.error || 'שגיאת שרת. אנא נסה שוב מאוחר יותר.');
+                } else {
+                    alert(data.error || 'שגיאה לא ידועה');
+                }
+                return;
+            }
+            
+            if (data.error) {
+                alert(data.error);
                 return;
             }
             renderResults(data);
