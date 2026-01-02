@@ -1,15 +1,14 @@
 # -*- coding: utf-8 -*-
 # ===================================================================
 # 🚗 Car Reliability Analyzer – Israel
-# v7.5.1 (Security + Split Quotas + Success-only Charge + Stable Sessions
-# + Full Schema Alignment: Old+New prompts + strict postprocess)
+# v7.5.1 (Security + Schema Sync + Advisor Normalization + CSRF Cookie)
 # Canonical: https://yedaarechev.com
 # ===================================================================
 
-import os, re, json, traceback
+import os, json, traceback
 import time as pytime
 from typing import Optional, Tuple, Any, Dict, List
-from datetime import datetime, time, timedelta, date
+from datetime import datetime, timedelta, date
 
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session
 from flask_sqlalchemy import SQLAlchemy
@@ -22,19 +21,19 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import HTTPException
 from json_repair import repair_json
 
-# CSRF (soft mode for API until JS updated)
+# CSRF
 from flask_wtf.csrf import CSRFProtect, generate_csrf, validate_csrf, CSRFError
 
 # Rate limiting
 from flask_limiter import Limiter
 
-# Optional
+# Optional CORS
 try:
     from flask_cors import CORS
 except Exception:
     CORS = None
 
-# Gemini (Analyze)
+# Gemini (existing in your v7.4.0)
 import google.generativeai as genai
 
 # Gemini 3 SDK (Advisor)
@@ -47,6 +46,8 @@ try:
 except Exception:
     ZoneInfo = None
 
+import re as _re
+
 
 # ==================================
 # === GLOBAL OBJECTS ===============
@@ -57,7 +58,6 @@ oauth = OAuth()
 csrf = CSRFProtect()
 limiter = None
 
-# Advisor client
 advisor_client = None
 GEMINI3_MODEL_ID = os.environ.get("GEMINI3_MODEL_ID", "gemini-3-pro-preview")
 
@@ -71,40 +71,31 @@ RETRY_BACKOFF_SEC = float(os.environ.get("RETRY_BACKOFF_SEC", "1.5"))
 
 MAX_CACHE_DAYS = int(os.environ.get("MAX_CACHE_DAYS", "45"))
 
-# Rate limit (anti-spam)
 RL_ANALYZE = os.environ.get("RL_ANALYZE", "30/minute")
 RL_ADVISOR = os.environ.get("RL_ADVISOR", "15/minute")
 
-# Split daily quotas
 GLOBAL_DAILY_LIMIT_ANALYZE = int(os.environ.get("GLOBAL_DAILY_LIMIT_ANALYZE", "1000"))
 GLOBAL_DAILY_LIMIT_ADVISOR = int(os.environ.get("GLOBAL_DAILY_LIMIT_ADVISOR", "300"))
 
 USER_DAILY_LIMIT_ANALYZE = int(os.environ.get("USER_DAILY_LIMIT_ANALYZE", "5"))
 USER_DAILY_LIMIT_ADVISOR = int(os.environ.get("USER_DAILY_LIMIT_ADVISOR", "5"))
 
-# Request body safety
 MAX_JSON_BODY_BYTES = int(os.environ.get("MAX_JSON_BODY_BYTES", str(64 * 1024)))
 
-# Canonical host
 CANONICAL_HOST = (os.environ.get("CANONICAL_HOST") or "yedaarechev.com").strip().lower()
 PUBLIC_HOST = (os.environ.get("PUBLIC_HOST") or "yedaarechev.com").strip().lower()
 
-# Origin allowlist (optional; if empty we don't block same-origin missing-origin cases)
 ALLOWED_ORIGINS = [
     o.strip().lower().rstrip("/")
     for o in (os.environ.get("ALLOWED_ORIGINS", "")).split(",")
     if o.strip()
 ]
 
-# Daily quota timezone (Israel)
 QUOTA_TZ = (os.environ.get("QUOTA_TZ") or "Asia/Jerusalem").strip()
 
-# API CSRF enforcement switch:
-# 0 = soft (allow same-origin without token; log only)
-# 1 = strict (require token for API POST)
+# 0 = soft, 1 = strict
 ENFORCE_CSRF_API = (os.environ.get("ENFORCE_CSRF_API", "0").strip().lower() in ("1", "true", "yes"))
 
-# Production heuristic
 IS_RENDER = bool((os.environ.get("RENDER", "") or "").strip())
 
 
@@ -123,7 +114,6 @@ class User(db.Model, UserMixin):
 class SearchHistory(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    # keep schema compatible; use utc for new rows
     timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     make = db.Column(db.String(100))
@@ -136,11 +126,6 @@ class SearchHistory(db.Model):
 
 
 class AdvisorHistory(db.Model):
-    """
-    היסטוריית מנוע ההמלצות:
-    - profile_json: כל הפרופיל של המשתמש (שאלון מלא)
-    - result_json: כל ההמלצות + כל הפרמטרים וההסברים לכל רכב
-    """
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
@@ -187,8 +172,6 @@ except Exception as e:
     israeli_car_market_full_compilation = {"Toyota": ["Corolla (2008-2025)"]}
     print("[DICT] ⚠️ Fallback applied — Toyota only")
 
-import re as _re
-
 
 def _now_utc() -> datetime:
     return datetime.utcnow()
@@ -219,6 +202,7 @@ def parse_json_body() -> Tuple[Optional[dict], Optional[Tuple[Any, int]]]:
     cl = request.content_length
     if cl is not None and cl > MAX_JSON_BODY_BYTES:
         return None, (jsonify({"error": "קלט גדול מדי"}), 413)
+
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         return None, (jsonify({"error": "קלט JSON לא תקין"}), 400)
@@ -236,9 +220,6 @@ def get_client_ip() -> str:
 
 
 def is_same_origin_request() -> bool:
-    """
-    Soft detection to avoid false 403/CSRF problems on same-site requests.
-    """
     origin = (request.headers.get("Origin") or "").lower().rstrip("/")
     host_origin = (request.host_url or "").lower().rstrip("/")
     referer = (request.headers.get("Referer") or "").lower()
@@ -254,10 +235,6 @@ def is_same_origin_request() -> bool:
 
 
 def enforce_origin_if_configured() -> Optional[Tuple[Any, int]]:
-    """
-    Blocks only clearly cross-site origins when allowlist exists.
-    If allowlist empty, we do NOT block (prevents killing legit traffic).
-    """
     if not ALLOWED_ORIGINS:
         return None
 
@@ -277,11 +254,6 @@ def enforce_origin_if_configured() -> Optional[Tuple[Any, int]]:
 
 
 def soft_or_strict_csrf_for_api() -> Optional[Tuple[Any, int]]:
-    """
-    Soft mode now (site works before JS updates):
-      - If strict mode enabled: require CSRF token for API POST/PUT/DELETE.
-      - If soft: allow same-origin requests even without token.
-    """
     if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
         return None
 
@@ -289,8 +261,7 @@ def soft_or_strict_csrf_for_api() -> Optional[Tuple[Any, int]]:
     if not (p == "/analyze" or p == "/advisor_api" or p.startswith("/api/")):
         return None
 
-    token = request.headers.get("X-CSRFToken") or request.headers.get("X-CSRF-Token") or ""
-    token = token.strip()
+    token = (request.headers.get("X-CSRFToken") or request.headers.get("X-CSRF-Token") or "").strip()
 
     if ENFORCE_CSRF_API:
         if not token:
@@ -301,7 +272,7 @@ def soft_or_strict_csrf_for_api() -> Optional[Tuple[Any, int]]:
         except Exception:
             return jsonify({"error": "שגיאת אבטחה (CSRF): טוקן לא תקין. רענן את הדף ונסה שוב."}), 403
 
-    # Soft mode:
+    # Soft mode
     if token:
         try:
             validate_csrf(token)
@@ -316,9 +287,6 @@ def soft_or_strict_csrf_for_api() -> Optional[Tuple[Any, int]]:
 
 
 def quota_limits_for(endpoint: str) -> Tuple[int, int]:
-    """
-    returns (user_limit, global_limit)
-    """
     if endpoint == "analyze":
         return USER_DAILY_LIMIT_ANALYZE, GLOBAL_DAILY_LIMIT_ANALYZE
     if endpoint == "advisor":
@@ -327,9 +295,6 @@ def quota_limits_for(endpoint: str) -> Tuple[int, int]:
 
 
 def quota_precheck(endpoint: str) -> Optional[Tuple[Any, int]]:
-    """
-    Pre-check based on SUCCESS counts only (no charging here).
-    """
     if not current_user.is_authenticated:
         return jsonify({"error": "נדרש להתחבר כדי להשתמש בשירות."}), 401
 
@@ -351,9 +316,6 @@ def quota_precheck(endpoint: str) -> Optional[Tuple[Any, int]]:
 
 
 def quota_charge_success(endpoint: str) -> None:
-    """
-    Charge SUCCESS only after we actually have a valid result.
-    """
     if not current_user.is_authenticated:
         return
 
@@ -383,6 +345,9 @@ def quota_charge_success(endpoint: str) -> None:
     u.updated_at = _now_utc()
 
 
+# =========================
+# Analyze output helpers
+# =========================
 def mileage_adjustment(mileage_range: str) -> Tuple[int, Optional[str]]:
     m = normalize_text(mileage_range or "")
     if not m:
@@ -414,10 +379,54 @@ def apply_mileage_logic(model_output: dict, mileage_range: str) -> Tuple[dict, O
         return model_output, None
 
 
-# ===========================
-# ===== ANALYZE PROMPT ======
-# (Aligned with older "perfect schema")
-# ===========================
+def sanitize_analyze_output(d: dict) -> dict:
+    """Make sure the response matches what script.js renders."""
+    if not isinstance(d, dict):
+        return {}
+
+    out = dict(d)
+
+    # lists
+    if not isinstance(out.get("common_issues"), list):
+        out["common_issues"] = []
+    if not isinstance(out.get("recommended_checks"), list):
+        out["recommended_checks"] = []
+    if not isinstance(out.get("common_competitors_brief"), list):
+        out["common_competitors_brief"] = []
+    if not isinstance(out.get("issues_with_costs"), list):
+        out["issues_with_costs"] = []
+
+    # normalize issues_with_costs rows
+    fixed_rows = []
+    for row in out["issues_with_costs"]:
+        if not isinstance(row, dict):
+            continue
+        fixed_rows.append({
+            "issue": row.get("issue") or row.get("name") or "",
+            "avg_cost_ILS": row.get("avg_cost_ILS") or row.get("cost") or row.get("avg_cost") or "",
+            "source": row.get("source") or row.get("src") or "",
+            "severity": row.get("severity") or row.get("level") or "",
+        })
+    out["issues_with_costs"] = fixed_rows
+
+    # competitors normalization
+    fixed_comp = []
+    for c in out["common_competitors_brief"]:
+        if not isinstance(c, dict):
+            continue
+        fixed_comp.append({
+            "model": c.get("model") or c.get("name") or "",
+            "brief_summary": c.get("brief_summary") or c.get("summary") or "",
+        })
+    out["common_competitors_brief"] = fixed_comp
+
+    # ensure summaries exist
+    out["reliability_summary_simple"] = (out.get("reliability_summary_simple") or "").strip()
+    out["reliability_summary"] = (out.get("reliability_summary") or "").strip()
+
+    return out
+
+
 def build_prompt(make, model, sub_model, year, fuel_type, transmission, mileage_range):
     extra = f" תת-דגם/תצורה: {sub_model}" if sub_model else ""
     return f"""
@@ -441,8 +450,8 @@ def build_prompt(make, model, sub_model, year, fuel_type, transmission, mileage_
   "issues_with_costs": [
     {{"issue": "שם התקלה", "avg_cost_ILS": "מספר", "source": "מקור", "severity": "נמוך/בינוני/גבוה"}}
   ],
-  "reliability_summary": "סיכום מקצועי בעברית שמסביר את הציון, יתרונות וחסרונות הרכב, ומאפייני האמינות בצורה מפורטת.",
-  "reliability_summary_simple": "הסבר מאוד פשוט וקצר בעברית, ברמה של נהג צעיר שלא מבין ברכבים. בלי מושגים טכניים ובלי קיצורים. להסביר במילים פשוטות למה הציון יצא גבוה/בינוני/נמוך ומה המשמעות ליום-יום (האם זה רכב שיכול לעשות מעט בעיות, הרבה בעיות, כמה להיזהר בקנייה וכו׳).",
+  "reliability_summary": "סיכום מקצועי בעברית.",
+  "reliability_summary_simple": "הסבר קצר ופשוט בעברית.",
   "sources": ["רשימת אתרים"],
   "recommended_checks": ["בדיקות מומלצות ספציפיות"],
   "common_competitors_brief": [
@@ -490,15 +499,8 @@ def call_model_with_retry(prompt: str) -> dict:
 
 # ===========================
 # ===== Car Advisor helpers ==
-# (Aligned schema: old+new)
 # ===========================
-fuel_map = {
-    "בנזין": "gasoline",
-    "היברידי": "hybrid",
-    "דיזל היברידי": "hybrid-diesel",
-    "דיזל": "diesel",
-    "חשמלי": "electric",
-}
+fuel_map = {"בנזין": "gasoline", "היברידי": "hybrid", "דיזל היברידי": "hybrid-diesel", "דיזל": "diesel", "חשמלי": "electric"}
 gear_map = {"אוטומטית": "automatic", "ידנית": "manual"}
 turbo_map = {"לא משנה": "any", "כן": "yes", "לא": "no"}
 
@@ -506,56 +508,19 @@ fuel_map_he = {v: k for k, v in fuel_map.items()}
 gear_map_he = {v: k for k, v in gear_map.items()}
 turbo_map_he = {"yes": "כן", "no": "לא", "any": "לא משנה", True: "כן", False: "לא"}
 
-REQUIRED_CAR_FIELDS = [
-    "brand", "model", "year",
-    "fuel", "gear", "turbo",
-    "engine_cc",
-    "price_range_nis",
-    "avg_fuel_consumption", "fuel_method",
-    "annual_fee", "fee_method",
-    "reliability_score", "reliability_method",
-    "maintenance_cost", "maintenance_method",
-    "safety_rating", "safety_method",
-    "insurance_cost", "insurance_method",
-    "resale_value", "resale_method",
-    "performance_score", "performance_method",
-    "comfort_features", "comfort_method",
-    "suitability", "suitability_method",
-    "market_supply", "supply_method",
-    "fit_score",
-    "comparison_comment",
-    "not_recommended_reason",
-]
-
-
-def has_required_fields(car: dict) -> bool:
-    if not isinstance(car, dict):
-        return False
-    for k in REQUIRED_CAR_FIELDS:
-        if k not in car:
-            return False
-    return True
-
 
 def make_user_profile(
-    budget_min,
-    budget_max,
-    years_range,
-    fuels,
-    gears,
-    turbo_required,
-    main_use,
-    annual_km,
-    driver_age,
-    family_size,
-    cargo_need,
-    safety_required,
-    trim_level,
-    weights,
-    body_style,
-    driving_style,
+    budget_min, budget_max, years_range, fuels, gears, turbo_required,
+    main_use, annual_km, driver_age, family_size, cargo_need,
+    safety_required, trim_level, weights, body_style, driving_style,
     excluded_colors,
 ):
+    # ensure excluded_colors list
+    if isinstance(excluded_colors, str):
+        excluded_colors = [x.strip() for x in excluded_colors.split(",") if x.strip()]
+    if not isinstance(excluded_colors, list):
+        excluded_colors = []
+
     return {
         "budget_nis": [float(budget_min), float(budget_max)],
         "years": [int(years_range[0]), int(years_range[1])],
@@ -576,14 +541,181 @@ def make_user_profile(
     }
 
 
+# ---- Advisor schema normalization (NEW/OLD field names) ----
+_ADVISOR_CANON_KEYS = [
+    "brand", "model", "year",
+    "engine_cc", "price_range_nis",
+    "fuel", "gear", "turbo",
+    "avg_fuel_consumption", "annual_fee",
+    "reliability_score", "maintenance_cost", "safety_rating",
+    "insurance_cost", "resale_value",
+    "performance_score", "comfort_features", "suitability",
+    "market_supply", "fit_score",
+    "comparison_comment", "not_recommended_reason",
+    # methods
+    "fuel_method", "fee_method", "reliability_method", "maintenance_method",
+    "safety_method", "insurance_method", "resale_method", "performance_method",
+    "comfort_method", "suitability_method", "supply_method",
+]
+
+_ADVISOR_SYNONYMS = {
+    "brand": ["brand", "make", "manufacturer"],
+    "model": ["model", "trim", "name"],
+    "year": ["year", "year_range", "best_year"],
+    "engine_cc": ["engine_cc", "engine", "engine_size_cc", "engine_displacement_cc"],
+    "price_range_nis": ["price_range_nis", "price_range", "price", "price_nis"],
+    "fuel": ["fuel", "fuel_type"],
+    "gear": ["gear", "transmission"],
+    "turbo": ["turbo", "turbo_required"],
+    "avg_fuel_consumption": ["avg_fuel_consumption", "fuel_consumption", "avg_consumption", "consumption"],
+    "annual_fee": ["annual_fee", "license_fee", "fee"],
+    "reliability_score": ["reliability_score", "reliability", "reliability_index"],
+    "maintenance_cost": ["maintenance_cost", "maintenance", "annual_maintenance_cost"],
+    "safety_rating": ["safety_rating", "safety", "safety_score"],
+    "insurance_cost": ["insurance_cost", "insurance", "annual_insurance_cost"],
+    "resale_value": ["resale_value", "resale", "resale_score", "value_retention"],
+    "performance_score": ["performance_score", "performance"],
+    "comfort_features": ["comfort_features", "comfort", "comfort_score"],
+    "suitability": ["suitability", "suitability_score", "match_score"],
+    "market_supply": ["market_supply", "supply", "availability"],
+    "fit_score": ["fit_score", "fit", "fit_percent"],
+    "comparison_comment": ["comparison_comment", "comment", "summary", "why"],
+    "not_recommended_reason": ["not_recommended_reason", "warning", "cons", "risks"],
+    # methods
+    "fuel_method": ["fuel_method", "fuel_calc_method"],
+    "fee_method": ["fee_method", "fee_calc_method"],
+    "reliability_method": ["reliability_method", "reliability_calc_method"],
+    "maintenance_method": ["maintenance_method", "maintenance_calc_method"],
+    "safety_method": ["safety_method", "safety_calc_method"],
+    "insurance_method": ["insurance_method", "insurance_calc_method"],
+    "resale_method": ["resale_method", "resale_calc_method"],
+    "performance_method": ["performance_method", "performance_calc_method"],
+    "comfort_method": ["comfort_method", "comfort_calc_method"],
+    "suitability_method": ["suitability_method", "suitability_calc_method"],
+    "supply_method": ["supply_method", "market_supply_method"],
+}
+
+
+def _first_present(d: dict, keys: List[str]):
+    for k in keys:
+        if k in d and d.get(k) is not None:
+            return d.get(k)
+    return None
+
+
+def normalize_advisor_car_item(car: dict) -> dict:
+    if not isinstance(car, dict):
+        return {}
+
+    raw = dict(car)
+    out: Dict[str, Any] = {}
+
+    for canon in _ADVISOR_CANON_KEYS:
+        out[canon] = _first_present(raw, _ADVISOR_SYNONYMS.get(canon, [canon]))
+
+    # type fixes
+    def to_float(x):
+        try:
+            if x is None or x == "":
+                return None
+            return float(x)
+        except Exception:
+            m = _re.search(r"-?\d+(\.\d+)?", str(x))
+            return float(m.group()) if m else None
+
+    def to_int(x):
+        try:
+            if x is None or x == "":
+                return None
+            return int(float(x))
+        except Exception:
+            m = _re.search(r"\d{4}", str(x))
+            return int(m.group()) if m else None
+
+    out["year"] = to_int(out.get("year"))
+    out["engine_cc"] = to_int(out.get("engine_cc"))
+    out["avg_fuel_consumption"] = to_float(out.get("avg_fuel_consumption"))
+    out["annual_fee"] = to_float(out.get("annual_fee"))
+    out["reliability_score"] = to_float(out.get("reliability_score"))
+    out["maintenance_cost"] = to_float(out.get("maintenance_cost"))
+    out["safety_rating"] = to_float(out.get("safety_rating"))
+    out["insurance_cost"] = to_float(out.get("insurance_cost"))
+    out["resale_value"] = to_float(out.get("resale_value"))
+    out["performance_score"] = to_float(out.get("performance_score"))
+    out["comfort_features"] = to_float(out.get("comfort_features"))
+    out["suitability"] = to_float(out.get("suitability"))
+    out["fit_score"] = to_float(out.get("fit_score"))
+
+    # price_range can be array [min,max] or string
+    pr = out.get("price_range_nis")
+    if isinstance(pr, str):
+        nums = _re.findall(r"\d+", pr.replace(",", ""))
+        if len(nums) >= 2:
+            out["price_range_nis"] = [int(nums[0]), int(nums[1])]
+        elif len(nums) == 1:
+            n = int(nums[0])
+            out["price_range_nis"] = [n, n]
+    elif isinstance(pr, (list, tuple)) and len(pr) == 2:
+        try:
+            out["price_range_nis"] = [int(float(pr[0])), int(float(pr[1]))]
+        except Exception:
+            pass
+
+    # strings cleanup
+    for k in ["brand", "model", "fuel", "gear", "market_supply", "comparison_comment", "not_recommended_reason"]:
+        if out.get(k) is not None:
+            out[k] = str(out[k]).strip()
+
+    return out
+
+
 def car_advisor_call_gemini_with_search(profile: dict) -> dict:
-    """
-    Gemini 3 Pro (SDK החדש) עם Google Search ו-output כ-JSON בלבד.
-    Full schema enforced in prompt.
-    """
     global advisor_client
     if advisor_client is None:
         return {"_error": "Gemini Car Advisor client unavailable."}
+
+    # Force schema that matches recommendations.js rendering
+    schema_hint = {
+        "search_performed": True,
+        "search_queries": ["(hebrew queries)"],
+        "recommended_cars": [
+            {
+                "brand": "string",
+                "model": "string",
+                "year": 2018,
+                "engine_cc": 1600,
+                "price_range_nis": [60000, 85000],
+                "fuel": "בנזין/היברידי/דיזל/חשמלי",
+                "gear": "אוטומטית/ידנית",
+                "turbo": "כן/לא/לא משנה",
+                "avg_fuel_consumption": 15.2,
+                "annual_fee": 1400,
+                "reliability_score": 8.7,
+                "maintenance_cost": 2500,
+                "safety_rating": 8.0,
+                "insurance_cost": 5200,
+                "resale_value": 7.8,
+                "performance_score": 6.5,
+                "comfort_features": 7.0,
+                "suitability": 8.2,
+                "market_supply": "גבוה/בינוני/נמוך",
+                "fit_score": 87,
+                "comparison_comment": "string",
+                "not_recommended_reason": "string or empty",
+                "fuel_method": "string",
+                "fee_method": "string",
+                "reliability_method": "string",
+                "maintenance_method": "string",
+                "safety_method": "string",
+                "insurance_method": "string",
+                "resale_method": "string",
+                "performance_method": "string",
+                "comfort_method": "string",
+                "suitability_method": "string",
+                "supply_method": "string",
+            }
+        ],
+    }
 
     prompt = f"""
 Please recommend cars for an Israeli customer. Here is the user profile (JSON):
@@ -591,61 +723,18 @@ Please recommend cars for an Israeli customer. Here is the user profile (JSON):
 
 You are an independent automotive data analyst for the **Israeli used car market**.
 
-🔴 CRITICAL INSTRUCTION: USE GOOGLE SEARCH TOOL
-You MUST use the Google Search tool to verify:
-- that the specific model and trim are actually sold in Israel
-- realistic used prices in Israel (NIS)
-- realistic fuel/energy consumption values
-- common issues (DSG, reliability, recalls)
+CRITICAL:
+- Use Google Search tool.
+- Return ONLY ONE top-level JSON object.
+- It MUST follow this schema exactly (keys + types), and MUST include "recommended_cars" array:
+{json.dumps(schema_hint, ensure_ascii=False, indent=2)}
 
-Hard constraints:
-- Return only ONE top-level JSON object.
-- JSON fields: "search_performed", "search_queries", "recommended_cars".
-- search_performed: ALWAYS true (boolean).
-- search_queries: array of the real Hebrew queries you would run in Google (max 6).
-- All numeric fields must be pure numbers (no units, no text).
-
-recommended_cars: array of 5–10 cars. EACH car MUST include:
-  - brand
-  - model
-  - year
-  - fuel
-  - gear
-  - turbo
-  - engine_cc
-  - price_range_nis
-  - avg_fuel_consumption (+ fuel_method):
-      * non-EV: km per liter (number only)
-      * EV: kWh per 100 km (number only)
-  - annual_fee (₪/year, number only) + fee_method
-  - reliability_score (1–10, number only) + reliability_method
-  - maintenance_cost (₪/year, number only) + maintenance_method
-  - safety_rating (1–10, number only) + safety_method
-  - insurance_cost (₪/year, number only) + insurance_method
-  - resale_value (1–10, number only) + resale_method
-  - performance_score (1–10, number only) + performance_method
-  - comfort_features (1–10, number only) + comfort_method
-  - suitability (1–10, number only) + suitability_method
-  - market_supply ("גבוה" / "בינוני" / "נמוך") + supply_method
-  - fit_score (0–100, number only)
-  - comparison_comment (Hebrew)
-  - not_recommended_reason (Hebrew or null)
-
-**All explanation fields (all *_method, comparison_comment, not_recommended_reason) MUST be in clean, easy Hebrew.**
-
-IMPORTANT MARKET REALITY:
-- לפני שאתה בוחר רכבים, תבדוק בזהירות בעזרת החיפוש שדגם כזה אכן נמכר בישראל, בתצורת מנוע וגיר שאתה מציג.
-- אל תמציא דגמים או גרסאות שלא קיימים ביד 2 בישראל.
-- מודלים שלא נמכרו כמעט / אין להם היצע – סמן "market_supply": "נמוך" והסבר בעברית.
-
-Return ONLY raw JSON. Do not add any backticks or explanation text.
-""".strip()
+Return ONLY raw JSON. No backticks.
+"""
 
     search_tool = genai_types.Tool(google_search=genai_types.GoogleSearch())
     config = genai_types.GenerateContentConfig(
         temperature=0.3,
-        top_p=0.9,
-        top_k=40,
         tools=[search_tool],
         response_mime_type="application/json",
     )
@@ -660,22 +749,15 @@ Return ONLY raw JSON. Do not add any backticks or explanation text.
         try:
             parsed = json.loads(repair_json(text))
             if not isinstance(parsed, dict):
-                return {"_error": "Invalid JSON object from advisor"}
+                return {"_error": "Invalid JSON object from advisor", "_raw": text}
             return parsed
         except Exception:
-            return {"_error": "JSON decode error from Gemini Car Advisor"}
+            return {"_error": "JSON decode error from Gemini Car Advisor", "_raw": text}
     except Exception as e:
         return {"_error": f"Gemini Car Advisor call failed: {e}"}
 
 
 def car_advisor_postprocess(profile: dict, parsed: dict) -> dict:
-    """
-    - Strict schema: drops cars missing required fields
-    - No fake zeros: missing numeric values stay null (None)
-    - Clamp scores to expected ranges
-    - Compute annual_energy_cost + total_annual_cost only when enough data exists
-    - Map fuel/gear/turbo to Hebrew for frontend
-    """
     recommended = parsed.get("recommended_cars") or []
     if not isinstance(recommended, list) or not recommended:
         return {
@@ -684,96 +766,57 @@ def car_advisor_postprocess(profile: dict, parsed: dict) -> dict:
             "recommended_cars": [],
         }
 
-    annual_km = int(profile.get("annual_km", 15000) or 15000)
-    fuel_price = float(profile.get("fuel_price_nis_per_liter", 7.0) or 7.0)
-    elec_price = float(profile.get("electricity_price_nis_per_kwh", 0.65) or 0.65)
+    annual_km = profile.get("annual_km", 15000)
+    fuel_price = profile.get("fuel_price_nis_per_liter", 7.0)
+    elec_price = profile.get("electricity_price_nis_per_kwh", 0.65)
 
-    def num_or_none(x) -> Optional[float]:
-        try:
-            v = float(x)
-            if v <= 0:
-                return None
-            return v
-        except Exception:
-            return None
-
-    def clamp(v: Optional[float], lo: float, hi: float) -> Optional[float]:
-        if v is None:
-            return None
-        return max(lo, min(hi, v))
-
-    def to_int_or_none(x) -> Optional[int]:
-        try:
-            v = int(float(x))
-            return v if v > 0 else None
-        except Exception:
-            return None
-
-    processed: List[dict] = []
-    for car in recommended[:10]:
+    processed = []
+    for car in recommended:
         if not isinstance(car, dict):
             continue
-        if not has_required_fields(car):
-            continue
 
-        car = dict(car)
+        # Normalize schema (old/new keys) -> canonical keys used by JS
+        car_norm = normalize_advisor_car_item(car)
 
-        # strings
-        fuel_val = str(car.get("fuel", "")).strip()
-        gear_val = str(car.get("gear", "")).strip()
-        turbo_val = car.get("turbo")
+        fuel_val = str(car_norm.get("fuel", "")).strip()
+        gear_val = str(car_norm.get("gear", "")).strip()
+        turbo_val = car_norm.get("turbo")
 
-        fuel_norm = fuel_map.get(fuel_val, (fuel_val or "").lower())
-        gear_norm = gear_map.get(gear_val, (gear_val or "").lower())
+        fuel_norm = fuel_map.get(fuel_val, fuel_val.lower())
+        gear_norm = gear_map.get(gear_val, gear_val.lower())
         turbo_norm = turbo_map.get(turbo_val, turbo_val) if isinstance(turbo_val, str) else turbo_val
 
-        # numeric coercion
-        car["year"] = to_int_or_none(car.get("year"))
-        car["engine_cc"] = to_int_or_none(car.get("engine_cc"))
-
-        # core scores
-        car["fit_score"] = clamp(num_or_none(car.get("fit_score")), 0, 100)
-        car["reliability_score"] = clamp(num_or_none(car.get("reliability_score")), 1, 10)
-        car["safety_rating"] = clamp(num_or_none(car.get("safety_rating")), 1, 10)
-        car["resale_value"] = clamp(num_or_none(car.get("resale_value")), 1, 10)
-        car["performance_score"] = clamp(num_or_none(car.get("performance_score")), 1, 10)
-        car["comfort_features"] = clamp(num_or_none(car.get("comfort_features")), 1, 10)
-        car["suitability"] = clamp(num_or_none(car.get("suitability")), 1, 10)
-
-        avg_fc_num = num_or_none(car.get("avg_fuel_consumption"))
-
+        avg_fc_num = car_norm.get("avg_fuel_consumption")
         annual_energy_cost = None
-        if avg_fc_num is not None:
+        if isinstance(avg_fc_num, (int, float)) and avg_fc_num and avg_fc_num > 0:
             if fuel_norm == "electric":
-                annual_energy_cost = (annual_km / 100.0) * avg_fc_num * elec_price
+                annual_energy_cost = (annual_km / 100.0) * float(avg_fc_num) * float(elec_price)
             else:
-                annual_energy_cost = (annual_km / avg_fc_num) * fuel_price
+                # avg_fc_num is "km per liter" per your JS labels
+                annual_energy_cost = (annual_km / float(avg_fc_num)) * float(fuel_price)
 
-        maintenance_cost = num_or_none(car.get("maintenance_cost"))
-        insurance_cost = num_or_none(car.get("insurance_cost"))
-        annual_fee = num_or_none(car.get("annual_fee"))
+        maintenance_cost = car_norm.get("maintenance_cost") or 0.0
+        insurance_cost = car_norm.get("insurance_cost") or 0.0
+        annual_fee = car_norm.get("annual_fee") or 0.0
 
         total_annual_cost = None
-        if (annual_energy_cost is not None and maintenance_cost is not None and insurance_cost is not None and annual_fee is not None):
-            total_annual_cost = annual_energy_cost + maintenance_cost + insurance_cost + annual_fee
+        if annual_energy_cost is not None:
+            total_annual_cost = float(annual_energy_cost) + float(maintenance_cost) + float(insurance_cost) + float(annual_fee)
 
-        car["annual_energy_cost"] = round(annual_energy_cost, 0) if annual_energy_cost is not None else None
-        car["annual_fuel_cost"] = car["annual_energy_cost"]
-        car["maintenance_cost"] = round(maintenance_cost, 0) if maintenance_cost is not None else None
-        car["insurance_cost"] = round(insurance_cost, 0) if insurance_cost is not None else None
-        car["annual_fee"] = round(annual_fee, 0) if annual_fee is not None else None
-        car["total_annual_cost"] = round(total_annual_cost, 0) if total_annual_cost is not None else None
+        # Add fields used by your postprocess display (safe for JS)
+        car_norm["annual_energy_cost"] = round(annual_energy_cost, 0) if annual_energy_cost is not None else None
+        car_norm["annual_fuel_cost"] = car_norm["annual_energy_cost"]
+        car_norm["maintenance_cost"] = round(float(maintenance_cost), 0) if maintenance_cost is not None else None
+        car_norm["insurance_cost"] = round(float(insurance_cost), 0) if insurance_cost is not None else None
+        car_norm["annual_fee"] = round(float(annual_fee), 0) if annual_fee is not None else None
+        car_norm["total_annual_cost"] = round(total_annual_cost, 0) if total_annual_cost is not None else None
 
-        # Hebrew mapping
-        car["fuel"] = fuel_map_he.get(fuel_norm, fuel_val or fuel_norm)
-        car["gear"] = gear_map_he.get(gear_norm, gear_val or gear_norm)
-        car["turbo"] = turbo_map_he.get(turbo_norm, turbo_val)
+        # Convert back to Hebrew labels for UI consistency
+        car_norm["fuel"] = fuel_map_he.get(fuel_norm, fuel_val or fuel_norm)
+        car_norm["gear"] = gear_map_he.get(gear_norm, gear_val or gear_norm)
+        car_norm["turbo"] = turbo_map_he.get(turbo_norm, turbo_val)
 
-        # final sanity
-        if not car.get("brand") or not car.get("model") or not car.get("year") or car.get("fit_score") is None:
-            continue
-
-        processed.append(car)
+        processed.append(car_norm)
 
     return {
         "search_performed": bool(parsed.get("search_performed", False)),
@@ -790,10 +833,8 @@ def create_app():
 
     app = Flask(__name__)
 
-    # Trust proxy headers (Cloudflare + Render can be 2 hops)
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=2, x_proto=1, x_host=1, x_prefix=1)
 
-    # Safety
     app.config["MAX_CONTENT_LENGTH"] = MAX_JSON_BODY_BYTES
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.config["WTF_CSRF_HEADERS"] = ["X-CSRFToken", "X-CSRF-Token"]
@@ -803,13 +844,11 @@ def create_app():
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
     app.config["SESSION_COOKIE_SECURE"] = True if IS_RENDER else False
 
-    # Canonical cookie domain in production
     if IS_RENDER and PUBLIC_HOST:
         app.config["SESSION_COOKIE_DOMAIN"] = f".{PUBLIC_HOST}"
     else:
         app.config["SESSION_COOKIE_DOMAIN"] = None
 
-    # Secrets
     db_url = (os.environ.get('DATABASE_URL') or "").strip()
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
@@ -844,7 +883,6 @@ def create_app():
             return jsonify({"error": "נדרש להתחבר כדי להשתמש בשירות."}), 401
         return redirect(url_for("login"))
 
-    # CORS (only if you explicitly need it)
     if CORS is not None and ALLOWED_ORIGINS:
         CORS(app, supports_credentials=True, resources={r"/*": {"origins": ALLOWED_ORIGINS}})
 
@@ -866,43 +904,21 @@ def create_app():
     )
     limiter.init_app(app)
 
-    # Create DB tables (safe-ish once-per-container lock)
     with app.app_context():
-        try:
-            lock_path = "/tmp/.db_inited.lock"
-            if os.environ.get("SKIP_CREATE_ALL", "").lower() in ("1", "true", "yes"):
-                print("[DB] ⏭️ SKIP_CREATE_ALL enabled - skipping db.create_all()")
-            elif os.path.exists(lock_path):
-                print("[DB] ⏭️ create_all skipped (lock exists)")
-            else:
-                db.create_all()
-                try:
-                    with open(lock_path, "w", encoding="utf-8") as f:
-                        f.write(str(datetime.utcnow()))
-                except Exception:
-                    pass
-                print("[DB] ✅ create_all executed")
-        except Exception as e:
-            print(f"[DB] ⚠️ create_all failed: {e}")
+        db.create_all()
 
     # Gemini key init
     GEMINI_API_KEY = (os.environ.get("GEMINI_API_KEY") or "").strip()
     if not GEMINI_API_KEY and IS_RENDER:
         raise RuntimeError("GEMINI_API_KEY missing on Render.")
-
     genai.configure(api_key=GEMINI_API_KEY)
 
     if GEMINI_API_KEY:
         try:
             advisor_client = genai3.Client(api_key=GEMINI_API_KEY)
-            print("[CAR-ADVISOR] ✅ Gemini 3 client initialized")
-        except Exception as e:
+        except Exception:
             advisor_client = None
-            print(f"[CAR-ADVISOR] ❌ Failed to init Gemini 3 client: {e}")
-    else:
-        advisor_client = None
 
-    # OAuth register
     oauth.register(
         name='google',
         client_id=os.environ.get('GOOGLE_CLIENT_ID'),
@@ -914,7 +930,6 @@ def create_app():
         claims_options={'iss': {'values': ['https://accounts.google.com', 'accounts.google.com']}}
     )
 
-    # Owner list
     OWNER_EMAILS = [
         e.strip().lower()
         for e in os.environ.get("OWNER_EMAILS", "").split(",")
@@ -933,13 +948,22 @@ def create_app():
             "is_logged_in": current_user.is_authenticated,
             "current_user": current_user,
             "is_owner": is_owner_user(),
+            # optional convenience for templates: {{ csrf_token() }}
         }
+
+    def get_redirect_uri():
+        host = (request.host or "").lower()
+        if CANONICAL_HOST and CANONICAL_HOST in host:
+            return f"https://{CANONICAL_HOST}/auth"
+        return request.url_root.rstrip("/") + "/auth"
 
     # Canonical redirect + security gates
     @app.before_request
     def canonical_and_security_gate():
         host = (request.host or "").lower()
-        if host.startswith("www.") and CANONICAL_HOST and host.endswith(CANONICAL_HOST):
+        # strip port
+        host_no_port = host.split(":")[0]
+        if host_no_port.startswith("www.") and CANONICAL_HOST and host_no_port.endswith(CANONICAL_HOST):
             target = f"https://{CANONICAL_HOST}{request.full_path}"
             if target.endswith("?"):
                 target = target[:-1]
@@ -956,14 +980,44 @@ def create_app():
 
         return None
 
+    def _should_set_csrf_cookie() -> bool:
+        # We set csrf cookie on HTML GET responses so JS can always read it
+        if request.method != "GET":
+            return False
+        if request.path.startswith("/static/"):
+            return False
+        return True
+
     @app.after_request
     def security_headers(resp):
         resp.headers["X-Content-Type-Options"] = "nosniff"
         resp.headers["X-Frame-Options"] = "DENY"
         resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         resp.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+
+        # HSTS only when you're sure HTTPS is enforced (Render)
+        if IS_RENDER:
+            resp.headers["Strict-Transport-Security"] = "max-age=15552000; includeSubDomains"
+
         if request.path in ("/analyze", "/advisor_api") or request.path.startswith("/api/"):
             resp.headers["Cache-Control"] = "no-store"
+
+        # CSRF token cookie for JS (readable by JS, SameSite=Lax)
+        if _should_set_csrf_cookie():
+            try:
+                token = generate_csrf()
+                resp.set_cookie(
+                    "csrf_token",
+                    token,
+                    max_age=60 * 60 * 6,
+                    secure=True if IS_RENDER else False,
+                    httponly=False,       # JS must read it
+                    samesite="Lax",
+                    path="/",
+                )
+            except Exception:
+                pass
+
         return resp
 
     # ===========================
@@ -976,7 +1030,18 @@ def create_app():
     @app.route("/api/csrf", methods=["GET"])
     def api_csrf():
         token = generate_csrf()
-        return jsonify({"csrf_token": token})
+        resp = jsonify({"csrf_token": token})
+        # also set cookie
+        resp.set_cookie(
+            "csrf_token",
+            token,
+            max_age=60 * 60 * 6,
+            secure=True if IS_RENDER else False,
+            httponly=False,
+            samesite="Lax",
+            path="/",
+        )
+        return resp
 
     # ===========================
     # Pages
@@ -989,12 +1054,6 @@ def create_app():
             user=current_user,
             is_owner=is_owner_user(),
         )
-
-    def get_redirect_uri():
-        host = (request.host or "").lower()
-        if CANONICAL_HOST and CANONICAL_HOST in host:
-            return f"https://{CANONICAL_HOST}/auth"
-        return request.url_root.rstrip("/") + "/auth"
 
     @app.route('/login')
     def login():
@@ -1138,7 +1197,6 @@ def create_app():
             return err
 
         try:
-            # ---- base ----
             budget_min = float(payload.get("budget_min", 0))
             budget_max = float(payload.get("budget_max", 0))
             year_min = int(payload.get("year_min", 2000))
@@ -1153,7 +1211,6 @@ def create_app():
             gears_he = payload.get("gears_he") or []
             turbo_choice_he = payload.get("turbo_choice_he", "לא משנה")
 
-            # ---- usage/style ----
             main_use = (payload.get("main_use") or "").strip()
             annual_km = int(payload.get("annual_km", 15000))
             driver_age = int(payload.get("driver_age", 21))
@@ -1169,12 +1226,8 @@ def create_app():
             if isinstance(excluded_colors, str):
                 excluded_colors = [s.strip() for s in excluded_colors.split(",") if s.strip()]
 
-            # ---- priorities ----
-            weights = payload.get("weights") or {
-                "reliability": 5, "resale": 3, "fuel": 4, "performance": 2, "comfort": 3
-            }
+            weights = payload.get("weights") or {"reliability": 5, "resale": 3, "fuel": 4, "performance": 2, "comfort": 3}
 
-            # ---- extras ----
             insurance_history = payload.get("insurance_history", "") or ""
             violations = payload.get("violations", "אין") or "אין"
 
@@ -1194,12 +1247,10 @@ def create_app():
             return jsonify({"error": f"שגיאת קלט: {e}"}), 400
 
         fuels = [fuel_map.get(f, "gasoline") for f in fuels_he] if fuels_he else ["gasoline"]
-
         if "חשמלי" in fuels_he:
             gears = ["automatic"]
         else:
             gears = [gear_map.get(g, "automatic") for g in gears_he] if gears_he else ["automatic"]
-
         turbo_choice = turbo_map.get(turbo_choice_he, "any")
 
         user_profile = make_user_profile(
@@ -1210,7 +1261,6 @@ def create_app():
             trim_level, weights, body_style, driving_style, excluded_colors
         )
 
-        # additional fields
         user_profile["license_years"] = license_years
         user_profile["driver_gender"] = driver_gender
         user_profile["insurance_history"] = insurance_history
@@ -1226,16 +1276,9 @@ def create_app():
 
         result = car_advisor_postprocess(user_profile, parsed)
 
-        cars = result.get("recommended_cars")
-        if not (
-            isinstance(result, dict)
-            and result.get("search_performed") is True
-            and isinstance(cars, list)
-            and len(cars) >= 3
-        ):
+        if not (isinstance(result, dict) and result.get("search_performed") is True and isinstance(result.get("recommended_cars"), list)):
             return jsonify({"error": "פלט AI לא תקין (Advisor)."}), 500
 
-        # charge success-only quota
         try:
             quota_charge_success("advisor")
             db.session.commit()
@@ -1243,7 +1286,6 @@ def create_app():
             db.session.rollback()
             print(f"[QUOTA] advisor charge failed: {e}")
 
-        # save history
         try:
             rec_log = AdvisorHistory(
                 user_id=current_user.id,
@@ -1274,10 +1316,12 @@ def create_app():
             return err
 
         try:
+            # matches script.js payload keys exactly
             final_make = normalize_text(payload.get('make'))
             final_model = normalize_text(payload.get('model'))
             final_sub_model = normalize_text(payload.get('sub_model') or "")
             final_year = int(payload.get('year')) if payload.get('year') else None
+
             final_mileage = str(payload.get('mileage_range') or "")
             final_fuel = str(payload.get('fuel_type') or "")
             final_trans = str(payload.get('transmission') or "")
@@ -1287,7 +1331,7 @@ def create_app():
         except Exception as e:
             return jsonify({"error": f"שגיאת קלט: {e}"}), 400
 
-        # Cache (still counts as success because user got an answer)
+        # Cache
         try:
             cutoff_date = datetime.utcnow() - timedelta(days=MAX_CACHE_DAYS)
             cached = SearchHistory.query.filter(
@@ -1302,6 +1346,7 @@ def create_app():
 
             if cached:
                 result = json.loads(cached.result_json)
+                result = sanitize_analyze_output(result)
                 result['source_tag'] = f"מקור: מטמון DB (נשמר ב-{cached.timestamp.strftime('%Y-%m-%d')})"
 
                 try:
@@ -1326,17 +1371,12 @@ def create_app():
             traceback.print_exc()
             return jsonify({"error": "שגיאת AI בעת ניתוח. נסה שוב מאוחר יותר."}), 500
 
-        # Validate "success"
-        if not (
-            isinstance(model_output, dict)
-            and model_output.get("search_performed") is True
-            and ("base_score_calculated" in model_output)
-        ):
+        if not (isinstance(model_output, dict) and model_output.get("search_performed") is True and ("base_score_calculated" in model_output)):
             return jsonify({"error": "פלט AI לא תקין (Analyze)."}), 500
 
         model_output, note = apply_mileage_logic(model_output, final_mileage)
+        model_output = sanitize_analyze_output(model_output)
 
-        # Charge quota first (success-only), then save history
         try:
             quota_charge_success("analyze")
             db.session.commit()
@@ -1398,12 +1438,6 @@ def create_app():
 # ===================================================================
 # Entry
 # ===================================================================
-# אם אתה מריץ gunicorn ככה:
-#   gunicorn app:app --bind 0.0.0.0:$PORT
-# אז צריך app גלובלי.
-# אם אתה מריץ:
-#   gunicorn "app:create_app()"
-# אז תמחק את השורה app=create_app() ותשאיר רק create_app.
 app = create_app()
 
 if __name__ == '__main__':
