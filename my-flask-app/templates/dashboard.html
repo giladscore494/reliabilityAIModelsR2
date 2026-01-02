@@ -237,6 +237,12 @@
     const detailsContentEl = document.getElementById('details-content');
     const detailsCloseBtn = document.getElementById('details-close-btn');
 
+    function escapeHtml(value) {
+        const div = document.createElement('div');
+        div.textContent = value == null ? '' : String(value);
+        return div.innerHTML;
+    }
+
     function openDetails(searchId) {
         if (!searchId) return;
 
@@ -253,7 +259,7 @@
             .then(payload => {
                 if (payload.error) {
                     detailsContentEl.innerHTML =
-                        `<div class="text-center py-8 text-sm text-red-400">${payload.error}</div>`;
+                        `<div class="text-center py-8 text-sm text-red-400">${escapeHtml(payload.error)}</div>`;
                     return;
                 }
                 renderDetails(payload.meta, payload.data);

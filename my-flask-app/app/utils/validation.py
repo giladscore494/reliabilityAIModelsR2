@@ -12,6 +12,7 @@ we preserve existing functions to avoid breaking callers.
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Any, Dict, Mapping
 
 
@@ -156,6 +157,17 @@ def _check_field_length(field: str, value: Any, max_length: int) -> None:
         )
 
 
+def _validate_int_range(field: str, value: Any, *, min_val: int, max_val: int) -> int:
+    """Validate that a field is an int within the allowed range."""
+    try:
+        n = int(float(value))
+    except Exception:
+        raise ValidationError(field, "Field must be a number")
+    if n < min_val or n > max_val:
+        raise ValidationError(field, f"Value must be between {min_val} and {max_val}")
+    return n
+
+
 def _normalize_and_validate_text(field: str, value: Any, max_length: int) -> str:
     """
     Normalize text fields: strip control chars, collapse whitespace,
@@ -214,6 +226,20 @@ def validate_analyze_request(payload: Mapping[str, Any]) -> Dict[str, Any]:
                 validated[field] = _normalize_and_validate_text(field, validated[field], max_length)
             else:
                 _check_field_length(field, validated[field], max_length)
+
+        # Numeric range enforcement
+        # Allow slight future buffer for upcoming model years that may appear in listings
+        current_year = datetime.utcnow().year + 2
+        if "year" in validated:
+            validated["year"] = _validate_int_range("year", validated["year"], min_val=1950, max_val=current_year)
+        if "year_min" in validated:
+            validated["year_min"] = _validate_int_range("year_min", validated["year_min"], min_val=1950, max_val=current_year)
+        if "year_max" in validated:
+            validated["year_max"] = _validate_int_range("year_max", validated["year_max"], min_val=1950, max_val=current_year)
+        if "year_min" in validated and "year_max" in validated and validated["year_min"] > validated["year_max"]:
+            raise ValidationError("year_range", "year_min cannot exceed year_max")
+        if "annual_km" in validated:
+            validated["annual_km"] = _validate_int_range("annual_km", validated["annual_km"], min_val=0, max_val=500000)
 
         return validated
     except ValidationError:
