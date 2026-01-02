@@ -1,0 +1,5 @@
+Revert requested for commit d79537ff2942498af991a2a6f16688a8a0392cd5 at 2026-01-02 14:36:59 UTC.
+
+NOTE: This placeholder file does NOT actually revert code changes. To properly revert, run:
+  git revert d79537ff2942498af991a2a6f16688a8a0392cd5
+and push the resulting commit, or provide the diff/files changed so I can apply inverse edits.
