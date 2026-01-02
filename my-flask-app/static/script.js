@@ -374,7 +374,7 @@
             renderResults(data);
         } catch (err) {
             console.error(err);
-            alert('שגיאה כללית בשליחת הבקשה. אנא בדוק את החיבור לאינטרנט.');
+            alert('שגיאה כללית בשליחת הבקשה. אנא נסה שוב מאוחר יותר.');
         } finally {
             setSubmitting(false);
         }

@@ -497,6 +497,8 @@ def create_app():
     def log_rejection(reason: str, details: str = "") -> None:
         """
         Safely log rejection reasons without exposing sensitive data.
+        This function is defined inside create_app to access Flask context (current_user, request).
+        
         Args:
             reason: Short category (unauthenticated, quota, validation, server_error)
             details: Safe description of the issue (no secrets, API keys, or DB details)
