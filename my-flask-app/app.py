@@ -507,6 +507,19 @@ def create_app():
         email = (getattr(current_user, "email", "") or "").lower()
         return email in OWNER_EMAILS
 
+    def log_rejection(reason: str, details: str = "") -> None:
+        """
+        Safely log rejection reasons without exposing sensitive data.
+        This function is defined inside create_app to access Flask context (current_user, request).
+        
+        Args:
+            reason: Short category (unauthenticated, quota, validation, server_error)
+            details: Safe description of the issue (no secrets, API keys, or DB details)
+        """
+        user_id = current_user.id if current_user.is_authenticated else "anonymous"
+        endpoint = request.endpoint or "unknown"
+        print(f"[REJECT] endpoint={endpoint} user={user_id} reason={reason} details={details}")
+
     @app.context_processor
     def inject_template_globals():
         return {
@@ -565,6 +578,15 @@ def create_app():
     oauth.init_app(app)
 
     login_manager.login_view = 'login'
+
+    # Handle unauthorized access for AJAX/JSON requests
+    @login_manager.unauthorized_handler
+    def unauthorized():
+        """Return 401 for AJAX/JSON requests, otherwise redirect to login."""
+        if request.is_json or request.accept_mimetypes.accept_json:
+            log_rejection("unauthenticated", "User not logged in, no valid session")
+            return jsonify({"error": "אנא התחבר כדי להשתמש בשירות זה"}), 401
+        return redirect(url_for('login'))
 
     # ==========================
     # ✅ Run create_all ONLY ONCE
@@ -949,6 +971,7 @@ def create_app():
                 log_access_decision('/analyze', user_id, 'rejected', f'quota exceeded: {user_searches_today}/{USER_DAILY_LIMIT}')
                 return jsonify({"error": f"שגיאת מגבלה (שלב 1): ניצלת את {USER_DAILY_LIMIT} החיפושים היומיים שלך. נסה שוב מחר."}), 429
         except Exception as e:
+            log_rejection("server_error", f"Quota check failed: {type(e).__name__}")
             traceback.print_exc()
             log_access_decision('/analyze', user_id, 'error', f'server error in quota check: {str(e)}')
             return jsonify({"error": f"שגיאת שרת (שלב 1): {str(e)}"}), 500
@@ -981,6 +1004,7 @@ def create_app():
             )
             model_output = call_model_with_retry(prompt)
         except Exception as e:
+            log_rejection("server_error", f"AI model call failed: {type(e).__name__}")
             traceback.print_exc()
             return jsonify({"error": f"שגיאת AI (שלב 4): {str(e)}"}), 500
 

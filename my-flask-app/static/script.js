@@ -366,10 +366,11 @@
                 alert(data.error);
                 return;
             }
+            
             renderResults(data);
         } catch (err) {
             console.error(err);
-            alert('שגיאה כללית בשליחת הבקשה');
+            alert('שגיאה כללית בשליחת הבקשה. אנא נסה שוב מאוחר יותר.');
         } finally {
             setSubmitting(false);
         }

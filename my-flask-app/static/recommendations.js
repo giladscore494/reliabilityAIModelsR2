@@ -620,10 +620,54 @@
             const res = await fetch('/advisor_api', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
+                credentials: 'include',  // ✅ Send session cookies
                 body: JSON.stringify(payload)
             });
             const data = await res.json();
-            if (!res.ok || data.error) {
+            
+            // Handle different status codes
+            if (res.status === 401) {
+                if (errorEl) {
+                    errorEl.textContent = 'אנא התחבר כדי להשתמש במנוע ההמלצות.';
+                    errorEl.classList.remove('hidden');
+                } else {
+                    alert('אנא התחבר כדי להשתמש במנוע ההמלצות.');
+                }
+                setTimeout(() => { window.location.href = '/login'; }, 1500);
+                return;
+            } else if (res.status === 403) {
+                if (errorEl) {
+                    errorEl.textContent = 'שגיאת הרשאה. אנא רענן את הדף ונסה שוב.';
+                    errorEl.classList.remove('hidden');
+                } else {
+                    alert('שגיאת הרשאה. אנא רענן את הדף ונסה שוב.');
+                }
+                return;
+            } else if (res.status === 429) {
+                if (errorEl) {
+                    errorEl.textContent = data.error || 'חרגת ממכסת הבקשות היומית. נסה שוב מחר.';
+                    errorEl.classList.remove('hidden');
+                } else {
+                    alert(data.error || 'חרגת ממכסת הבקשות היומית. נסה שוב מחר.');
+                }
+                return;
+            } else if (res.status === 400) {
+                if (errorEl) {
+                    errorEl.textContent = data.error || 'שגיאת קלט. נא לבדוק את כל השדות.';
+                    errorEl.classList.remove('hidden');
+                } else {
+                    alert(data.error || 'שגיאת קלט. נא לבדוק את כל השדות.');
+                }
+                return;
+            } else if (res.status >= 500) {
+                if (errorEl) {
+                    errorEl.textContent = 'שגיאת שרת. אנא נסה שוב מאוחר יותר.';
+                    errorEl.classList.remove('hidden');
+                } else {
+                    alert('שגיאת שרת. אנא נסה שוב מאוחר יותר.');
+                }
+                return;
+            } else if (!res.ok || data.error) {
                 if (errorEl) {
                     errorEl.textContent =
                         data.error || 'שגיאת שרת בעת הפעלת מנוע ההמלצות.';
