@@ -5,10 +5,11 @@
 # Phase 1 & 2: Security hardening complete
 # ===================================================================
 
-import os, re, json, traceback, logging, uuid
+import os, re, json, traceback, logging, uuid, random
 import time as pytime
 from typing import Optional, Tuple, Any, Dict
 from datetime import datetime, time, timedelta
+from urllib.parse import urlparse
 
 from flask import Flask, render_template, request, jsonify, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
@@ -283,8 +284,6 @@ def call_model_with_retry(prompt: str) -> dict:
     Raises:
         RuntimeError: If all retries fail
     """
-    import random
-    
     last_err = None
     for model_name in [PRIMARY_MODEL, FALLBACK_MODEL]:
         try:
@@ -903,7 +902,6 @@ def create_app():
         if origin:
             # Origin format: https://example.com or https://example.com:port
             try:
-                from urllib.parse import urlparse
                 parsed = urlparse(origin)
                 origin_host = parsed.netloc or parsed.hostname
             except Exception:
@@ -914,7 +912,6 @@ def create_app():
         if referer and not origin_host:
             # Referer format: https://example.com/path
             try:
-                from urllib.parse import urlparse
                 parsed = urlparse(referer)
                 origin_host = parsed.netloc or parsed.hostname
             except Exception:
