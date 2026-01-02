@@ -228,6 +228,7 @@ def validate_analyze_request(payload: Mapping[str, Any]) -> Dict[str, Any]:
                 _check_field_length(field, validated[field], max_length)
 
         # Numeric range enforcement
+        # Allow slight future buffer for upcoming model years that may appear in listings
         current_year = datetime.utcnow().year + 2
         if "year" in validated:
             validated["year"] = _validate_int_range("year", validated["year"], min_val=1950, max_val=current_year)

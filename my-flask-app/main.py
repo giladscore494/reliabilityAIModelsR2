@@ -811,62 +811,57 @@ def check_and_increment_ip_rate_limit(ip: str, limit: int = 20, now_utc: Optiona
     now = now_utc or datetime.utcnow()
     window_start = now.replace(second=0, microsecond=0)
     resets_at = window_start + timedelta(minutes=1)
+    cleanup_before = window_start - timedelta(days=1)
+
+    def _increment_record() -> Tuple[bool, int]:
+        # Cleanup old buckets to avoid unbounded growth (best-effort, same transaction).
+        db.session.query(IpRateLimit).filter(IpRateLimit.window_start < cleanup_before).delete(synchronize_session=False)
+
+        try:
+            record = (
+                db.session.query(IpRateLimit)
+                .filter_by(ip=ip, window_start=window_start)
+                .with_for_update()
+                .first()
+            )
+        except SQLAlchemyError:
+            record = (
+                db.session.query(IpRateLimit)
+                .filter_by(ip=ip, window_start=window_start)
+                .first()
+            )
+
+        if record is None:
+            record = IpRateLimit(ip=ip, window_start=window_start, count=0, updated_at=now)
+            db.session.add(record)
+            db.session.flush()
+
+        if record.count >= limit:
+            db.session.rollback()
+            return False, record.count
+
+        record.count += 1
+        record.updated_at = now
+        return True, record.count
 
     try:
         with db.session.begin_nested():
-            try:
-                record = (
-                    db.session.query(IpRateLimit)
-                    .filter_by(ip=ip, window_start=window_start)
-                    .with_for_update()
-                    .first()
-                )
-            except SQLAlchemyError:
-                record = (
-                    db.session.query(IpRateLimit)
-                    .filter_by(ip=ip, window_start=window_start)
-                    .first()
-                )
-
-            if record is None:
-                record = IpRateLimit(ip=ip, window_start=window_start, count=0, updated_at=now)
-                db.session.add(record)
-                db.session.flush()
-
-            if record.count >= limit:
-                db.session.rollback()
-                return False, record.count, resets_at
-
-            record.count += 1
-            record.updated_at = now
+            ok, count = _increment_record()
+            if not ok:
+                return False, count, resets_at
 
         db.session.commit()
-        return True, record.count, resets_at
+        return True, count, resets_at
     except IntegrityError:
         db.session.rollback()
         try:
             with db.session.begin_nested():
-                record = (
-                    db.session.query(IpRateLimit)
-                    .filter_by(ip=ip, window_start=window_start)
-                    .with_for_update()
-                    .first()
-                )
-
-                if record is None:
-                    record = IpRateLimit(ip=ip, window_start=window_start, count=0, updated_at=now)
-                    db.session.add(record)
-                    db.session.flush()
-
-                if record.count >= limit:
-                    db.session.rollback()
-                    return False, record.count, resets_at
-
-                record.count += 1
-                record.updated_at = now
+                ok, count = _increment_record()
+                if not ok:
+                    return False, count, resets_at
 
             db.session.commit()
-            return True, record.count, resets_at
+            return True, count, resets_at
         except Exception:
             db.session.rollback()
             return False, 0, resets_at
@@ -1036,7 +1031,7 @@ def create_app():
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     
     # ===== SECURITY: MAX_CONTENT_LENGTH (Phase 1D: DoS prevention) =====
-    # Limit request payload size to prevent memory exhaustion attacks
+    # Limit request payload size (64 KB) to cap JSON bodies and prevent memory exhaustion attacks
     app.config["MAX_CONTENT_LENGTH"] = 64 * 1024  # 64 KB hard cap
 
     # ===== SECURITY:  Session Cookie Configuration (Tier 1) =====
@@ -1761,6 +1756,7 @@ def create_app():
             model_output, note = apply_mileage_logic(model_output, final_mileage)
 
             # 6) Save
+            sanitized_output: Dict[str, Any] = {}
             try:
                 model_output['source_tag'] = f"מקור: ניתוח AI חדש (חיפוש {quota_used_after}/{USER_DAILY_LIMIT})"
                 model_output['mileage_note'] = note
@@ -1783,7 +1779,7 @@ def create_app():
             except Exception as e:
                 print(f"[DB] ⚠️ save failed: {e}")
                 db.session.rollback()
-                sanitized_output = sanitize_analyze_response(model_output)
+                sanitized_output = sanitized_output or sanitize_analyze_response(model_output)
         except Exception as e:
             if quota_incremented:
                 quota_used_after = rollback_quota_increment(current_user.id, day_key)
