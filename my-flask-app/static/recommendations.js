@@ -1,5 +1,7 @@
 // /static/recommendations.js
 // לוגיקת צד לקוח למנוע ההמלצות (Car Advisor / Gemini 3)
+// XSS Protection: All AI-generated content is HTML-escaped on the backend via sanitization.py
+// before being sent to the frontend. Template literals are safe to use with innerHTML.
 
 (function () {
     const form = document.getElementById('advisor-form');
