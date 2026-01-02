@@ -27,6 +27,8 @@ from google.genai import types as genai_types
 
 # --- Input Validation (Security: Tier 2 - S3 + S4) ---
 from app.utils.validation import ValidationError, validate_analyze_request
+# --- Output Sanitization (Security: Tier 2 - S5 + S6) ---
+from app.utils.sanitization import sanitize_analyze_response, sanitize_advisor_response
 
 # ==================================
 # === 1. יצירת אובייקטים גלובליים ===
@@ -975,6 +977,9 @@ def create_app():
             print(f"[DB] ⚠️ failed to save advisor history: {e}")
             db.session.rollback()
 
+        # Sanitize output before returning
+        result = sanitize_advisor_response(result)
+        
         return jsonify(result)
 
     @app.route('/analyze', methods=['POST'])
@@ -1045,6 +1050,8 @@ def create_app():
                 result = json.loads(cached.result_json)
                 # ✅ date format fix: YYYY-MM-DD
                 result['source_tag'] = f"מקור: מטמון DB (נשמר ב-{cached.timestamp.strftime('%Y-%m-%d')})"
+                # Sanitize cached output before returning
+                result = sanitize_analyze_response(result)
                 return jsonify(result)
         except Exception as e:
             print(f"[CACHE] ⚠️ {e}")
@@ -1085,6 +1092,10 @@ def create_app():
         model_output['source_tag'] = f"מקור: ניתוח AI חדש (חיפוש {user_searches_today + 1}/{USER_DAILY_LIMIT})"
         model_output['mileage_note'] = note
         model_output['km_warn'] = False
+        
+        # Sanitize output before returning
+        model_output = sanitize_analyze_response(model_output)
+        
         return jsonify(model_output)
 
     @app.cli.command("init-db")

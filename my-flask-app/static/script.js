@@ -1,5 +1,7 @@
 // /static/script.js
 // לוגיקת צד לקוח לטופס בדיקת אמינות + הצגת תוצאות
+// XSS Protection: All AI-generated content is HTML-escaped on the backend via sanitization.py
+// before being sent to the frontend. Template literals are safe to use with innerHTML.
 
 (function () {
     const carDataScript = document.getElementById('car-data');
