@@ -1,0 +1,9 @@
+## Root-level config so Render Blueprint picks up the app under my-flask-app (keeps subdir render.yaml for manual deploys).
+services:
+  - type: web
+    name: my-flask-app
+    env: python
+    rootDir: my-flask-app
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn "main:create_app()" --bind 0.0.0.0:$PORT --timeout 120
+    autoDeploy: true

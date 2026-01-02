@@ -635,8 +635,28 @@ def create_app():
     def log_request_metadata():
         xfp = request.headers.get("X-Forwarded-Proto", "")
         xff = request.headers.get("X-Forwarded-For", "")
-        auth_state = "auth" if current_user.is_authenticated else "anon"
-        print(f"[REQ] {request.method} {request.path} host={request.host} scheme={request.scheme} xfp={xfp} xff={xff} user={auth_state}")
+        auth_state = current_user.is_authenticated
+        print(f"[REQ] {request.method} {request.path} host={request.host} scheme={request.scheme} xfp={xfp} xff={xff} auth={auth_state}")
+
+    @app.after_request
+    def apply_security_headers(response):
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "geolocation=(), microphone=(), camera=(), payment=()"
+        )
+        response.headers.setdefault(
+            "Content-Security-Policy-Report-Only",
+            # Report-only to avoid breaking current inline/CDN assets; tighten after verification.
+            "default-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://fonts.googleapis.com https://fonts.gstatic.com data:; "
+            "img-src 'self' data: https://*.googleusercontent.com; "
+            "connect-src 'self' https://accounts.google.com https://www.googleapis.com https://openidconnect.googleapis.com https://generativelanguage.googleapis.com"
+        )
+        if is_render or request.is_secure:
+            response.headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
+        return response
 
     # ==========================
     # ✅ Run create_all ONLY ONCE
