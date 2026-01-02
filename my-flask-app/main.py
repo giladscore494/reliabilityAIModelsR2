@@ -11,6 +11,7 @@ from typing import Optional, Tuple, Any, Dict
 from datetime import datetime, time, timedelta, date
 from urllib.parse import urlparse
 from sqlalchemy import inspect
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
@@ -75,27 +76,6 @@ class User(db.Model, UserMixin):
     searches = db.relationship('SearchHistory', backref='user', lazy=True)
     advisor_searches = db.relationship('AdvisorHistory', backref='user', lazy=True)
     daily_quota_usages = db.relationship('DailyQuotaUsage', backref='user', lazy=True)
-
-
-class DailyQuota(db.Model):
-    """
-    Phase 1E: Atomic daily quota enforcement.
-    Tracks daily usage count per user with unique constraint to prevent race conditions.
-    """
-    __tablename__ = 'daily_quota'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    date = db.Column(db.Date, nullable=False, index=True)
-    count = db.Column(db.Integer, nullable=False, default=0)
-    
-    # Unique constraint: one row per user per day
-    __table_args__ = (
-        db.UniqueConstraint('user_id', 'date', name='uq_user_date_quota'),
-    )
-    
-    def __repr__(self):
-        return f'<DailyQuota user_id={self.user_id} date={self.date} count={self.count}>'
 
 
 class DailyQuotaUsage(db.Model):
@@ -678,7 +658,6 @@ def check_and_increment_daily_quota(user_id: int, limit: int) -> Tuple[bool, int
         - allowed: True if within quota (incremented), False if quota exceeded
         - current_count: The count AFTER increment (if allowed) or current count (if rejected)
     """
-    from sqlalchemy.exc import IntegrityError
 
     today = date.today()
     now = datetime.utcnow()
@@ -692,7 +671,7 @@ def check_and_increment_daily_quota(user_id: int, limit: int) -> Tuple[bool, int
                     .with_for_update()
                     .first()
                 )
-            except Exception:
+            except SQLAlchemyError:
                 quota = (
                     db.session.query(DailyQuotaUsage)
                     .filter_by(user_id=user_id, day=today)
@@ -740,14 +719,14 @@ def check_and_increment_daily_quota(user_id: int, limit: int) -> Tuple[bool, int
 
             db.session.commit()
             return True, quota.count
-        except Exception as e:  # noqa: BLE001
-            print(f"[QUOTA] ❌ Error after retry for user {user_id}: {e}")
+        except SQLAlchemyError as e:
+            print(f"[QUOTA] ❌ Error after retry for user {user_id}: {type(e).__name__}")
             db.session.rollback()
             return False, 0
 
-    except Exception as e:
+    except SQLAlchemyError as e:
         # Unexpected error, log and deny to be safe
-        print(f"[QUOTA] ❌ Error checking quota for user {user_id}: {e}")
+        print(f"[QUOTA] ❌ Error checking quota for user {user_id}: {type(e).__name__}")
         db.session.rollback()
         return False, 0
 

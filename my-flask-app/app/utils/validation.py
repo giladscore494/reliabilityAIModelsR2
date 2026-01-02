@@ -163,7 +163,7 @@ def _normalize_and_validate_text(field: str, value: Any, max_length: int) -> str
     _check_field_length(field, text, max_length)
 
     if text and not _ALLOWED_TEXT_PATTERN.match(text):
-        raise ValidationError(field, "Field contains unsupported characters")
+        raise ValidationError(field, "Field contains invalid characters. Use letters, numbers, spaces, and basic punctuation only.")
 
     return text
 
