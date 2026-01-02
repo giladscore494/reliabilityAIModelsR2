@@ -11,6 +11,7 @@ we preserve existing functions to avoid breaking callers.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, Mapping
 
 
@@ -76,9 +77,9 @@ def validate_form_data(data: Mapping[str, Any], required_fields: Mapping[str, ty
 
 # Field length limits for DoS prevention (Phase 1D)
 _FIELD_MAX_LENGTHS = {
-    'make': 120,
-    'model': 120,
-    'sub_model': 120,
+    'make': 80,
+    'model': 80,
+    'sub_model': 80,
     'mileage_range': 50,
     'fuel_type': 50,
     'transmission': 50,
@@ -94,6 +95,28 @@ _FIELD_MAX_LENGTHS = {
     'excluded_colors': 200,
     'driver_gender': 20,
     'seats_choice': 10,
+}
+
+_CONTROL_CHARS = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]')
+_ALLOWED_TEXT_PATTERN = re.compile(r"^[A-Za-z0-9א-ת\s\-.,/'\"()&:+־]+$")
+_TEXT_FIELDS_TO_NORMALIZE = {
+    'make',
+    'model',
+    'sub_model',
+    'mileage_range',
+    'fuel_type',
+    'transmission',
+    'main_use',
+    'body_style',
+    'driving_style',
+    'family_size',
+    'cargo_need',
+    'safety_required',
+    'trim_level',
+    'insurance_history',
+    'violations',
+    'driver_gender',
+    'seats_choice',
 }
 
 
@@ -125,6 +148,26 @@ def _check_field_length(field: str, value: Any, max_length: int) -> None:
         )
 
 
+def _normalize_and_validate_text(field: str, value: Any, max_length: int) -> str:
+    """
+    Normalize text fields: strip control chars, collapse whitespace,
+    enforce allowlist, and length limit.
+    """
+    if value is None:
+        return ''
+
+    text = str(value)
+    text = _CONTROL_CHARS.sub('', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+
+    _check_field_length(field, text, max_length)
+
+    if text and not _ALLOWED_TEXT_PATTERN.match(text):
+        raise ValidationError(field, "Field contains invalid characters. Use letters, numbers, spaces, and basic punctuation only.")
+
+    return text
+
+
 def validate_analyze_request(payload: Mapping[str, Any]) -> Dict[str, Any]:
     """Validate an /analyze request payload and return the validated payload.
 
@@ -154,11 +197,16 @@ def validate_analyze_request(payload: Mapping[str, Any]) -> Dict[str, Any]:
         # Basic validation
         validated = validate_form_data(payload)
         
-        # Enforce field length limits (Phase 1D: DoS prevention)
+        # Enforce field length limits (Phase 1D: DoS prevention) and normalize text
         for field, max_length in _FIELD_MAX_LENGTHS.items():
-            if field in validated:
+            if field not in validated:
+                continue
+
+            if field in _TEXT_FIELDS_TO_NORMALIZE:
+                validated[field] = _normalize_and_validate_text(field, validated[field], max_length)
+            else:
                 _check_field_length(field, validated[field], max_length)
-        
+
         return validated
     except ValidationError:
         # Preserve field/message and re-raise.
