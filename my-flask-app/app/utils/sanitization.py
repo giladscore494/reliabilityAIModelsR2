@@ -1,283 +1,249 @@
-"""Sanitization utilities.
-
-This module is used to harden model/LLM output before returning it to the
-front-end. It enforces *strict allowlisting* and *deep sanitization* to reduce
-XSS/injection risk and to keep payload sizes bounded.
-
-The front-end (my-flask-app/static/script.js) expects specific fields in the
-/analyze response. Those fields are explicitly allowlisted in
-`sanitize_analyze_response`.
-
-Notes:
-- We escape HTML in all strings.
-- We clamp numeric ranges.
-- We bound string lengths and list sizes.
-- Unknown keys are dropped.
-"""
-
-from __future__ import annotations
-
-from html import escape
+import html
 from typing import Any, Dict, List, Optional
 
 
-# -------------------------
-# Generic sanitizers
-# -------------------------
-
-DEFAULT_MAX_STR_LEN = 1200
-DEFAULT_MAX_LIST_ITEMS = 30
-DEFAULT_MAX_NESTED_LIST_ITEMS = 50
+# Conservative caps to mitigate prompt injection / response bloat
+_MAX_LIST_ITEMS = 50
+_MAX_STRING_LEN = 5000
 
 
-def _to_str(v: Any) -> str:
-    if v is None:
+def _escape_string(value: Any) -> str:
+    """HTML-escape and length-cap any incoming string-like value."""
+    if value is None:
         return ""
-    if isinstance(v, str):
-        return v
-    # Avoid dumping very large objects; cast common scalar types.
-    if isinstance(v, (int, float, bool)):
-        return str(v)
-    return str(v)
+    if not isinstance(value, str):
+        value = str(value)
+    if len(value) > _MAX_STRING_LEN:
+        value = value[:_MAX_STRING_LEN]
+    return html.escape(value, quote=True)
 
 
-def sanitize_string(
-    v: Any,
-    *,
-    max_len: int = DEFAULT_MAX_STR_LEN,
-    allow_newlines: bool = True,
-) -> str:
-    """Escape and bound a string."""
-    s = _to_str(v)
-    if not allow_newlines:
-        s = s.replace("\r", " ").replace("\n", " ")
-    # Escape HTML special chars to prevent XSS.
-    s = escape(s, quote=True)
-    # Trim and bound.
-    s = s.strip()
-    if len(s) > max_len:
-        s = s[:max_len]
-    return s
-
-
-def clamp_number(
-    v: Any,
-    *,
-    min_value: float,
-    max_value: float,
-    as_int: bool = False,
-    default: float = 0.0,
-) -> float | int:
+def _clamp_number(value: Any, *, min_value: float = 0.0, max_value: float = 1.0) -> float:
+    """Convert to float and clamp to a safe range."""
     try:
-        n = float(v)
+        num = float(value)
     except (TypeError, ValueError):
-        n = float(default)
-    if n < min_value:
-        n = min_value
-    if n > max_value:
-        n = max_value
-    if as_int:
-        return int(round(n))
-    return n
+        num = min_value
+    if num < min_value:
+        return min_value
+    if num > max_value:
+        return max_value
+    return num
 
 
-def sanitize_string_list(
-    v: Any,
-    *,
-    max_items: int = DEFAULT_MAX_LIST_ITEMS,
-    max_str_len: int = 500,
-) -> List[str]:
-    if not isinstance(v, list):
+def _sanitize_list(value: Any, item_sanitizer, *, max_items: int = _MAX_LIST_ITEMS) -> List[Any]:
+    if not isinstance(value, list):
         return []
-    out: List[str] = []
-    for item in v[:max_items]:
-        s = sanitize_string(item, max_len=max_str_len, allow_newlines=True)
-        if s:
-            out.append(s)
-    return out
-
-
-# -------------------------
-# Deep sanitizers for known payloads
-# -------------------------
-
-
-def sanitize_issue_with_costs_item(v: Any) -> Dict[str, Any]:
-    """Sanitize a single issues_with_costs entry.
-
-    Expected shape:
-    {
-      issue: str,
-      avg_cost_ILS: number,
-      source: str,
-      severity: str
-    }
-    """
-    if not isinstance(v, dict):
-        return {}
-
-    # Keep strings short; these show in UI.
-    issue = sanitize_string(v.get("issue", ""), max_len=250)
-    source = sanitize_string(v.get("source", ""), max_len=120)
-    severity = sanitize_string(v.get("severity", ""), max_len=60, allow_newlines=False)
-
-    # Costs in ILS: clamp to a reasonable range.
-    avg_cost_ils = clamp_number(v.get("avg_cost_ILS"), min_value=0, max_value=250000, default=0.0)
-
-    out: Dict[str, Any] = {}
-    if issue:
-        out["issue"] = issue
-    out["avg_cost_ILS"] = avg_cost_ils
-    if source:
-        out["source"] = source
-    if severity:
-        out["severity"] = severity
-    return out
-
-
-def sanitize_competitor_item(v: Any) -> Dict[str, Any]:
-    """Sanitize a competitor brief entry.
-
-    Expected shape:
-    { model: str, brief_summary: str }
-    """
-    if not isinstance(v, dict):
-        return {}
-    model = sanitize_string(v.get("model", ""), max_len=120, allow_newlines=False)
-    brief = sanitize_string(v.get("brief_summary", ""), max_len=500)
-
-    out: Dict[str, Any] = {}
-    if model:
-        out["model"] = model
-    if brief:
-        out["brief_summary"] = brief
-    return out
-
-
-def sanitize_analyze_response(payload: Any) -> Dict[str, Any]:
-    """Strictly allowlist and deeply sanitize the /analyze response."""
-    if not isinstance(payload, dict):
-        return {}
-
-    out: Dict[str, Any] = {}
-
-    # Simple scalar fields expected by the UI:
-    out["base_score_calculated"] = clamp_number(
-        payload.get("base_score_calculated"), min_value=0, max_value=100, default=0.0
-    )
-
-    source_tag = sanitize_string(payload.get("source_tag", ""), max_len=80, allow_newlines=False)
-    if source_tag:
-        out["source_tag"] = source_tag
-
-    mileage_note = sanitize_string(payload.get("mileage_note", ""), max_len=300)
-    if mileage_note:
-        out["mileage_note"] = mileage_note
-
-    rs = sanitize_string(payload.get("reliability_summary", ""), max_len=1200)
-    if rs:
-        out["reliability_summary"] = rs
-
-    rss = sanitize_string(payload.get("reliability_summary_simple", ""), max_len=400)
-    if rss:
-        out["reliability_summary_simple"] = rss
-
-    # Lists of strings:
-    out["common_issues"] = sanitize_string_list(
-        payload.get("common_issues"), max_items=25, max_str_len=300
-    )
-    out["recommended_checks"] = sanitize_string_list(
-        payload.get("recommended_checks"), max_items=25, max_str_len=300
-    )
-
-    # Numeric summary:
-    out["avg_repair_cost_ILS"] = clamp_number(
-        payload.get("avg_repair_cost_ILS"), min_value=0, max_value=250000, default=0.0
-    )
-
-    # List of objects:
-    issues = payload.get("issues_with_costs")
-    issues_out: List[Dict[str, Any]] = []
-    if isinstance(issues, list):
-        for item in issues[:DEFAULT_MAX_NESTED_LIST_ITEMS]:
-            s_item = sanitize_issue_with_costs_item(item)
-            if s_item:
-                issues_out.append(s_item)
-    out["issues_with_costs"] = issues_out
-
-    # Competitor briefs:
-    competitors = payload.get("common_competitors_brief")
-    competitors_out: List[Dict[str, Any]] = []
-    if isinstance(competitors, list):
-        for item in competitors[:20]:
-            s_item = sanitize_competitor_item(item)
-            if s_item:
-                competitors_out.append(s_item)
-    out["common_competitors_brief"] = competitors_out
-
-    return out
-
-
-# -------------------------
-# Advisor response sanitizer
-# -------------------------
-
-
-def sanitize_advisor_response(payload: Any) -> Dict[str, Any]:
-    """Sanitize advisor payload.
-
-    Compatibility:
-    - If this module (or an import cycle) defines a `sanitize_car_object` helper,
-      delegate to it.
-    - Otherwise fall back to a minimal safe allowlist to avoid leaking arbitrary
-      LLM keys.
-
-    The advisor payload is *not* the same as /analyze, but still must be
-    strictly bounded and escaped.
-    """
-
-    # Delegate to existing logic if present (requested behavior).
-    sco = globals().get("sanitize_car_object")
-    if callable(sco):
+    out: List[Any] = []
+    for item in value[:max_items]:
         try:
-            result = sco(payload)
-            return result if isinstance(result, dict) else {}
+            out.append(item_sanitizer(item))
         except Exception:
-            # Fail closed.
-            return {}
+            # Never allow sanitizer to throw and break response piping
+            continue
+    return out
 
-    if not isinstance(payload, dict):
+
+def _sanitize_score_breakdown(value: Any) -> Dict[str, Any]:
+    """Sanitize score_breakdown object for /analyze response.
+
+    Expected shape is a mapping of keys -> {score: number, explanation: string}
+    but we handle unknown keys defensively.
+    """
+    if not isinstance(value, dict):
         return {}
 
-    # Minimal safe allowlist that covers typical advisor outputs without
-    # permitting arbitrary nested structures.
-    allow_scalar = {
-        "title": 120,
-        "summary": 1200,
-        "recommendation": 800,
-        "notes": 800,
-        "source_tag": 80,
-    }
-    allow_list = {
-        "recommended_checks": (25, 300),
-        "warnings": (20, 250),
-        "next_steps": (20, 250),
-    }
+    sanitized: Dict[str, Any] = {}
+
+    # Limit number of categories
+    for k in list(value.keys())[:_MAX_LIST_ITEMS]:
+        sk = _escape_string(k)
+        v = value.get(k)
+        if isinstance(v, dict):
+            sanitized[sk] = {
+                "score": _clamp_number(v.get("score"), min_value=0.0, max_value=1.0),
+                "explanation": _escape_string(v.get("explanation", "")),
+            }
+        else:
+            # If it's not an object, treat it as explanation
+            sanitized[sk] = {
+                "score": 0.0,
+                "explanation": _escape_string(v),
+            }
+
+    return sanitized
+
+
+def sanitize_analyze_response(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Sanitize response payload for /analyze.
+
+    Preserve existing behavior (keys and general structure) but ensure all strings
+    are HTML-escaped, numbers clamped, and arrays capped.
+    """
+    if not isinstance(data, dict):
+        return {}
+
+    # Preserve existing top-level fields (common ones) while sanitizing.
+    # We leave unknown fields out to avoid widening attack surface.
+    sanitized: Dict[str, Any] = {}
+
+    if "analysis" in data:
+        sanitized["analysis"] = _escape_string(data.get("analysis"))
+
+    if "score" in data:
+        sanitized["score"] = _clamp_number(data.get("score"), min_value=0.0, max_value=1.0)
+
+    # New: score_breakdown sanitization
+    if "score_breakdown" in data:
+        sanitized["score_breakdown"] = _sanitize_score_breakdown(data.get("score_breakdown"))
+
+    # Common supporting fields
+    if "warnings" in data:
+        sanitized["warnings"] = _sanitize_list(data.get("warnings"), _escape_string)
+
+    if "errors" in data:
+        sanitized["errors"] = _sanitize_list(data.get("errors"), _escape_string)
+
+    if "metadata" in data and isinstance(data.get("metadata"), dict):
+        # Escape only string leaves and cap size.
+        md_in: Dict[str, Any] = data.get("metadata")
+        md_out: Dict[str, Any] = {}
+        for k in list(md_in.keys())[:_MAX_LIST_ITEMS]:
+            sk = _escape_string(k)
+            v = md_in.get(k)
+            if isinstance(v, str) or v is None:
+                md_out[sk] = _escape_string(v)
+            elif isinstance(v, (int, float)):
+                # Metadata numbers are not necessarily 0..1; clamp to a broad safe range.
+                md_out[sk] = _clamp_number(v, min_value=-1e9, max_value=1e9)
+            elif isinstance(v, bool):
+                md_out[sk] = bool(v)
+            else:
+                # Fallback to escaped string representation
+                md_out[sk] = _escape_string(v)
+        sanitized["metadata"] = md_out
+
+    return sanitized
+
+
+# --- Advisor (/advisor or similar) sanitization ---
+
+# Field allowlist derived from recommendations.js consumption.
+# Intentionally strict: drop unknown fields.
+_CAR_FIELD_ALLOWLIST = {
+    "id",
+    "name",
+    "make",
+    "model",
+    "trim",
+    "year",
+    "price",
+    "mileage",
+    "body_type",
+    "drivetrain",
+    "transmission",
+    "fuel_type",
+    "mpg_city",
+    "mpg_highway",
+    "mpg_combined",
+    "range_miles",
+    "horsepower",
+    "torque",
+    "exterior_color",
+    "interior_color",
+    "image_url",
+    "url",
+    "dealer",
+    "location",
+    "highlights",
+    "pros",
+    "cons",
+    "score",
+    "reason",
+}
+
+
+def _sanitize_car(obj: Any) -> Dict[str, Any]:
+    if not isinstance(obj, dict):
+        return {}
+
+    out: Dict[str, Any] = {}
+    for k in list(obj.keys())[:_MAX_LIST_ITEMS]:
+        if k not in _CAR_FIELD_ALLOWLIST:
+            continue
+        v = obj.get(k)
+
+        # Numbers: clamp to broad sensible ranges. Keep ints as floats? preserve type where reasonable.
+        if k in {
+            "year",
+            "price",
+            "mileage",
+            "mpg_city",
+            "mpg_highway",
+            "mpg_combined",
+            "range_miles",
+            "horsepower",
+            "torque",
+            "score",
+        }:
+            # score is commonly 0..1 or 0..100; we allow 0..100 here.
+            if k == "score":
+                out[k] = _clamp_number(v, min_value=0.0, max_value=100.0)
+            elif k == "year":
+                out[k] = int(_clamp_number(v, min_value=1885, max_value=2100))
+            elif k in {"price", "mileage", "range_miles", "horsepower", "torque"}:
+                out[k] = _clamp_number(v, min_value=0.0, max_value=1e9)
+            else:
+                out[k] = _clamp_number(v, min_value=0.0, max_value=1e4)
+            continue
+
+        # Lists of strings
+        if k in {"highlights", "pros", "cons"}:
+            out[k] = _sanitize_list(v, _escape_string, max_items=20)
+            continue
+
+        # Nested objects: escape their string leaves shallowly, cap size.
+        if isinstance(v, dict):
+            nested: Dict[str, Any] = {}
+            for nk in list(v.keys())[:20]:
+                nested[_escape_string(nk)] = _escape_string(v.get(nk))
+            out[k] = nested
+            continue
+
+        # Booleans
+        if isinstance(v, bool):
+            out[k] = bool(v)
+            continue
+
+        # Default: string
+        out[k] = _escape_string(v)
+
+    return out
+
+
+def sanitize_advisor_response(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Sanitize advisor response with strict allowlists.
+
+    Allow only:
+      - search_performed: bool
+      - search_queries: list[str]
+      - recommended_cars: list[car]
+
+    Each car is allowlisted by _CAR_FIELD_ALLOWLIST.
+    All strings are HTML-escaped, numbers clamped, and lists capped.
+    """
+    if not isinstance(data, dict):
+        return {}
 
     out: Dict[str, Any] = {}
 
-    for k, max_len in allow_scalar.items():
-        if k in payload:
-            s = sanitize_string(payload.get(k), max_len=max_len)
-            if s:
-                out[k] = s
+    if "search_performed" in data:
+        out["search_performed"] = bool(data.get("search_performed"))
 
-    for k, (max_items, max_str_len) in allow_list.items():
-        if k in payload:
-            out[k] = sanitize_string_list(payload.get(k), max_items=max_items, max_str_len=max_str_len)
+    if "search_queries" in data:
+        out["search_queries"] = _sanitize_list(data.get("search_queries"), _escape_string, max_items=20)
 
-    # Optional numeric confidence-like field
-    if "confidence" in payload:
-        out["confidence"] = clamp_number(payload.get("confidence"), min_value=0, max_value=1, default=0.0)
+    if "recommended_cars" in data:
+        out["recommended_cars"] = _sanitize_list(data.get("recommended_cars"), _sanitize_car, max_items=20)
 
     return out
