@@ -6,6 +6,7 @@ Commercial-grade: treats all AI output as hostile.
 """
 
 import html
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 # Strict allowlist for /analyze response fields
@@ -25,11 +26,6 @@ ANALYZE_ALLOWED_FIELDS = {
     "source_tag",
     "mileage_note",
     "km_warn"
-}
-
-# Nested field allowlists
-SCORE_BREAKDOWN_FIELDS = {
-    "reliability", "fuel", "performance", "comfort", "safety", "resale"
 }
 
 ADVISOR_ALLOWED_FIELDS = {
@@ -191,7 +187,9 @@ def sanitize_car_object(car: Dict[str, Any]) -> Dict[str, Any]:
                      "suitability", "fit_score", "annual_energy_cost", "annual_fuel_cost",
                      "total_annual_cost"):
             if field == "year":
-                sanitized[field] = sanitize_number(value, min_val=1990, max_val=2025)
+                # Dynamic max year: current year + 1 (to allow next year models)
+                max_year = datetime.now().year + 1
+                sanitized[field] = sanitize_number(value, min_val=1990, max_val=max_year)
             elif field == "fit_score":
                 sanitized[field] = sanitize_number(value, min_val=0, max_val=100)
             elif "score" in field or "rating" in field:
