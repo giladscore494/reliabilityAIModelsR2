@@ -2,6 +2,41 @@
 // לוגיקת צד לקוח לטופס בדיקת אמינות + הצגת תוצאות
 
 (function () {
+    // =========================
+    // CSRF helpers (Flask-WTF)
+    // =========================
+    function getCookie(name) {
+        const m = document.cookie.match(
+            new RegExp('(?:^|; )' + name.replace(/([.$?*|{}()[\]\\/+^])/g, '\\$1') + '=([^;]*)')
+        );
+        return m ? decodeURIComponent(m[1]) : '';
+    }
+
+    function getCsrfToken() {
+        // Prefer meta tag (best with Flask-WTF)
+        const meta = document.querySelector('meta[name="csrf-token"]');
+        const metaToken = meta && meta.getAttribute('content');
+        if (metaToken) return metaToken;
+
+        // Fallbacks (if you set CSRF cookie yourself)
+        return (
+            getCookie('csrf_token') ||
+            getCookie('csrf') ||
+            getCookie('XSRF-TOKEN') ||
+            ''
+        );
+    }
+
+    function csrfHeaders(baseHeaders) {
+        const h = Object.assign({}, baseHeaders || {});
+        const t = getCsrfToken();
+        if (t) {
+            h['X-CSRFToken'] = t;
+            h['X-CSRF-Token'] = t; // covers common variants
+        }
+        return h;
+    }
+
     const carDataScript = document.getElementById('car-data');
     let CAR_DATA = {};
     if (carDataScript) {
@@ -335,12 +370,23 @@
         try {
             const res = await fetch('/analyze', {
                 method: 'POST',
-                headers: {
+                credentials: 'same-origin',
+                headers: csrfHeaders({
                     'Content-Type': 'application/json'
-                },
+                }),
                 body: JSON.stringify(payload)
             });
-            const data = await res.json();
+
+            // נסה לקרוא JSON, ואם לא מצליח – טקסט
+            let data = null;
+            const ct = res.headers.get('content-type') || '';
+            if (ct.includes('application/json')) {
+                data = await res.json();
+            } else {
+                const txt = await res.text();
+                data = { error: txt || 'שגיאה לא צפויה מהשרת' };
+            }
+
             if (!res.ok || data.error) {
                 alert(data.error || 'שגיאה בשרת');
                 return;
