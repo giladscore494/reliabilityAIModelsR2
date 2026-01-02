@@ -100,7 +100,7 @@ def sanitize_list(value: Any, max_items: int = 100, item_sanitizer=None) -> List
         value = value[:max_items]
     if item_sanitizer:
         return [item_sanitizer(item) for item in value if item is not None]
-    return [str(item).strip() for item in value if item]
+    return [str(item).strip() for item in value if item is not None and str(item).strip()]
 
 def sanitize_analyze_response(data: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -210,7 +210,8 @@ def sanitize_car_object(car: Dict[str, Any]) -> Dict[str, Any]:
             sanitized[field] = sanitize_string(value, max_length=500)
         
         elif field == "turbo":
-            # Boolean or string
+            # Dual-type field: boolean or string (preserves compatibility with existing system)
+            # Frontend converts to string anyway: String(car.turbo)
             if isinstance(value, bool):
                 sanitized[field] = value
             else:
