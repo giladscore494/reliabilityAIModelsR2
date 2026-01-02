@@ -4,5 +4,5 @@ services:
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn "app:create_app()" --bind 0.0.0.0:$PORT --timeout 120
+    startCommand: gunicorn "main:create_app()" --bind 0.0.0.0:$PORT --timeout 120
     autoDeploy: true

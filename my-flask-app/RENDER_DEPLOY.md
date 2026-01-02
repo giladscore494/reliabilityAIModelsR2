@@ -9,7 +9,7 @@ Option A (Blueprint):
 Option B (Manual Web Service):
 - New > Web Service > Connect repo
 - Build Command: `pip install -r requirements.txt`
-- Start Command: `gunicorn "app:create_app()" --bind 0.0.0.0:$PORT --timeout 120`
+- Start Command: `gunicorn "main:create_app()" --bind 0.0.0.0:$PORT --timeout 120`
 
 ## 2) Environment variables (Render > Service > Environment)
 You need these (same names your app already uses):
