@@ -1,425 +1,438 @@
-// static/js/dashboard.js
-// -----------------------------------------
-// אוברליי פרטי חיפוש לדשבורד – מסך מלא במובייל
-// דורש אלמנטים עם class="js-history-card" ו- data-search-id
-// -----------------------------------------
+// /static/script.js
+// לוגיקת צד לקוח לטופס בדיקת אמינות + הצגת תוצאות
 
 (function () {
-    const BODY = document.body;
-    let overlayEl = null;
-    let overlayTitleEl = null;
-    let overlaySubtitleEl = null;
-    let overlayContentEl = null;
-    let closeBtnEl = null;
-    let previousBodyOverflow = null;
+    // =========================
+    // CSRF helpers (Flask-WTF)
+    // =========================
+    function getCookie(name) {
+        const m = document.cookie.match(
+            new RegExp('(?:^|; )' + name.replace(/([.$?*|{}()[\]\\/+^])/g, '\\$1') + '=([^;]*)')
+        );
+        return m ? decodeURIComponent(m[1]) : '';
+    }
 
-    // יצירת האוברליי פעם אחת
-    function createOverlay() {
-        if (overlayEl) return;
+    function getCsrfToken() {
+        // Prefer meta tag (best with Flask-WTF)
+        const meta = document.querySelector('meta[name="csrf-token"]');
+        const metaToken = meta && meta.getAttribute('content');
+        if (metaToken) return metaToken;
 
-        overlayEl = document.createElement("div");
-        overlayEl.id = "history-overlay";
-        overlayEl.className =
-            "fixed inset-0 bg-slate-900/60 z-50 hidden";
+        // Fallbacks (if you set CSRF cookie yourself)
+        return (
+            getCookie('csrf_token') ||
+            getCookie('csrf') ||
+            getCookie('XSRF-TOKEN') ||
+            ''
+        );
+    }
 
-        overlayEl.innerHTML = `
-            <div class="absolute inset-0 flex items-stretch sm:items-center justify-center">
-                <div class="bg-white w-full sm:max-w-2xl sm:rounded-2xl sm:shadow-xl sm:m-4 overflow-y-auto max-h-screen flex flex-col">
-                    <div class="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-                        <div class="flex flex-col gap-0.5">
-                            <h2 id="overlay-title" class="text-sm sm:text-base font-semibold text-slate-900">
-                                פרטי חיפוש
-                            </h2>
-                            <p id="overlay-subtitle" class="text-[11px] sm:text-xs text-slate-500"></p>
-                        </div>
-                        <button
-                            id="history-overlay-close"
-                            type="button"
-                            class="inline-flex items-center justify-center rounded-full border border-slate-200 w-8 h-8 text-slate-600 hover:bg-slate-100 hover:text-slate-900 text-sm"
-                            aria-label="סגור">
-                            ✕
-                        </button>
-                    </div>
-                    <div id="overlay-content" class="p-4 text-[11px] sm:text-sm text-slate-800 space-y-3"></div>
-                </div>
-            </div>
-        `;
-
-        document.body.appendChild(overlayEl);
-
-        overlayTitleEl = overlayEl.querySelector("#overlay-title");
-        overlaySubtitleEl = overlayEl.querySelector("#overlay-subtitle");
-        overlayContentEl = overlayEl.querySelector("#overlay-content");
-        closeBtnEl = overlayEl.querySelector("#history-overlay-close");
-
-        if (closeBtnEl) {
-            closeBtnEl.addEventListener("click", hideOverlay);
+    function csrfHeaders(baseHeaders) {
+        const h = Object.assign({}, baseHeaders || {});
+        const t = getCsrfToken();
+        if (t) {
+            h['X-CSRFToken'] = t;
+            h['X-CSRF-Token'] = t; // covers common variants
         }
+        return h;
+    }
 
-        // סגירה בלחיצה בחוץ (אבל לא על הקונטיינר הפנימי)
-        overlayEl.addEventListener("click", function (e) {
-            if (e.target === overlayEl) {
-                hideOverlay();
+    const carDataScript = document.getElementById('car-data');
+    let CAR_DATA = {};
+    if (carDataScript) {
+        try {
+            CAR_DATA = JSON.parse(carDataScript.textContent || carDataScript.innerHTML || '{}');
+        } catch (e) {
+            console.error('[CAR-DATA] JSON parse error', e);
+            CAR_DATA = {};
+        }
+    }
+
+    const makeSelect = document.getElementById('make');
+    const modelSelect = document.getElementById('model');
+    const yearSelect = document.getElementById('year');
+    const form = document.getElementById('car-form');
+    const submitBtn = document.getElementById('submit-button');
+    const resultsContainer = document.getElementById('results-container');
+    const legalCheckbox = document.getElementById('legal-confirm');
+    const legalError = document.getElementById('legal-error');
+
+    const summarySimpleEl = document.getElementById('summary-simple-text');
+    const summaryDetailedEl = document.getElementById('summary-detailed-text');
+    const summaryToggleBtn = document.getElementById('summary-toggle-btn');
+    const summaryDetailedBlock = document.getElementById('summary-detailed-block');
+    const scoreContainer = document.getElementById('reliability-score-container');
+
+    const faultsContainer = document.getElementById('faults');
+    const costsContainer = document.getElementById('costs');
+    const competitorsContainer = document.getElementById('competitors');
+
+    // טאבס
+    window.openTab = function (evt, tabId) {
+        const btns = document.querySelectorAll('.tab-btn');
+        const tabs = document.querySelectorAll('.tab-content');
+        btns.forEach(b => b.classList.remove('active'));
+        tabs.forEach(t => t.classList.remove('active'));
+        if (evt && evt.currentTarget) {
+            evt.currentTarget.classList.add('active');
+        }
+        const tab = document.getElementById(tabId);
+        if (tab) tab.classList.add('active');
+    };
+
+    // טוגל סיכום מפורט
+    if (summaryToggleBtn && summaryDetailedBlock) {
+        summaryToggleBtn.addEventListener('click', () => {
+            const hidden = summaryDetailedBlock.classList.contains('hidden');
+            if (hidden) {
+                summaryDetailedBlock.classList.remove('hidden');
+                summaryToggleBtn.textContent = 'להסתיר הסבר מקצועי';
+            } else {
+                summaryDetailedBlock.classList.add('hidden');
+                summaryToggleBtn.textContent = 'להרחבה מקצועית';
             }
         });
-
-        // סגירה ב-ESC
-        document.addEventListener("keydown", function (e) {
-            if (e.key === "Escape" && !overlayEl.classList.contains("hidden")) {
-                hideOverlay();
-            }
-        });
     }
 
-    function showOverlay() {
-        if (!overlayEl) createOverlay();
-        previousBodyOverflow = BODY.style.overflow;
-        BODY.style.overflow = "hidden"; // ביטול גלילה מתחת
-        overlayEl.classList.remove("hidden");
-    }
+    // בניית מבנה מודלים -> טווח שנים
+    const MODEL_MAP = {}; // { make: [ {name, years:[min,max]} ] }
 
-    function hideOverlay() {
-        if (!overlayEl) return;
-        overlayEl.classList.add("hidden");
-        BODY.style.overflow = previousBodyOverflow || "";
-    }
-
-    function setOverlayMeta(meta) {
-        if (!meta) return;
-        if (overlayTitleEl) {
-            const titleText = `${(meta.make || "").toString()} ${(meta.model || "").toString()} ${(meta.year || "").toString()}`.trim();
-            overlayTitleEl.textContent = titleText || "פרטי חיפוש";
-        }
-        if (overlaySubtitleEl) {
-            const ts = meta.timestamp || "";
-            const km = meta.mileage_range || "";
-            const fuel = meta.fuel_type || "";
-            const gear = meta.transmission || "";
-            overlaySubtitleEl.textContent =
-                `תאריך: ${ts} · ק״מ: ${km} · דלק: ${fuel} · גיר: ${gear}`;
-        }
-    }
-
-    // רינדור הנתונים המלאים מה־JSON של ה-AI
-    function renderData(meta, data) {
-        if (!overlayContentEl) return;
-        overlayContentEl.innerHTML = "";
-
-        if (!data || typeof data !== "object") {
-            overlayContentEl.innerHTML =
-                `<div class="text-red-600 text-xs">לא התקבלו נתונים מהחיפוש.</div>`;
-            return;
-        }
-
-        const sections = [];
-
-        // תג מקור (cache/AI חדש)
-        if (data.source_tag) {
-            sections.push(`
-                <div class="text-[11px] px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-700">
-                    ${escapeHtml(data.source_tag)}
-                </div>
-            `);
-        }
-
-        // אזהרת ק"מ / הערת ק"מ
-        if (data.mileage_note) {
-            sections.push(`
-                <div class="text-[11px] px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800">
-                    ${escapeHtml(data.mileage_note)}
-                </div>
-            `);
-        }
-
-        // ציון בסיסי
-        if (data.base_score_calculated !== undefined) {
-            sections.push(`
-                <div class="border border-slate-100 rounded-2xl p-3 bg-slate-50 flex items-center justify-between">
-                    <div class="text-[11px] text-slate-600">
-                        ציון אמינות כללי (0–100)
-                    </div>
-                    <div class="font-semibold text-sm text-slate-900">
-                        ${escapeHtml(data.base_score_calculated)}
-                    </div>
-                </div>
-            `);
-        }
-
-        // פירוט ציון – score_breakdown
-        if (data.score_breakdown && typeof data.score_breakdown === "object") {
-            const sb = data.score_breakdown;
-            const rows = [];
-            Object.entries(sb).forEach(([k, v]) => {
-                const label = breakdownLabel(k);
-                rows.push(`
-                    <div class="flex items-center justify-between text-[11px]">
-                        <span class="text-slate-600">${escapeHtml(label)}</span>
-                        <span class="font-medium text-slate-900">${escapeHtml(v)}</span>
-                    </div>
-                `);
+    function buildModelMap() {
+        Object.entries(CAR_DATA || {}).forEach(([make, models]) => {
+            if (!Array.isArray(models)) return;
+            MODEL_MAP[make] = models.map(str => {
+                let name = String(str || '').trim();
+                let years = null;
+                const m = name.match(/\((\d{4})\s*-\s*(\d{2,4})\)/);
+                if (m) {
+                    const start = parseInt(m[1], 10);
+                    let end = parseInt(m[2], 10);
+                    if (end < 100) end = 2000 + end;
+                    years = [start, end];
+                    name = name.replace(m[0], '').trim();
+                }
+                return { name, years };
             });
+        });
+    }
 
-            if (rows.length) {
-                sections.push(`
-                    <div class="border border-slate-100 rounded-2xl p-3">
-                        <div class="text-[11px] font-semibold text-slate-800 mb-2">
-                            פירוט תתי-ציונים
-                        </div>
-                        <div class="space-y-1">
-                            ${rows.join("")}
-                        </div>
-                    </div>
-                `);
+    function populateModelsForMake(make) {
+        modelSelect.innerHTML = '';
+        yearSelect.innerHTML = '';
+        yearSelect.disabled = true;
+
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = '-- בחר דגם --';
+        modelSelect.appendChild(placeholder);
+
+        const items = MODEL_MAP[make] || [];
+        items.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m.name;
+            opt.textContent = m.name;
+            modelSelect.appendChild(opt);
+        });
+
+        modelSelect.disabled = items.length === 0;
+        if (!items.length) {
+            modelSelect.innerHTML = '';
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = '-- Select Make First --';
+            modelSelect.appendChild(opt);
+            modelSelect.disabled = true;
+        }
+    }
+
+    function populateYearsForModel(make, modelName) {
+        yearSelect.innerHTML = '';
+        const items = MODEL_MAP[make] || [];
+        const found = items.find(m => m.name === modelName);
+        const nowYear = new Date().getFullYear();
+        let from = nowYear - 20;
+        let to = nowYear + 1;
+
+        if (found && Array.isArray(found.years)) {
+            from = found.years[0];
+            to = found.years[1];
+        }
+
+        for (let y = to; y >= from; y--) {
+            const opt = document.createElement('option');
+            opt.value = String(y);
+            opt.textContent = String(y);
+            yearSelect.appendChild(opt);
+        }
+        yearSelect.disabled = false;
+    }
+
+    function setSubmitting(isSubmitting) {
+        if (!submitBtn) return;
+        const spinner = submitBtn.querySelector('.spinner');
+        const textSpan = submitBtn.querySelector('.button-text');
+
+        submitBtn.disabled = isSubmitting;
+        if (spinner) spinner.classList.toggle('hidden', !isSubmitting);
+        if (textSpan) textSpan.classList.toggle('opacity-60', isSubmitting);
+    }
+
+    function renderResults(data) {
+        if (!resultsContainer) return;
+
+        resultsContainer.classList.remove('hidden');
+
+        // ציון
+        if (scoreContainer) {
+            scoreContainer.innerHTML = '';
+            const baseRaw = data.base_score_calculated;
+            let baseNum = null;
+            if (baseRaw !== undefined && baseRaw !== null) {
+                const m = String(baseRaw).match(/-?\d+(\.\d+)?/);
+                if (m) baseNum = parseFloat(m[0]);
             }
+
+            let gradient = 'linear-gradient(135deg, #f97373, #b91c1c)'; // נמוך
+            if (baseNum !== null) {
+                if (baseNum >= 80) gradient = 'linear-gradient(135deg, #22c55e, #15803d)';
+                else if (baseNum >= 60) gradient = 'linear-gradient(135deg, #fbbf24, #d97706)';
+            }
+
+            const sourceTag = data.source_tag || '';
+            const mileageNote = data.mileage_note || '';
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'flex flex-col md:flex-row items-center md:items-center md:justify-center gap-6 mb-4';
+
+            const circle = document.createElement('div');
+            circle.className = 'score-circle';
+            circle.style.backgroundImage = gradient;
+
+            const scoreText = document.createElement('div');
+            scoreText.className = 'text-4xl md:text-5xl font-black leading-none';
+            scoreText.textContent = baseNum !== null ? String(Math.round(baseNum)) : '?';
+
+            const label = document.createElement('div');
+            label.className = 'mt-1 text-xs font-semibold tracking-wide uppercase text-white/80';
+            label.textContent = 'ציון אמינות';
+
+            circle.appendChild(scoreText);
+            circle.appendChild(label);
+
+            const side = document.createElement('div');
+            side.className = 'text-xs md:text-sm text-slate-300 space-y-2 max-w-md';
+
+            if (sourceTag) {
+                const p = document.createElement('p');
+                p.textContent = sourceTag;
+                p.className = 'text-[11px] text-slate-500';
+                side.appendChild(p);
+            }
+
+            if (mileageNote) {
+                const p = document.createElement('p');
+                p.textContent = mileageNote;
+                p.className = 'text-xs bg-amber-950/40 text-amber-300 border border-amber-700/60 rounded-lg px-3 py-2';
+                side.appendChild(p);
+            }
+
+            wrapper.appendChild(circle);
+            wrapper.appendChild(side);
+            scoreContainer.appendChild(wrapper);
+        }
+
+        // סיכומים
+        if (summarySimpleEl) {
+            summarySimpleEl.textContent = (data.reliability_summary_simple || '').trim() || 'אין סיכום פשוט זמין.';
+        }
+        if (summaryDetailedEl) {
+            summaryDetailedEl.textContent = (data.reliability_summary || '').trim() || 'אין סיכום מקצועי זמין.';
+        }
+        if (summaryDetailedBlock && !summaryDetailedBlock.classList.contains('hidden')) {
+            // להשאיר פתוח אם המשתמש כבר פתח
         }
 
         // תקלות נפוצות
-        if (Array.isArray(data.common_issues) && data.common_issues.length) {
-            const items = data.common_issues
-                .filter(Boolean)
-                .map((issue) => `<li class="ml-4 list-disc">${escapeHtml(issue)}</li>`)
-                .join("");
-
-            sections.push(`
-                <div class="border border-slate-100 rounded-2xl p-3">
-                    <div class="text-[11px] font-semibold text-slate-800 mb-1.5">
-                        תקלות נפוצות
-                    </div>
-                    <ul class="text-[11px] text-slate-700 space-y-0.5">
-                        ${items}
-                    </ul>
-                </div>
-            `);
+        if (faultsContainer) {
+            const arr = Array.isArray(data.common_issues) ? data.common_issues : [];
+            const checks = Array.isArray(data.recommended_checks) ? data.recommended_checks : [];
+            let html = '';
+            if (arr.length) {
+                html += '<h4 class="text-base font-semibold text-white mb-2">תקלות נפוצות על פי הנתונים</h4>';
+                html += '<ul class="list-disc list-inside space-y-1 text-sm text-slate-200">';
+                html += arr.map(x => `<li>${x}</li>`).join('');
+                html += '</ul>';
+            } else {
+                html += '<p class="text-sm text-slate-400">לא דווחו תקלות נפוצות ספציפיות לדגם הזה בקילומטראז׳ הנתון.</p>';
+            }
+            if (checks.length) {
+                html += '<h4 class="mt-4 text-sm font-semibold text-white">בדיקות מומלצות לפני קניה</h4>';
+                html += '<ul class="list-disc list-inside space-y-1 text-sm text-slate-200">';
+                html += checks.map(x => `<li>${x}</li>`).join('');
+                html += '</ul>';
+            }
+            faultsContainer.innerHTML = html;
         }
 
-        // תקלות עם עלויות
-        if (Array.isArray(data.issues_with_costs) && data.issues_with_costs.length) {
-            const rows = data.issues_with_costs.map((row) => {
-                const issue = row.issue || "";
-                const cost = row.avg_cost_ILS || "";
-                const src = row.source || "";
-                const sev = row.severity || "";
-                return `
-                    <tr class="border-t border-slate-100">
-                        <td class="px-2 py-1 align-top">${escapeHtml(issue)}</td>
-                        <td class="px-2 py-1 align-top text-center">${escapeHtml(cost)}</td>
-                        <td class="px-2 py-1 align-top text-center">${escapeHtml(sev)}</td>
-                        <td class="px-2 py-1 align-top text-[10px] text-slate-500">${escapeHtml(src)}</td>
-                    </tr>
-                `;
-            }).join("");
-
-            sections.push(`
-                <div class="border border-slate-100 rounded-2xl p-3">
-                    <div class="text-[11px] font-semibold text-slate-800 mb-1.5">
-                        תקלות עם עלות משוערת
-                    </div>
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full border-collapse text-[11px]">
-                            <thead>
-                                <tr class="bg-slate-50 text-slate-600">
-                                    <th class="px-2 py-1 text-right font-medium">תקלה</th>
-                                    <th class="px-2 py-1 text-center font-medium">עלות ממוצעת (₪)</th>
-                                    <th class="px-2 py-1 text-center font-medium">חומרה</th>
-                                    <th class="px-2 py-1 text-right font-medium">מקור</th>
-                                </tr>
-                            </thead>
-                            <tbody class="text-slate-700">
-                                ${rows}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            `);
-        }
-
-        // עלות תיקון ממוצעת
-        if (data.avg_repair_cost_ILS !== undefined) {
-            sections.push(`
-                <div class="border border-slate-100 rounded-2xl p-3 flex items-center justify-between">
-                    <div class="text-[11px] text-slate-600">
-                        עלות תיקון ממוצעת לרכב (הערכה)
-                    </div>
-                    <div class="font-semibold text-sm text-slate-900">
-                        ${escapeHtml(data.avg_repair_cost_ILS)} ₪
-                    </div>
-                </div>
-            `);
-        }
-
-        // סיכום מקצועי
-        if (data.reliability_summary) {
-            sections.push(`
-                <div class="border border-slate-100 rounded-2xl p-3">
-                    <div class="text-[11px] font-semibold text-slate-800 mb-1.5">
-                        סיכום מקצועי
-                    </div>
-                    <p class="text-[11px] text-slate-700 leading-relaxed whitespace-pre-line">
-                        ${escapeHtml(data.reliability_summary)}
-                    </p>
-                </div>
-            `);
-        }
-
-        // סיכום פשוט לנהג צעיר
-        if (data.reliability_summary_simple) {
-            sections.push(`
-                <div class="border border-emerald-100 rounded-2xl p-3 bg-emerald-50/60">
-                    <div class="text-[11px] font-semibold text-emerald-900 mb-1.5">
-                        הסבר פשוט לנהג צעיר
-                    </div>
-                    <p class="text-[11px] text-emerald-900 leading-relaxed whitespace-pre-line">
-                        ${escapeHtml(data.reliability_summary_simple)}
-                    </p>
-                </div>
-            `);
-        }
-
-        // מקורות
-        if (Array.isArray(data.sources) && data.sources.length) {
-            const items = data.sources
-                .filter(Boolean)
-                .map((src) => `<li class="ml-4 list-disc">${escapeHtml(src)}</li>`)
-                .join("");
-            sections.push(`
-                <div class="border border-slate-100 rounded-2xl p-3">
-                    <div class="text-[11px] font-semibold text-slate-800 mb-1.5">
-                        מקורות עיקריים
-                    </div>
-                    <ul class="text-[11px] text-slate-700 space-y-0.5">
-                        ${items}
-                    </ul>
-                </div>
-            `);
-        }
-
-        // בדיקות מומלצות
-        if (Array.isArray(data.recommended_checks) && data.recommended_checks.length) {
-            const items = data.recommended_checks
-                .filter(Boolean)
-                .map((c) => `<li class="ml-4 list-disc">${escapeHtml(c)}</li>`)
-                .join("");
-            sections.push(`
-                <div class="border border-slate-100 rounded-2xl p-3">
-                    <div class="text-[11px] font-semibold text-slate-800 mb-1.5">
-                        בדיקות מומלצות לפני קנייה
-                    </div>
-                    <ul class="text-[11px] text-slate-700 space-y-0.5">
-                        ${items}
-                    </ul>
-                </div>
-            `);
+        // עלויות
+        if (costsContainer) {
+            const avg = data.avg_repair_cost_ILS;
+            const list = Array.isArray(data.issues_with_costs) ? data.issues_with_costs : [];
+            let html = '';
+            if (avg !== undefined && avg !== null && avg !== '') {
+                html += `<p class="text-sm text-slate-300 mb-3">עלות תיקון ממוצעת משוערת: <span class="font-semibold">${avg} ₪</span></p>`;
+            }
+            if (list.length) {
+                html += '<div class="space-y-2">';
+                html += list.map(row => {
+                    const issue = row.issue || '';
+                    const cost = row.avg_cost_ILS || '';
+                    const severity = row.severity || '';
+                    const src = row.source || '';
+                    return `
+                        <div class="flex flex-wrap items-center justify-between gap-2 text-sm bg-slate-900/40 border border-slate-700/70 rounded-xl px-3 py-2">
+                            <div class="flex-1">
+                                <div class="font-semibold text-slate-100">${issue}</div>
+                                <div class="text-[11px] text-slate-400">${src}</div>
+                            </div>
+                            <div class="flex flex-col items-end text-xs text-slate-200">
+                                <span class="font-bold">${cost} ₪</span>
+                                <span class="mt-0.5 px-2 py-0.5 rounded-full border border-slate-600 text-[11px]">${severity}</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                html += '</div>';
+            } else {
+                html += '<p class="text-sm text-slate-400">אין פירוט עלויות ספציפי, אך ניתן להניח עלויות תחזוקה ממוצעות בקטגוריה.</p>';
+            }
+            costsContainer.innerHTML = html;
         }
 
         // מתחרים
-        if (Array.isArray(data.common_competitors_brief) && data.common_competitors_brief.length) {
-            const rows = data.common_competitors_brief.map((c) => {
-                const model = c.model || "";
-                const brief = c.brief_summary || "";
-                return `
-                    <div class="border border-slate-100 rounded-xl px-3 py-2 text-[11px]">
-                        <div class="font-semibold text-slate-900 mb-0.5">${escapeHtml(model)}</div>
-                        <div class="text-slate-700">${escapeHtml(brief)}</div>
-                    </div>
-                `;
-            }).join("");
-
-            sections.push(`
-                <div class="border border-slate-100 rounded-2xl p-3">
-                    <div class="text-[11px] font-semibold text-slate-800 mb-1.5">
-                        מתחרים עיקריים בקצרה
-                    </div>
-                    <div class="grid grid-cols-1 gap-1.5">
-                        ${rows}
-                    </div>
-                </div>
-            `);
+        if (competitorsContainer) {
+            const arr = Array.isArray(data.common_competitors_brief) ? data.common_competitors_brief : [];
+            let html = '';
+            if (arr.length) {
+                html += '<p class="text-sm text-slate-300 mb-3">דגמים נוספים שכדאי לבדוק מבחינת אמינות ואופי שימוש דומה:</p>';
+                html += '<ul class="space-y-2 text-sm text-slate-200">';
+                html += arr.map(c => `
+                    <li class="bg-slate-900/40 border border-slate-700/70 rounded-xl px-3 py-2">
+                        <span class="font-semibold">${c.model || ''}</span>
+                        <span class="text-slate-300"> – ${c.brief_summary || ''}</span>
+                    </li>
+                `).join('');
+                html += '</ul>';
+            } else {
+                html += '<p class="text-sm text-slate-400">לא הוגדרו מתחרים ספציפיים לדגם זה.</p>';
+            }
+            competitorsContainer.innerHTML = html;
         }
 
-        if (!sections.length) {
-            overlayContentEl.innerHTML =
-                `<div class="text-[11px] text-slate-600">לא נמצאו פרטים להצגה.</div>`;
-        } else {
-            overlayContentEl.innerHTML = sections.join("\n");
-        }
+        resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
-    function breakdownLabel(key) {
-        const map = {
-            "engine_transmission_score": "מנוע וגיר",
-            "electrical_score": "מערכות חשמל ואלקטרוניקה",
-            "suspension_brakes_score": "מתלים ובלמים",
-            "maintenance_cost_score": "עלות אחזקה",
-            "satisfaction_score": "שביעות רצון בעלי רכב",
-            "recalls_score": "ריקולים ותקלות יצרן"
+    function validateLegal() {
+        if (!legalCheckbox || !legalError) return true;
+        if (!legalCheckbox.checked) {
+            legalError.classList.remove('hidden');
+            legalError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return false;
+        }
+        legalError.classList.add('hidden');
+        return true;
+    }
+
+    function collectFormData() {
+        const payload = {
+            make: makeSelect ? makeSelect.value.trim() : '',
+            model: modelSelect ? modelSelect.value.trim() : '',
+            year: yearSelect ? yearSelect.value.trim() : '',
+            mileage_range: (document.getElementById('mileage_range') || {}).value || '',
+            fuel_type: (document.getElementById('fuel_type') || {}).value || '',
+            transmission: (document.getElementById('transmission') || {}).value || '',
+            sub_model: (document.getElementById('sub_model') || {}).value || '',
         };
-        return map[key] || key;
+        return payload;
     }
 
-    function escapeHtml(value) {
-        if (value === null || value === undefined) return "";
-        return String(value)
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#39;");
+    async function handleSubmit(e) {
+        e.preventDefault();
+        if (!validateLegal()) return;
+
+        const payload = collectFormData();
+        if (!payload.make || !payload.model || !payload.year) {
+            alert('נא למלא יצרן, דגם ושנתון.');
+            return;
+        }
+
+        setSubmitting(true);
+        try {
+            const res = await fetch('/analyze', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: csrfHeaders({
+                    'Content-Type': 'application/json'
+                }),
+                body: JSON.stringify(payload)
+            });
+
+            // נסה לקרוא JSON, ואם לא מצליח – טקסט
+            let data = null;
+            const ct = res.headers.get('content-type') || '';
+            if (ct.includes('application/json')) {
+                data = await res.json();
+            } else {
+                const txt = await res.text();
+                data = { error: txt || 'שגיאה לא צפויה מהשרת' };
+            }
+
+            if (!res.ok || data.error) {
+                alert(data.error || 'שגיאה בשרת');
+                return;
+            }
+            renderResults(data);
+        } catch (err) {
+            console.error(err);
+            alert('שגיאה כללית בשליחת הבקשה');
+        } finally {
+            setSubmitting(false);
+        }
     }
 
-    function fetchDetails(searchId) {
-        if (!searchId) return;
-        createOverlay();
-        overlayContentEl.innerHTML =
-            `<div class="text-[11px] text-slate-600">טוען נתוני חיפוש...</div>`;
-        showOverlay();
+    // אתחול
+    document.addEventListener('DOMContentLoaded', () => {
+        buildModelMap();
 
-        fetch(`/search-details/${encodeURIComponent(searchId)}`, {
-            method: "GET",
-            credentials: "same-origin"
-        })
-            .then(async (res) => {
-                let data = null;
-                try {
-                    data = await res.json();
-                } catch (e) {
-                    throw new Error("שגיאה בקריאת ה-JSON מהשרת");
-                }
-
-                if (!res.ok || !data || data.error) {
-                    const msg = (data && data.error) || "שגיאת שרת כללית.";
-                    overlayContentEl.innerHTML =
-                        `<div class="text-red-600 text-[11px]">${escapeHtml(msg)}</div>`;
-                    return;
-                }
-
-                const meta = data.meta || {};
-                const details = data.data || {};
-                setOverlayMeta(meta);
-                renderData(meta, details);
-            })
-            .catch((err) => {
-                console.error(err);
-                if (overlayContentEl) {
-                    overlayContentEl.innerHTML =
-                        `<div class="text-red-600 text-[11px]">שגיאה ברמת רשת/דפדפן. נסה לרענן את הדף.</div>`;
+        if (makeSelect) {
+            makeSelect.addEventListener('change', () => {
+                const val = makeSelect.value;
+                if (val) {
+                    populateModelsForMake(val);
+                } else {
+                    modelSelect.value = '';
+                    modelSelect.disabled = true;
+                    yearSelect.value = '';
+                    yearSelect.disabled = true;
                 }
             });
-    }
+        }
 
-    function bindHistoryCards() {
-        const cards = document.querySelectorAll(".js-history-card[data-search-id]");
-        if (!cards || !cards.length) return;
-
-        cards.forEach((card) => {
-            card.addEventListener("click", function () {
-                const id = this.getAttribute("data-search-id");
-                if (!id) return;
-                fetchDetails(id);
+        if (modelSelect) {
+            modelSelect.addEventListener('change', () => {
+                const make = makeSelect ? makeSelect.value : '';
+                const model = modelSelect.value;
+                if (make && model) {
+                    populateYearsForModel(make, model);
+                } else {
+                    yearSelect.value = '';
+                    yearSelect.disabled = true;
+                }
             });
-        });
-    }
+        }
 
-    document.addEventListener("DOMContentLoaded", function () {
-        bindHistoryCards();
+        if (form) {
+            form.addEventListener('submit', handleSubmit);
+        }
     });
 })();
