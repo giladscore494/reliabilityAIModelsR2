@@ -167,6 +167,10 @@ def parse_owner_emails(raw: str) -> list:
     ]
 
 
+class ModelOutputInvalidError(ValueError):
+    """Raised when AI model returns an invalid JSON structure."""
+
+
 def log_access_decision(route_name: str, user_id: Optional[int], decision: str, reason: str = ""):
     """
     Safe logging helper for access control decisions.
@@ -1429,7 +1433,7 @@ def create_app():
         parsed = car_advisor_call_gemini_with_search(user_profile)
         if parsed.get("_error"):
             log_access_decision('/advisor_api', user_id, 'error', f'AI error: {parsed.get("_error")}')
-            return jsonify({"error": parsed["_error"], "request_id": get_request_id()}), 502
+            return jsonify({"error": "שגיאת AI במנוע ההמלצות. נסה שוב מאוחר יותר.", "code": "advisor_ai_error", "request_id": get_request_id()}), 502
 
         result = car_advisor_postprocess(user_profile, parsed)
 
@@ -1549,7 +1553,7 @@ def create_app():
 
                 if not allowed:
                     log_access_decision('/analyze', user_id, 'rejected', f'quota exceeded: {quota_used}/{USER_DAILY_LIMIT}')
-                    retry_after = retry_after_override if retry_after_override is not None else retry_after_seconds
+                    retry_after = retry_after_seconds
                     response = jsonify({
                         "error": "שגיאת מגבלה: ניצלת את כל החיפושים להיום. נסה שוב מחר.",
                         "limit": USER_DAILY_LIMIT,
@@ -1565,11 +1569,13 @@ def create_app():
             except Exception as e:
                 log_rejection("server_error", f"Quota check failed: {type(e).__name__}")
                 traceback.print_exc()
-                log_access_decision('/analyze', user_id, 'error', f'server error in quota check: {str(e)}')
+                log_access_decision('/analyze', user_id, 'error', f'server error in quota check: {type(e).__name__}')
                 if quota_incremented:
                     quota_used_after = rollback_quota_increment(current_user.id, day_key)
                 log_quota_event(False, quota_used_after)
-                return jsonify({"error": f"שגיאת שרת (שלב 1): {str(e)}", "request_id": get_request_id()}), 500
+                return jsonify({"error": "שגיאת שרת (שלב 1): נסה שוב מאוחר יותר.", "code": "quota_check_failed", "request_id": get_request_id()}), 500
+        else:
+            quota_used_after = quota_used
 
         # 3) AI call
         try:
@@ -1579,18 +1585,23 @@ def create_app():
             )
             model_output = call_model_with_retry(prompt)
             if not isinstance(model_output, dict):
-                raise ValueError("model_output_invalid")
+                raise ModelOutputInvalidError("model_output_invalid_format")
+        except ModelOutputInvalidError:
+            if quota_incremented:
+                quota_used_after = rollback_quota_increment(current_user.id, day_key)
+                quota_incremented = False
+            log_quota_event(False, quota_used_after, retry_after_seconds)
+            log_rejection("server_error", "AI model returned invalid JSON structure")
+            traceback.print_exc()
+            return jsonify({"error": "פלט AI לא תקין. נסה שוב בעוד מספר רגעים.", "code": "ai_output_invalid", "request_id": get_request_id()}), 502
         except Exception as e:
             if quota_incremented:
                 quota_used_after = rollback_quota_increment(current_user.id, day_key)
                 quota_incremented = False
             log_rejection("server_error", f"AI model call failed: {type(e).__name__}")
             traceback.print_exc()
-            if isinstance(e, ValueError):
-                log_quota_event(False, quota_used_after, retry_after_seconds)
-                return jsonify({"error": "פלט AI לא תקין. נסה שוב בעוד מספר רגעים.", "request_id": get_request_id()}), 502
             log_quota_event(False, quota_used_after, retry_after_seconds)
-            return jsonify({"error": f"שגיאת AI (שלב 4): {type(e).__name__}", "request_id": get_request_id()}), 500
+            return jsonify({"error": "שגיאת AI (שלב 4): נסה שוב מאוחר יותר.", "code": "ai_call_failed", "request_id": get_request_id()}), 500
 
         try:
             # 5) Mileage logic
@@ -1614,7 +1625,7 @@ def create_app():
                 print(f"[DB] ⚠️ save failed: {e}")
                 db.session.rollback()
 
-            model_output['source_tag'] = f"מקור: ניתוח AI חדש (חיפוש {quota_used}/{USER_DAILY_LIMIT})"
+            model_output['source_tag'] = f"מקור: ניתוח AI חדש (חיפוש {quota_used_after}/{USER_DAILY_LIMIT})"
             model_output['mileage_note'] = note
             model_output['km_warn'] = False
             
@@ -1627,7 +1638,7 @@ def create_app():
             log_rejection("server_error", f"Post-processing failed: {type(e).__name__}")
             traceback.print_exc()
             log_quota_event(False, quota_used_after)
-            return jsonify({"error": "שגיאת שרת (שלב 5)", "request_id": get_request_id()}), 500
+            return jsonify({"error": "שגיאת שרת (שלב 5): נסה שוב מאוחר יותר.", "code": "analyze_postprocess_failed", "request_id": get_request_id()}), 500
 
         log_quota_event(False, quota_used_after)
         return jsonify(model_output)
