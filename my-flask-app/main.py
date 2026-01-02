@@ -579,6 +579,11 @@ def create_app():
             "DATABASE_URL is missing on Render. "
             "Set DATABASE_URL (Internal Postgres URL) in Render Environment Variables."
         )
+    if is_render and not secret_key:
+        raise RuntimeError(
+            "SECRET_KEY is missing on Render. "
+            "Set SECRET_KEY in Render Environment Variables."
+        )
 
     # Config
     app.config["SQLALCHEMY_DATABASE_URI"] = db_url if db_url else "sqlite:///:memory:"
@@ -586,7 +591,7 @@ def create_app():
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
     # ===== SECURITY:  Session Cookie Configuration (Tier 1) =====
-    app.config["SESSION_COOKIE_SECURE"] = True
+    app.config["SESSION_COOKIE_SECURE"] = bool(is_render)
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
@@ -625,6 +630,13 @@ def create_app():
             log_rejection("unauthenticated", "User not logged in, no valid session")
             return jsonify({"error": "אנא התחבר כדי להשתמש בשירות זה"}), 401
         return redirect(url_for('login'))
+
+    @app.before_request
+    def log_request_metadata():
+        xfp = request.headers.get("X-Forwarded-Proto", "")
+        xff = request.headers.get("X-Forwarded-For", "")
+        auth_state = "auth" if current_user.is_authenticated else "anon"
+        print(f"[REQ] {request.method} {request.path} host={request.host} scheme={request.scheme} xfp={xfp} xff={xff} user={auth_state}")
 
     # ==========================
     # ✅ Run create_all ONLY ONCE
@@ -698,7 +710,7 @@ def create_app():
     @app.route('/login')
     def login():
         redirect_uri = get_redirect_uri()
-        return oauth.google.authorize_redirect(redirect_uri, state=None)
+        return oauth.google.authorize_redirect(redirect_uri)  # state removed (default state handling)
 
     @app.route('/auth')
     def auth():
