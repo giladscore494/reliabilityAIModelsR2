@@ -8,20 +8,21 @@ Option A (Blueprint):
 
 Option B (Manual Web Service):
 - New > Web Service > Connect repo
+- Set **Root Directory** to `my-flask-app` (repo root contains docs/tests; the app code lives here)
 - Build Command: `pip install -r requirements.txt`
 - Start Command: `gunicorn "main:create_app()" --bind 0.0.0.0:$PORT --timeout 120`
 
 ## 2) Environment variables (Render > Service > Environment)
-You need these (same names your app already uses):
-- `SECRET_KEY`
-- `DATABASE_URL`  (if you use Render Postgres, link it and set this)
+These must be present (app will hard-fail on Render without `SECRET_KEY`/`DATABASE_URL`):
+- `SECRET_KEY` (required, no default in production)
+- `DATABASE_URL` (required on Render; use the Internal Postgres URL)
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `GEMINI_API_KEY`
-- `APP_TZ` (timezone for quota window; defaults to `UTC`. In production set `Asia/Jerusalem`.)
-- `OWNER_EMAILS` (comma-separated list of owner accounts; whitespace is ignored)
-- `OWNER_BYPASS_QUOTA` (set to `1` to let owners skip daily quota; default is enabled)
-- `ADVISOR_OWNER_ONLY` (set to `1` to restrict recommendations/advisor API to owners; default is enabled)
+- `APP_TZ=Asia/Jerusalem` (explicitly set production timezone)
+- `OWNER_EMAILS` (comma-separated, lowercase)
+- `OWNER_BYPASS_QUOTA` (`0` or `1`, controls owner quota bypass)
+- `ADVISOR_OWNER_ONLY` (`0` or `1`, restricts advisor/recommendations to owners)
 
 ## 3) Google OAuth redirect URI (IMPORTANT)
 In Google Cloud Console > APIs & Services > Credentials > OAuth 2.0 Client ID:
@@ -30,8 +31,8 @@ Add **the exact** redirect URI(s) that your app will use:
 - Custom domain (already in code):
   - `https://yedaarechev.com/auth`
 
-- Render default domain (replace with your real Render URL):
-  - `https://YOUR-SERVICE-NAME.onrender.com/auth`
+- Render default domain:
+  - `https://my-flask-app.onrender.com/auth`
 
 Notes:
 - Do **not** use placeholders like `<YOUR-RENDER-SERVICE>` or angle brackets — Google will reject it.

@@ -22,6 +22,8 @@ from flask_login import (
 )
 from authlib.integrations.flask_client import OAuth
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.exceptions import RequestEntityTooLarge
+from html import escape
 from json_repair import repair_json
 import google.generativeai as genai
 import pandas as pd
@@ -65,6 +67,7 @@ AI_CALL_TIMEOUT_SEC = 30  # timeout for each AI call attempt
 GLOBAL_DAILY_LIMIT = 1000
 USER_DAILY_LIMIT = 5
 MAX_CACHE_DAYS = 45
+PER_IP_PER_MIN_LIMIT = 20
 
 # ==================================
 # === 2. מודלים של DB (גלובלי) ===
@@ -125,6 +128,23 @@ class AdvisorHistory(db.Model):
     profile_json = db.Column(db.Text, nullable=False)
     result_json = db.Column(db.Text, nullable=False)
 
+
+class IpRateLimit(db.Model):
+    """
+    Per-IP short-window rate limiting (minute buckets).
+    """
+    __tablename__ = "ip_rate_limit"
+
+    id = db.Column(db.Integer, primary_key=True)
+    ip = db.Column(db.String(64), nullable=False, index=True)
+    window_start = db.Column(db.DateTime, nullable=False, index=True)
+    count = db.Column(db.Integer, nullable=False, default=0)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint("ip", "window_start", name="uq_ip_window"),
+        db.Index("ix_ip_window", "ip", "window_start"),
+    )
 
 # ==================================
 # === 3. פונקציות עזר (גלובלי) ===
@@ -490,10 +510,17 @@ def car_advisor_call_gemini_with_search(profile: dict) -> dict:
         return {"_error": "Gemini Car Advisor client unavailable."}
 
     sanitized_profile = sanitize_profile_for_prompt(profile)
+    bounded_profile = wrap_user_input_in_boundary(
+        json.dumps(sanitized_profile, ensure_ascii=False, indent=2),
+        boundary_tag="user_input"
+    )
+    data_instruction = create_data_only_instruction()
 
     prompt = f"""
-Please recommend cars for an Israeli customer. Here is the user profile (JSON):
-{json.dumps(sanitized_profile, ensure_ascii=False, indent=2)}
+{data_instruction}
+
+Please recommend cars for an Israeli customer. Here is the user profile (JSON wrapped in <user_input>):
+{bounded_profile}
 
 You are an independent automotive data analyst for the **Israeli used car market**.
 
@@ -679,6 +706,13 @@ def get_daily_quota_usage(user_id: int, day_key: date) -> int:
     return quota.count if quota else 0
 
 
+def get_client_ip() -> str:
+    """Resolve client IP from X-Forwarded-For or remote_addr."""
+    xff = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+    ip = xff or (request.remote_addr or "")
+    return ip[:64] if ip else "unknown"
+
+
 # ======================================================
 # === Phase 1E: Atomic Quota Enforcement ===
 # ======================================================
@@ -768,6 +802,74 @@ def check_and_increment_daily_quota(user_id: int, limit: int, day_key: date, now
         print(f"[QUOTA] ❌ Error checking quota for user {user_id}: {type(e).__name__}")
         db.session.rollback()
         return False, 0
+
+
+def check_and_increment_ip_rate_limit(ip: str, limit: int = 20, now_utc: Optional[datetime] = None) -> Tuple[bool, int, datetime]:
+    """
+    Atomically enforce per-IP minute window limit.
+    """
+    now = now_utc or datetime.utcnow()
+    window_start = now.replace(second=0, microsecond=0)
+    resets_at = window_start + timedelta(minutes=1)
+
+    try:
+        with db.session.begin_nested():
+            try:
+                record = (
+                    db.session.query(IpRateLimit)
+                    .filter_by(ip=ip, window_start=window_start)
+                    .with_for_update()
+                    .first()
+                )
+            except SQLAlchemyError:
+                record = (
+                    db.session.query(IpRateLimit)
+                    .filter_by(ip=ip, window_start=window_start)
+                    .first()
+                )
+
+            if record is None:
+                record = IpRateLimit(ip=ip, window_start=window_start, count=0, updated_at=now)
+                db.session.add(record)
+                db.session.flush()
+
+            if record.count >= limit:
+                db.session.rollback()
+                return False, record.count, resets_at
+
+            record.count += 1
+            record.updated_at = now
+
+        db.session.commit()
+        return True, record.count, resets_at
+    except IntegrityError:
+        db.session.rollback()
+        try:
+            with db.session.begin_nested():
+                record = (
+                    db.session.query(IpRateLimit)
+                    .filter_by(ip=ip, window_start=window_start)
+                    .with_for_update()
+                    .first()
+                )
+
+                if record is None:
+                    record = IpRateLimit(ip=ip, window_start=window_start, count=0, updated_at=now)
+                    db.session.add(record)
+                    db.session.flush()
+
+                if record.count >= limit:
+                    db.session.rollback()
+                    return False, record.count, resets_at
+
+                record.count += 1
+                record.updated_at = now
+
+            db.session.commit()
+            return True, record.count, resets_at
+        except Exception:
+            db.session.rollback()
+            return False, 0, resets_at
 
 
 def rollback_quota_increment(user_id: int, day_key: date) -> int:
@@ -935,8 +1037,7 @@ def create_app():
     
     # ===== SECURITY: MAX_CONTENT_LENGTH (Phase 1D: DoS prevention) =====
     # Limit request payload size to prevent memory exhaustion attacks
-    # 128KB should be more than enough for legitimate JSON payloads
-    app.config["MAX_CONTENT_LENGTH"] = 128 * 1024  # 128 KB
+    app.config["MAX_CONTENT_LENGTH"] = 64 * 1024  # 64 KB hard cap
 
     # ===== SECURITY:  Session Cookie Configuration (Tier 1) =====
     app.config["SESSION_COOKIE_SECURE"] = bool(is_render)
@@ -1064,12 +1165,22 @@ def create_app():
         xfp = request.headers.get("X-Forwarded-Proto", "")
         xff = request.headers.get("X-Forwarded-For", "")
         auth_state = current_user.is_authenticated
+        path = request.path or ""
         
-        # Phase 2K: Use logger instead of print
-        logger.info(
-            f"[REQ] request_id={request_id} {request.method} {request.path} "
-            f"host={request.host} scheme={request.scheme} xfp={xfp} xff={xff} auth={auth_state}"
-        )
+        if not (path.startswith("/static/") or path == "/favicon.ico"):
+            # Phase 2K: Use logger instead of print
+            logger.info(
+                f"[REQ] request_id={request_id} {request.method} {path} "
+                f"host={request.host} scheme={request.scheme} xfp={xfp} xff={xff} auth={auth_state}"
+            )
+
+    @app.errorhandler(RequestEntityTooLarge)
+    def handle_request_too_large(e):
+        from flask import g
+        request_id = getattr(g, 'request_id', 'unknown')
+        resp = jsonify({"error": "payload_too_large", "field": "payload", "request_id": request_id})
+        resp.status_code = 413
+        return resp
 
     @app.after_request
     def apply_security_headers(response):
@@ -1080,6 +1191,8 @@ def create_app():
             "Permissions-Policy",
             "geolocation=(), microphone=(), camera=(), payment=()"
         )
+        response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        response.headers.setdefault("Cross-Origin-Resource-Policy", "same-site")
         response.headers.setdefault(
             "Content-Security-Policy-Report-Only",
             # Report-only to avoid breaking current inline/CDN assets; tighten after verification.
@@ -1099,9 +1212,10 @@ def create_app():
             lock_path = "/tmp/.db_inited.lock"
             inspector = inspect(db.engine)
             quota_usage_exists = inspector.has_table('daily_quota_usage')
+            ip_rate_limit_exists = inspector.has_table('ip_rate_limit')
             if os.environ.get("SKIP_CREATE_ALL", "").lower() in ("1", "true", "yes"):
                 print("[DB] ⏭️ SKIP_CREATE_ALL enabled - skipping db.create_all()")
-            elif os.path.exists(lock_path) and quota_usage_exists:
+            elif os.path.exists(lock_path) and quota_usage_exists and ip_rate_limit_exists:
                 print("[DB] ⏭️ create_all skipped (lock exists)")
             else:
                 db.create_all()
@@ -1272,7 +1386,12 @@ def create_app():
                 "fuel_type": s.fuel_type,
                 "transmission": s.transmission,
             }
-            return jsonify({"meta": meta, "data": json.loads(s.result_json)})
+            meta_safe = {
+                k: escape(v) if isinstance(v, str) else v
+                for k, v in meta.items()
+            }
+            data_safe = sanitize_analyze_response(json.loads(s.result_json))
+            return jsonify({"meta": meta_safe, "data": data_safe})
         except Exception as e:
             logger.error(f"[DETAILS] Error fetching search details: {e}")
             return jsonify({"error": "שגיאת שרת בשליפת נתוני חיפוש", "request_id": get_request_id()}), 500
@@ -1311,12 +1430,28 @@ def create_app():
         # Log access decision
         user_id = current_user.id if current_user.is_authenticated else None
         log_access_decision('/advisor_api', user_id, 'allowed', 'authenticated user')
+
+        client_ip = get_client_ip()
+        ip_allowed, ip_count, ip_resets_at = check_and_increment_ip_rate_limit(client_ip, limit=PER_IP_PER_MIN_LIMIT)
+        if not ip_allowed:
+            retry_after = max(0, int((ip_resets_at - datetime.utcnow()).total_seconds()))
+            resp = jsonify({
+                "error": "rate_limited",
+                "limit": PER_IP_PER_MIN_LIMIT,
+                "used": ip_count,
+                "remaining": max(0, PER_IP_PER_MIN_LIMIT - ip_count),
+                "resets_at": ip_resets_at.isoformat(),
+                "request_id": get_request_id(),
+            })
+            resp.status_code = 429
+            resp.headers["Retry-After"] = str(retry_after)
+            return resp
         
         try:
             payload = request.get_json(force=True) or {}
         except Exception:
             log_access_decision('/advisor_api', user_id, 'rejected', 'validation error: invalid JSON')
-            return jsonify({"error": "קלט JSON לא תקין", "request_id": get_request_id()}), 400
+            return jsonify({"error": "קלט JSON לא תקין", "field": "payload", "request_id": get_request_id()}), 400
 
         # Validate request before processing
         try:
@@ -1324,7 +1459,7 @@ def create_app():
             payload = validated
         except ValidationError as e:
             log_access_decision('/advisor_api', user_id, 'rejected', f'validation error: {e.field}')
-            return jsonify({'error': f'{e.field}: {e.message}', 'request_id': get_request_id()}), 400
+            return jsonify({'error': e.message, 'field': e.field, 'request_id': get_request_id()}), 400
 
         try:
             # ---- שלב 1: בסיסי ----
@@ -1387,7 +1522,7 @@ def create_app():
 
         except Exception as e:
             log_access_decision('/advisor_api', user_id, 'rejected', f'validation error: {str(e)}')
-            return jsonify({"error": f"שגיאת קלט: {e}", "request_id": get_request_id()}), 400
+            return jsonify({"error": f"שגיאת קלט: {e}", "field": "payload", "request_id": get_request_id()}), 400
 
         # --- מיפוי דלק/גיר/טורבו מהעברית לערכים לוגיים ---
         fuels = [fuel_map.get(f, "gasoline") for f in fuels_he] if fuels_he else ["gasoline"]
@@ -1430,19 +1565,21 @@ def create_app():
         user_profile["electricity_price_nis_per_kwh"] = electricity_price
         user_profile["seats"] = seats_choice
 
+        profile_for_storage = sanitize_profile_for_prompt(user_profile)
         parsed = car_advisor_call_gemini_with_search(user_profile)
         if parsed.get("_error"):
             log_access_decision('/advisor_api', user_id, 'error', f'AI error: {parsed.get("_error")}')
             return jsonify({"error": "שגיאת AI במנוע ההמלצות. נסה שוב מאוחר יותר.", "code": "advisor_ai_error", "request_id": get_request_id()}), 502
 
         result = car_advisor_postprocess(user_profile, parsed)
+        sanitized_result = sanitize_advisor_response(result)
 
         # 🔴 שמירת היסטוריית המלצות למאגר
         try:
             rec_log = AdvisorHistory(
                 user_id=current_user.id,
-                profile_json=json.dumps(user_profile, ensure_ascii=False),
-                result_json=json.dumps(result, ensure_ascii=False),
+                profile_json=json.dumps(profile_for_storage, ensure_ascii=False),
+                result_json=json.dumps(sanitized_result, ensure_ascii=False),
             )
             db.session.add(rec_log)
             db.session.commit()
@@ -1450,10 +1587,7 @@ def create_app():
             print(f"[DB] ⚠️ failed to save advisor history: {e}")
             db.session.rollback()
 
-        # Sanitize output before returning
-        result = sanitize_advisor_response(result)
-        
-        return jsonify(result)
+        return jsonify(sanitized_result)
 
     @app.route('/analyze', methods=['POST'])
     @login_required
@@ -1461,6 +1595,23 @@ def create_app():
         # Log access decision
         user_id = current_user.id if current_user.is_authenticated else None
         log_access_decision('/analyze', user_id, 'allowed', 'authenticated user')
+
+        client_ip = get_client_ip()
+        ip_allowed, ip_count, ip_resets_at = check_and_increment_ip_rate_limit(client_ip, limit=PER_IP_PER_MIN_LIMIT)
+        if not ip_allowed:
+            retry_after = max(0, int((ip_resets_at - datetime.utcnow()).total_seconds()))
+            resp = jsonify({
+                "error": "rate_limited",
+                "limit": PER_IP_PER_MIN_LIMIT,
+                "used": ip_count,
+                "remaining": max(0, PER_IP_PER_MIN_LIMIT - ip_count),
+                "resets_at": ip_resets_at.isoformat(),
+                "request_id": get_request_id(),
+            })
+            resp.status_code = 429
+            resp.headers["Retry-After"] = str(retry_after)
+            return resp
+
         day_key, _, _, resets_at, _, retry_after_seconds = compute_quota_window(app_tz)
         cache_hit = False
         usage_snapshot = get_daily_quota_usage(current_user.id, day_key)
@@ -1468,18 +1619,20 @@ def create_app():
         quota_incremented = False
         quota_logged = False
 
-        def log_quota_event(cache_hit_flag: bool, used_after_val: Optional[int] = None, retry_after_val: Optional[int] = None):
+        def log_quota_event(cache_hit_flag: bool, used_after_val: Optional[int] = None, retry_after_val: Optional[int] = None, allowed_flag: Optional[bool] = None):
             nonlocal quota_logged
             if quota_logged:
                 return
             used_after_local = quota_used_after if used_after_val is None else used_after_val
             limit_val = USER_DAILY_LIMIT
             remaining = max(0, limit_val - used_after_local)
+            allowed_local = allowed_flag if allowed_flag is not None else used_after_local < limit_val
             logger.info(
-                f"[QUOTA] request_id={get_request_id()} uid={user_id} email={getattr(current_user, 'email', '')} "
-                f"cache_hit={cache_hit_flag} used_before={usage_snapshot} used_after={used_after_local} "
-                f"limit={limit_val} remaining={remaining} resets_at={resets_at.isoformat()} "
-                f"retry_after={(retry_after_val if retry_after_val is not None else retry_after_seconds)}"
+                f"[QUOTA] method=POST path=/analyze uid={user_id} cache_hit={cache_hit_flag} "
+                f"allowed={allowed_local} used_after={used_after_local} limit={limit_val} "
+                f"remaining={remaining} resets_at={resets_at.isoformat()} "
+                f"retry_after={(retry_after_val if retry_after_val is not None else retry_after_seconds)} "
+                f"request_id={get_request_id()}"
             )
             quota_logged = True
         
@@ -1487,8 +1640,8 @@ def create_app():
         try:
             data = request.json
             if not data:
-                log_quota_event(cache_hit, usage_snapshot)
-                return jsonify({'error': 'Invalid JSON', 'request_id': get_request_id()}), 400
+                log_quota_event(cache_hit, usage_snapshot, allowed_flag=False)
+                return jsonify({'error': 'Invalid JSON', 'field': 'payload', 'request_id': get_request_id()}), 400
             
             # Validate request against schema
             validated = validate_analyze_request(data)
@@ -1503,16 +1656,16 @@ def create_app():
             final_trans = str(validated.get('transmission'))
             if not (final_make and final_model and final_year):
                 log_access_decision('/analyze', user_id, 'rejected', 'validation error: missing required fields')
-                log_quota_event(cache_hit, usage_snapshot)
-                return jsonify({"error": "שגיאת קלט (שלב 0): נא למלא יצרן, דגם ושנה", "request_id": get_request_id()}), 400
+                log_quota_event(cache_hit, usage_snapshot, allowed_flag=False)
+                return jsonify({"error": "שגיאת קלט (שלב 0): נא למלא יצרן, דגם ושנה", "field": "payload", "request_id": get_request_id()}), 400
         except ValidationError as e:
             log_access_decision('/analyze', user_id, 'rejected', f'validation error: {e.field}')
-            log_quota_event(cache_hit, usage_snapshot)
-            return jsonify({'error': f'{e.field}: {e.message}', 'request_id': get_request_id()}), 400
+            log_quota_event(cache_hit, usage_snapshot, allowed_flag=False)
+            return jsonify({'error': e.message, 'field': e.field, 'request_id': get_request_id()}), 400
         except Exception as e:
             log_access_decision('/analyze', user_id, 'rejected', f'validation error: {str(e)}')
-            log_quota_event(cache_hit, usage_snapshot)
-            return jsonify({"error": f"שגיאת קלט (שלב 0): {str(e)}", "request_id": get_request_id()}), 400
+            log_quota_event(cache_hit, usage_snapshot, allowed_flag=False)
+            return jsonify({"error": f"שגיאת קלט (שלב 0): {str(e)}", "field": "payload", "request_id": get_request_id()}), 400
 
         # 1) Cache first (no quota impact on hit)
         try:
@@ -1532,7 +1685,7 @@ def create_app():
                 result['source_tag'] = f"מקור: מטמון DB (נשמר ב-{cached.timestamp.strftime('%Y-%m-%d')})"
                 # Sanitize cached output before returning
                 result = sanitize_analyze_response(result)
-                log_quota_event(True, usage_snapshot)
+                log_quota_event(True, usage_snapshot, allowed_flag=True)
                 return jsonify(result)
         except Exception as e:
             print(f"[CACHE] ⚠️ {e}")
@@ -1563,7 +1716,7 @@ def create_app():
                     })
                     response.status_code = 429
                     response.headers["Retry-After"] = str(retry_after)
-                    log_quota_event(False, quota_used_after, retry_after)
+                    log_quota_event(False, quota_used_after, retry_after, allowed_flag=False)
                     return response
 
             except Exception as e:
@@ -1572,7 +1725,7 @@ def create_app():
                 log_access_decision('/analyze', user_id, 'error', f'server error in quota check: {type(e).__name__}')
                 if quota_incremented:
                     quota_used_after = rollback_quota_increment(current_user.id, day_key)
-                log_quota_event(False, quota_used_after)
+                log_quota_event(False, quota_used_after, allowed_flag=False)
                 return jsonify({"error": "שגיאת שרת (שלב 1): נסה שוב מאוחר יותר.", "code": "quota_check_failed", "request_id": get_request_id()}), 500
         else:
             quota_used_after = quota_used
@@ -1590,7 +1743,7 @@ def create_app():
             if quota_incremented:
                 quota_used_after = rollback_quota_increment(current_user.id, day_key)
                 quota_incremented = False
-            log_quota_event(False, quota_used_after, retry_after_seconds)
+            log_quota_event(False, quota_used_after, retry_after_seconds, allowed_flag=False)
             log_rejection("server_error", "AI model returned invalid JSON structure")
             traceback.print_exc()
             return jsonify({"error": "פלט AI לא תקין. נסה שוב בעוד מספר רגעים.", "code": "ai_output_invalid", "request_id": get_request_id()}), 502
@@ -1600,7 +1753,7 @@ def create_app():
                 quota_incremented = False
             log_rejection("server_error", f"AI model call failed: {type(e).__name__}")
             traceback.print_exc()
-            log_quota_event(False, quota_used_after, retry_after_seconds)
+            log_quota_event(False, quota_used_after, retry_after_seconds, allowed_flag=False)
             return jsonify({"error": "שגיאת AI (שלב 4): נסה שוב מאוחר יותר.", "code": "ai_call_failed", "request_id": get_request_id()}), 500
 
         try:
@@ -1609,6 +1762,12 @@ def create_app():
 
             # 6) Save
             try:
+                model_output['source_tag'] = f"מקור: ניתוח AI חדש (חיפוש {quota_used_after}/{USER_DAILY_LIMIT})"
+                model_output['mileage_note'] = note
+                model_output['km_warn'] = False
+
+                sanitized_output = sanitize_analyze_response(model_output)
+
                 new_log = SearchHistory(
                     user_id=current_user.id,
                     make=final_make,
@@ -1617,31 +1776,25 @@ def create_app():
                     mileage_range=final_mileage,
                     fuel_type=final_fuel,
                     transmission=final_trans,
-                    result_json=json.dumps(model_output, ensure_ascii=False)
+                    result_json=json.dumps(sanitized_output, ensure_ascii=False)
                 )
                 db.session.add(new_log)
                 db.session.commit()
             except Exception as e:
                 print(f"[DB] ⚠️ save failed: {e}")
                 db.session.rollback()
-
-            model_output['source_tag'] = f"מקור: ניתוח AI חדש (חיפוש {quota_used_after}/{USER_DAILY_LIMIT})"
-            model_output['mileage_note'] = note
-            model_output['km_warn'] = False
-            
-            # Sanitize output before returning
-            model_output = sanitize_analyze_response(model_output)
+                sanitized_output = sanitize_analyze_response(model_output)
         except Exception as e:
             if quota_incremented:
                 quota_used_after = rollback_quota_increment(current_user.id, day_key)
                 quota_incremented = False
             log_rejection("server_error", f"Post-processing failed: {type(e).__name__}")
             traceback.print_exc()
-            log_quota_event(False, quota_used_after)
+            log_quota_event(False, quota_used_after, allowed_flag=False)
             return jsonify({"error": "שגיאת שרת (שלב 5): נסה שוב מאוחר יותר.", "code": "analyze_postprocess_failed", "request_id": get_request_id()}), 500
 
-        log_quota_event(False, quota_used_after)
-        return jsonify(model_output)
+        log_quota_event(False, quota_used_after, allowed_flag=True)
+        return jsonify(sanitized_output)
 
     @app.cli.command("init-db")
     def init_db_command():

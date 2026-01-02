@@ -19,11 +19,19 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Compile sources (without deps)
-        run: python -m compileall my-flask-app/main.py my-flask-app/app
-
-      - name: Install dependencies and re-run compile
+       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r my-flask-app/requirements.txt
-          python -m compileall my-flask-app/main.py my-flask-app/app
+
+       - name: Compile sources
+         run: python -m compileall my-flask-app/app my-flask-app/main.py
+
+       - name: Run pytest if tests exist
+         run: |
+           if [ -d "my-flask-app/tests" ]; then
+             python -m pip install pytest
+             python -m pytest my-flask-app
+           else
+             echo "No tests directory found; skipping pytest."
+           fi
