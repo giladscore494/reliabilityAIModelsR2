@@ -114,8 +114,8 @@ def load_user(user_id):
     try:
         return User.query.get(int(user_id))
     except Exception as e:
-        # Log the error safely (no secrets)
-        print(f"[AUTH] ⚠️ load_user({user_id}) failed: {e.__class__.__name__}")
+        # Log the error safely (no secrets, no user IDs)
+        print(f"[AUTH] ⚠️ load_user failed: {e.__class__.__name__}")
         # Remove broken connection from pool
         db.session.remove()
         # Treat as unauthenticated instead of crashing
@@ -599,7 +599,7 @@ def create_app():
             "pool_recycle": 240,
             "pool_size": 5,
             "max_overflow": 10,
-            "connect_args": {"connect_timeout": 10}
+            "connect_args": {"connect_timeout": 10, "sslmode": "prefer"}
         }
         print("[BOOT] SQLAlchemy configured with pool_pre_ping=True, pool_recycle=240")
 
