@@ -18,7 +18,8 @@ You need these (same names your app already uses):
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `GEMINI_API_KEY`
-- `OWNER_EMAILS` (comma-separated list of owner accounts)
+- `APP_TZ` (timezone for quota window; defaults to `UTC`. In production set `Asia/Jerusalem`.)
+- `OWNER_EMAILS` (comma-separated list of owner accounts; whitespace is ignored)
 - `OWNER_BYPASS_QUOTA` (set to `1` to let owners skip daily quota; default is enabled)
 - `ADVISOR_OWNER_ONLY` (set to `1` to restrict recommendations/advisor API to owners; default is enabled)
 

@@ -169,6 +169,7 @@
 
         const safe = (v) => escapeHtml(v);
 
+        // Safe innerHTML: values are escaped before interpolation.
         profileSummaryEl.innerHTML = `
             <div class="flex flex-wrap gap-2 mb-2">
                 <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-800 text-[11px] text-slate-100 border border-slate-700">
@@ -296,6 +297,7 @@
             return;
         }
 
+        // Safe innerHTML: card fields are escaped via escapeHtml() before interpolation.
         highlightCardsEl.innerHTML = cards.map((card) => {
             const title = escapeHtml(`${card.car.brand || ''} ${card.car.model || ''}`.trim());
             const year = escapeHtml(card.car.year || '');
@@ -591,6 +593,7 @@
         const queries = Array.isArray(data.search_queries) ? data.search_queries : [];
         if (queriesEl) {
             if (queries.length) {
+                // Safe innerHTML: search queries come sanitized from backend and escaped here.
                 queriesEl.innerHTML = `
                     <div class="text-[11px] text-slate-400">
                         <span class="font-semibold text-slate-300">שאילתות חיפוש שבוצעו:</span>
@@ -626,6 +629,7 @@
 
         const cardsHtml = cars.map((car, idx) => renderCarCard(car, idx)).join('');
 
+        // Safe innerHTML: renderCarCard escapes all dynamic values.
         tableWrapper.innerHTML = `
             <div class="mb-2 text-[11px] text-slate-400">
                 לכל רכב מוצגת כרטיסייה נפרדת עם כל הפרמטרים, כולל השיטות שבהן חושבו הנתונים.

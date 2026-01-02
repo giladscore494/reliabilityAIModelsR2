@@ -12,6 +12,7 @@
     let overlayContentEl = null;
     let closeBtnEl = null;
     let previousBodyOverflow = null;
+    // innerHTML usage in this file always wraps values with escapeHtml() for safety.
 
     // יצירת האוברליי פעם אחת
     function createOverlay() {
@@ -340,6 +341,7 @@
             overlayContentEl.innerHTML =
                 `<div class="text-[11px] text-slate-600">לא נמצאו פרטים להצגה.</div>`;
         } else {
+            // Safe: all dynamic values are escaped with escapeHtml() before joining.
             overlayContentEl.innerHTML = sections.join("\n");
         }
     }

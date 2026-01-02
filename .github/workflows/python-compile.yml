@@ -1,0 +1,29 @@
+name: python-compile
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Compile sources (without deps)
+        run: python -m compileall my-flask-app/main.py my-flask-app/app
+
+      - name: Install dependencies and re-run compile
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r my-flask-app/requirements.txt
+          python -m compileall my-flask-app/main.py my-flask-app/app
