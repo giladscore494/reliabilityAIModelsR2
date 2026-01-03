@@ -252,7 +252,7 @@
         return div.innerHTML;
     }
 
-    function openDetails(searchId) {
+    async function openDetails(searchId) {
         if (!searchId) return;
 
         if (detailsContentEl) {
@@ -263,21 +263,56 @@
         overlayEl.classList.remove('hidden');
         document.body.style.overflow = 'hidden';
 
-        fetch(`/search-details/${searchId}`)
-            .then(r => r.json())
-            .then(payload => {
-                if (payload.error) {
-                    detailsContentEl.innerHTML =
-                        `<div class="text-center py-8 text-sm text-red-400">${escapeHtml(payload.error)}</div>`;
-                    return;
-                }
-                renderDetails(payload.meta, payload.data);
-            })
-            .catch(err => {
-                console.error(err);
-                detailsContentEl.innerHTML =
-                    '<div class="text-center py-8 text-sm text-red-400">שגיאה בטעינת הנתונים.</div>';
+        const showError = (message = 'שגיאה בטעינת הנתונים.') => {
+            if (!detailsContentEl) return;
+            detailsContentEl.innerHTML =
+                `<div class="text-center py-8 text-sm text-red-400">${escapeHtml(message)}</div>`;
+        };
+        const extractErrorMessage = (rawError, fallback = 'שגיאה בטעינת הנתונים.') => {
+            if (typeof rawError === 'string') return rawError;
+            if (rawError && rawError.message) return rawError.message;
+            return fallback;
+        };
+        try {
+            const response = await fetch(`/search-details/${searchId}`, {
+                headers: { 'Accept': 'application/json' },
+                credentials: 'same-origin'
             });
+
+            const contentType = (response.headers.get('content-type') || '').toLowerCase();
+            let payload;
+            if (contentType.includes('application/json')) {
+                payload = await response.json();
+            } else {
+                throw new Error(`Unexpected content-type: ${contentType || 'unknown'}`);
+            }
+
+            const rawError = payload && payload.error;
+            if (!response.ok) {
+                const msg = extractErrorMessage(rawError, response.statusText || 'שגיאה בטעינת הנתונים.');
+                showError(msg);
+                return;
+            }
+
+            if (payload && payload.ok === false) {
+                const msg = extractErrorMessage(rawError);
+                showError(msg);
+                return;
+            }
+
+            // API contract: { ok: true, data: { meta: {...}, data: {...} } }
+            const payloadData = payload && payload.data;
+            const meta = payloadData && payloadData.meta;
+            const details = payloadData && payloadData.data;
+            if (!payloadData || !meta || !details) {
+                showError('נתוני חיפוש חסרים.');
+                return;
+            }
+            renderDetails(meta, details);
+        } catch (err) {
+            console.error(err);
+            showError();
+        }
     }
 
     function closeDetails() {
