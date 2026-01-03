@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from urllib.parse import urlparse
 from sqlalchemy import inspect
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from flask_migrate import Migrate
 
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
@@ -58,6 +59,7 @@ from app.utils.prompt_defense import (
 db = SQLAlchemy()
 login_manager = LoginManager()
 oauth = OAuth()
+migrate = Migrate()
 
 # Gemini 3 client (shared)
 ai_client = None
@@ -947,6 +949,28 @@ def cleanup_expired_reservations(user_id: int, day_key: date, now_utc: Optional[
 
 
 def _get_or_create_quota_row(user_id: int, day_key: date, now_utc: datetime) -> DailyQuotaUsage:
+    bind = db.session.get_bind()
+    dialect_name = bind.dialect.name if bind else ""
+    base_values = {"user_id": user_id, "day": day_key, "count": 0, "updated_at": now_utc}
+
+    try:
+        if dialect_name == "postgresql":
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+            stmt = pg_insert(DailyQuotaUsage).values(**base_values).on_conflict_do_nothing(
+                constraint="uq_user_day_quota_usage"
+            )
+            db.session.execute(stmt)
+        elif dialect_name == "sqlite":
+            from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+            stmt = sqlite_insert(DailyQuotaUsage).values(**base_values).on_conflict_do_nothing(
+                index_elements=["user_id", "day"]
+            )
+            db.session.execute(stmt)
+    except IntegrityError:
+        db.session.rollback()
+    except SQLAlchemyError:
+        pass
+
     try:
         quota = (
             db.session.query(DailyQuotaUsage)
@@ -1185,6 +1209,60 @@ def check_and_increment_ip_rate_limit(ip: str, limit: int = 20, now_utc: Optiona
         # Cleanup old buckets to avoid unbounded growth (best-effort, same transaction).
         db.session.query(IpRateLimit).filter(IpRateLimit.window_start < cleanup_before).delete(synchronize_session=False)
 
+        # Try dialect upsert to avoid duplicate inserts under concurrency
+        bind = db.session.get_bind()
+        dialect_name = bind.dialect.name if bind else ""
+        base_values = {"ip": ip, "window_start": window_start, "count": 1, "updated_at": now}
+        try:
+            if dialect_name == "postgresql":
+                from sqlalchemy.dialects.postgresql import insert as pg_insert
+                stmt = (
+                    pg_insert(IpRateLimit)
+                    .values(**base_values)
+                    .on_conflict_do_update(
+                        index_elements=["ip", "window_start"],
+                        set_={"count": IpRateLimit.__table__.c.count + 1, "updated_at": now},
+                    )
+                    .returning(IpRateLimit.count)
+                )
+                result = db.session.execute(stmt)
+                new_count = result.scalar_one()
+            elif dialect_name == "sqlite":
+                from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+                stmt = (
+                    sqlite_insert(IpRateLimit)
+                    .values(**base_values)
+                    .on_conflict_do_update(
+                        index_elements=["ip", "window_start"],
+                        set_={"count": IpRateLimit.__table__.c.count + 1, "updated_at": now},
+                    )
+                )
+                db.session.execute(stmt)
+                record = (
+                    db.session.query(IpRateLimit)
+                    .filter_by(ip=ip, window_start=window_start)
+                    .first()
+                )
+                new_count = record.count if record else 0
+            else:
+                raise SQLAlchemyError("dialect_upsert_not_supported")
+
+            if new_count > limit:
+                db.session.rollback()
+                record = (
+                    db.session.query(IpRateLimit)
+                    .filter_by(ip=ip, window_start=window_start)
+                    .first()
+                )
+                current_count = record.count if record else limit
+                return False, current_count
+            return True, new_count
+        except IntegrityError:
+            db.session.rollback()
+        except SQLAlchemyError:
+            # Fallback to legacy lock-based approach if dialect upsert unavailable
+            pass
+
         try:
             record = (
                 db.session.query(IpRateLimit)
@@ -1274,6 +1352,13 @@ def create_app():
         datefmt='%Y-%m-%d %H:%M:%S'
     )
     logger = logging.getLogger(__name__)
+    canonical_base = os.environ.get("CANONICAL_BASE_URL", "https://yedaarechev.com").strip().rstrip("/")
+    if not canonical_base:
+        canonical_base = "https://yedaarechev.com"
+    parsed_canonical = urlparse(canonical_base)
+    canonical_host = (parsed_canonical.hostname or canonical_base.replace("https://", "").replace("http://", "")).lower()
+    app.config["CANONICAL_BASE_URL"] = canonical_base
+    app.config["CANONICAL_HOST"] = canonical_host
     app_tz, app_tz_name = resolve_app_timezone()
     app.config["APP_TZ"] = app_tz_name
     logger.info(f"APP_TZ configured as {app_tz_name}")
@@ -1354,8 +1439,8 @@ def create_app():
         host_parts = host.split(":")
         hostname_only = host_parts[0]
         port_part = f":{host_parts[1]}" if len(host_parts) > 1 else ""
-        if hostname_only == "www.yedaarechev.com":
-            target_host = "yedaarechev.com" + port_part
+        if canonical_host and hostname_only == f"www.{canonical_host}":
+            target_host = canonical_host + port_part
             parsed = urlparse(request.url)
             redirect_url = parsed._replace(netloc=target_host).geturl()
             return redirect(redirect_url, code=301)
@@ -1377,8 +1462,9 @@ def create_app():
         """
         host = (request.host or "").lower()
         host_only = host.split(":")[0]
-        if host_only in ("yedaarechev.com", "www.yedaarechev.com"):
-            uri = "https://yedaarechev.com/auth"
+        canonical_redirect = f"{canonical_base}/auth"
+        if host_only in (canonical_host, f"www.{canonical_host}"):
+            uri = canonical_redirect
         else:
             # request.url_root already includes scheme + host (ProxyFix handles X-Forwarded-Proto/Host)
             uri = request.url_root.rstrip("/") + "/auth"
@@ -1398,6 +1484,8 @@ def create_app():
             "localhost",
             "127.0.0.1",
         }
+    if canonical_host:
+        ALLOWED_HOSTS.add(canonical_host.lower())
     print(f"[BOOT] Allowed hosts: {ALLOWED_HOSTS}")
     
     def is_host_allowed(host: str) -> bool:
@@ -1469,6 +1557,7 @@ def create_app():
     db.init_app(app)
     login_manager.init_app(app)
     oauth.init_app(app)
+    migrate.init_app(app, db)
 
     login_manager.login_view = 'login'
     
@@ -1590,6 +1679,10 @@ def create_app():
             "img-src 'self' data: https://*.googleusercontent.com; "
             "connect-src 'self' https://accounts.google.com https://www.googleapis.com https://openidconnect.googleapis.com https://generativelanguage.googleapis.com"
         )
+        # CSP enforcement plan:
+        # 1) Move inline scripts/styles to static files or add nonces.
+        # 2) Serve Tailwind locally (remove CDN dependency).
+        # 3) Flip to enforced Content-Security-Policy header and drop 'unsafe-inline'.
         if is_render or request.is_secure:
             response.headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
 
@@ -1619,7 +1712,9 @@ def create_app():
             quota_usage_exists = inspector.has_table('daily_quota_usage')
             ip_rate_limit_exists = inspector.has_table('ip_rate_limit')
             quota_reservation_exists = inspector.has_table('quota_reservation')
-            if os.environ.get("SKIP_CREATE_ALL", "").lower() in ("1", "true", "yes"):
+            if is_render:
+                print("[DB] ⏭️ Render detected - skipping db.create_all(); run `flask db upgrade` via release/preDeploy")
+            elif os.environ.get("SKIP_CREATE_ALL", "").lower() in ("1", "true", "yes"):
                 print("[DB] ⏭️ SKIP_CREATE_ALL enabled - skipping db.create_all()")
             elif os.path.exists(lock_path) and quota_usage_exists and ip_rate_limit_exists and quota_reservation_exists:
                 print("[DB] ⏭️ create_all skipped (lock exists)")
@@ -1691,7 +1786,8 @@ def create_app():
     @app.route('/auth')
     def auth():
         try:
-            token = oauth.google.authorize_access_token()
+            redirect_uri = get_redirect_uri()
+            token = oauth.google.authorize_access_token(redirect_uri=redirect_uri)
             userinfo = oauth.google.get('userinfo').json()
             user = User.query.filter_by(google_id=userinfo['id']).first()
             if not user:

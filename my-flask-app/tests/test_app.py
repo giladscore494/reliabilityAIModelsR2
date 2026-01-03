@@ -1,7 +1,17 @@
 import pytest
+from datetime import datetime
 
 import main
-from main import DailyQuotaUsage, QuotaReservation, SearchHistory, db, compute_quota_window, resolve_app_timezone
+from main import (
+    DailyQuotaUsage,
+    IpRateLimit,
+    QuotaReservation,
+    SearchHistory,
+    db,
+    compute_quota_window,
+    reserve_daily_quota,
+    resolve_app_timezone,
+)
 
 
 def _valid_payload():
@@ -101,3 +111,41 @@ def test_quota_atomic_limit(app, logged_in_client, monkeypatch):
         assert quota and quota.count == 1
         reserved_active = QuotaReservation.query.filter_by(user_id=user_id, day=day_key, status="reserved").count()
         assert reserved_active == 0
+
+
+def test_ip_rate_limit_single_row(app):
+    with app.app_context():
+        IpRateLimit.query.delete()
+        db.session.commit()
+
+        now = datetime(2024, 1, 1, 12, 0, 0)
+        ok1, count1, _ = main.check_and_increment_ip_rate_limit("1.2.3.4", limit=5, now_utc=now)
+        ok2, count2, _ = main.check_and_increment_ip_rate_limit("1.2.3.4", limit=5, now_utc=now)
+
+        assert ok1 and ok2
+        assert count1 == 1
+        assert count2 == 2
+        rows = IpRateLimit.query.filter_by(ip="1.2.3.4", window_start=now.replace(second=0, microsecond=0)).all()
+        assert len(rows) == 1
+        assert rows[0].count == 2
+
+
+def test_quota_row_created_once(app, logged_in_client):
+    _client, user_id = logged_in_client
+    with app.app_context():
+        tz, _ = resolve_app_timezone()
+        day_key, *_ = compute_quota_window(tz)
+        DailyQuotaUsage.query.delete()
+        QuotaReservation.query.delete()
+        db.session.commit()
+
+        ok1, consumed1, reserved1, res_id1 = reserve_daily_quota(user_id, day_key, limit=3, request_id="req-1", now_utc=datetime.utcnow())
+        ok2, consumed2, reserved2, res_id2 = reserve_daily_quota(user_id, day_key, limit=3, request_id="req-2", now_utc=datetime.utcnow())
+
+        assert ok1 and ok2
+        assert consumed1 == 0
+        assert consumed2 == 0
+        assert reserved2 == 2
+        rows = DailyQuotaUsage.query.filter_by(user_id=user_id, day=day_key).all()
+        assert len(rows) == 1
+        assert rows[0].count == 0

@@ -182,7 +182,8 @@
    - Release/refund on failure (AI error/exception)
    - Cleans expired reservations older than TTL on each attempt
 3. ✓ `/analyze` uses reserve/finalize and never burns quota on AI failure; 429 includes consumed/reserved counts + Retry-After
-4. ✓ Still uses DB row locking (`SELECT ... FOR UPDATE`) for race safety with multiple gunicorn workers
+4. ✓ Row creation is race-safe: unique constraint + ON CONFLICT DO NOTHING then SELECT ... FOR UPDATE (avoids IntegrityError on first row)
+5. ✓ Still uses DB row locking (`SELECT ... FOR UPDATE`) for race safety with multiple gunicorn workers
 
 **Files Changed:**
 - ✓ `main.py`: added DailyQuota model, check_and_increment_daily_quota(), updated /analyze
@@ -241,9 +242,9 @@
    - Checks `request.host` against ALLOWED_HOSTS after canonical redirect
    - Returns JSON error (`ok=false`, `request_id`) for API routes, HTML 400 for pages
    - Logs warning: `[SECURITY] Invalid host header: {host}`
-4. ✓ OAuth redirect URI generation uses validated host:
-   - `get_redirect_uri()` builds callback URL
-   - Uses apex domain in production or current allowed host in dev
+4. ✓ OAuth redirect URI generation uses apex-only callback:
+   - `CANONICAL_BASE_URL` (default: `https://yedaarechev.com`) used for callbacks on custom domain
+   - Login + callback both use the same redirect_uri string; `www` never returned
 
 **Files Changed:**
 - ✓ `main.py`: added ALLOWED_HOSTS, is_host_allowed(), validate_host_header()
@@ -289,6 +290,7 @@
 **Implementation:**
 - Table `ip_rate_limit` stores per-minute buckets (`ip`, `window_start`, `count`) with cleanup of stale buckets
 - Enforced on `/analyze` and `/advisor_api`; returns 429 JSON with Retry-After on exceed
+- DB-level unique constraint on (`ip`, `window_start`) + ON CONFLICT upsert to prevent duplicate buckets
 - Uses row-level locks (with fallback) for race safety across workers
 
 **Files Changed:**
@@ -381,7 +383,7 @@
 - ✓ Referrer-Policy: strict-origin-when-cross-origin
 - ✓ X-Frame-Options: DENY
 - ✓ Permissions-Policy: geolocation=(), microphone=(), camera=(), payment=()
-- ✓ Content-Security-Policy-Report-Only: (includes all used domains)
+- ✓ Content-Security-Policy-Report-Only: (includes all used domains; enforcement plan to move inline scripts, vendor CSS, then enforce)
 - ✓ Strict-Transport-Security: (production only)
 
 **CSP Domains Included:**
@@ -390,6 +392,8 @@
 - fonts.googleapis.com
 - fonts.gstatic.com
 - accounts.google.com
+- www.googleapis.com
+- openidconnect.googleapis.com
 - generativelanguage.googleapis.com
 
 **COOP/COEP:**
@@ -400,7 +404,21 @@
 
 ---
 
-### M) CI Baseline
+### M) Database Migrations
+**Status:** ✅ PASS
+
+**Implementation:**
+- Flask-Migrate/Alembic added (`migrations/` folder) with initial schema covering quota_reservation, ip_rate_limit (unique on ip+window), and daily_quota_usage (unique on user+day).
+- Render predeploy/release runs `flask db upgrade`; create_all is skipped on Render (kept for local dev/tests).
+- Command: `FLASK_APP=main:create_app flask db upgrade`
+
+**Evidence:**
+- `migrations/versions/6c3a4ffe837e_initial_schema.py`
+- `render.yaml`/`my-flask-app/render.yaml`: `preDeployCommand: flask db upgrade`
+
+---
+
+### N) CI Baseline
 **Status:** ✅ PASS
 
 **Implementation:**
