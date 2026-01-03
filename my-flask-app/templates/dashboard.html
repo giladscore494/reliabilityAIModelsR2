@@ -268,6 +268,11 @@
             detailsContentEl.innerHTML =
                 `<div class="text-center py-8 text-sm text-red-400">${escapeHtml(message)}</div>`;
         };
+        const extractErrorMessage = (rawError, fallback = 'שגיאה בטעינת הנתונים.') => {
+            if (typeof rawError === 'string') return rawError;
+            if (rawError && rawError.message) return rawError.message;
+            return fallback;
+        };
         try {
             const response = await fetch(`/search-details/${searchId}`, {
                 headers: { 'Accept': 'application/json' },
@@ -284,17 +289,13 @@
 
             const rawError = payload && payload.error;
             if (!response.ok) {
-                const msg = typeof rawError === 'string'
-                    ? rawError
-                    : (rawError && rawError.message) || response.statusText || 'שגיאה בטעינת הנתונים.';
+                const msg = extractErrorMessage(rawError, response.statusText || 'שגיאה בטעינת הנתונים.');
                 showError(msg);
                 return;
             }
 
             if (payload && payload.ok === false) {
-                const msg = typeof rawError === 'string'
-                    ? rawError
-                    : (rawError && rawError.message) || 'שגיאה בטעינת הנתונים.';
+                const msg = extractErrorMessage(rawError);
                 showError(msg);
                 return;
             }
