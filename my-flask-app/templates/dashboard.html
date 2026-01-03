@@ -252,7 +252,7 @@
         return div.innerHTML;
     }
 
-    function openDetails(searchId) {
+    async function openDetails(searchId) {
         if (!searchId) return;
 
         if (detailsContentEl) {
@@ -263,21 +263,48 @@
         overlayEl.classList.remove('hidden');
         document.body.style.overflow = 'hidden';
 
-        fetch(`/search-details/${searchId}`)
-            .then(r => r.json())
-            .then(payload => {
-                if (payload.error) {
-                    detailsContentEl.innerHTML =
-                        `<div class="text-center py-8 text-sm text-red-400">${escapeHtml(payload.error)}</div>`;
-                    return;
-                }
-                renderDetails(payload.meta, payload.data);
-            })
-            .catch(err => {
-                console.error(err);
+        let contentUpdated = false;
+        try {
+            const response = await fetch(`/search-details/${encodeURIComponent(searchId)}`, {
+                headers: { 'Accept': 'application/json' },
+                credentials: 'same-origin'
+            });
+
+            const contentType = response.headers.get('content-type') || '';
+            let payload;
+            if (contentType.includes('application/json')) {
+                payload = await response.json();
+            } else {
+                const text = await response.text();
+                throw new Error(`Unexpected content-type: ${contentType || 'unknown'}. Body: ${text.slice(0, 200)}`);
+            }
+
+            if (!response.ok || payload.ok === false || payload.error) {
+                const msg = (payload && payload.error && payload.error.message) || 'שגיאה בטעינת הנתונים.';
+                detailsContentEl.innerHTML =
+                    `<div class="text-center py-8 text-sm text-red-400">${escapeHtml(msg)}</div>`;
+                contentUpdated = true;
+                return;
+            }
+
+            const dataBlock = payload.data || payload;
+            const meta = dataBlock.meta || payload.meta || {};
+            const data = dataBlock.data || dataBlock;
+            renderDetails(meta, data);
+            contentUpdated = true;
+        } catch (err) {
+            console.error(err);
+            if (detailsContentEl) {
                 detailsContentEl.innerHTML =
                     '<div class="text-center py-8 text-sm text-red-400">שגיאה בטעינת הנתונים.</div>';
-            });
+                contentUpdated = true;
+            }
+        } finally {
+            if (detailsContentEl && !contentUpdated) {
+                detailsContentEl.innerHTML =
+                    '<div class="text-center py-8 text-sm text-red-400">שגיאה בטעינת הנתונים.</div>';
+            }
+        }
     }
 
     function closeDetails() {
