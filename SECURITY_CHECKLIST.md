@@ -175,24 +175,14 @@
 **Status:** ✅ PASS
 
 **Implementation:**
-1. ✓ New table: `DailyQuota` with columns: id, user_id, date, count
-   - Unique constraint: `unique(user_id, date)`
-   - Prevents duplicate rows for same user+date
-   
-2. ✓ Function: `check_and_increment_daily_quota(user_id, limit)`
-   - Uses `SELECT ... FOR UPDATE` for row-level locking
-   - Atomically checks count and increments if < limit
-   - Handles IntegrityError (race condition) by retrying with lock
-   - Returns (allowed: bool, current_count: int)
-   
-3. ✓ Updated `/analyze` endpoint:
-   - Calls `check_and_increment_daily_quota()` before AI call
-   - Returns 429 with quota info if exceeded
-   - No longer uses racy "count then insert" pattern
-   
-4. ✓ Works with multiple gunicorn workers:
-   - Database-level locking ensures atomicity
-   - No deadlocks under normal use (short transactions)
+1. ✓ Tables: `daily_quota_usage` (consumed count) + `quota_reservation` (reserved/consumed/released with TTL cleanup)
+2. ✓ Reservation workflow:
+   - Reserve before AI call (checks consumed + reserved < limit)
+   - Finalize on success (consume + mark reservation consumed)
+   - Release/refund on failure (AI error/exception)
+   - Cleans expired reservations older than TTL on each attempt
+3. ✓ `/analyze` uses reserve/finalize and never burns quota on AI failure; 429 includes consumed/reserved counts + Retry-After
+4. ✓ Still uses DB row locking (`SELECT ... FOR UPDATE`) for race safety with multiple gunicorn workers
 
 **Files Changed:**
 - ✓ `main.py`: added DailyQuota model, check_and_increment_daily_quota(), updated /analyze
@@ -244,19 +234,16 @@
 **Implementation:**
 1. ✓ ALLOWED_HOSTS set from env var or defaults:
    - yedaarechev.com
-   - www.yedaarechev.com
    - yedaarechev.onrender.com
    - localhost, 127.0.0.1
-   
-2. ✓ Middleware: `validate_host_header()` before each request
-   - Checks `request.host` against ALLOWED_HOSTS
-   - Returns 400 for API routes (JSON error)
-   - Returns 400 for page routes (HTML error)
+2. ✓ Canonical redirect: requests to `www.yedaarechev.com` 301-redirect to `yedaarechev.com` before auth/session logic.
+3. ✓ Middleware: `validate_host_header()` before each request
+   - Checks `request.host` against ALLOWED_HOSTS after canonical redirect
+   - Returns JSON error (`ok=false`, `request_id`) for API routes, HTML 400 for pages
    - Logs warning: `[SECURITY] Invalid host header: {host}`
-   
-3. ✓ OAuth redirect URI generation uses validated host:
+4. ✓ OAuth redirect URI generation uses validated host:
    - `get_redirect_uri()` builds callback URL
-   - Only uses allowed hosts (yedaarechev.com or request.host if allowed)
+   - Uses apex domain in production or current allowed host in dev
 
 **Files Changed:**
 - ✓ `main.py`: added ALLOWED_HOSTS, is_host_allowed(), validate_host_header()
@@ -293,6 +280,19 @@
 **Evidence:**
 - Lines 881-937: check_origin_referer_for_posts() middleware
 - Uses urlparse to extract host from Origin/Referer
+
+---
+
+### I) Per-IP Rate Limiting (Short Window)
+**Status:** ✅ PASS
+
+**Implementation:**
+- Table `ip_rate_limit` stores per-minute buckets (`ip`, `window_start`, `count`) with cleanup of stale buckets
+- Enforced on `/analyze` and `/advisor_api`; returns 429 JSON with Retry-After on exceed
+- Uses row-level locks (with fallback) for race safety across workers
+
+**Files Changed:**
+- ✓ `main.py`: model `IpRateLimit`, helper `check_and_increment_ip_rate_limit()`
 
 ---
 

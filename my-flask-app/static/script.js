@@ -25,6 +25,64 @@
             .replace(/'/g, '&#39;');
     };
 
+    async function safeFetchJson(url, options = {}) {
+        let response;
+        try {
+            response = await fetch(url, options);
+        } catch (err) {
+            return {
+                ok: false,
+                error: { code: 'NETWORK_ERROR', message: 'שגיאת רשת או חיבור.', details: { message: err.message } },
+                request_id: null,
+            };
+        }
+
+        const contentType = response.headers.get('content-type') || '';
+        let parsed = null;
+        let textBody = '';
+        if (contentType.includes('application/json')) {
+            try {
+                parsed = await response.json();
+            } catch (e) {
+                parsed = null;
+            }
+        }
+        if (!parsed) {
+            try {
+                textBody = await response.text();
+            } catch (e) {
+                textBody = '';
+            }
+        }
+
+        const requestId = (parsed && parsed.request_id) || response.headers.get('X-Request-ID');
+        if (!response.ok) {
+            const snippet = parsed ? JSON.stringify(parsed).slice(0, 300) : (textBody || '').slice(0, 300);
+            const errObj = parsed && parsed.error ? parsed.error : null;
+            return {
+                ok: false,
+                error: {
+                    code: (errObj && errObj.code) || 'HTTP_ERROR',
+                    message: (errObj && errObj.message) || response.statusText || 'שגיאה בבקשה',
+                    details: { status: response.status, body_snippet: snippet },
+                },
+                request_id: requestId,
+            };
+        }
+
+        if (parsed) {
+            parsed.request_id = parsed.request_id || requestId;
+            return parsed;
+        }
+
+        return { ok: true, data: textBody, request_id: requestId };
+    }
+
+    function showRequestAwareError(message, requestId) {
+        const suffix = requestId ? ` (ID: ${requestId})` : '';
+        alert(`${message}${suffix}`);
+    }
+
     const makeSelect = document.getElementById('make');
     const modelSelect = document.getElementById('model');
     const yearSelect = document.getElementById('year');
@@ -419,7 +477,7 @@
 
         setSubmitting(true);
         try {
-            const res = await fetch('/analyze', {
+            const res = await safeFetchJson('/analyze', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -427,33 +485,21 @@
                 credentials: 'include',
                 body: JSON.stringify(payload)
             });
-            const data = await res.json();
-            
-            // Handle different status codes
-            if (!res.ok) {
-                if (res.status === 401) {
+
+            if (!res || res.ok === false) {
+                const code = res && res.error && res.error.code;
+                if (code === 'unauthenticated') {
                     alert('נדרשת התחברות. אנא התחבר למערכת.');
                     window.location.href = '/login';
-                } else if (res.status === 403) {
-                    alert('אין לך הרשאה לבצע פעולה זו.');
-                } else if (res.status === 429) {
-                    alert(data.error || 'חרגת ממגבלת החיפושים היומית. נסה שוב מחר.');
-                } else if (res.status === 400) {
-                    alert(data.error || 'שגיאת קלט. אנא בדוק את הנתונים.');
-                } else if (res.status >= 500) {
-                    alert(data.error || 'שגיאת שרת. אנא נסה שוב מאוחר יותר.');
-                } else {
-                    alert(data.error || 'שגיאה לא ידועה');
+                    return;
                 }
+                const message = (res && res.error && res.error.message) || 'שגיאת שרת. אנא נסה שוב מאוחר יותר.';
+                showRequestAwareError(message, res && res.request_id);
                 return;
             }
-            
-            if (data.error) {
-                alert(data.error);
-                return;
-            }
-            
-            renderResults(data);
+
+            const payloadFromApi = res.data || {};
+            renderResults(payloadFromApi);
         } catch (err) {
             console.error(err);
             alert('שגיאה כללית בשליחת הבקשה. אנא נסה שוב מאוחר יותר.');

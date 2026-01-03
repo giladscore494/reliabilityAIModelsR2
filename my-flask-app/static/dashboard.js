@@ -72,6 +72,62 @@
         });
     }
 
+    async function safeFetchJson(url, options = {}) {
+        let response;
+        try {
+            response = await fetch(url, options);
+        } catch (err) {
+            return { ok: false, error: { code: 'NETWORK_ERROR', message: 'שגיאת רשת או חיבור.', details: { message: err.message } }, request_id: null };
+        }
+
+        const contentType = response.headers.get('content-type') || '';
+        let parsed = null;
+        let textBody = '';
+        if (contentType.includes('application/json')) {
+            try {
+                parsed = await response.json();
+            } catch (e) {
+                parsed = null;
+            }
+        }
+        if (!parsed) {
+            try {
+                textBody = await response.text();
+            } catch (e) {
+                textBody = '';
+            }
+        }
+
+        const requestId = (parsed && parsed.request_id) || response.headers.get('X-Request-ID');
+        if (!response.ok) {
+            const snippet = parsed ? JSON.stringify(parsed).slice(0, 300) : (textBody || '').slice(0, 300);
+            const errObj = parsed && parsed.error ? parsed.error : null;
+            return {
+                ok: false,
+                error: {
+                    code: (errObj && errObj.code) || 'HTTP_ERROR',
+                    message: (errObj && errObj.message) || response.statusText || 'שגיאה בבקשה',
+                    details: { status: response.status, body_snippet: snippet }
+                },
+                request_id: requestId
+            };
+        }
+
+        if (parsed) {
+            parsed.request_id = parsed.request_id || requestId;
+            return parsed;
+        }
+
+        return { ok: true, data: textBody, request_id: requestId };
+    }
+
+    function renderOverlayError(message, requestId) {
+        if (!overlayContentEl) return;
+        const suffix = requestId ? ` (ID: ${escapeHtml(requestId)})` : '';
+        overlayContentEl.innerHTML =
+            `<div class="text-red-600 text-[11px]">${escapeHtml(message)}${suffix}</div>`;
+    }
+
     function showOverlay() {
         if (!overlayEl) createOverlay();
         previousBodyOverflow = BODY.style.overflow;
@@ -374,44 +430,34 @@
             .replace(/'/g, "&#39;");
     }
 
-    function fetchDetails(searchId) {
+    async function fetchDetails(searchId) {
         if (!searchId) return;
         createOverlay();
         overlayContentEl.innerHTML =
             `<div class="text-[11px] text-slate-600">טוען נתוני חיפוש...</div>`;
         showOverlay();
 
-        fetch(`/search-details/${encodeURIComponent(searchId)}`, {
-            method: "GET",
-            credentials: "same-origin"
-        })
-            .then(async (res) => {
-                let data = null;
-                try {
-                    data = await res.json();
-                } catch (e) {
-                    throw new Error("שגיאה בקריאת ה-JSON מהשרת");
-                }
-
-                if (!res.ok || !data || data.error) {
-                    const msg = (data && data.error) || "שגיאת שרת כללית.";
-                    overlayContentEl.innerHTML =
-                        `<div class="text-red-600 text-[11px]">${escapeHtml(msg)}</div>`;
-                    return;
-                }
-
-                const meta = data.meta || {};
-                const details = data.data || {};
-                setOverlayMeta(meta);
-                renderData(meta, details);
-            })
-            .catch((err) => {
-                console.error(err);
-                if (overlayContentEl) {
-                    overlayContentEl.innerHTML =
-                        `<div class="text-red-600 text-[11px]">שגיאה ברמת רשת/דפדפן. נסה לרענן את הדף.</div>`;
-                }
+        try {
+            const result = await safeFetchJson(`/search-details/${encodeURIComponent(searchId)}`, {
+                method: "GET",
+                credentials: "same-origin"
             });
+
+            if (!result || result.ok === false) {
+                const msg = (result && result.error && result.error.message) || "שגיאת שרת כללית.";
+                renderOverlayError(msg, result && result.request_id);
+                return;
+            }
+
+            const payload = result.data || result;
+            const meta = payload.meta || {};
+            const details = payload.data || payload;
+            setOverlayMeta(meta);
+            renderData(meta, details);
+        } catch (err) {
+            console.error(err);
+            renderOverlayError("שגיאה ברמת רשת/דפדפן. נסה לרענן את הדף.", null);
+        }
     }
 
     function bindHistoryCards() {

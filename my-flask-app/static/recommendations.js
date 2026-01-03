@@ -27,6 +27,69 @@
             .replace(/'/g, '&#39;');
     }
 
+    async function safeFetchJson(url, options = {}) {
+        let response;
+        try {
+            response = await fetch(url, options);
+        } catch (err) {
+            return {
+                ok: false,
+                error: { code: 'NETWORK_ERROR', message: 'שגיאת רשת או חיבור.', details: { message: err.message } },
+                request_id: null
+            };
+        }
+
+        const contentType = response.headers.get('content-type') || '';
+        let parsed = null;
+        let textBody = '';
+        if (contentType.includes('application/json')) {
+            try {
+                parsed = await response.json();
+            } catch (e) {
+                parsed = null;
+            }
+        }
+        if (!parsed) {
+            try {
+                textBody = await response.text();
+            } catch (e) {
+                textBody = '';
+            }
+        }
+
+        const requestId = (parsed && parsed.request_id) || response.headers.get('X-Request-ID');
+        if (!response.ok) {
+            const snippet = parsed ? JSON.stringify(parsed).slice(0, 300) : (textBody || '').slice(0, 300);
+            const errObj = parsed && parsed.error ? parsed.error : null;
+            return {
+                ok: false,
+                error: {
+                    code: (errObj && errObj.code) || 'HTTP_ERROR',
+                    message: (errObj && errObj.message) || response.statusText || 'שגיאה בבקשה',
+                    details: { status: response.status, body_snippet: snippet }
+                },
+                request_id: requestId
+            };
+        }
+
+        if (parsed) {
+            parsed.request_id = parsed.request_id || requestId;
+            return parsed;
+        }
+
+        return { ok: true, data: textBody, request_id: requestId };
+    }
+
+    function showRequestAwareError(message, requestId) {
+        const suffix = requestId ? ` (ID: ${escapeHtml(requestId)})` : '';
+        if (errorEl) {
+            errorEl.textContent = `${message}${suffix}`;
+            errorEl.classList.remove('hidden');
+        } else {
+            alert(`${message}${suffix}`);
+        }
+    }
+
     // === מיפוי שם פרמטרי ה-method לעברית (כמו ב-Python) ===
     const methodLabelMap = {
         fuel_method: "שיטת חישוב צריכת דלק/חשמל",
@@ -675,76 +738,30 @@
 
         setSubmitting(true);
         try {
-            const res = await fetch('/advisor_api', {
+            const res = await safeFetchJson('/advisor_api', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 credentials: 'include',  // ✅ Send session cookies
                 body: JSON.stringify(payload)
             });
-            const data = await res.json();
-            
-            // Handle different status codes
-            if (res.status === 401) {
-                if (errorEl) {
-                    errorEl.textContent = 'אנא התחבר כדי להשתמש במנוע ההמלצות.';
-                    errorEl.classList.remove('hidden');
-                } else {
-                    alert('אנא התחבר כדי להשתמש במנוע ההמלצות.');
+
+            if (!res || res.ok === false) {
+                const code = res && res.error && res.error.code;
+                if (code === 'unauthenticated') {
+                    showRequestAwareError('אנא התחבר כדי להשתמש במנוע ההמלצות.', res && res.request_id);
+                    setTimeout(() => { window.location.href = '/login'; }, 1200);
+                    return;
                 }
-                setTimeout(() => { window.location.href = '/login'; }, 1500);
-                return;
-            } else if (res.status === 403) {
-                if (errorEl) {
-                    errorEl.textContent = 'שגיאת הרשאה. אנא רענן את הדף ונסה שוב.';
-                    errorEl.classList.remove('hidden');
-                } else {
-                    alert('שגיאת הרשאה. אנא רענן את הדף ונסה שוב.');
-                }
-                return;
-            } else if (res.status === 429) {
-                if (errorEl) {
-                    errorEl.textContent = data.error || 'חרגת ממכסת הבקשות היומית. נסה שוב מחר.';
-                    errorEl.classList.remove('hidden');
-                } else {
-                    alert(data.error || 'חרגת ממכסת הבקשות היומית. נסה שוב מחר.');
-                }
-                return;
-            } else if (res.status === 400) {
-                if (errorEl) {
-                    errorEl.textContent = data.error || 'שגיאת קלט. נא לבדוק את כל השדות.';
-                    errorEl.classList.remove('hidden');
-                } else {
-                    alert(data.error || 'שגיאת קלט. נא לבדוק את כל השדות.');
-                }
-                return;
-            } else if (res.status >= 500) {
-                if (errorEl) {
-                    errorEl.textContent = 'שגיאת שרת. אנא נסה שוב מאוחר יותר.';
-                    errorEl.classList.remove('hidden');
-                } else {
-                    alert('שגיאת שרת. אנא נסה שוב מאוחר יותר.');
-                }
-                return;
-            } else if (!res.ok || data.error) {
-                if (errorEl) {
-                    errorEl.textContent =
-                        data.error || 'שגיאת שרת בעת הפעלת מנוע ההמלצות.';
-                    errorEl.classList.remove('hidden');
-                } else {
-                    alert(data.error || 'שגיאת שרת');
-                }
+                const msg = (res && res.error && res.error.message) || 'שגיאת שרת בעת הפעלת מנוע ההמלצות.';
+                showRequestAwareError(msg, res && res.request_id);
                 return;
             }
-            renderResults(data);
+
+            const payloadFromApi = res.data || {};
+            renderResults(payloadFromApi);
         } catch (err) {
             console.error(err);
-            if (errorEl) {
-                errorEl.textContent =
-                    'שגיאה כללית בחיבור לשרת. נסה שוב מאוחר יותר.';
-                errorEl.classList.remove('hidden');
-            } else {
-                alert('שגיאה כללית בחיבור לשרת');
-            }
+            showRequestAwareError('שגיאה כללית בחיבור לשרת. נסה שוב מאוחר יותר.', null);
         } finally {
             setSubmitting(false);
         }
