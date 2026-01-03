@@ -21,10 +21,18 @@ def ensure_search_history_cache_key(app, db, logger=None):
 
         columns = {col["name"] for col in inspector.get_columns("search_history")}
         if "cache_key" not in columns:
-            db.session.execute(
-                text("ALTER TABLE search_history ADD COLUMN IF NOT EXISTS cache_key VARCHAR(64);")
-            )
-            db.session.commit()
+            try:
+                db.session.execute(
+                    text(
+                        "ALTER TABLE search_history ADD COLUMN IF NOT EXISTS cache_key VARCHAR(64);"
+                    )
+                )
+                db.session.commit()
+            except Exception as col_exc:
+                db.session.rollback()
+                if log:
+                    log.warning("[DB] cache_key add failed: %s", col_exc)
+                return
 
         try:
             db.session.execute(
