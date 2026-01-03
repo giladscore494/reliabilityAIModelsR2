@@ -1028,6 +1028,9 @@ def reserve_daily_quota(user_id: int, day_key: date, limit: int, request_id: str
                 .count()
             )
 
+            if active_reserved >= 1:
+                return False, consumed_count, active_reserved, None
+
             if (consumed_count + active_reserved) >= limit:
                 db.session.rollback()
                 return False, consumed_count, active_reserved, None
@@ -1716,6 +1719,15 @@ def create_app():
             pass
         return response
 
+    @app.teardown_request
+    def teardown_request_handler(exc):
+        if exc is not None:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+        db.session.remove()
+
     # ==========================
     # ✅ Run create_all ONLY ONCE
     # ==========================
@@ -1890,6 +1902,15 @@ def create_app():
 
         searches_data = []
         for s in user_searches:
+            try:
+                parsed_result = json.loads(s.result_json)
+            except Exception:
+                logger.warning(
+                    "[DASH] Malformed result_json search_id=%s request_id=%s",
+                    s.id,
+                    get_request_id(),
+                )
+                parsed_result = {}
             searches_data.append({
                 "id": s.id,
                 "timestamp": s.timestamp.strftime('%d/%m/%Y %H:%M'),
@@ -1899,7 +1920,7 @@ def create_app():
                 "mileage_range": s.mileage_range or '',
                 "fuel_type": s.fuel_type or '',
                 "transmission": s.transmission or '',
-                "data": json.loads(s.result_json)
+                "data": parsed_result
             })
 
         advisor_count = len(advisor_entries)
@@ -2282,6 +2303,10 @@ def create_app():
                 result = sanitize_analyze_response(result)
                 return api_ok(result)
         except Exception:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
             logger.exception("[CACHE] cache lookup failed request_id=%s", get_request_id())
 
         # 2) Quota enforcement (only on cache miss)
@@ -2302,6 +2327,30 @@ def create_app():
                     status=500,
                 )
             if not allowed:
+                logger.warning(
+                    "[QUOTA] reject request_id=%s user=%s consumed=%s reserved_active=%s limit=%s day=%s",
+                    get_request_id(),
+                    user_id,
+                    consumed_count,
+                    reserved_count,
+                    USER_DAILY_LIMIT,
+                    day_key.isoformat(),
+                )
+                if reserved_count > 0 and consumed_count < USER_DAILY_LIMIT:
+                    retry_after = QUOTA_RESERVATION_TTL_SECONDS
+                    resp = api_error(
+                        "analysis_in_progress",
+                        "בקשה קודמת עדיין בתהליך. נסה שוב בעוד רגע.",
+                        status=409,
+                        details={
+                            "limit": USER_DAILY_LIMIT,
+                            "used": consumed_count,
+                            "reserved": reserved_count,
+                            "resets_at": resets_at.isoformat(),
+                        },
+                    )
+                    resp.headers["Retry-After"] = str(retry_after)
+                    return resp
                 log_access_decision('/analyze', user_id, 'rejected', f'quota exceeded: {consumed_count}/{USER_DAILY_LIMIT}')
                 remaining = max(0, USER_DAILY_LIMIT - (consumed_count + reserved_count))
                 resp = api_error(
@@ -2355,6 +2404,7 @@ def create_app():
         ai_output.setdefault("search_queries", [])
         ai_output.setdefault("sources", [])
 
+        history_saved = False
         try:
             ai_output, note = apply_mileage_logic(ai_output, final_mileage)
 
@@ -2382,6 +2432,7 @@ def create_app():
                 )
                 db.session.add(new_log)
                 db.session.commit()
+                history_saved = True
             except Exception as e:
                 print(f"[DB] ⚠️ save failed: {e}")
                 db.session.rollback()
@@ -2394,10 +2445,20 @@ def create_app():
             return api_error("analyze_postprocess_failed", "שגיאת שרת (שלב 5): נסה שוב מאוחר יותר.", status=500)
 
         if not bypass_owner:
-            reservation_finalized, quota_used_after = finalize_quota_reservation(reservation_id, current_user.id, day_key)
-            if not reservation_finalized:
-                release_quota_reservation(reservation_id, current_user.id, day_key)
-                return api_error("quota_finalize_failed", "שגיאת שרת בעת עדכון המכסה.", status=500)
+            if history_saved:
+                reservation_finalized, quota_used_after = finalize_quota_reservation(reservation_id, current_user.id, day_key)
+                if not reservation_finalized:
+                    release_quota_reservation(reservation_id, current_user.id, day_key)
+                    return api_error("quota_finalize_failed", "שגיאת שרת בעת עדכון המכסה.", status=500)
+            else:
+                released = release_quota_reservation(reservation_id, current_user.id, day_key)
+                if not released:
+                    logger.warning(
+                        "[QUOTA] release failed after history save error user_id=%s request_id=%s",
+                        current_user.id,
+                        get_request_id(),
+                    )
+                quota_used_after = get_daily_quota_usage(current_user.id, day_key)
         else:
             quota_used_after = get_daily_quota_usage(current_user.id, day_key)
 

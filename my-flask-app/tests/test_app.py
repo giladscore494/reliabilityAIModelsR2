@@ -143,10 +143,13 @@ def test_quota_row_created_once(app, logged_in_client):
         ok1, consumed1, reserved1, res_id1 = reserve_daily_quota(user_id, day_key, limit=3, request_id="req-1", now_utc=datetime.utcnow())
         ok2, consumed2, reserved2, res_id2 = reserve_daily_quota(user_id, day_key, limit=3, request_id="req-2", now_utc=datetime.utcnow())
 
-        assert ok1 and ok2
+        assert ok1 is True
+        assert ok2 is False
         assert consumed1 == 0
         assert consumed2 == 0
-        assert reserved2 == 2
+        assert reserved1 == 1
+        assert reserved2 == 1
+        assert res_id2 is None
         rows = DailyQuotaUsage.query.filter_by(user_id=user_id, day=day_key).all()
         assert len(rows) == 1
         assert rows[0].count == 0
@@ -178,3 +181,23 @@ def test_login_returns_google_redirect(monkeypatch, client):
     assert parsed.netloc == "accounts.google.com"
     assert parsed.path.startswith("/o/oauth2")
     assert "yedaarechev.com/auth" in (parsed.query or "")
+
+
+def test_dashboard_handles_bad_json(app, logged_in_client):
+    client, user_id = logged_in_client
+    with app.app_context():
+        bad_row = SearchHistory(
+            user_id=user_id,
+            make="test",
+            model="case",
+            year=2020,
+            mileage_range="0-10",
+            fuel_type="gas",
+            transmission="auto",
+            result_json="not-json",
+        )
+        db.session.add(bad_row)
+        db.session.commit()
+
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
