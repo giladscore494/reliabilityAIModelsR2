@@ -66,6 +66,21 @@
 
 ---
 
+### Test 1.3b: Usage Profile + deterministic add-ons
+**Steps:**
+1. In the form, leave defaults for new usage fields (annual_km=15000, city_pct=50, etc.).
+2. Submit Analyze.
+3. Change usage fields to south_hot + outdoor + aggressive, submit again with same car.
+
+**Expected:**
+- Response contains micro_reliability, timeline_plan, sim_model in JSON.
+- Micro card shows adjusted score and risk rows; timeline has 3 phases with costs; simulator sliders appear and update totals without extra fetches.
+- Second request with same inputs returns instantly (cache hit, no extra AI call).
+
+**Status:** ⬜ PASS / ⬜ FAIL
+
+---
+
 ### Test 1.4: Quota Enforcement (Local)
 **Steps:**
 1. Perform 5 analyze requests (USER_DAILY_LIMIT=5)

@@ -15,6 +15,12 @@
 - Changes are minimal and surgical
 - Can generate diffs with: `git diff main..copilot/harden-security-gaps`
 
+### New deterministic add-ons (current task)
+**Status:** ✅ PASS
+- /analyze remains a single-call pipeline with one LLM call max (cache hits 0 calls).
+- Usage profile validation with defaults; deterministic micro_reliability + timeline + sim_model modules.
+- Per-user cache key hashes normalized inputs; cached payload includes new features to avoid recompute.
+
 ### 3. PASS/FAIL Checklist
 **Status:** ✅ PASS (this document)
 
@@ -91,6 +97,7 @@
 - HTML-escape all strings, validate numbers, allowlist keys ✓
 - Response shape preserved for frontend compatibility ✓
 - Location: main.py lines 1452 (analyze), 1338 (advisor_api) ✓
+- Updated allowlist now includes micro_reliability, timeline_plan, sim_model sections (deterministic only).
 
 **Files Changed:**
 - ✓ No changes required (already present)

@@ -342,6 +342,8 @@
         };
     }
 
+    let simUpdateHandler = null;
+
     function renderSimulator(simModel) {
         if (!simContainer) return;
         if (!simModel) {
@@ -350,6 +352,12 @@
         }
         simContainer.classList.remove('hidden');
         const defaults = simModel.defaults || {};
+
+        // Remove previous listeners to avoid duplication
+        [simAnnualInput, simCityInput, simKeepInput].forEach(inp => {
+            if (inp && simUpdateHandler) inp.removeEventListener('input', simUpdateHandler);
+        });
+        if (simDriverSelect && simUpdateHandler) simDriverSelect.removeEventListener('change', simUpdateHandler);
 
         const syncLabels = () => {
             if (simAnnualLabel) simAnnualLabel.textContent = simAnnualInput ? simAnnualInput.value : defaults.annual_km;
@@ -393,11 +401,12 @@
             }
         };
 
+        simUpdateHandler = update;
         [simAnnualInput, simCityInput, simKeepInput].forEach(inp => {
             if (!inp) return;
-            inp.addEventListener('input', update);
+            inp.addEventListener('input', simUpdateHandler);
         });
-        if (simDriverSelect) simDriverSelect.addEventListener('change', update);
+        if (simDriverSelect) simDriverSelect.addEventListener('change', simUpdateHandler);
         update();
     }
 
