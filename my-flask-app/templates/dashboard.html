@@ -264,6 +264,12 @@
         document.body.style.overflow = 'hidden';
 
         let contentUpdated = false;
+        const showError = (message = 'שגיאה בטעינת הנתונים.') => {
+            if (!detailsContentEl) return;
+            detailsContentEl.innerHTML =
+                `<div class="text-center py-8 text-sm text-red-400">${escapeHtml(message)}</div>`;
+            contentUpdated = true;
+        };
         try {
             const response = await fetch(`/search-details/${encodeURIComponent(searchId)}`, {
                 headers: { 'Accept': 'application/json' },
@@ -279,30 +285,23 @@
                 throw new Error(`Unexpected content-type: ${contentType || 'unknown'}. Body: ${text.slice(0, 200)}`);
             }
 
-            if (!response.ok || payload.ok === false || payload.error) {
+            if (!response.ok || (payload && payload.error)) {
                 const msg = (payload && payload.error && payload.error.message) || 'שגיאה בטעינת הנתונים.';
-                detailsContentEl.innerHTML =
-                    `<div class="text-center py-8 text-sm text-red-400">${escapeHtml(msg)}</div>`;
-                contentUpdated = true;
+                showError(msg);
                 return;
             }
 
-            const dataBlock = payload.data || payload;
-            const meta = dataBlock.meta || payload.meta || {};
+            const dataBlock = payload.data || {};
+            const meta = dataBlock.meta || {};
             const data = dataBlock.data || dataBlock;
             renderDetails(meta, data);
             contentUpdated = true;
         } catch (err) {
             console.error(err);
-            if (detailsContentEl) {
-                detailsContentEl.innerHTML =
-                    '<div class="text-center py-8 text-sm text-red-400">שגיאה בטעינת הנתונים.</div>';
-                contentUpdated = true;
-            }
+            showError();
         } finally {
             if (detailsContentEl && !contentUpdated) {
-                detailsContentEl.innerHTML =
-                    '<div class="text-center py-8 text-sm text-red-400">שגיאה בטעינת הנתונים.</div>';
+                showError();
             }
         }
     }
