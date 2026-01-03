@@ -114,6 +114,52 @@ def test_quota_atomic_limit(app, logged_in_client, monkeypatch):
         assert reserved_active == 0
 
 
+def test_quota_finalized_when_history_save_fails(app, logged_in_client, monkeypatch):
+    client, user_id = logged_in_client
+
+    def fake_gemini(_prompt):
+        return (
+            {
+                "ok": True,
+                "base_score_calculated": 60,
+                "search_performed": True,
+                "search_queries": [],
+                "sources": [],
+                "reliability_report": {},
+            },
+            None,
+        )
+
+    monkeypatch.setattr(main, "call_gemini_grounded_once", fake_gemini)
+
+    original_commit = main.db.session.commit
+    failure_state = {"raised": False}
+
+    def commit_with_failure():
+        # Fail only on the first commit that tries to persist SearchHistory
+        if any(isinstance(obj, main.SearchHistory) for obj in main.db.session.new) and not failure_state["raised"]:
+            failure_state["raised"] = True
+            raise RuntimeError("forced commit failure")
+        return original_commit()
+
+    monkeypatch.setattr(main.db.session, "commit", commit_with_failure)
+
+    resp = client.post("/analyze", json=_valid_payload())
+    data = resp.get_json()
+
+    assert resp.status_code == 200
+    assert data["ok"] is True
+
+    with app.app_context():
+        tz, _ = resolve_app_timezone()
+        day_key, *_ = compute_quota_window(tz)
+        quota = DailyQuotaUsage.query.filter_by(user_id=user_id, day=day_key).first()
+        assert quota and quota.count == 1
+        reserved_active = QuotaReservation.query.filter_by(user_id=user_id, day=day_key, status="reserved").count()
+        assert reserved_active == 0
+        assert SearchHistory.query.count() == 0
+
+
 def test_ip_rate_limit_single_row(app):
     with app.app_context():
         IpRateLimit.query.delete()
