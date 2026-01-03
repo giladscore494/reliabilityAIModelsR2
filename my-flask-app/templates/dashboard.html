@@ -282,9 +282,16 @@
                 throw new Error(`Unexpected content-type: ${contentType || 'unknown'}`);
             }
 
-            const isApiError = payload && payload.ok === false;
-            if (!response.ok || isApiError) {
-                const rawError = payload && payload.error;
+            const rawError = payload && payload.error;
+            if (!response.ok) {
+                const msg = typeof rawError === 'string'
+                    ? rawError
+                    : (rawError && rawError.message) || response.statusText || 'שגיאה בטעינת הנתונים.';
+                showError(msg);
+                return;
+            }
+
+            if (payload && payload.ok === false) {
                 const msg = typeof rawError === 'string'
                     ? rawError
                     : (rawError && rawError.message) || 'שגיאה בטעינת הנתונים.';
