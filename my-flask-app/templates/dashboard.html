@@ -269,7 +269,7 @@
                 `<div class="text-center py-8 text-sm text-red-400">${escapeHtml(message)}</div>`;
         };
         try {
-            const response = await fetch(`/search-details/${encodeURIComponent(searchId)}`, {
+            const response = await fetch(`/search-details/${searchId}`, {
                 headers: { 'Accept': 'application/json' },
                 credentials: 'same-origin'
             });
@@ -282,7 +282,8 @@
                 throw new Error(`Unexpected content-type: ${contentType || 'unknown'}`);
             }
 
-            if (!response.ok || (payload && payload.error)) {
+            const isApiError = payload && payload.ok === false;
+            if (!response.ok || isApiError) {
                 const rawError = payload && payload.error;
                 const msg = typeof rawError === 'string'
                     ? rawError
