@@ -78,6 +78,7 @@ USER_DAILY_LIMIT = int(os.environ.get("QUOTA_LIMIT", "5"))
 MAX_CACHE_DAYS = 45
 PER_IP_PER_MIN_LIMIT = 20
 QUOTA_RESERVATION_TTL_SECONDS = int(os.environ.get("QUOTA_RESERVATION_TTL_SECONDS", "600"))
+MAX_ACTIVE_RESERVATIONS = 1
 
 # ==================================
 # === 2. מודלים של DB (גלובלי) ===
@@ -1017,8 +1018,17 @@ def reserve_daily_quota(user_id: int, day_key: date, limit: int, request_id: str
     """
     now = now_utc or datetime.utcnow()
     try:
-        with db.session.begin_nested():
+        try:
             cleanup_expired_reservations(user_id, day_key, now)
+            db.session.commit()
+        except SQLAlchemyError:
+            db.session.rollback()
+            logging.getLogger(__name__).warning(
+                "[QUOTA] cleanup_expired_reservations failed for user=%s day=%s",
+                user_id,
+                day_key,
+            )
+        with db.session.begin_nested():
             quota = _get_or_create_quota_row(user_id, day_key, now)
             consumed_count = quota.count
 
@@ -1028,7 +1038,8 @@ def reserve_daily_quota(user_id: int, day_key: date, limit: int, request_id: str
                 .count()
             )
 
-            if active_reserved >= 1:
+            if active_reserved >= MAX_ACTIVE_RESERVATIONS:
+                db.session.rollback()
                 return False, consumed_count, active_reserved, None
 
             if (consumed_count + active_reserved) >= limit:
@@ -1725,7 +1736,7 @@ def create_app():
             try:
                 db.session.rollback()
             except Exception:
-                pass
+                logger.exception("[DB] teardown rollback failed")
         db.session.remove()
 
     # ==========================
@@ -2193,12 +2204,14 @@ def create_app():
             return resp
 
         day_key, _, _, resets_at, _, retry_after_seconds = compute_quota_window(app_tz)
+        resets_at_iso = resets_at.isoformat()
         cache_hit = False
         bypass_owner = OWNER_BYPASS_QUOTA and is_owner_user()
         reservation_id: Optional[int] = None
         reservation_finalized = False
         consumed_count = get_daily_quota_usage(current_user.id, day_key)
         reserved_count = 0
+        quota_used_after = consumed_count
 
         analyze_allowed_fields = {
             "make",
@@ -2304,9 +2317,10 @@ def create_app():
                 return api_ok(result)
         except Exception:
             try:
-                db.session.rollback()
+                if db.session.get_transaction() or db.session.is_active:
+                    db.session.rollback()
             except Exception:
-                pass
+                logger.exception("[CACHE] rollback failed after cache lookup error")
             logger.exception("[CACHE] cache lookup failed request_id=%s", get_request_id())
 
         # 2) Quota enforcement (only on cache miss)
@@ -2343,12 +2357,12 @@ def create_app():
                         "בקשה קודמת עדיין בתהליך. נסה שוב בעוד רגע.",
                         status=409,
                         details={
-                            "limit": USER_DAILY_LIMIT,
-                            "used": consumed_count,
-                            "reserved": reserved_count,
-                            "resets_at": resets_at.isoformat(),
-                        },
-                    )
+                        "limit": USER_DAILY_LIMIT,
+                        "used": consumed_count,
+                        "reserved": reserved_count,
+                        "resets_at": resets_at_iso,
+                    },
+                )
                     resp.headers["Retry-After"] = str(retry_after)
                     return resp
                 log_access_decision('/analyze', user_id, 'rejected', f'quota exceeded: {consumed_count}/{USER_DAILY_LIMIT}')
@@ -2362,7 +2376,7 @@ def create_app():
                         "used": consumed_count,
                         "reserved": reserved_count,
                         "remaining": remaining,
-                        "resets_at": resets_at.isoformat(),
+                        "resets_at": resets_at_iso,
                     },
                 )
                 resp.headers["Retry-After"] = str(retry_after_seconds)
