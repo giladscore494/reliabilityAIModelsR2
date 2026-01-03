@@ -136,6 +136,7 @@ def test_quota_finalized_when_history_save_fails(app, logged_in_client, monkeypa
     failure_state = {"raised": False}
 
     def commit_with_failure():
+        # Fail only on the first commit that tries to persist SearchHistory
         if any(isinstance(obj, main.SearchHistory) for obj in main.db.session.new) and not failure_state["raised"]:
             failure_state["raised"] = True
             raise RuntimeError("forced commit failure")
