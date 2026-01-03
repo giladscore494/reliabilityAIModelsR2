@@ -38,6 +38,7 @@ from app.utils.validation import ValidationError, validate_analyze_request
 from app.utils.sanitization import (
     sanitize_analyze_response,
     sanitize_advisor_response,
+    derive_missing_info,
     sanitize_reliability_report_response,
 )
 # --- Prompt Injection Defense (Security: Phase 1C) ---
@@ -278,29 +279,6 @@ def apply_mileage_logic(model_output: dict, mileage_range: str) -> Tuple[dict, O
         return model_output, note
     except Exception:
         return model_output, None
-
-
-def infer_missing_info(payload: Mapping[str, Any]) -> list:
-    labels = {
-        "make": "יצרן",
-        "model": "דגם",
-        "sub_model": "תת-דגם/תצורה",
-        "year": "שנת ייצור",
-        "trim": "רמת גימור/מנוע",
-        "engine": "מנוע/נפח",
-        "mileage_km": "קילומטראז׳ מדויק",
-        "mileage_range": "טווח קילומטראז׳",
-        "ownership_history": "היסטוריית בעלויות",
-        "usage_city_pct": "אחוז נסיעה עירונית",
-        "budget": "תקציב רכישה",
-        "budget_min": "תקציב מינימלי",
-        "budget_max": "תקציב מקסימלי",
-    }
-    missing = []
-    for field, label in labels.items():
-        if not payload.get(field):
-            missing.append(label)
-    return missing
 
 
 def build_prompt(make, model, sub_model, year, fuel_type, transmission, mileage_range):
@@ -1711,7 +1689,7 @@ def create_app():
         except ValidationError as e:
             return jsonify({'error': e.message, 'field': e.field, 'request_id': get_request_id()}), 400
 
-        missing_info = infer_missing_info(validated)
+        missing_info = derive_missing_info(validated)
 
         quota_incremented = False
         day_key, _, _, resets_at, _, retry_after_seconds = compute_quota_window(app_tz)

@@ -292,6 +292,11 @@ def _derive_missing_info(payload: Optional[Mapping[str, Any]]) -> list:
     return missing
 
 
+def derive_missing_info(payload: Optional[Mapping[str, Any]]) -> list:
+    """Public helper to infer missing info items from request payloads."""
+    return _derive_missing_info(payload)
+
+
 def _normalize_level(value: Any, default: str = "medium") -> str:
     if isinstance(value, str):
         lowered = value.strip().lower()
@@ -459,8 +464,5 @@ def sanitize_reliability_report_response(
     }
 
     out["missing_info"] = inferred_missing
-
-    if len(out["top_risks"]) < 3:
-        out["top_risks"] = _sanitize_top_risks(out["top_risks"])
 
     return out
