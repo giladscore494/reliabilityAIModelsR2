@@ -11,17 +11,18 @@ from typing import Optional, Tuple, Any, Dict, Mapping
 from datetime import datetime, time, timedelta, date
 from zoneinfo import ZoneInfo
 from urllib.parse import urlparse
-from sqlalchemy import inspect
+from sqlalchemy import inspect, desc
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from flask_migrate import Migrate
 
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
     LoginManager, UserMixin, login_user, logout_user,
     current_user, login_required
 )
 from authlib.integrations.flask_client import OAuth
+from authlib.integrations.base_client.errors import MismatchingStateError
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import RequestEntityTooLarge
 from html import escape
@@ -73,7 +74,7 @@ GEMINI3_MODEL_ID = "gemini-3-flash-preview"
 # =========================
 AI_CALL_TIMEOUT_SEC = 30  # timeout for each AI call attempt
 GLOBAL_DAILY_LIMIT = 1000
-USER_DAILY_LIMIT = 5
+USER_DAILY_LIMIT = int(os.environ.get("QUOTA_LIMIT", "5"))
 MAX_CACHE_DAYS = 45
 PER_IP_PER_MIN_LIMIT = 20
 QUOTA_RESERVATION_TTL_SECONDS = int(os.environ.get("QUOTA_RESERVATION_TTL_SECONDS", "600"))
@@ -135,10 +136,14 @@ class QuotaReservation(db.Model):
 
 
 class SearchHistory(db.Model):
+    __table_args__ = (
+        db.Index("ix_search_history_user_cache_ts", "user_id", "cache_key", desc("timestamp")),
+    )
+
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    timestamp = db.Column(db.DateTime, nullable=False, default=datetime.now)
-    cache_key = db.Column(db.String(128), index=True)
+    timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    cache_key = db.Column(db.String(64), nullable=True)
     make = db.Column(db.String(100))
     model = db.Column(db.String(100))
     year = db.Column(db.Integer)
@@ -156,7 +161,7 @@ class AdvisorHistory(db.Model):
     """
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    timestamp = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     profile_json = db.Column(db.Text, nullable=False)
     result_json = db.Column(db.Text, nullable=False)
 
@@ -199,7 +204,8 @@ def compute_quota_window(tz: ZoneInfo, *, now: Optional[datetime] = None) -> Tup
     """
     Compute timezone-aware quota window boundaries and retry-after seconds.
     """
-    now_tz = now.astimezone(tz) if now else datetime.now(tz)
+    now_utc = now.astimezone(ZoneInfo("UTC")) if now else datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))
+    now_tz = now_utc.astimezone(tz) if tz else now_utc
     day_key = now_tz.date()
     window_start = datetime.combine(day_key, time.min, tzinfo=tz)
     window_end = datetime.combine(day_key, time.max, tzinfo=tz)
@@ -221,6 +227,10 @@ def parse_owner_emails(raw: str) -> list:
 
 class ModelOutputInvalidError(ValueError):
     """Raised when AI model returns an invalid JSON structure."""
+
+
+class QuotaInternalError(RuntimeError):
+    """Raised when the quota subsystem fails internally."""
 
 
 def log_access_decision(route_name: str, user_id: Optional[int], decision: str, reason: str = ""):
@@ -1037,9 +1047,9 @@ def reserve_daily_quota(user_id: int, day_key: date, limit: int, request_id: str
         db.session.commit()
         return True, consumed_count, active_reserved + 1, reservation_id
     except SQLAlchemyError as e:
-        print(f"[QUOTA] ❌ Reservation failed for user {user_id}: {type(e).__name__}")
         db.session.rollback()
-        return False, 0, 0, None
+        logging.getLogger(__name__).exception("[QUOTA] Reservation failed for user %s", user_id)
+        raise QuotaInternalError() from e
 
 
 def finalize_quota_reservation(reservation_id: Optional[int], user_id: int, day_key: date, now_utc: Optional[datetime] = None) -> Tuple[bool, int]:
@@ -1773,6 +1783,10 @@ def create_app():
     def healthz():
         return api_ok({"status": "ok"})
 
+    @app.route('/favicon.ico')
+    def favicon():
+        return send_from_directory(os.path.join(app.root_path, 'static'), 'favicon.ico')
+
     @app.route('/')
     def index():
         return render_template(
@@ -1784,6 +1798,9 @@ def create_app():
 
     @app.route('/login')
     def login():
+        for key in [k for k in session.keys() if k.startswith("google_oauth")]:
+            session.pop(key, None)
+        session.pop("authlib_oidc_nonce", None)
         redirect_uri = get_redirect_uri()
         return oauth.google.authorize_redirect(redirect_uri)  # state removed (default state handling)
 
@@ -1803,13 +1820,23 @@ def create_app():
                 db.session.commit()
             login_user(user)
             return redirect(url_for('index'))
-        except Exception as e:
-            print(f"[AUTH] ❌ {e}")
-            traceback.print_exc()
+        except MismatchingStateError:
+            logger.warning("[AUTH] mismatching_state request_id=%s", get_request_id())
             try:
                 logout_user()
             except Exception:
                 pass
+            for key in [k for k in session.keys() if k.startswith("google_oauth")]:
+                session.pop(key, None)
+            flash("פג תוקף ההתחברות, אנא נסה שוב.", "error")
+            return redirect(url_for('login'))
+        except Exception:
+            logger.exception("[AUTH] login failed request_id=%s", get_request_id())
+            try:
+                logout_user()
+            except Exception:
+                pass
+            flash("שגיאת התחברות, נסה שוב מאוחר יותר.", "error")
             return redirect(url_for('index'))
 
     @app.route('/logout')
@@ -1846,40 +1873,45 @@ def create_app():
     @app.route('/dashboard')
     @login_required
     def dashboard():
+        history_error = None
+        user_searches = []
+        advisor_entries = []
         try:
             user_searches = SearchHistory.query.filter_by(
                 user_id=current_user.id
             ).order_by(SearchHistory.timestamp.desc()).all()
 
-            searches_data = []
-            for s in user_searches:
-                searches_data.append({
-                    "id": s.id,
-                    "timestamp": s.timestamp.strftime('%d/%m/%Y %H:%M'),
-                    "make": s.make,
-                    "model": s.model,
-                    "year": s.year,
-                    "mileage_range": s.mileage_range or '',
-                    "fuel_type": s.fuel_type or '',
-                    "transmission": s.transmission or '',
-                    "data": json.loads(s.result_json)
-                })
-
             advisor_entries = AdvisorHistory.query.filter_by(
                 user_id=current_user.id
             ).order_by(AdvisorHistory.timestamp.desc()).all()
-            advisor_count = len(advisor_entries)
+        except Exception:
+            history_error = "לא הצלחנו לטעון את ההיסטוריה כעת."
+            logger.exception("[DASH] DB query failed request_id=%s", get_request_id())
 
-            return render_template(
-                'dashboard.html',
-                searches=searches_data,
-                advisor_count=advisor_count,
-                user=current_user,
-                is_owner=is_owner_user(),
-            )
-        except Exception as e:
-            print(f"[DASH] ❌ {e}")
-            return redirect(url_for('index'))
+        searches_data = []
+        for s in user_searches:
+            searches_data.append({
+                "id": s.id,
+                "timestamp": s.timestamp.strftime('%d/%m/%Y %H:%M'),
+                "make": s.make,
+                "model": s.model,
+                "year": s.year,
+                "mileage_range": s.mileage_range or '',
+                "fuel_type": s.fuel_type or '',
+                "transmission": s.transmission or '',
+                "data": json.loads(s.result_json)
+            })
+
+        advisor_count = len(advisor_entries)
+
+        return render_template(
+            'dashboard.html',
+            searches=searches_data,
+            advisor_count=advisor_count,
+            user=current_user,
+            is_owner=is_owner_user(),
+            history_error=history_error,
+        )
 
     # ✅ NEW ROUTE: שליפת פרטים לדשבורד (AJAX)
     @app.route('/search-details/<int:search_id>')
@@ -1959,8 +1991,12 @@ def create_app():
             resp.headers["Retry-After"] = str(retry_after)
             return resp
         
+        if not request.is_json:
+            log_access_decision('/advisor_api', user_id, 'rejected', 'validation error: content-type')
+            return api_error("invalid_content_type", "Content-Type חייב להיות application/json", status=415, details={"field": "payload"})
+
         try:
-            payload = request.get_json(force=True) or {}
+            payload = request.get_json(silent=False) or {}
         except Exception:
             log_access_decision('/advisor_api', user_id, 'rejected', 'validation error: invalid JSON')
             return api_error("invalid_json", "קלט JSON לא תקין", status=400, details={"field": "payload"})
@@ -2032,9 +2068,10 @@ def create_app():
             fuel_price = float(payload.get("fuel_price", 7.0))
             electricity_price = float(payload.get("electricity_price", 0.65))
 
-        except Exception as e:
-            log_access_decision('/advisor_api', user_id, 'rejected', f'validation error: {str(e)}')
-            return api_error("validation_error", f"שגיאת קלט: {e}", status=400, details={"field": "payload"})
+        except Exception:
+            logger.exception("[ADVISOR] payload parse failed request_id=%s", get_request_id())
+            log_access_decision('/advisor_api', user_id, 'rejected', 'validation error: invalid payload')
+            return api_error("validation_error", "שגיאת קלט: נא לוודא שכל הנתונים הוזנו כראוי.", status=400, details={"field": "payload"})
 
         # --- מיפוי דלק/גיר/טורבו מהעברית לערכים לוגיים ---
         fuels = [fuel_map.get(f, "gasoline") for f in fuels_he] if fuels_he else ["gasoline"]
@@ -2166,8 +2203,12 @@ def create_app():
             "budget_max",
             "usage_city_pct",
         }
+        if not request.is_json:
+            log_access_decision('/analyze', user_id, 'rejected', 'validation error: content-type')
+            return api_error("invalid_content_type", "Content-Type must be application/json", status=415, details={"field": "payload"})
+
         try:
-            data = request.get_json(force=True) or {}
+            data = request.get_json(silent=False) or {}
             if not data:
                 return api_error("invalid_json", "Invalid JSON payload", status=400, details={"field": "payload"})
 
@@ -2205,13 +2246,13 @@ def create_app():
         except ValidationError as e:
             log_access_decision('/analyze', user_id, 'rejected', f'validation error: {e.field}')
             return api_error("validation_error", e.message, status=400, details={"field": e.field})
-        except Exception as e:
-            log_access_decision('/analyze', user_id, 'rejected', f'validation error: {str(e)}')
-            return api_error("validation_error", f"שגיאת קלט (שלב 0): {str(e)}", status=400, details={"field": "payload"})
+        except Exception:
+            log_access_decision('/analyze', user_id, 'rejected', 'validation error: invalid payload')
+            return api_error("validation_error", "שגיאת קלט (שלב 0): בקשת JSON לא תקינה.", status=400, details={"field": "payload"})
 
         # 1) Cache first (no quota impact on hit)
         try:
-            cutoff_date = datetime.now() - timedelta(days=MAX_CACHE_DAYS)
+            cutoff_date = datetime.utcnow() - timedelta(days=MAX_CACHE_DAYS)
             cached = SearchHistory.query.filter(
                 SearchHistory.user_id == current_user.id,
                 SearchHistory.cache_key == cache_key,
@@ -2240,18 +2281,26 @@ def create_app():
                 result['source_tag'] = f"מקור: מטמון DB (נשמר ב-{cached.timestamp.strftime('%Y-%m-%d')})"
                 result = sanitize_analyze_response(result)
                 return api_ok(result)
-        except Exception as e:
-            print(f"[CACHE] ⚠️ {e}")
+        except Exception:
+            logger.exception("[CACHE] cache lookup failed request_id=%s", get_request_id())
 
         # 2) Quota enforcement (only on cache miss)
         if not bypass_owner:
-            allowed, consumed_count, reserved_count, reservation_id = reserve_daily_quota(
-                current_user.id,
-                day_key,
-                USER_DAILY_LIMIT,
-                get_request_id(),
-                now_utc=datetime.utcnow(),
-            )
+            try:
+                allowed, consumed_count, reserved_count, reservation_id = reserve_daily_quota(
+                    current_user.id,
+                    day_key,
+                    USER_DAILY_LIMIT,
+                    get_request_id(),
+                    now_utc=datetime.utcnow(),
+                )
+            except QuotaInternalError:
+                log_rejection("server_error", "quota subsystem failure")
+                return api_error(
+                    "quota_internal_error",
+                    "שגיאת שרת במערכת המכסות. נסה שוב מאוחר יותר.",
+                    status=500,
+                )
             if not allowed:
                 log_access_decision('/analyze', user_id, 'rejected', f'quota exceeded: {consumed_count}/{USER_DAILY_LIMIT}')
                 remaining = max(0, USER_DAILY_LIMIT - (consumed_count + reserved_count))

@@ -120,6 +120,12 @@
             החיפושים שלי
         </h2>
 
+        {% if history_error %}
+            <div class="mb-4 p-3 rounded-lg bg-amber-900/40 border border-amber-700 text-amber-200 text-sm">
+                {{ history_error }}
+            </div>
+        {% endif %}
+
         <div class="flex gap-2 overflow-x-auto no-scrollbar pb-2">
             <span class="whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-800 text-slate-100 border border-slate-600">
                 היסטוריית בדיקות אמינות

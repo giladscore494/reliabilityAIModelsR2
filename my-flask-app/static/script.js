@@ -26,6 +26,16 @@
     };
 
     async function safeFetchJson(url, options = {}) {
+        const headers = new Headers(options.headers || {});
+        if (!headers.has('Accept')) {
+            headers.set('Accept', 'application/json');
+        }
+        const hasBody = options.body !== undefined && options.body !== null;
+        const isFormBody = options.body instanceof FormData || options.body instanceof URLSearchParams;
+        if (hasBody && !isFormBody && !headers.has('Content-Type')) {
+            headers.set('Content-Type', 'application/json');
+        }
+        options.headers = headers;
         let response;
         try {
             response = await fetch(url, options);
