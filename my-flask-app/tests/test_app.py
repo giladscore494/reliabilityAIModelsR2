@@ -1,5 +1,6 @@
 import pytest
 from datetime import datetime
+from urllib.parse import urlparse
 
 import main
 from main import (
@@ -161,5 +162,7 @@ def test_login_returns_google_redirect(monkeypatch, client):
     resp = client.get("/login", base_url="https://yedaarechev.com")
     assert resp.status_code in (302, 303)
     location = resp.headers.get("Location", "")
-    assert "accounts.google.com" in location
-    assert "yedaarechev.com/auth" in location
+    parsed = urlparse(location)
+    assert parsed.netloc == "accounts.google.com"
+    assert parsed.path.startswith("/o/oauth2")
+    assert "yedaarechev.com/auth" in (parsed.query or "")
