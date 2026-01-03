@@ -294,25 +294,18 @@
                 return;
             }
 
-            const dataBlock = (payload && payload.data) || null;
-            if (
-                !dataBlock ||
-                typeof dataBlock !== 'object' ||
-                !dataBlock.meta ||
-                !dataBlock.data
-            ) {
+            const payloadData = payload && payload.data;
+            const meta = payloadData && payloadData.meta;
+            const details = payloadData && payloadData.data;
+            if (!payloadData || !meta || !details) {
                 showError('נתוני חיפוש חסרים.');
                 return;
             }
-            renderDetails(dataBlock.meta, dataBlock.data);
+            renderDetails(meta, details);
             loadingActive = false;
         } catch (err) {
             console.error(err);
             showError();
-        } finally {
-            if (loadingActive) {
-                showError();
-            }
         }
     }
 
