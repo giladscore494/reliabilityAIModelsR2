@@ -1457,12 +1457,12 @@ def create_app():
             "is_owner": is_owner_user(),
         }
 
-    # פונקציה חכמה לבחירת redirect_uri
     def get_redirect_uri():
         """
         Build OAuth redirect URI.
         - Always prefer apex canonical base (no www) for production.
         - For local dev (localhost/127.0.0.1), fall back to request.url_root.
+        - Keeping the redirect URI stable avoids mismatches and ensures Google uses canonical_base/auth.
         """
         host = (request.host or "").lower()
         host_only = host.split(":")[0]
@@ -1471,14 +1471,8 @@ def create_app():
         else:
             uri = f"{canonical_base}/auth"
         print(f"[AUTH] Using redirect_uri={uri} (host={host})")
-        Build OAuth redirect URI pinned to the canonical apex domain.
-        Keeping the redirect URI stable avoids mismatches and
-        ensures Google is always called with https://yedaarechev.com/auth.
-        """
-        uri = f"{canonical_base}/auth"
-        print(f"[AUTH] Using redirect_uri={uri}")
         return uri
-    
+
     # Phase 2G: Allowed hosts validation
     ALLOWED_HOSTS = set()
     allowed_hosts_env = os.environ.get("ALLOWED_HOSTS", "").strip()
@@ -1646,8 +1640,10 @@ def create_app():
 
     @app.before_request
     def log_request_metadata():
+        """
+        Phase 2K: Log request metadata (request_id assigned earlier).
+        """
         from flask import g
-        """Phase 2K: Log request metadata (request_id assigned earlier)."""
         request_id = getattr(g, "request_id", str(uuid.uuid4()))
         g.request_id = request_id
 
