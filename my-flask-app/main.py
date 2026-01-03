@@ -46,6 +46,7 @@ from app.utils.sanitization import (
     derive_missing_info,
     sanitize_reliability_report_response,
 )
+from app.utils.db_bootstrap import ensure_search_history_cache_key
 from app.utils.micro_reliability import compute_micro_reliability
 from app.utils.timeline_plan import build_timeline_plan
 from app.utils.sim_model import build_sim_model
@@ -1579,11 +1580,23 @@ def create_app():
     if not secret_key:
         print("[BOOT] ⚠️ SECRET_KEY not set. Using dev fallback (LOCAL DEV ONLY).")
 
+    if db_url:
+        parsed_db_url = urlparse(db_url)
+        safe_host = parsed_db_url.hostname or ""
+        safe_port = f":{parsed_db_url.port}" if parsed_db_url.port else ""
+        safe_db = (parsed_db_url.path or "").lstrip("/")
+        logger.info("[DB] DATABASE host=%s%s db=%s", safe_host, safe_port, safe_db or "(default)")
+    else:
+        logger.info("[DB] DATABASE_URL not provided; using sqlite fallback")
+
     # Init
     db.init_app(app)
     login_manager.init_app(app)
     oauth.init_app(app)
     migrate.init_app(app, db)
+
+    with app.app_context():
+        ensure_search_history_cache_key(db, logger)
 
     login_manager.login_view = 'login'
     
