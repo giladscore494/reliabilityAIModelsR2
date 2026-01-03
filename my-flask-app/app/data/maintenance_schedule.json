@@ -1,0 +1,58 @@
+[
+  {
+    "name": "oil_change",
+    "interval_km": 15000,
+    "interval_months": 12,
+    "subsystem": "engine_oil",
+    "notes": "החלפת שמן ופילטר לפי ק״מ או שנה."
+  },
+  {
+    "name": "coolant_check",
+    "interval_km": 40000,
+    "interval_months": 24,
+    "subsystem": "engine_cooling",
+    "notes": "בדיקת נוזל/רדיאטור למניעת התחממות."
+  },
+  {
+    "name": "brake_inspection",
+    "interval_km": 20000,
+    "interval_months": 12,
+    "subsystem": "brakes",
+    "notes": "בדיקת רפידות/צלחות ובלמים אחוריים."
+  },
+  {
+    "name": "tire_rotation",
+    "interval_km": 10000,
+    "interval_months": 6,
+    "subsystem": "tires",
+    "notes": "סיבוב צמיגים ואיזון לשחיקה אחידה."
+  },
+  {
+    "name": "ac_service",
+    "interval_km": 30000,
+    "interval_months": 18,
+    "subsystem": "ac",
+    "notes": "בדיקת לחץ גז/פילטרים לפני קיץ."
+  },
+  {
+    "name": "battery_check",
+    "interval_km": 20000,
+    "interval_months": 12,
+    "subsystem": "battery_electrical",
+    "notes": "בדיקת קיבולת/טעינה ומניעת תקלה פתאומית."
+  },
+  {
+    "name": "suspension_check",
+    "interval_km": 40000,
+    "interval_months": 24,
+    "subsystem": "suspension",
+    "notes": "בדיקת בולמים/בושינגים לנוחות ובטיחות."
+  },
+  {
+    "name": "transmission_fluid",
+    "interval_km": 60000,
+    "interval_months": 36,
+    "subsystem": "transmission",
+    "notes": "החלפת שמן גיר במידת הצורך לפי יצרן."
+  }
+]
