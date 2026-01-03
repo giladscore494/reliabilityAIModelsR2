@@ -290,6 +290,77 @@
                     </div>
                 </div>
 
+                <div class="bg-slate-800/30 p-6 rounded-2xl border border-slate-700/50 space-y-6">
+                    <h4 class="text-lg font-bold text-white flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 ml-2 text-primary" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M5 3a3 3 0 00-3 3v2a3 3 0 003 3h2a3 3 0 013 3v2a3 3 0 003 3h2a3 3 0 003-3v-2a3 3 0 00-3-3h-2a3 3 0 01-3-3V6a3 3 0 00-3-3H5z" clip-rule="evenodd" />
+                        </svg>
+                        פרופיל שימוש אישי (חדש)
+                    </h4>
+                    <p class="text-xs text-slate-400">התאמת הניתוח לנסועה, אופי נהיגה ואקלים. ערכי ברירת מחדל בטוחים מוגדרים מראש.</p>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="space-y-2">
+                            <label class="text-xs font-bold uppercase tracking-wider text-slate-400">נסועה שנתית (ק״מ)</label>
+                            <input id="annual_km" name="annual_km" type="number" min="0" max="60000" step="500" value="15000"
+                                   class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 focus:ring-primary focus:border-primary">
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-xs font-bold uppercase tracking-wider text-slate-400">% נסיעה עירונית</label>
+                            <input id="city_pct" name="city_pct" type="number" min="0" max="100" step="5" value="50"
+                                   class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 focus:ring-primary focus:border-primary">
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-xs font-bold uppercase tracking-wider text-slate-400">נהג / עומס</label>
+                            <select id="driver_style" name="driver_style"
+                                    class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
+                                <option value="calm">רגוע</option>
+                                <option value="normal" selected>רגיל</option>
+                                <option value="aggressive">אגרסיבי</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="space-y-2">
+                            <label class="text-xs font-bold uppercase tracking-wider text-slate-400">טופוגרפיה</label>
+                            <select id="terrain" name="terrain"
+                                    class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
+                                <option value="flat">מישורית</option>
+                                <option value="mixed" selected>מעורבת</option>
+                                <option value="hilly">הררית</option>
+                            </select>
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-xs font-bold uppercase tracking-wider text-slate-400">אקלים</label>
+                            <select id="climate" name="climate"
+                                    class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
+                                <option value="center" selected>מרכז</option>
+                                <option value="coastal">חופי</option>
+                                <option value="north">צפון</option>
+                                <option value="south_hot">דרום חם</option>
+                            </select>
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-xs font-bold uppercase tracking-wider text-slate-400">חניה קבועה</label>
+                            <select id="parking" name="parking"
+                                    class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
+                                <option value="outdoor" selected>חוץ</option>
+                                <option value="covered">מקורה</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="space-y-2">
+                            <label class="text-xs font-bold uppercase tracking-wider text-slate-400">עומס רכב</label>
+                            <select id="load" name="load"
+                                    class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
+                                <option value="light">קל</option>
+                                <option value="family" selected>משפחתי</option>
+                                <option value="heavy">כבד</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="pt-4 space-y-8">
                     <label
                         class="flex items-start gap-4 p-4 rounded-xl bg-slate-800/20 border border-slate-700/50 cursor-pointer group hover:bg-slate-800/40 transition-colors">
@@ -356,15 +427,70 @@
         </div>
 
         <div id="results-container" class="hidden w-full max-w-5xl mt-16 fade-in delay-300">
-            <div
-                class="bg-dark-lighter/80 backdrop-blur-xl p-6 md:p-8 rounded-[2rem] border border-slate-700/50 shadow-2xl text-slate-200">
-                <div id="reliability-score-container"
-                     class="flex flex-col items-center justify-center mb-10 text-center"></div>
+                <div
+                    class="bg-dark-lighter/80 backdrop-blur-xl p-6 md:p-8 rounded-[2rem] border border-slate-700/50 shadow-2xl text-slate-200">
+                    <div id="reliability-score-container"
+                         class="flex flex-col items-center justify-center mb-10 text-center"></div>
 
-                <div class="flex flex-wrap border-b border-slate-700 mb-6 overflow-x-auto">
-                    <button class="tab-btn active" onclick="window.openTab(event, 'summary')">📄 סיכום מנהלים</button>
-                    <button class="tab-btn" onclick="window.openTab(event, 'faults')">🔧 תקלות נפוצות</button>
-                    <button class="tab-btn" onclick="window.openTab(event, 'costs')">💰 עלויות אחזקה</button>
+                    <div id="micro-container" class="hidden mb-8 bg-slate-900/40 border border-slate-700/70 rounded-2xl p-5">
+                        <h3 class="text-lg font-bold text-white flex items-center gap-2 mb-3">
+                            🔍 מיקרו-אמינות מותאמת שימוש
+                        </h3>
+                        <div class="flex flex-col md:flex-row gap-4 md:items-center">
+                            <div class="flex items-center gap-3">
+                                <div class="text-4xl font-black text-primary" id="micro-adjusted-score"></div>
+                                <div class="text-sm text-slate-400" id="micro-delta"></div>
+                            </div>
+                            <div id="micro-risks" class="flex-1 grid grid-cols-1 md:grid-cols-2 gap-2 text-sm"></div>
+                        </div>
+                        <ul id="micro-actions" class="mt-3 text-sm text-slate-200 list-disc list-inside"></ul>
+                    </div>
+
+                    <div id="timeline-container" class="hidden mb-8 bg-slate-900/40 border border-slate-700/70 rounded-2xl p-5">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-lg font-bold text-white flex items-center gap-2">📅 תוכנית 36 חודשים</h3>
+                            <span id="timeline-km" class="text-xs text-slate-400"></span>
+                        </div>
+                        <div id="timeline-phases" class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4"></div>
+                    </div>
+
+                    <div id="simulator-container" class="hidden mb-10 bg-slate-900/40 border border-slate-700/70 rounded-2xl p-5">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-lg font-bold text-white flex items-center gap-2">🎛 סימולטור בעלות</h3>
+                            <span class="text-xs text-slate-400">חישוב בצד לקוח בלבד</span>
+                        </div>
+                        <div id="sim-controls" class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 text-sm">
+                            <label class="space-y-1">
+                                <span class="text-xs text-slate-400">נסועה שנתית</span>
+                                <input id="sim-annual-km" type="range" min="0" max="60000" step="1000" class="w-full">
+                                <div class="text-xs text-slate-300"><span id="sim-annual-km-label"></span> ק״מ</div>
+                            </label>
+                            <label class="space-y-1">
+                                <span class="text-xs text-slate-400">% עירוני</span>
+                                <input id="sim-city-pct" type="range" min="0" max="100" step="5" class="w-full">
+                                <div class="text-xs text-slate-300"><span id="sim-city-pct-label"></span>%</div>
+                            </label>
+                            <label class="space-y-1">
+                                <span class="text-xs text-slate-400">שנות אחזקה</span>
+                                <input id="sim-keep-years" type="range" min="1" max="6" step="1" class="w-full">
+                                <div class="text-xs text-slate-300"><span id="sim-keep-years-label"></span> שנים</div>
+                            </label>
+                            <label class="space-y-1">
+                                <span class="text-xs text-slate-400">סגנון נהיגה</span>
+                                <select id="sim-driver-style" class="w-full bg-slate-900/70 border border-slate-700 rounded-lg px-3 py-2">
+                                    <option value="calm">רגוע</option>
+                                    <option value="normal" selected>רגיל</option>
+                                    <option value="aggressive">אגרסיבי</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div id="sim-output" class="text-sm text-slate-200"></div>
+                    </div>
+
+                    <div class="flex flex-wrap border-b border-slate-700 mb-6 overflow-x-auto">
+                        <button class="tab-btn active" onclick="window.openTab(event, 'summary')">📄 סיכום מנהלים</button>
+                        <button class="tab-btn" onclick="window.openTab(event, 'faults')">🔧 תקלות נפוצות</button>
+                        <button class="tab-btn" onclick="window.openTab(event, 'costs')">💰 עלויות אחזקה</button>
                     <button class="tab-btn" onclick="window.openTab(event, 'report')">📑 דוח אמינות</button>
                     <button class="tab-btn" onclick="window.openTab(event, 'competitors')">🆚 מתחרים</button>
                 </div>

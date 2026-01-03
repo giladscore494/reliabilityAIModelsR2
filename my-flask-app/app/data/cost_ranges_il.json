@@ -1,0 +1,10 @@
+{
+  "oil_change": [250, 450],
+  "coolant_check": [200, 500],
+  "brake_inspection": [300, 900],
+  "tire_rotation": [150, 350],
+  "ac_service": [350, 900],
+  "battery_check": [200, 600],
+  "suspension_check": [400, 1200],
+  "transmission_fluid": [900, 1800]
+}

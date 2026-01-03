@@ -5,7 +5,7 @@
 # Phase 1 & 2: Security hardening complete
 # ===================================================================
 
-import os, re, json, traceback, logging, uuid, random
+import os, re, json, traceback, logging, uuid, random, hashlib
 import time as pytime
 from typing import Optional, Tuple, Any, Dict, Mapping
 from datetime import datetime, time, timedelta, date
@@ -45,6 +45,9 @@ from app.utils.sanitization import (
     derive_missing_info,
     sanitize_reliability_report_response,
 )
+from app.utils.micro_reliability import compute_micro_reliability
+from app.utils.timeline_plan import build_timeline_plan
+from app.utils.sim_model import build_sim_model
 # --- Prompt Injection Defense (Security: Phase 1C) ---
 from app.utils.prompt_defense import (
     sanitize_user_input_for_prompt,
@@ -135,6 +138,7 @@ class SearchHistory(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     timestamp = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    cache_key = db.Column(db.String(128), index=True)
     make = db.Column(db.String(100))
     model = db.Column(db.String(100))
     year = db.Column(db.Integer)
@@ -1456,6 +1460,17 @@ def create_app():
     # פונקציה חכמה לבחירת redirect_uri
     def get_redirect_uri():
         """
+        Build OAuth redirect URI.
+        - Always prefer apex canonical base (no www) for production.
+        - For local dev (localhost/127.0.0.1), fall back to request.url_root.
+        """
+        host = (request.host or "").lower()
+        host_only = host.split(":")[0]
+        if host_only in ("localhost", "127.0.0.1"):
+            uri = request.url_root.rstrip("/") + "/auth"
+        else:
+            uri = f"{canonical_base}/auth"
+        print(f"[AUTH] Using redirect_uri={uri} (host={host})")
         Build OAuth redirect URI pinned to the canonical apex domain.
         Keeping the redirect URI stable avoids mismatches and
         ensures Google is always called with https://yedaarechev.com/auth.
@@ -1779,8 +1794,7 @@ def create_app():
     @app.route('/auth')
     def auth():
         try:
-            redirect_uri = get_redirect_uri()
-            token = oauth.google.authorize_access_token(redirect_uri=redirect_uri)
+            token = oauth.google.authorize_access_token()
             userinfo = oauth.google.get('userinfo').json()
             user = User.query.filter_by(google_id=userinfo['id']).first()
             if not user:
@@ -2132,15 +2146,37 @@ def create_app():
         consumed_count = get_daily_quota_usage(current_user.id, day_key)
         reserved_count = 0
 
-        # 0) Input validation
+        analyze_allowed_fields = {
+            "make",
+            "model",
+            "year",
+            "mileage_range",
+            "fuel_type",
+            "transmission",
+            "sub_model",
+            "annual_km",
+            "city_pct",
+            "terrain",
+            "climate",
+            "parking",
+            "driver_style",
+            "load",
+            "mileage_km",
+            "trim",
+            "engine",
+            "ownership_history",
+            "budget",
+            "budget_min",
+            "budget_max",
+            "usage_city_pct",
+        }
         try:
             data = request.get_json(force=True) or {}
             if not data:
                 return api_error("invalid_json", "Invalid JSON payload", status=400, details={"field": "payload"})
 
-            # Validate request against schema
-            validated = validate_analyze_request(data)
-            
+            validated = validate_analyze_request(data, allowed_fields=analyze_allowed_fields)
+
             logger.info(f"[ANALYZE 0/6] request_id={get_request_id()} user={current_user.id} payload validated")
             final_make = normalize_text(validated.get('make'))
             final_model = normalize_text(validated.get('model'))
@@ -2149,6 +2185,24 @@ def create_app():
             final_mileage = str(validated.get('mileage_range'))
             final_fuel = str(validated.get('fuel_type'))
             final_trans = str(validated.get('transmission'))
+            usage_profile = validated.get("usage_profile") or {}
+            cache_key = hashlib.sha256(
+                json.dumps(
+                    {
+                        "make": final_make,
+                        "model": final_model,
+                        "sub_model": final_sub_model,
+                        "year": final_year,
+                        "mileage_range": final_mileage,
+                        "fuel_type": final_fuel,
+                        "transmission": final_trans,
+                        "usage_profile": usage_profile,
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest()
+
             if not (final_make and final_model and final_year):
                 log_access_decision('/analyze', user_id, 'rejected', 'validation error: missing required fields')
                 return api_error("validation_error", "שגיאת קלט (שלב 0): נא למלא יצרן, דגם ושנה", status=400, details={"field": "payload"})
@@ -2163,19 +2217,31 @@ def create_app():
         try:
             cutoff_date = datetime.now() - timedelta(days=MAX_CACHE_DAYS)
             cached = SearchHistory.query.filter(
-                SearchHistory.make == final_make,
-                SearchHistory.model == final_model,
-                SearchHistory.year == final_year,
-                SearchHistory.mileage_range == final_mileage,
-                SearchHistory.fuel_type == final_fuel,
-                SearchHistory.transmission == final_trans,
+                SearchHistory.user_id == current_user.id,
+                SearchHistory.cache_key == cache_key,
                 SearchHistory.timestamp >= cutoff_date
             ).order_by(SearchHistory.timestamp.desc()).first()
             if cached:
+                cache_hit = True
                 result = json.loads(cached.result_json)
-                # ✅ date format fix: YYYY-MM-DD
+                if not all(k in result for k in ("micro_reliability", "timeline_plan", "sim_model")):
+                    micro = compute_micro_reliability(result, usage_profile)
+                    timeline = build_timeline_plan(usage_profile, micro, {**result, "mileage_range": final_mileage})
+                    sim = build_sim_model(usage_profile, micro, timeline)
+                    result.update(
+                        {
+                            "micro_reliability": micro,
+                            "timeline_plan": timeline,
+                            "sim_model": sim,
+                        }
+                    )
+                    result = sanitize_analyze_response(result)
+                    try:
+                        cached.result_json = json.dumps(result, ensure_ascii=False)
+                        db.session.commit()
+                    except Exception:
+                        db.session.rollback()
                 result['source_tag'] = f"מקור: מטמון DB (נשמר ב-{cached.timestamp.strftime('%Y-%m-%d')})"
-                # Sanitize cached output before returning
                 result = sanitize_analyze_response(result)
                 return api_ok(result)
         except Exception as e:
@@ -2252,11 +2318,15 @@ def create_app():
                 ai_output['source_tag'] = f"מקור: ניתוח AI חדש (חיפוש {quota_used_after}/{USER_DAILY_LIMIT})"
                 ai_output['mileage_note'] = note
                 ai_output['km_warn'] = False
+                ai_output["micro_reliability"] = compute_micro_reliability(ai_output, usage_profile)
+                ai_output["timeline_plan"] = build_timeline_plan(usage_profile, ai_output["micro_reliability"], {"mileage_range": final_mileage})
+                ai_output["sim_model"] = build_sim_model(usage_profile, ai_output["micro_reliability"], ai_output["timeline_plan"])
 
                 sanitized_output = sanitize_analyze_response(ai_output)
 
                 new_log = SearchHistory(
                     user_id=current_user.id,
+                    cache_key=cache_key,
                     make=final_make,
                     model=final_model,
                     year=final_year,

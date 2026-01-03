@@ -168,6 +168,57 @@ def _validate_int_range(field: str, value: Any, *, min_val: int, max_val: int) -
     return n
 
 
+_USAGE_DEFAULTS = {
+    "annual_km": 15000,
+    "city_pct": 50,
+    "terrain": "mixed",
+    "climate": "center",
+    "parking": "outdoor",
+    "driver_style": "normal",
+    "load": "family",
+}
+
+_USAGE_ENUMS = {
+    "terrain": {"flat", "mixed", "hilly"},
+    "climate": {"coastal", "center", "north", "south_hot"},
+    "parking": {"covered", "outdoor"},
+    "driver_style": {"calm", "normal", "aggressive"},
+    "load": {"light", "family", "heavy"},
+}
+
+
+def _normalize_enum(field: str, value: Any, allowed: set[str], default: str) -> str:
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in allowed:
+            return v
+    return default
+
+
+def normalize_usage_profile(payload: Mapping[str, Any]) -> Dict[str, Any]:
+    """Normalize usage profile fields with defaults and strict ranges."""
+    annual_km = _validate_int_range(
+        "annual_km",
+        payload.get("annual_km", _USAGE_DEFAULTS["annual_km"]),
+        min_val=0,
+        max_val=60000,
+    )
+    city_pct = _validate_int_range(
+        "city_pct",
+        payload.get("city_pct", _USAGE_DEFAULTS["city_pct"]),
+        min_val=0,
+        max_val=100,
+    )
+
+    usage = {
+        "annual_km": annual_km,
+        "city_pct": city_pct,
+    }
+    for field, allowed in _USAGE_ENUMS.items():
+        usage[field] = _normalize_enum(field, payload.get(field), allowed, _USAGE_DEFAULTS[field])
+    return usage
+
+
 def _normalize_and_validate_text(field: str, value: Any, max_length: int) -> str:
     """
     Normalize text fields: strip control chars, collapse whitespace,
@@ -188,7 +239,7 @@ def _normalize_and_validate_text(field: str, value: Any, max_length: int) -> str
     return text
 
 
-def validate_analyze_request(payload: Mapping[str, Any]) -> Dict[str, Any]:
+def validate_analyze_request(payload: Mapping[str, Any], allowed_fields: set[str] | None = None) -> Dict[str, Any]:
     """Validate an /analyze request payload and return the validated payload.
 
     This is a small wrapper around :func:`validate_form_data` that standardizes
@@ -216,6 +267,11 @@ def validate_analyze_request(payload: Mapping[str, Any]) -> Dict[str, Any]:
     try:
         # Basic validation
         validated = validate_form_data(payload)
+
+        if allowed_fields is not None:
+            unexpected = {k for k in validated.keys() if k not in allowed_fields}
+            if unexpected:
+                raise ValidationError("payload", f"Unexpected fields: {', '.join(sorted(unexpected))}")
         
         # Enforce field length limits (Phase 1D: DoS prevention) and normalize text
         for field, max_length in _FIELD_MAX_LENGTHS.items():
@@ -239,7 +295,12 @@ def validate_analyze_request(payload: Mapping[str, Any]) -> Dict[str, Any]:
         if "year_min" in validated and "year_max" in validated and validated["year_min"] > validated["year_max"]:
             raise ValidationError("year_range", "year_min cannot exceed year_max")
         if "annual_km" in validated:
-            validated["annual_km"] = _validate_int_range("annual_km", validated["annual_km"], min_val=0, max_val=500000)
+            validated["annual_km"] = _validate_int_range("annual_km", validated["annual_km"], min_val=0, max_val=60000)
+
+        # Usage profile normalization (fills defaults when missing)
+        usage_profile = normalize_usage_profile(validated)
+        validated.update(usage_profile)
+        validated["usage_profile"] = usage_profile
 
         return validated
     except ValidationError:
