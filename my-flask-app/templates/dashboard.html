@@ -255,9 +255,11 @@
     async function openDetails(searchId) {
         if (!searchId) return;
 
+        let loadingActive = false;
         if (detailsContentEl) {
             detailsContentEl.innerHTML =
                 '<div class="text-center py-8 text-sm text-slate-400">טוען נתונים...</div>';
+            loadingActive = true;
         }
 
         overlayEl.classList.remove('hidden');
@@ -267,6 +269,7 @@
             if (!detailsContentEl) return;
             detailsContentEl.innerHTML =
                 `<div class="text-center py-8 text-sm text-red-400">${escapeHtml(message)}</div>`;
+            loadingActive = false;
         };
         try {
             const response = await fetch(`/search-details/${encodeURIComponent(searchId)}`, {
@@ -283,24 +286,31 @@
             }
 
             if (!response.ok || (payload && payload.error)) {
-                const msg = (payload && payload.error && payload.error.message) || 'שגיאה בטעינת הנתונים.';
+                const rawError = payload && payload.error;
+                const msg = typeof rawError === 'string'
+                    ? rawError
+                    : (rawError && rawError.message) || 'שגיאה בטעינת הנתונים.';
                 showError(msg);
                 return;
             }
 
             const dataBlock = (payload && payload.data) || null;
-            if (!dataBlock || typeof dataBlock !== 'object') {
+            if (
+                !dataBlock ||
+                typeof dataBlock !== 'object' ||
+                !dataBlock.meta ||
+                !dataBlock.data
+            ) {
                 showError('נתוני חיפוש חסרים.');
                 return;
             }
-            const meta = dataBlock.meta || {};
-            const data = dataBlock.data || dataBlock;
-            renderDetails(meta, data);
+            renderDetails(dataBlock.meta, dataBlock.data);
+            loadingActive = false;
         } catch (err) {
             console.error(err);
             showError();
         } finally {
-            if (detailsContentEl && (detailsContentEl.textContent || '').includes('טוען נתונים')) {
+            if (loadingActive) {
                 showError();
             }
         }
