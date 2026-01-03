@@ -25,10 +25,9 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import RequestEntityTooLarge
 from html import escape
 from json_repair import repair_json
-import google.generativeai as genai
 import pandas as pd
 
-# --- Gemini 3 (Car Advisor, SDK החדש) ---
+# --- Gemini 3 (Gemini API SDK) ---
 from google import genai as genai3
 from google.genai import types as genai_types
 
@@ -56,18 +55,13 @@ db = SQLAlchemy()
 login_manager = LoginManager()
 oauth = OAuth()
 
-# Car Advisor – Gemini 3 client (SDK החדש)
-advisor_client = None
-GEMINI3_MODEL_ID = "gemini-3-pro-preview"
+# Gemini 3 client (shared)
+ai_client = None
+GEMINI3_MODEL_ID = "gemini-3-flash-preview"
 
 # =========================
 # ========= CONFIG ========
 # =========================
-PRIMARY_MODEL = "gemini-2.5-flash"
-FALLBACK_MODEL = "gemini-1.5-flash-latest"
-RETRIES = 2
-RETRY_BACKOFF_SEC = 1.5
-# Phase 1F: AI call timeout (reliability)
 AI_CALL_TIMEOUT_SEC = 30  # timeout for each AI call attempt
 GLOBAL_DAILY_LIMIT = 1000
 USER_DAILY_LIMIT = 5
@@ -487,6 +481,129 @@ def call_model_with_retry(prompt: str) -> dict:
     error_msg = f"All AI model attempts failed. Last error: {type(last_err).__name__}"
     print(f"[AI] ❌ {error_msg}")
     raise RuntimeError(error_msg)
+
+
+# ======================================================
+# === Gemini 3 unified grounded call (single attempt) ===
+# ======================================================
+
+def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
+    """Single prompt that returns analyze + reliability report together."""
+    safe_make = escape_prompt_input(payload.get("make"), max_length=120)
+    safe_model = escape_prompt_input(payload.get("model"), max_length=120)
+    safe_sub_model = escape_prompt_input(payload.get("sub_model"), max_length=120)
+    safe_year = escape_prompt_input(payload.get("year"), max_length=10)
+    safe_mileage = escape_prompt_input(payload.get("mileage_range") or payload.get("mileage_km"), max_length=50)
+    safe_fuel = escape_prompt_input(payload.get("fuel_type"), max_length=50)
+    safe_trans = escape_prompt_input(payload.get("transmission"), max_length=50)
+
+    user_data = f"""יצרן: {safe_make}
+דגם: {safe_model}
+תת-דגם/תצורה: {safe_sub_model or 'לא צוין'}
+שנה: {safe_year}
+טווח קילומטראז׳: {safe_mileage or 'לא צוין'}
+סוג דלק: {safe_fuel or 'לא צוין'}
+תיבת הילוכים: {safe_trans or 'לא צוין'}"""
+
+    bounded_user_data = wrap_user_input_in_boundary(user_data)
+    data_instruction = create_data_only_instruction()
+    missing_block = ", ".join(missing_info) if missing_info else "אין"
+
+    return f"""
+{data_instruction}
+
+אתה מומחה לאמינות רכבים בישראל עם גישה לכלי Google Search. חובה להשתמש בכלי החיפוש (google_search tool) ולציין search_performed=true, search_queries בעברית, ו-sources עם קישורים.
+
+החזר אובייקט JSON יחיד, ללא Markdown או טקסט חופשי:
+{{
+  "ok": true,
+  "search_performed": true,
+  "search_queries": ["שאילתות חיפוש בעברית"],
+  "sources": ["קישורים או אובייקטים {{title,url,domain}}"],
+  "score_breakdown": {{
+    "engine_transmission_score": "מספר (1-10)",
+    "electrical_score": "מספר (1-10)",
+    "suspension_brakes_score": "מספר (1-10)",
+    "maintenance_cost_score": "מספר (1-10)",
+    "satisfaction_score": "מספר (1-10)",
+    "recalls_score": "מספר (1-10)"
+  }},
+  "base_score_calculated": "מספר (0-100)",
+  "common_issues": ["תקלות נפוצות רלוונטיות לק\"מ"],
+  "avg_repair_cost_ILS": "מספר ממוצע",
+  "issues_with_costs": [
+    {{"issue": "שם התקלה", "avg_cost_ILS": "מספר", "source": "מקור", "severity": "נמוך/בינוני/גבוה"}}
+  ],
+  "reliability_summary": "סיכום מקצועי בעברית",
+  "reliability_summary_simple": "הסבר פשוט וקצר בעברית",
+  "recommended_checks": ["בדיקות מומלצות ספציפיות"],
+  "common_competitors_brief": [
+      {{"model": "שם מתחרה 1", "brief_summary": "אמינות בקצרה"}},
+      {{"model": "שם מתחרה 2", "brief_summary": "אמינות בקצרה"}}
+  ],
+  "reliability_report": {{
+    "overall_score": 0-100,
+    "confidence": "high"|"medium"|"low",
+    "one_sentence_verdict": "משפט החלטה קצר",
+    "top_risks": [
+      {{"risk_title": "", "why_it_matters": "", "how_to_check": "", "severity": "low|medium|high", "cost_impact": "low|medium|high"}}
+    ],
+    "expected_ownership_cost": {{"maintenance_level": "low|medium|high", "typical_yearly_range_ils": "", "notes": ""}},
+    "buyer_checklist": {{
+      "ask_seller": ["שאלות/מסמכים"],
+      "inspection_focus": ["דגשים לבדיקת מוסך"],
+      "walk_away_signs": ["דגלים אדומים לביטול עסקה"]
+    }},
+    "what_changes_with_mileage": [
+      {{"mileage_band": "", "what_to_expect": ""}}
+    ],
+    "recommended_next_step": {{"action": "", "reason": ""}},
+    "missing_info": ["פריטים שחסרים בקלט"]
+  }}
+}}
+
+כל הערכים בעברית בלבד. אל תוסיף הסברים מחוץ ל-JSON. Missing info שסיפק המשתמש: {missing_block}
+
+נתוני הקלט:
+{bounded_user_data}
+""".strip()
+
+
+def parse_model_json(raw: str) -> Tuple[Optional[dict], Optional[str]]:
+    if not raw:
+        return None, "EMPTY_RESPONSE"
+    try:
+        return json.loads(raw), None
+    except Exception:
+        try:
+            repaired = repair_json(raw)
+            return json.loads(repaired), None
+        except Exception:
+            return None, "MODEL_JSON_INVALID"
+
+
+def call_gemini_grounded_once(prompt: str) -> Tuple[Optional[dict], Optional[str]]:
+    if ai_client is None:
+        return None, "CLIENT_NOT_INITIALIZED"
+    search_tool = genai_types.Tool(google_search=genai_types.GoogleSearch())
+    config = genai_types.GenerateContentConfig(
+        temperature=0.3,
+        top_p=0.9,
+        top_k=40,
+        tools=[search_tool],
+        response_mime_type="application/json",
+    )
+    try:
+        resp = ai_client.models.generate_content(
+            model=GEMINI3_MODEL_ID,
+            contents=prompt,
+            config=config,
+        )
+        text = (getattr(resp, "text", "") or "").strip()
+        parsed, err = parse_model_json(text)
+        return parsed, err
+    except Exception as e:
+        return None, f"CALL_FAILED:{type(e).__name__}"
 
 
 # ======================================================
@@ -1297,18 +1414,19 @@ def create_app():
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
     if not GEMINI_API_KEY:
         print("[AI] ⚠️ GEMINI_API_KEY missing")
-    genai.configure(api_key=GEMINI_API_KEY)
 
-    # Gemini 3 client עבור Car Advisor (SDK החדש)
-    global advisor_client
+    global ai_client, advisor_client
     if GEMINI_API_KEY:
         try:
-            advisor_client = genai3.Client(api_key=GEMINI_API_KEY)
-            print("[CAR-ADVISOR] ✅ Gemini 3 client initialized")
+            ai_client = genai3.Client(api_key=GEMINI_API_KEY)
+            advisor_client = ai_client
+            print("[AI] ✅ Gemini 3 client initialized")
         except Exception as e:
+            ai_client = None
             advisor_client = None
-            print(f"[CAR-ADVISOR] ❌ Failed to init Gemini 3 client: {e}")
+            print(f"[AI] ❌ Failed to init Gemini 3 client: {e}")
     else:
+        ai_client = None
         advisor_client = None
 
     # OAuth
@@ -1394,6 +1512,14 @@ def create_app():
             is_owner=is_owner_user(),
         )
 
+    @app.route('/coming-soon')
+    def coming_soon():
+        return render_template(
+            'coming_soon.html',
+            user=current_user,
+            is_owner=is_owner_user(),
+        )
+
     @app.route('/dashboard')
     @login_required
     def dashboard():
@@ -1451,12 +1577,8 @@ def create_app():
                 "fuel_type": s.fuel_type,
                 "transmission": s.transmission,
             }
-            meta_safe = {
-                k: escape(v) if isinstance(v, str) else v
-                for k, v in meta.items()
-            }
             data_safe = sanitize_analyze_response(json.loads(s.result_json))
-            return jsonify({"meta": meta_safe, "data": data_safe})
+            return jsonify({"meta": meta, "data": data_safe})
         except Exception as e:
             logger.error(f"[DETAILS] Error fetching search details: {e}")
             return jsonify({"error": "שגיאת שרת בשליפת נתוני חיפוש", "request_id": get_request_id()}), 500
@@ -1660,6 +1782,7 @@ def create_app():
         """
         API המחזיר דו\"ח אמינות תמציתי בפורמט JSON קשיח כפי שמוגדר בדרישות החדשות.
         """
+        return jsonify({"error": "endpoint_deprecated", "message": "הדו\"ח נכלל כעת בתשובת /analyze"}), 400
         user_id = current_user.id if current_user.is_authenticated else None
         log_access_decision('/reliability_report', user_id, 'allowed', 'authenticated user')
 
@@ -1878,37 +2001,42 @@ def create_app():
         else:
             quota_used_after = quota_used
 
-        # 3) AI call
+        # 3) AI call (single grounded call)
+        missing_info = derive_missing_info(validated)
         try:
-            prompt = build_prompt(
-                final_make, final_model, final_sub_model, final_year,
-                final_fuel, final_trans, final_mileage
-            )
-            model_output = call_model_with_retry(prompt)
+            prompt = build_combined_prompt(validated, missing_info)
+            model_output, ai_error = call_gemini_grounded_once(prompt)
+            if model_output is None:
+                if quota_incremented:
+                    quota_used_after = rollback_quota_increment(current_user.id, day_key)
+                    quota_incremented = False
+                log_quota_event(False, quota_used_after, retry_after_seconds, allowed_flag=False)
+                return jsonify({"ok": False, "error": "MODEL_JSON_INVALID", "request_id": get_request_id()}), 502
             if not isinstance(model_output, dict):
-                raise ModelOutputInvalidError("model_output_invalid_format")
-        except ModelOutputInvalidError:
+                model_output = {}
+        except Exception:
             if quota_incremented:
                 quota_used_after = rollback_quota_increment(current_user.id, day_key)
                 quota_incremented = False
-            log_quota_event(False, quota_used_after, retry_after_seconds, allowed_flag=False)
-            log_rejection("server_error", "AI model returned invalid JSON structure")
-            traceback.print_exc()
-            return jsonify({"error": "פלט AI לא תקין. נסה שוב בעוד מספר רגעים.", "code": "ai_output_invalid", "request_id": get_request_id()}), 502
-        except Exception as e:
-            if quota_incremented:
-                quota_used_after = rollback_quota_increment(current_user.id, day_key)
-                quota_incremented = False
-            log_rejection("server_error", f"AI model call failed: {type(e).__name__}")
+            log_rejection("server_error", "AI model call failed")
             traceback.print_exc()
             log_quota_event(False, quota_used_after, retry_after_seconds, allowed_flag=False)
-            return jsonify({"error": "שגיאת AI (שלב 4): נסה שוב מאוחר יותר.", "code": "ai_call_failed", "request_id": get_request_id()}), 500
+            return jsonify({"ok": False, "error": "ai_call_failed", "request_id": get_request_id()}), 500
+
+        # Ensure reliability_report presence even if malformed
+        reliability_report = model_output.get("reliability_report")
+        if not isinstance(reliability_report, dict):
+            model_output["reliability_report"] = {"available": False, "reason": "MISSING_OR_INVALID"}
+
+        # defaults for search data
+        model_output.setdefault("ok", True)
+        model_output.setdefault("search_performed", True)
+        model_output.setdefault("search_queries", [])
+        model_output.setdefault("sources", [])
 
         try:
-            # 5) Mileage logic
             model_output, note = apply_mileage_logic(model_output, final_mileage)
 
-            # 6) Save
             sanitized_output: Dict[str, Any] = {}
             try:
                 model_output['source_tag'] = f"מקור: ניתוח AI חדש (חיפוש {quota_used_after}/{USER_DAILY_LIMIT})"

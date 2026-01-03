@@ -39,6 +39,9 @@
     const summaryToggleBtn = document.getElementById('summary-toggle-btn');
     const summaryDetailedBlock = document.getElementById('summary-detailed-block');
     const scoreContainer = document.getElementById('reliability-score-container');
+    const sourcesListEl = document.getElementById('sources-list');
+    const sourcesBlockEl = document.getElementById('sources-block');
+    const reportContainer = document.getElementById('report');
 
     const faultsContainer = document.getElementById('faults');
     const costsContainer = document.getElementById('costs');
@@ -157,6 +160,11 @@
 
     function renderResults(data) {
         if (!resultsContainer) return;
+
+        if (data && data.ok === false) {
+            alert(data.error || 'שגיאת מודל: פלט לא תקין.');
+            return;
+        }
 
         resultsContainer.classList.remove('hidden');
         const safe = (v) => escapeHtml(v);
@@ -306,6 +314,70 @@
                 html += '<p class="text-sm text-slate-400">לא הוגדרו מתחרים ספציפיים לדגם זה.</p>';
             }
             competitorsContainer.innerHTML = html;
+        }
+
+        // מקורות
+        if (sourcesListEl && sourcesBlockEl) {
+            const sources = Array.isArray(data.sources) ? data.sources : [];
+            sourcesListEl.innerHTML = '';
+            if (!sources.length) {
+                sourcesBlockEl.classList.add('hidden');
+            } else {
+                sourcesBlockEl.classList.remove('hidden');
+                sources.forEach((src) => {
+                    const li = document.createElement('li');
+                    if (src && typeof src === 'object') {
+                        const title = safe(src.title || '');
+                        const url = safe(src.url || '');
+                        li.innerHTML = url ? `<a class="text-primary hover:underline" href="${url}" target="_blank" rel="noopener">${title || url}</a>` : title;
+                    } else {
+                        li.textContent = safe(src || '');
+                    }
+                    sourcesListEl.appendChild(li);
+                });
+            }
+        }
+
+        // דוח אמינות
+        if (reportContainer) {
+            const rep = data.reliability_report || {};
+            let html = '';
+            if (rep.available === false) {
+                html = '<p class="text-sm text-slate-400">דוח אמינות לא זמין לפלט זה (MISSING_OR_INVALID).</p>';
+            } else if (Object.keys(rep).length === 0) {
+                html = '<p class="text-sm text-slate-400">הדוח לא סופק על ידי המודל.</p>';
+            } else {
+                const risks = Array.isArray(rep.top_risks) ? rep.top_risks : [];
+                const checklist = rep.buyer_checklist || {};
+                html += `
+                    <div class="space-y-3">
+                        <div class="flex flex-wrap items-center gap-3">
+                            <div class="text-lg font-bold text-white">ציון דוח: ${safe(rep.overall_score || '')}</div>
+                            <span class="px-3 py-1 rounded-full text-xs bg-slate-800 text-slate-200">ביטחון: ${safe(rep.confidence || '')}</span>
+                        </div>
+                        <p class="text-slate-200 text-sm">${safe(rep.one_sentence_verdict || '')}</p>
+                        <div>
+                            <h4 class="text-sm font-semibold text-white mb-1">סיכונים מרכזיים</h4>
+                            <ul class="list-disc list-inside text-sm text-slate-200 space-y-1">
+                                ${risks.slice(0,6).map(r => `<li><span class="font-semibold">${safe(r.risk_title||'')}</span> – ${safe(r.why_it_matters||'')} (${safe(r.severity||'')})</li>`).join('') || '<li class="text-slate-400">אין סיכונים מפורטים.</li>'}
+                            </ul>
+                        </div>
+                        <div>
+                            <h4 class="text-sm font-semibold text-white mb-1">מה לבדוק</h4>
+                            <ul class="list-disc list-inside text-sm text-slate-200 space-y-1">
+                                ${(checklist.ask_seller||[]).map(x=>`<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין נתונים</li>'}
+                            </ul>
+                        </div>
+                        <div>
+                            <h4 class="text-sm font-semibold text-white mb-1">שינויים עם ק״מ</h4>
+                            <ul class="list-disc list-inside text-sm text-slate-200 space-y-1">
+                                ${(rep.what_changes_with_mileage||[]).map(x=>`<li>${safe(x.mileage_band||'')}: ${safe(x.what_to_expect||'')}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
+                            </ul>
+                        </div>
+                    </div>
+                `;
+            }
+            reportContainer.innerHTML = html;
         }
 
         resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
