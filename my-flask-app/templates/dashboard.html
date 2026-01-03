@@ -255,11 +255,9 @@
     async function openDetails(searchId) {
         if (!searchId) return;
 
-        let loadingActive = false;
         if (detailsContentEl) {
             detailsContentEl.innerHTML =
                 '<div class="text-center py-8 text-sm text-slate-400">טוען נתונים...</div>';
-            loadingActive = true;
         }
 
         overlayEl.classList.remove('hidden');
@@ -269,7 +267,6 @@
             if (!detailsContentEl) return;
             detailsContentEl.innerHTML =
                 `<div class="text-center py-8 text-sm text-red-400">${escapeHtml(message)}</div>`;
-            loadingActive = false;
         };
         try {
             const response = await fetch(`/search-details/${encodeURIComponent(searchId)}`, {
@@ -277,7 +274,7 @@
                 credentials: 'same-origin'
             });
 
-            const contentType = response.headers.get('content-type') || '';
+            const contentType = (response.headers.get('content-type') || '').toLowerCase();
             let payload;
             if (contentType.includes('application/json')) {
                 payload = await response.json();
@@ -294,6 +291,7 @@
                 return;
             }
 
+            // API contract: { ok: true, data: { meta: {...}, data: {...} } }
             const payloadData = payload && payload.data;
             const meta = payloadData && payloadData.meta;
             const details = payloadData && payloadData.data;
@@ -302,7 +300,6 @@
                 return;
             }
             renderDetails(meta, details);
-            loadingActive = false;
         } catch (err) {
             console.error(err);
             showError();
