@@ -2212,6 +2212,7 @@ def create_app():
         consumed_count = get_daily_quota_usage(current_user.id, day_key)
         reserved_count = 0
         quota_used_after = consumed_count
+        display_quota_count = quota_used_after
 
         analyze_allowed_fields = {
             "make",
@@ -2382,6 +2383,8 @@ def create_app():
                 resp.headers["Retry-After"] = str(retry_after_seconds)
                 return resp
         quota_used_after = consumed_count
+        if not cache_hit and not bypass_owner:
+            display_quota_count = consumed_count + 1
 
         # 3) AI call (single grounded call)
         missing_info = derive_missing_info(validated)
@@ -2424,7 +2427,7 @@ def create_app():
 
             sanitized_output: Dict[str, Any] = {}
             try:
-                ai_output['source_tag'] = f"מקור: ניתוח AI חדש (חיפוש {quota_used_after}/{USER_DAILY_LIMIT})"
+                ai_output['source_tag'] = f"מקור: ניתוח AI חדש (חיפוש {display_quota_count}/{USER_DAILY_LIMIT})"
                 ai_output['mileage_note'] = note
                 ai_output['km_warn'] = False
                 ai_output["micro_reliability"] = compute_micro_reliability(ai_output, usage_profile)
@@ -2462,6 +2465,11 @@ def create_app():
             if history_saved:
                 reservation_finalized, quota_used_after = finalize_quota_reservation(reservation_id, current_user.id, day_key)
                 if not reservation_finalized:
+                    logger.error(
+                        "[QUOTA] finalize failed request_id=%s reservation_id=%s",
+                        get_request_id(),
+                        reservation_id,
+                    )
                     release_quota_reservation(reservation_id, current_user.id, day_key)
                     return api_error("quota_finalize_failed", "שגיאת שרת בעת עדכון המכסה.", status=500)
             else:
