@@ -1,1 +1,1 @@
-web: flask --app main:create_app db upgrade && flask --app main:create_app db current && gunicorn "main:create_app()" --bind 0.0.0.0:$PORT --timeout 180 --graceful-timeout 30 --keep-alive 5 --workers ${WEB_CONCURRENCY:-2}
+web: flask --app main:create_app db upgrade && gunicorn "main:create_app()" --bind 0.0.0.0:$PORT --timeout 180 --graceful-timeout 30 --keep-alive 5 --workers ${WEB_CONCURRENCY:-2}

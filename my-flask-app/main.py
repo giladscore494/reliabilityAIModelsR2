@@ -1922,6 +1922,10 @@ def create_app():
             ).order_by(AdvisorHistory.timestamp.desc()).all()
         except Exception:
             history_error = "לא הצלחנו לטעון את ההיסטוריה כעת."
+            try:
+                db.session.rollback()
+            except Exception:
+                logger.exception("[DASH] rollback failed request_id=%s", get_request_id())
             logger.exception("[DASH] DB query failed request_id=%s", get_request_id())
 
         searches_data = []
@@ -2308,6 +2312,12 @@ def create_app():
             ).order_by(SearchHistory.timestamp.desc()).first()
             if cached:
                 cache_hit = True
+                logger.info(
+                    "[CACHE] hit user_id=%s cache_key=%s request_id=%s",
+                    current_user.id,
+                    cache_key,
+                    get_request_id(),
+                )
                 result = json.loads(cached.result_json)
                 if not all(k in result for k in ("micro_reliability", "timeline_plan", "sim_model")):
                     micro = compute_micro_reliability(result, usage_profile)
@@ -2336,6 +2346,13 @@ def create_app():
             except Exception:
                 logger.exception("[CACHE] rollback failed after cache lookup error")
             logger.exception("[CACHE] cache lookup failed request_id=%s", get_request_id())
+        if not cache_hit:
+            logger.info(
+                "[CACHE] miss user_id=%s cache_key=%s request_id=%s",
+                current_user.id,
+                cache_key,
+                get_request_id(),
+            )
 
         # 2) Quota enforcement (only on cache miss)
         if not bypass_owner:
