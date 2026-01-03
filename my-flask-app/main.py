@@ -1471,6 +1471,12 @@ def create_app():
         else:
             uri = f"{canonical_base}/auth"
         print(f"[AUTH] Using redirect_uri={uri} (host={host})")
+        Build OAuth redirect URI pinned to the canonical apex domain.
+        Keeping the redirect URI stable avoids mismatches and
+        ensures Google is always called with https://yedaarechev.com/auth.
+        """
+        uri = f"{canonical_base}/auth"
+        print(f"[AUTH] Using redirect_uri={uri}")
         return uri
     
     # Phase 2G: Allowed hosts validation
