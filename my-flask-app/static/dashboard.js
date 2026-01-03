@@ -112,6 +112,12 @@
             return;
         }
 
+        if (data.ok === false) {
+            overlayContentEl.innerHTML =
+                `<div class="text-red-600 text-xs">הנתונים לא נשמרו בגלל שגיאת מודל (MODEL_JSON_INVALID).</div>`;
+            return;
+        }
+
         const sections = [];
 
         // תג מקור (cache/AI חדש)

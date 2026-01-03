@@ -105,7 +105,7 @@
                     {% else %}
                         <!-- משתמש מחובר שאינו הבעלים: כפתור "בקרוב" -->
                         <button type="button"
-                                onclick="window.location='{{ url_for('recommendations') }}'"
+                                onclick="window.location='{{ url_for('coming_soon') }}'"
                                 class="relative px-5 py-2.5 rounded-full bg-slate-800/60 text-slate-300 border border-slate-700/70 hover:bg-slate-700/70 hover:text-white transition-all">
                             בקרוב
                         </button>
@@ -365,6 +365,7 @@
                     <button class="tab-btn active" onclick="window.openTab(event, 'summary')">📄 סיכום מנהלים</button>
                     <button class="tab-btn" onclick="window.openTab(event, 'faults')">🔧 תקלות נפוצות</button>
                     <button class="tab-btn" onclick="window.openTab(event, 'costs')">💰 עלויות אחזקה</button>
+                    <button class="tab-btn" onclick="window.openTab(event, 'report')">📑 דוח אמינות</button>
                     <button class="tab-btn" onclick="window.openTab(event, 'competitors')">🆚 מתחרים</button>
                 </div>
 
@@ -385,11 +386,19 @@
                             <p id="summary-detailed-text"
                                class="text-slate-300 text-sm leading-relaxed"></p>
                         </div>
+
+                        <div id="sources-block" class="mt-4 space-y-2">
+                            <h4 class="text-sm font-bold text-slate-300 flex items-center gap-2">
+                                מקורות החיפוש
+                            </h4>
+                            <ul id="sources-list" class="list-disc list-inside text-sm text-slate-200 space-y-1"></ul>
+                        </div>
                     </div>
                 </div>
 
                 <div id="faults" class="tab-content prose prose-invert max-w-none"></div>
                 <div id="costs" class="tab-content prose prose-invert max-w-none"></div>
+                <div id="report" class="tab-content prose prose-invert max-w-none"></div>
                 <div id="competitors" class="tab-content prose prose-invert max-w-none"></div>
             </div>
         </div>

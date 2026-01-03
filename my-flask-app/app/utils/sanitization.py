@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import html
 from typing import Any, Dict, Mapping, Optional, Sequence
+import re
 
 
 # -----------------------------
@@ -21,6 +22,20 @@ from typing import Any, Dict, Mapping, Optional, Sequence
 
 _MAX_STR = 8000
 _MAX_LIST = 50
+_ZERO_WIDTH_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2066-\u2069]")
+
+
+def _normalize_text(raw: str) -> str:
+    """Iteratively unescape and clean control characters/whitespace."""
+    s = raw
+    for _ in range(3):
+        unescaped = html.unescape(s)
+        if unescaped == s:
+            break
+        s = unescaped
+    s = _ZERO_WIDTH_RE.sub("", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
 
 
 def _escape(s: Any) -> str:
@@ -28,7 +43,8 @@ def _escape(s: Any) -> str:
         s = "" if s is None else str(s)
     if len(s) > _MAX_STR:
         s = s[:_MAX_STR]
-    return html.escape(s, quote=True)
+    s = _normalize_text(s)
+    return html.escape(s, quote=False)
 
 
 def _coerce_dict(value: Any) -> Dict[str, Any]:
@@ -78,6 +94,9 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
 
     # allowlist fields used by the frontend
     out: Dict[str, Any] = {}
+    out["ok"] = bool(src.get("ok", True))
+    if "error" in src:
+        out["error"] = _escape(src.get("error"))
 
     # numbers
     if "base_score_calculated" in src:
@@ -96,11 +115,34 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
         arr = _coerce_list(v)[:max_items]
         return [_escape(x) for x in arr]
 
+    def _sanitize_sources(v: Any) -> list:
+        items = _coerce_list(v)[:_MAX_LIST]
+        out_list = []
+        for item in items:
+            if isinstance(item, dict):
+                out_list.append(
+                    {
+                        "title": _escape(item.get("title")),
+                        "url": _escape(item.get("url")),
+                        "domain": _escape(item.get("domain")),
+                    }
+                )
+            else:
+                out_list.append(_escape(item))
+        return out_list
+
     if "common_issues" in src:
         out["common_issues"] = _sanitize_str_list(src.get("common_issues"), max_items=25)
 
     if "recommended_checks" in src:
         out["recommended_checks"] = _sanitize_str_list(src.get("recommended_checks"), max_items=25)
+
+    if "search_queries" in src:
+        out["search_queries"] = _sanitize_str_list(src.get("search_queries"), max_items=10)
+    if "search_performed" in src:
+        out["search_performed"] = bool(src.get("search_performed"))
+    if "sources" in src:
+        out["sources"] = _sanitize_sources(src.get("sources"))
 
     # issues_with_costs: list[dict]
     issues_with_costs_out = []
@@ -135,6 +177,9 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
     # strict score_breakdown
     if "score_breakdown" in src:
         out["score_breakdown"] = _sanitize_score_breakdown(src.get("score_breakdown"))
+
+    if "reliability_report" in src:
+        out["reliability_report"] = sanitize_reliability_report_response(src.get("reliability_report"))
 
     return out
 
@@ -402,6 +447,12 @@ def sanitize_reliability_report_response(
     inferred_missing = [_escape(m) for m in inferred_missing][:10]
 
     out: Dict[str, Any] = {}
+    if isinstance(src.get("available"), bool):
+        out["available"] = bool(src.get("available"))
+        if src.get("available") is False:
+            if "reason" in src:
+                out["reason"] = _escape(src.get("reason"))
+            return out
     out["overall_score"] = _clamp_int(
         src.get("overall_score", src.get("base_score_calculated")),
         lo=0,

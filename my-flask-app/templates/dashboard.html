@@ -146,6 +146,9 @@
                                     <span class="text-primary text-base font-normal">
                                         {{ s.year }}
                                     </span>
+                                    {% if s.data.get('reliability_report') %}
+                                        <span class="text-[10px] px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-500/40">כולל דוח</span>
+                                    {% endif %}
                                 </h3>
 
                                 <div class="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-slate-400">
@@ -327,6 +330,7 @@
         const checks = Array.isArray(data.recommended_checks) ? data.recommended_checks : [];
         const competitors = Array.isArray(data.common_competitors_brief) ? data.common_competitors_brief : [];
         const sourceTag = data.source_tag || '';
+        const reliabilityReport = data.reliability_report || {};
 
         let baseColor = 'text-slate-100';
         const baseNum = Number(baseScore);
@@ -423,6 +427,38 @@
                     `).join('')}
                 </ul>
             `;
+        }
+
+        let reportHtml = '';
+        if (reliabilityReport && reliabilityReport.available === false) {
+            reportHtml = '<p class="text-xs text-slate-400">דוח אמינות לא זמין (MISSING_OR_INVALID).</p>';
+        } else if (Object.keys(reliabilityReport).length) {
+            const risks = Array.isArray(reliabilityReport.top_risks) ? reliabilityReport.top_risks : [];
+            const checklist = reliabilityReport.buyer_checklist || {};
+            reportHtml = `
+                <div class="space-y-2 text-xs text-slate-200">
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm font-bold text-white">ציון דוח:</span>
+                        <span class="px-2 py-1 rounded bg-slate-800 border border-slate-700">${escapeHtml(reliabilityReport.overall_score || '')}</span>
+                        <span class="px-2 py-1 rounded bg-slate-800 border border-slate-700">ביטחון: ${escapeHtml(reliabilityReport.confidence || '')}</span>
+                    </div>
+                    <p class="text-slate-100">${escapeHtml(reliabilityReport.one_sentence_verdict || '')}</p>
+                    <div>
+                        <div class="font-semibold text-slate-100 mb-1">סיכונים מרכזיים</div>
+                        <ul class="list-disc pr-4 space-y-1">
+                            ${risks.map(r => `<li>${escapeHtml(r.risk_title || '')} – ${escapeHtml(r.why_it_matters || '')}</li>`).join('') || '<li class="text-slate-400">אין סיכונים מפורטים.</li>'}
+                        </ul>
+                    </div>
+                    <div>
+                        <div class="font-semibold text-slate-100 mb-1">שאלות למוכר</div>
+                        <ul class="list-disc pr-4 space-y-1">
+                            ${(checklist.ask_seller || []).map(x => `<li>${escapeHtml(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
+                        </ul>
+                    </div>
+                </div>
+            `;
+        } else {
+            reportHtml = '<p class="text-xs text-slate-400">דוח אמינות לא נשלח עבור חיפוש זה.</p>';
         }
 
         const avgRepairHtml = avgRepair !== undefined && avgRepair !== null
@@ -543,6 +579,13 @@
                     מתחרים באותה קטגוריה
                 </h4>
                 ${competitorsHtml || '<p class="text-xs text-slate-400">אין רשימת מתחרים.</p>'}
+            </section>
+
+            <section class="bg-dark-lighter/70 border border-slate-800 rounded-2xl p-4 space-y-2 scroll-mt-32">
+                <h4 class="text-sm font-bold text-slate-100">
+                    דוח אמינות מורחב
+                </h4>
+                ${reportHtml}
             </section>
 
             <section id="sec-sources" class="bg-dark-lighter/70 border border-slate-800 rounded-2xl p-4 space-y-2 mb-4 scroll-mt-32">
