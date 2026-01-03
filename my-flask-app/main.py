@@ -1596,7 +1596,7 @@ def create_app():
     migrate.init_app(app, db)
 
     with app.app_context():
-        ensure_search_history_cache_key(db, logger)
+        ensure_search_history_cache_key(app, db, logger)
 
     login_manager.login_view = 'login'
     
@@ -2479,6 +2479,12 @@ def create_app():
                 )
                 db.session.add(new_log)
                 db.session.commit()
+                logger.info(
+                    "[CACHE] stored cache_key=%s user_id=%s request_id=%s",
+                    cache_key,
+                    current_user.id,
+                    get_request_id(),
+                )
                 history_saved = True
             except Exception as e:
                 print(f"[DB] ⚠️ save failed: {e}")
