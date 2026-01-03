@@ -149,3 +149,17 @@ def test_quota_row_created_once(app, logged_in_client):
         rows = DailyQuotaUsage.query.filter_by(user_id=user_id, day=day_key).all()
         assert len(rows) == 1
         assert rows[0].count == 0
+
+
+def test_login_returns_google_redirect(monkeypatch, client):
+    # Avoid live calls to Google during tests
+    def fake_authorize_redirect(redirect_uri):
+        return main.redirect(f"https://accounts.google.com/o/oauth2/v2/auth?redirect_uri={redirect_uri}")
+
+    monkeypatch.setattr(main.oauth.google, "authorize_redirect", fake_authorize_redirect)
+
+    resp = client.get("/login", base_url="https://yedaarechev.com")
+    assert resp.status_code in (302, 303)
+    location = resp.headers.get("Location", "")
+    assert "accounts.google.com" in location
+    assert "yedaarechev.com/auth" in location

@@ -1456,19 +1456,12 @@ def create_app():
     # פונקציה חכמה לבחירת redirect_uri
     def get_redirect_uri():
         """
-        Build OAuth redirect URI based on the current request host.
-        - Custom domain stays fixed.
-        - Otherwise, use the current host (Render/local/etc).
+        Build OAuth redirect URI pinned to the canonical apex domain.
+        Keeping the redirect URI stable avoids mismatches and
+        ensures Google is always called with https://yedaarechev.com/auth.
         """
-        host = (request.host or "").lower()
-        host_only = host.split(":")[0]
-        canonical_redirect = f"{canonical_base}/auth"
-        if host_only in (canonical_host, f"www.{canonical_host}"):
-            uri = canonical_redirect
-        else:
-            # request.url_root already includes scheme + host (ProxyFix handles X-Forwarded-Proto/Host)
-            uri = request.url_root.rstrip("/") + "/auth"
-        print(f"[AUTH] Using redirect_uri={uri} (host={host})")
+        uri = f"{canonical_base}/auth"
+        print(f"[AUTH] Using redirect_uri={uri}")
         return uri
     
     # Phase 2G: Allowed hosts validation

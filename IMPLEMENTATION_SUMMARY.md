@@ -6,6 +6,8 @@ This PR implements comprehensive security hardening to make the reliabilityAIMod
 
 **Status: ✅ COMPLETE AND READY FOR MERGE**
 
+OAuth fixed: click login redirects correctly again.
+
 ---
 
 ## Repository File Tree
