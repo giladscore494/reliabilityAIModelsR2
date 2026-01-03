@@ -263,12 +263,10 @@
         overlayEl.classList.remove('hidden');
         document.body.style.overflow = 'hidden';
 
-        let contentUpdated = false;
         const showError = (message = 'שגיאה בטעינת הנתונים.') => {
             if (!detailsContentEl) return;
             detailsContentEl.innerHTML =
                 `<div class="text-center py-8 text-sm text-red-400">${escapeHtml(message)}</div>`;
-            contentUpdated = true;
         };
         try {
             const response = await fetch(`/search-details/${encodeURIComponent(searchId)}`, {
@@ -281,8 +279,7 @@
             if (contentType.includes('application/json')) {
                 payload = await response.json();
             } else {
-                const text = await response.text();
-                throw new Error(`Unexpected content-type: ${contentType || 'unknown'}. Body: ${text.slice(0, 200)}`);
+                throw new Error(`Unexpected content-type: ${contentType || 'unknown'}`);
             }
 
             if (!response.ok || (payload && payload.error)) {
@@ -291,16 +288,19 @@
                 return;
             }
 
-            const dataBlock = payload.data || {};
+            const dataBlock = (payload && payload.data) || null;
+            if (!dataBlock || typeof dataBlock !== 'object') {
+                showError('נתוני חיפוש חסרים.');
+                return;
+            }
             const meta = dataBlock.meta || {};
             const data = dataBlock.data || dataBlock;
             renderDetails(meta, data);
-            contentUpdated = true;
         } catch (err) {
             console.error(err);
             showError();
         } finally {
-            if (detailsContentEl && !contentUpdated) {
+            if (detailsContentEl && (detailsContentEl.textContent || '').includes('טוען נתונים')) {
                 showError();
             }
         }
