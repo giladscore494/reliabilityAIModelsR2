@@ -1782,7 +1782,7 @@ def create_app():
         """
         API המחזיר דו\"ח אמינות תמציתי בפורמט JSON קשיח כפי שמוגדר בדרישות החדשות.
         """
-        return jsonify({"error": "endpoint_deprecated", "message": "הדו\"ח נכלל כעת בתשובת /analyze"}), 400
+        return jsonify({"error": "endpoint_deprecated", "message": "הדו\"ח נכלל כעת בתשובת /analyze"}), 410
 
     @app.route('/analyze', methods=['POST'])
     @login_required
@@ -1935,7 +1935,7 @@ def create_app():
                     quota_used_after = rollback_quota_increment(current_user.id, day_key)
                     quota_incremented = False
                 log_quota_event(False, quota_used_after, retry_after_seconds, allowed_flag=False)
-                return jsonify({"ok": False, "error": "MODEL_JSON_INVALID", "request_id": get_request_id()}), 502
+                return jsonify({"ok": False, "error": "MODEL_JSON_INVALID", "message": "פלט ה-AI לא הובן. נסה שוב בעוד רגע.", "request_id": get_request_id()}), 502
             if not isinstance(model_output, dict):
                 model_output = {}
         except Exception:
@@ -1945,7 +1945,7 @@ def create_app():
             log_rejection("server_error", "AI model call failed")
             traceback.print_exc()
             log_quota_event(False, quota_used_after, retry_after_seconds, allowed_flag=False)
-            return jsonify({"ok": False, "error": "ai_call_failed", "request_id": get_request_id()}), 500
+            return jsonify({"ok": False, "error": "ai_call_failed", "message": "שגיאה בתקשורת עם מנוע ה-AI. נסה שוב מאוחר יותר.", "request_id": get_request_id()}), 500
 
         # Ensure reliability_report presence even if malformed
         reliability_report = model_output.get("reliability_report")

@@ -162,7 +162,7 @@
         if (!resultsContainer) return;
 
         if (data && data.ok === false) {
-            alert(data.error || 'שגיאת מודל: פלט לא תקין.');
+            alert(data.message || data.error || 'שגיאת מודל: פלט לא תקין.');
             return;
         }
 
