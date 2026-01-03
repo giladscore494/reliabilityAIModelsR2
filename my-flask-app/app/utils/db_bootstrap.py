@@ -20,7 +20,8 @@ def ensure_search_history_cache_key(app, db, logger=None):
             return
 
         columns = {col["name"] for col in inspector.get_columns("search_history")}
-        if "cache_key" not in columns:
+        has_cache_key = "cache_key" in columns
+        if not has_cache_key:
             try:
                 db.session.execute(
                     text(
@@ -28,24 +29,26 @@ def ensure_search_history_cache_key(app, db, logger=None):
                     )
                 )
                 db.session.commit()
+                has_cache_key = True
             except Exception as col_exc:
                 db.session.rollback()
                 if log:
                     log.warning("[DB] cache_key add failed: %s", col_exc)
                 return
 
-        try:
-            db.session.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS ix_search_history_user_cache_ts "
-                    "ON search_history (user_id, cache_key, timestamp DESC);"
+        if has_cache_key:
+            try:
+                db.session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_search_history_user_cache_ts "
+                        "ON search_history (user_id, cache_key, timestamp DESC);"
+                    )
                 )
-            )
-            db.session.commit()
-        except Exception as idx_exc:
-            db.session.rollback()
-            if log:
-                log.warning("[DB] index ensure skipped: %s", idx_exc)
+                db.session.commit()
+            except Exception as idx_exc:
+                db.session.rollback()
+                if log:
+                    log.warning("[DB] index ensure skipped: %s", idx_exc)
 
         if log:
             log.info("[DB] cache_key ensured on search_history (added if missing)")
