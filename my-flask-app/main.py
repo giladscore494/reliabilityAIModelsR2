@@ -2462,25 +2462,15 @@ def create_app():
             return api_error("analyze_postprocess_failed", "שגיאת שרת (שלב 5): נסה שוב מאוחר יותר.", status=500)
 
         if not bypass_owner:
-            if history_saved:
-                reservation_finalized, quota_used_after = finalize_quota_reservation(reservation_id, current_user.id, day_key)
-                if not reservation_finalized:
-                    logger.error(
-                        "[QUOTA] finalize failed request_id=%s reservation_id=%s",
-                        get_request_id(),
-                        reservation_id,
-                    )
-                    release_quota_reservation(reservation_id, current_user.id, day_key)
-                    return api_error("quota_finalize_failed", "שגיאת שרת בעת עדכון המכסה.", status=500)
-            else:
-                released = release_quota_reservation(reservation_id, current_user.id, day_key)
-                if not released:
-                    logger.warning(
-                        "[QUOTA] release failed after history save error user_id=%s request_id=%s",
-                        current_user.id,
-                        get_request_id(),
-                    )
-                quota_used_after = get_daily_quota_usage(current_user.id, day_key)
+            reservation_finalized, quota_used_after = finalize_quota_reservation(reservation_id, current_user.id, day_key)
+            if not reservation_finalized:
+                logger.error(
+                    "[QUOTA] finalize failed request_id=%s reservation_id=%s",
+                    get_request_id(),
+                    reservation_id,
+                )
+                release_quota_reservation(reservation_id, current_user.id, day_key)
+                return api_error("quota_finalize_failed", "שגיאת שרת בעת עדכון המכסה.", status=500)
         else:
             quota_used_after = get_daily_quota_usage(current_user.id, day_key)
 
