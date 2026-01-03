@@ -7,7 +7,7 @@
 
 import os, re, json, traceback, logging, uuid, random
 import time as pytime
-from typing import Optional, Tuple, Any, Dict
+from typing import Optional, Tuple, Any, Dict, Mapping
 from datetime import datetime, time, timedelta, date
 from zoneinfo import ZoneInfo
 from urllib.parse import urlparse
@@ -35,7 +35,12 @@ from google.genai import types as genai_types
 # --- Input Validation (Security: Tier 2 - S3 + S4) ---
 from app.utils.validation import ValidationError, validate_analyze_request
 # --- Output Sanitization (Security: Tier 2 - S5 + S6) ---
-from app.utils.sanitization import sanitize_analyze_response, sanitize_advisor_response
+from app.utils.sanitization import (
+    sanitize_analyze_response,
+    sanitize_advisor_response,
+    derive_missing_info,
+    sanitize_reliability_report_response,
+)
 # --- Prompt Injection Defense (Security: Phase 1C) ---
 from app.utils.prompt_defense import (
     sanitize_user_input_for_prompt,
@@ -261,16 +266,16 @@ def mileage_adjustment(mileage_range: str) -> Tuple[int, Optional[str]]:
 def apply_mileage_logic(model_output: dict, mileage_range: str) -> Tuple[dict, Optional[str]]:
     try:
         adj, note = mileage_adjustment(mileage_range)
-        base_key = "base_score_calculated"
-        if base_key in model_output:
-            try:
-                base_val = float(model_output[base_key])
-            except Exception:
-                m = _re.search(r"-?\d+(\.\d+)?", str(model_output[base_key]))
-                base_val = float(m.group()) if m else None
-            if base_val is not None:
-                new_val = max(0.0, min(100.0, base_val + adj))
-                model_output[base_key] = round(new_val, 1)
+        for base_key in ("base_score_calculated", "overall_score"):
+            if base_key in model_output:
+                try:
+                    base_val = float(model_output[base_key])
+                except Exception:
+                    m = _re.search(r"-?\d+(\.\d+)?", str(model_output[base_key]))
+                    base_val = float(m.group()) if m else None
+                if base_val is not None:
+                    new_val = max(0.0, min(100.0, base_val + adj))
+                    model_output[base_key] = round(new_val, 1)
         return model_output, note
     except Exception:
         return model_output, None
@@ -332,6 +337,71 @@ def build_prompt(make, model, sub_model, year, fuel_type, transmission, mileage_
 {bounded_user_data}
 
 כתוב בעברית בלבד. החזר ONLY JSON, ללא טקסט נוסף.
+""".strip()
+
+
+def build_reliability_report_prompt(payload: dict, missing_info: list[str]) -> str:
+    """Prompt for the strict reliability report JSON schema."""
+    safe_make = escape_prompt_input(payload.get("make"), max_length=120)
+    safe_model = escape_prompt_input(payload.get("model"), max_length=120)
+    safe_sub_model = escape_prompt_input(payload.get("sub_model"), max_length=120)
+    safe_year = escape_prompt_input(payload.get("year"), max_length=10)
+    safe_mileage = escape_prompt_input(payload.get("mileage_range") or payload.get("mileage_km"), max_length=50)
+    safe_fuel = escape_prompt_input(payload.get("fuel_type"), max_length=50)
+    safe_trans = escape_prompt_input(payload.get("transmission"), max_length=50)
+    safe_budget = escape_prompt_input(payload.get("budget") or payload.get("budget_max"), max_length=30)
+    safe_owner_hist = escape_prompt_input(payload.get("ownership_history"), max_length=200)
+    safe_usage_city = escape_prompt_input(payload.get("usage_city_pct"), max_length=20)
+
+    user_data = f"""יצרן: {safe_make}
+דגם: {safe_model}
+תת-דגם: {safe_sub_model or 'לא צוין'}
+שנה: {safe_year}
+קילומטראז׳: {safe_mileage or 'לא צוין'}
+דלק: {safe_fuel or 'לא צוין'}
+גיר: {safe_trans or 'לא צוין'}
+תקציב: {safe_budget or 'לא צוין'}
+היסטוריית בעלויות: {safe_owner_hist or 'לא צוין'}
+שימוש עירוני באחוזים: {safe_usage_city or 'לא צוין'}"""
+
+    bounded_user_data = wrap_user_input_in_boundary(user_data)
+    data_instruction = create_data_only_instruction()
+    missing_block = ", ".join(missing_info) if missing_info else "אין"
+
+    return f"""
+{data_instruction}
+
+אתה יועץ אמינות רכבים בישראל. החזר JSON תקני בלבד (ללא טקסט חופשי, ללא Markdown) עם המפתחות המדויקים:
+{{
+  "overall_score": 0-100,
+  "confidence": "high"|"medium"|"low",
+  "one_sentence_verdict": "משפט החלטה קצר",
+  "top_risks": [
+    {{"risk_title": "", "why_it_matters": "", "how_to_check": "", "severity": "low|medium|high", "cost_impact": "low|medium|high"}}
+  ],
+  "expected_ownership_cost": {{"maintenance_level": "low|medium|high", "typical_yearly_range_ils": "", "notes": ""}},
+  "buyer_checklist": {{
+    "ask_seller": ["שאלות/מסמכים"],
+    "inspection_focus": ["דגשים לבדיקת מוסך"],
+    "walk_away_signs": ["דגלים אדומים לביטול עסקה"]
+  }},
+  "what_changes_with_mileage": [
+    {{"mileage_band": "", "what_to_expect": ""}}
+  ],
+  "recommended_next_step": {{"action": "", "reason": ""}},
+  "missing_info": ["פריטים שחסרים בקלט"]
+}}
+
+חוקים:
+- עברית בלבד, טון ענייני ותמציתי, ללא שיווק.
+- אל תנחש מידע חסר; פרט אותו ב-missing_info.
+- אם מציינים סיכון, חובה לכלול how_to_check.
+- דגש על פעולות בטוחות לקונה לפני רכישה.
+
+נתוני הקלט:
+{bounded_user_data}
+
+Missing info שנמסר לך: {missing_block}
 """.strip()
 
 
@@ -1583,6 +1653,89 @@ def create_app():
             db.session.rollback()
 
         return jsonify(sanitized_result)
+
+    @app.route('/reliability_report', methods=['POST'])
+    @login_required
+    def reliability_report():
+        """
+        API המחזיר דו\"ח אמינות תמציתי בפורמט JSON קשיח כפי שמוגדר בדרישות החדשות.
+        """
+        user_id = current_user.id if current_user.is_authenticated else None
+        log_access_decision('/reliability_report', user_id, 'allowed', 'authenticated user')
+
+        client_ip = get_client_ip()
+        ip_allowed, ip_count, ip_resets_at = check_and_increment_ip_rate_limit(client_ip, limit=PER_IP_PER_MIN_LIMIT)
+        if not ip_allowed:
+            retry_after = max(0, int((ip_resets_at - datetime.utcnow()).total_seconds()))
+            resp = jsonify({
+                "error": "rate_limited",
+                "limit": PER_IP_PER_MIN_LIMIT,
+                "used": ip_count,
+                "remaining": max(0, PER_IP_PER_MIN_LIMIT - ip_count),
+                "resets_at": ip_resets_at.isoformat(),
+                "request_id": get_request_id(),
+            })
+            resp.status_code = 429
+            resp.headers["Retry-After"] = str(retry_after)
+            return resp
+
+        try:
+            payload = request.get_json(force=True) or {}
+        except Exception:
+            return jsonify({"error": "קלט JSON לא תקין", "field": "payload", "request_id": get_request_id()}), 400
+
+        try:
+            validated = validate_analyze_request(payload)
+        except ValidationError as e:
+            return jsonify({'error': e.message, 'field': e.field, 'request_id': get_request_id()}), 400
+
+        missing_info = derive_missing_info(validated)
+
+        quota_incremented = False
+        day_key, _, _, resets_at, _, retry_after_seconds = compute_quota_window(app_tz)
+        quota_used_after = get_daily_quota_usage(current_user.id, day_key)
+        bypass_owner = OWNER_BYPASS_QUOTA and is_owner_user()
+        if not bypass_owner:
+            try:
+                allowed, quota_used_after = check_and_increment_daily_quota(
+                    current_user.id,
+                    USER_DAILY_LIMIT,
+                    day_key,
+                    now_utc=datetime.utcnow(),
+                )
+                quota_incremented = allowed
+                if not allowed:
+                    response = jsonify({
+                        "error": "שגיאת מגבלה: ניצלת את כל החיפושים להיום. נסה שוב מחר.",
+                        "limit": USER_DAILY_LIMIT,
+                        "used": quota_used_after,
+                        "remaining": max(0, USER_DAILY_LIMIT - quota_used_after),
+                        "resets_at": resets_at.isoformat()
+                    })
+                    response.status_code = 429
+                    response.headers["Retry-After"] = str(retry_after_seconds)
+                    return response
+            except Exception as e:
+                log_rejection("server_error", f"Quota check failed: {type(e).__name__}")
+                traceback.print_exc()
+                return jsonify({"error": "שגיאת שרת (מגבלה): נסה שוב מאוחר יותר.", "code": "quota_check_failed", "request_id": get_request_id()}), 500
+
+        try:
+            prompt = build_reliability_report_prompt(validated, missing_info)
+            model_output = call_model_with_retry(prompt)
+            model_output, _ = apply_mileage_logic(model_output, str(validated.get("mileage_range", "")))
+            sanitized_output = sanitize_reliability_report_response(
+                model_output,
+                missing_info=missing_info,
+                payload=validated,
+            )
+            return jsonify(sanitized_output)
+        except Exception as e:
+            if quota_incremented:
+                rollback_quota_increment(current_user.id, day_key)
+            log_rejection("server_error", f"Reliability report AI failed: {type(e).__name__}")
+            traceback.print_exc()
+            return jsonify({"error": "שגיאת AI: נסה שוב מאוחר יותר.", "code": "reliability_report_failed", "request_id": get_request_id()}), 502
 
     @app.route('/analyze', methods=['POST'])
     @login_required

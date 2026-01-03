@@ -12,7 +12,7 @@ Security goals:
 from __future__ import annotations
 
 import html
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Mapping, Optional, Sequence
 
 
 # -----------------------------
@@ -255,3 +255,214 @@ def sanitize_advisor_api_response(payload: Any) -> Dict[str, Any]:
 # Backwards-compatible name used by main.py
 def sanitize_advisor_response(payload: Any) -> Dict[str, Any]:
     return sanitize_advisor_api_response(payload)
+
+
+# -----------------------------
+# Reliability report (strict JSON spec)
+# -----------------------------
+
+_CONFIDENCE_ALLOWED = {"high", "medium", "low"}
+_LEVEL_ALLOWED = {"low", "medium", "high"}
+
+
+def _derive_missing_info(payload: Optional[Mapping[str, Any]]) -> list:
+    """Infer missing info items from the incoming payload."""
+    if not payload:
+        return []
+
+    labels = {
+        "make": "יצרן",
+        "model": "דגם",
+        "sub_model": "תת-דגם/תצורה",
+        "year": "שנת ייצור",
+        "trim": "רמת גימור/מנוע",
+        "engine": "מנוע/נפח",
+        "mileage_km": "קילומטראז׳ מדויק",
+        "mileage_range": "טווח קילומטראז׳",
+        "ownership_history": "היסטוריית בעלויות",
+        "usage_city_pct": "אחוז נסיעה עירונית",
+        "budget": "תקציב רכישה",
+        "budget_min": "תקציב מינימלי",
+        "budget_max": "תקציב מקסימלי",
+    }
+    missing = []
+    for field, label in labels.items():
+        if not payload.get(field):
+            missing.append(label)
+    return missing
+
+
+def derive_missing_info(payload: Optional[Mapping[str, Any]]) -> list:
+    """Public helper to infer missing info items from request payloads."""
+    return _derive_missing_info(payload)
+
+
+def _normalize_level(value: Any, default: str = "medium") -> str:
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in _LEVEL_ALLOWED:
+            return lowered
+    return default
+
+
+def _normalize_confidence(value: Any, missing_info: Sequence[str]) -> str:
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in _CONFIDENCE_ALLOWED:
+            return lowered
+    if len(missing_info) >= 4:
+        return "low"
+    if missing_info:
+        return "medium"
+    return "high"
+
+
+def _sanitize_top_risks(value: Any) -> list:
+    risks_out = []
+    allowed_values = {"low", "medium", "high"}
+    for row in _coerce_list(value)[:6]:
+        if not isinstance(row, dict):
+            continue
+        sev = str(row.get("severity", "")).strip().lower()
+        impact = str(row.get("cost_impact", "")).strip().lower()
+        risks_out.append(
+            {
+                "risk_title": _escape(row.get("risk_title")),
+                "why_it_matters": _escape(row.get("why_it_matters")),
+                "how_to_check": _escape(row.get("how_to_check")),
+                "severity": sev if sev in allowed_values else "medium",
+                "cost_impact": impact if impact in allowed_values else "medium",
+            }
+        )
+    if len(risks_out) < 3:
+        defaults = [
+            {
+                "risk_title": "היסטוריית טיפולים לא מלאה",
+                "why_it_matters": "טיפולים שלא בוצעו בזמן מגדילים סיכון לתקלות במנוע ובגיר.",
+                "how_to_check": "בקש חשבוניות טיפולים ומספר בעלים קודמים; ודא טיפול גדול אחרון.",
+                "severity": "medium",
+                "cost_impact": "medium",
+            },
+            {
+                "risk_title": "מצב גיר ומנוע",
+                "why_it_matters": "תקלות בגיר/מנוע הן היקרות ביותר ומורידות ערך רכב.",
+                "how_to_check": "בבדיקת מוסך: סריקת מחשב, רעידות, החלקות הילוכים, הדלקת נורות.",
+                "severity": "high",
+                "cost_impact": "high",
+            },
+            {
+                "risk_title": "שחיקת מתלים ובלמים",
+                "why_it_matters": "שחיקה מתקדמת פוגעת בבטיחות וגורמת להוצאות מיידיות.",
+                "how_to_check": "בדוק רעשים, זליגות, רפידות וצלחות; סיבוב גלגלים ובדיקה במוסך.",
+                "severity": "medium",
+                "cost_impact": "medium",
+            },
+        ]
+        for item in defaults:
+            if len(risks_out) >= 3:
+                break
+            risks_out.append(item)
+    return risks_out[:6]
+
+
+def _sanitize_str_list(value: Any, *, max_items: int = 10) -> list:
+    return [_escape(v) for v in _coerce_list(value)[:max_items]]
+
+
+def _sanitize_mileage_changes(value: Any) -> list:
+    items = []
+    for row in _coerce_list(value)[:5]:
+        if not isinstance(row, dict):
+            continue
+        items.append(
+            {
+                "mileage_band": _escape(row.get("mileage_band")),
+                "what_to_expect": _escape(row.get("what_to_expect")),
+            }
+        )
+    if not items:
+        items = [
+            {"mileage_band": "עד 120k", "what_to_expect": "בצע בדיקת מוסך מלאה; לוודא טיפולים בזמן ורצועת תזמון אם רלוונטי."},
+            {"mileage_band": "120k–180k", "what_to_expect": "לשים דגש על גיר, מערכת קירור ומתלים; לבדוק נזילות וצריכת שמן."},
+            {"mileage_band": "מעל 180k", "what_to_expect": "לתמחר הוצאות מתלים/בלמים/גומיות; להימנע מרכב ללא היסטוריית טיפולים מוכחת."},
+        ]
+    return items[:5]
+
+
+def sanitize_reliability_report_response(
+    response: Any,
+    missing_info: Optional[Sequence[str]] = None,
+    payload: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Sanitize AI response for the vehicle reliability report (strict JSON schema).
+    """
+    src = _coerce_dict(response)
+    inferred_missing = list(missing_info) if missing_info else _derive_missing_info(payload)
+    inferred_missing = [_escape(m) for m in inferred_missing][:10]
+
+    out: Dict[str, Any] = {}
+    out["overall_score"] = _clamp_int(
+        src.get("overall_score", src.get("base_score_calculated")),
+        lo=0,
+        hi=100,
+        default=0,
+    )
+    out["confidence"] = _normalize_confidence(src.get("confidence"), inferred_missing)
+    out["one_sentence_verdict"] = _escape(src.get("one_sentence_verdict") or "")
+    out["top_risks"] = _sanitize_top_risks(src.get("top_risks"))
+
+    expected_cost_src = _coerce_dict(src.get("expected_ownership_cost"))
+    out["expected_ownership_cost"] = {
+        "maintenance_level": _normalize_level(expected_cost_src.get("maintenance_level")),
+        "typical_yearly_range_ils": _escape(
+            expected_cost_src.get("typical_yearly_range_ils") or "לא ידוע"
+        ),
+        "notes": _escape(
+            expected_cost_src.get("notes")
+            or "הערכה מבוססת מידע חלקי; ודא הצעת מחיר במוסך לפני קנייה."
+        ),
+    }
+
+    buyer_src = _coerce_dict(src.get("buyer_checklist"))
+    out["buyer_checklist"] = {
+        "ask_seller": _sanitize_str_list(buyer_src.get("ask_seller"), max_items=10)
+        or [
+            "בקש היסטוריית טיפולים מלאה (חשבוניות ומוסכים)",
+            "כמה בעלים היו ולמה נמכר",
+            "האם הרכב עבר תאונות או תיקוני שלדה",
+            "מתי הוחלפו בלמים, צמיגים ורצועת תזמון/שרשרת",
+            "האם יש רעידות, נזילות או תקלות ידועות",
+        ],
+        "inspection_focus": _sanitize_str_list(buyer_src.get("inspection_focus"), max_items=10)
+        or [
+            "סריקת מחשב לאיתור תקלות בגיר/מנוע",
+            "בדיקת נזילות שמן/מים ומערכת קירור",
+            "בדיקת מתלים, בושינגים ובלמים תחת עומס",
+            "בדיקת תיבת הילוכים בנסיעת מבחן בכל הילוך",
+            "מדידת עובי צמיגים ובדיקת ייצור/סדקים",
+        ],
+        "walk_away_signs": _sanitize_str_list(buyer_src.get("walk_away_signs"), max_items=6)
+        or [
+            "אין היסטוריית טיפולים או סירוב להציג חשבוניות",
+            "רעידות/החלקות בגיר או נורת אזהרה דולקת",
+            "נזילות שמן/מים משמעותיות מתחת לרכב",
+            "תיקוני שלדה או פגיעות בטיחות שלא דווחו",
+        ],
+    }
+
+    out["what_changes_with_mileage"] = _sanitize_mileage_changes(src.get("what_changes_with_mileage"))
+    out["recommended_next_step"] = {
+        "action": _escape(
+            _coerce_dict(src.get("recommended_next_step")).get("action")
+            or "קבע בדיקת מוסך מלאה ודוח מחשב לפני התחייבות."
+        ),
+        "reason": _escape(
+            _coerce_dict(src.get("recommended_next_step")).get("reason")
+            or "הבדיקה תאמת מצב גיר/מנוע ותיתן הערכת עלויות ריאלית."
+        ),
+    }
+
+    out["missing_info"] = inferred_missing
+
+    return out
