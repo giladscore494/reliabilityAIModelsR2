@@ -1,4 +1,5 @@
-from app.models import SearchHistory
+from datetime import datetime, date
+from app.models import SearchHistory, QuotaReservation, User
 import main
 from main import db
 from app.utils.micro_reliability import compute_micro_reliability
@@ -73,7 +74,7 @@ def test_analyze_response_includes_new_sections(logged_in_client, monkeypatch):
         "sub_model": "",
     }
 
-    resp1 = client.post("/analyze", json=payload)
+    resp1 = client.post("/analyze", json=payload, headers={"Origin": "http://localhost"})
     data1 = resp1.get_json()
     assert resp1.status_code == 200
     assert data1["data"]["micro_reliability"]
@@ -84,9 +85,13 @@ def test_analyze_response_includes_new_sections(logged_in_client, monkeypatch):
 def test_delete_account_requires_json_content_type(logged_in_client):
     """Test that delete account endpoint requires Content-Type: application/json"""
     client, _ = logged_in_client
-    
+
     # Try without Content-Type header
-    resp = client.post('/api/account/delete', data='{"confirm":"DELETE"}')
+    resp = client.post(
+        "/api/account/delete",
+        data='{"confirm":"DELETE"}',
+        headers={"Origin": "http://localhost"},
+    )
     assert resp.status_code == 400
     data = resp.get_json()
     assert data['error']['code'] == 'INVALID_CONTENT_TYPE'
@@ -97,9 +102,10 @@ def test_delete_account_requires_valid_json(logged_in_client):
     client, _ = logged_in_client
     
     # Try with invalid JSON
-    resp = client.post('/api/account/delete', 
+    resp = client.post('/api/account/delete',
                        data='not json',
-                       content_type='application/json')
+                       content_type='application/json',
+                       headers={"Origin": "http://localhost"})
     assert resp.status_code == 400
     data = resp.get_json()
     assert data['error']['code'] == 'INVALID_JSON'
@@ -110,9 +116,10 @@ def test_delete_account_requires_confirmation(logged_in_client):
     client, _ = logged_in_client
     
     # Try with wrong confirmation
-    resp = client.post('/api/account/delete', 
+    resp = client.post('/api/account/delete',
                        json={'confirm': 'delete'},  # lowercase, should fail
-                       content_type='application/json')
+                       content_type='application/json',
+                       headers={"Origin": "http://localhost"})
     assert resp.status_code == 400
     data = resp.get_json()
     assert data['error']['code'] == 'INVALID_CONFIRMATION'
@@ -145,14 +152,26 @@ def test_delete_account_rejects_without_origin(logged_in_client, app, monkeypatc
         sess["_fresh"] = True
     
     # Try DELETE without Origin or Referer header
-    resp = client2.post('/api/account/delete',
-                        json={'confirm': 'DELETE'},
-                        content_type='application/json')
+    resp = client2.post(
+        "/api/account/delete",
+        json={"confirm": "DELETE"},
+        content_type="application/json",
+    )
     
-    # Should be rejected with 403 or logged warning
-    # The current implementation logs a warning but allows it, so we just check it doesn't crash
-    # In production with stricter settings, this should return 403
-    assert resp.status_code in [200, 403]
+    assert resp.status_code == 403
+
+
+def test_delete_account_rejects_bad_origin(logged_in_client):
+    client, _ = logged_in_client
+
+    resp = client.post(
+        "/api/account/delete",
+        json={"confirm": "DELETE"},
+        content_type="application/json",
+        headers={"Origin": "http://evil.com"},
+    )
+
+    assert resp.status_code == 403
 
 
 def test_delete_account_success_with_valid_request(logged_in_client, app):
@@ -160,9 +179,12 @@ def test_delete_account_success_with_valid_request(logged_in_client, app):
     client, user_id = logged_in_client
     
     # Valid delete request
-    resp = client.post('/api/account/delete',
-                       json={'confirm': 'DELETE'},
-                       content_type='application/json')
+    resp = client.post(
+        "/api/account/delete",
+        json={"confirm": "DELETE"},
+        content_type="application/json",
+        headers={"Origin": "http://localhost"},
+    )
     
     assert resp.status_code == 200
     data = resp.get_json()
@@ -197,9 +219,40 @@ def test_delete_account_removes_search_history(logged_in_client, app):
         "/api/account/delete",
         json={"confirm": "DELETE"},
         content_type="application/json",
+        headers={"Origin": "http://localhost"},
     )
 
     assert resp.status_code == 200
 
     with app.app_context():
         assert SearchHistory.query.filter_by(user_id=user_id).count() == 0
+
+
+def test_delete_account_removes_quota_reservations(logged_in_client, app):
+    client, user_id = logged_in_client
+
+    with app.app_context():
+        db.session.add(
+            QuotaReservation(
+                user_id=user_id,
+                day=date.today(),
+                status="reserved",
+                request_id="req-123",
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+        )
+        db.session.commit()
+
+    resp = client.post(
+        "/api/account/delete",
+        json={"confirm": "DELETE"},
+        content_type="application/json",
+        headers={"Origin": "http://localhost"},
+    )
+
+    assert resp.status_code == 200
+
+    with app.app_context():
+        assert QuotaReservation.query.filter_by(user_id=user_id).count() == 0
+        assert User.query.get(user_id) is None

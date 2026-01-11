@@ -94,7 +94,7 @@ from app.quota import (
 # =========================
 # ========= CONFIG ========
 # =========================
-AI_CALL_TIMEOUT_SEC = 30  # timeout for each AI call attempt
+AI_CALL_TIMEOUT_SEC = int(os.environ.get("AI_CALL_TIMEOUT_SEC", "170"))  # timeout for each AI call attempt
 GLOBAL_DAILY_LIMIT = 1000
 USER_DAILY_LIMIT = int(os.environ.get("QUOTA_LIMIT", "5"))
 MAX_CACHE_DAYS = 45
@@ -203,8 +203,13 @@ def load_user(user_id):
     except Exception as e:
         # Log the error safely (no secrets, no user IDs)
         print(f"[AUTH] ⚠️ load_user failed: {e.__class__.__name__}")
-        # Remove broken connection from pool
-        db.session.remove()
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        finally:
+            # Remove broken connection from pool
+            db.session.remove()
         # Treat as unauthenticated instead of crashing
         return None
 
@@ -574,7 +579,15 @@ def parse_model_json(raw: str) -> Tuple[Optional[dict], Optional[str]]:
 
 
 def _execute_with_timeout(fn, timeout_sec: int):
-    future = AI_EXECUTOR.submit(fn)
+    try:
+        work_queue = getattr(AI_EXECUTOR, "_work_queue", None)
+        if work_queue is not None:
+            queued = work_queue.qsize()
+            if queued >= AI_EXECUTOR_WORKERS:
+                return None, "EXECUTOR_SATURATED"
+        future = AI_EXECUTOR.submit(fn)
+    except Exception:
+        return None, "EXECUTOR_SATURATED"
     try:
         return future.result(timeout=timeout_sec), None
     except concurrent.futures.TimeoutError:
@@ -603,6 +616,8 @@ def call_gemini_grounded_once(prompt: str) -> Tuple[Optional[dict], Optional[str
             config=config,
         )
     resp, err = _execute_with_timeout(_invoke, AI_CALL_TIMEOUT_SEC)
+    if err == "EXECUTOR_SATURATED":
+        return None, "SERVER_BUSY"
     if err == "CALL_TIMEOUT":
         return None, "CALL_TIMEOUT"
     if isinstance(err, Exception):
@@ -787,6 +802,8 @@ Return ONLY raw JSON. Do not add any backticks or explanation text.
             config=config,
         )
     resp, err = _execute_with_timeout(_invoke, AI_CALL_TIMEOUT_SEC)
+    if err == "EXECUTOR_SATURATED":
+        return {"_error": "SERVER_BUSY"}
     if err == "CALL_TIMEOUT":
         return {"_error": "CALL_TIMEOUT"}
     if isinstance(err, Exception):
@@ -1578,11 +1595,6 @@ def create_app():
                 return resp
             return api_error("forbidden_origin", "Request from unauthorized origin", status=403)
 
-        is_delete_endpoint = request.endpoint == "dashboard.delete_account"
-        xrw_header = request.headers.get("X-Requested-With")
-        if current_user.is_authenticated and is_delete_endpoint and xrw_header == "XMLHttpRequest":
-            return None
-        
         # Get Origin or Referer header
         origin = request.headers.get('Origin')
         referer = request.headers.get('Referer')
@@ -1606,25 +1618,14 @@ def create_app():
             except Exception:
                 origin_host = None
         
-        if not current_user.is_authenticated:
-            if not origin_host:
-                logger.warning(f"[CSRF] Blocked unauthenticated POST to {request.path} with no Origin/Referer header")
-                return _forbidden_response()
-            host_no_port = origin_host.split(':')[0].lower() if ':' in origin_host else origin_host.lower()
-            if host_no_port not in ALLOWED_HOSTS:
-                logger.warning(f"[CSRF] Blocked unauthenticated POST to {request.path} from disallowed origin: {origin_host}")
-                return _forbidden_response()
-            return None
-
-        # Check if origin_host is allowed
-        if origin_host:
-            # Strip port for comparison
-            host_no_port = origin_host.split(':')[0].lower() if ':' in origin_host else origin_host.lower()
-            if host_no_port not in ALLOWED_HOSTS:
-                logger.warning(f"[CSRF] Blocked POST to {request.path} from disallowed origin: {origin_host}")
-                return _forbidden_response()
-        else:
+        if not origin_host:
             logger.warning(f"[CSRF] POST to {request.path} with no Origin/Referer header")
+            return _forbidden_response()
+
+        host_no_port = origin_host.split(':')[0].lower() if ':' in origin_host else origin_host.lower()
+        if host_no_port not in ALLOWED_HOSTS:
+            logger.warning(f"[CSRF] Blocked POST to {request.path} from disallowed origin: {origin_host}")
+            return _forbidden_response()
         
         return None
 
@@ -1725,12 +1726,7 @@ def create_app():
     @app.teardown_request
     def teardown_request_handler(exc):
         try:
-            try:
-                in_tx = bool(getattr(db.session, "get_transaction", lambda: None)())
-            except Exception:
-                in_tx = False
-            if db.session.is_active and (exc is not None or in_tx):
-                db.session.rollback()
+            db.session.rollback()
         except Exception:
             logger.exception("[DB] teardown rollback failed")
         finally:

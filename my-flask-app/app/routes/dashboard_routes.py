@@ -5,7 +5,7 @@ from flask import Blueprint, render_template, current_app, request, jsonify
 from flask_login import current_user, login_required
 
 from app.extensions import db
-from app.models import User
+from app.models import User, QuotaReservation, DailyQuotaUsage
 from app.utils.http_helpers import api_ok, api_error, get_request_id, is_owner_user
 from app.services import history_service
 from flask_login import logout_user
@@ -97,6 +97,9 @@ def delete_account():
         # Delete user (cascade will delete all related data: searches, advisor_searches, quota, reservations)
         user_to_delete = User.query.get(user_id)
         if user_to_delete:
+            # Explicitly remove dependent rows not covered by ORM relationships
+            db.session.query(QuotaReservation).filter_by(user_id=user_id).delete(synchronize_session=False)
+            db.session.query(DailyQuotaUsage).filter_by(user_id=user_id).delete(synchronize_session=False)
             db.session.delete(user_to_delete)
             db.session.commit()
             current_app.logger.info(f"[{request_id}] Account deleted successfully")
