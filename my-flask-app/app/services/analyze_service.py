@@ -58,7 +58,7 @@ def handle_analyze_request(
     reserved_count = 0
     quota_used_after = consumed_count
     display_quota_count = quota_used_after
-    model_duration_ms = None
+    model_duration_ms = 0
 
     analyze_allowed_fields = {
         "make",

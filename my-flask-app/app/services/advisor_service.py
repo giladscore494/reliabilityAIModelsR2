@@ -28,7 +28,7 @@ def handle_advisor_logic(payload, user, user_id):
     Process advisor payload and return Flask response.
     """
     logger = current_app.logger
-    model_duration_ms = None
+    model_duration_ms = 0
     try:
         # ---- שלב 1: בסיסי ----
         budget_min = float(payload.get("budget_min", 0))

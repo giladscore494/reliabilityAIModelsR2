@@ -106,15 +106,20 @@ def timing_estimate():
 
     default_estimate = DEFAULT_ESTIMATE_MS.get(kind, 15000)
 
+    def _extract_duration(row):
+        if row is None:
+            return None
+        if hasattr(row, "duration_ms"):
+            return getattr(row, "duration_ms", None)
+        try:
+            return row[0]
+        except (TypeError, IndexError, KeyError):
+            return None
+
     def _compute_stats(records):
         durations = []
         for row in records:
-            raw = getattr(row, "duration_ms", None)
-            if raw is None and hasattr(row, "__getitem__") and not isinstance(row, (int, float)):
-                try:
-                    raw = row[0]
-                except (TypeError, IndexError):
-                    raw = None
+            raw = _extract_duration(row)
             if raw is None:
                 continue
             try:
@@ -189,7 +194,7 @@ def timing_estimate():
         {
             "kind": kind,
             "avg_ms": avg_ms,
-            # average_ms kept for backward compatibility with existing clients.
+            # average_ms kept for backward compatibility; TODO: remove once all clients use avg_ms/estimate_ms.
             "average_ms": avg_ms,
             "median_ms": median_ms,
             "estimate_ms": estimate_ms,
