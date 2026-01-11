@@ -88,12 +88,22 @@ def ensure_duration_ms_columns(engine, logger=None):
                 continue
 
             if dialect_name == "postgresql":
-                stmt = text(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS duration_ms INTEGER;")
+                statements = {
+                    "search_history": text("ALTER TABLE search_history ADD COLUMN IF NOT EXISTS duration_ms INTEGER;"),
+                    "advisor_history": text("ALTER TABLE advisor_history ADD COLUMN IF NOT EXISTS duration_ms INTEGER;"),
+                }
             elif dialect_name == "sqlite":
-                stmt = text(f"ALTER TABLE {table_name} ADD COLUMN duration_ms INTEGER;")
+                statements = {
+                    "search_history": text("ALTER TABLE search_history ADD COLUMN duration_ms INTEGER;"),
+                    "advisor_history": text("ALTER TABLE advisor_history ADD COLUMN duration_ms INTEGER;"),
+                }
             else:
                 if log:
                     log.warning("[DB] duration_ms ensure skipped: unsupported dialect %s", dialect_name)
+                continue
+
+            stmt = statements.get(table_name)
+            if stmt is None:
                 continue
 
             with engine.begin() as conn:
