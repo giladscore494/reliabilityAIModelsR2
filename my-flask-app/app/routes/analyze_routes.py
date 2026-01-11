@@ -110,8 +110,8 @@ def timing_estimate():
         durations = []
         for row in records:
             try:
-                # SQLAlchemy may return a Row/tuple or a plain scalar; handle both safely.
-                raw = row[0] if isinstance(row, (list, tuple)) else row
+                # SQLAlchemy may return tuple-like rows; fall back to scalar if indexing is unavailable.
+                raw = row[0] if hasattr(row, "__getitem__") and not isinstance(row, (int, float)) else row
                 if raw is None:
                     continue
                 val = int(raw)
@@ -122,7 +122,6 @@ def timing_estimate():
                 continue
         if not durations:
             return None
-        durations = durations[:TIMING_SAMPLE_LIMIT]
         durations_sorted = sorted(durations)
         avg_ms = int(sum(durations_sorted) / len(durations_sorted))
         mid = len(durations_sorted) // 2
