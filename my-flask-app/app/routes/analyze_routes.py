@@ -109,17 +109,21 @@ def timing_estimate():
     def _compute_stats(records):
         durations = []
         for row in records:
-            try:
-                # SQLAlchemy may return tuple-like rows; fall back to scalar if indexing is unavailable.
-                raw = row[0] if hasattr(row, "__getitem__") and not isinstance(row, (int, float)) else row
-                if raw is None:
-                    continue
-                val = int(raw)
-                if val <= 0:
-                    continue
-                durations.append(val)
-            except (TypeError, ValueError, AttributeError, IndexError):
+            raw = getattr(row, "duration_ms", None)
+            if raw is None and hasattr(row, "__getitem__") and not isinstance(row, (int, float)):
+                try:
+                    raw = row[0]
+                except (TypeError, IndexError):
+                    raw = None
+            if raw is None:
                 continue
+            try:
+                val = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if val <= 0:
+                continue
+            durations.append(val)
         if not durations:
             return None
         durations_sorted = sorted(durations)
@@ -185,6 +189,7 @@ def timing_estimate():
         {
             "kind": kind,
             "avg_ms": avg_ms,
+            "average_ms": avg_ms,
             "median_ms": median_ms,
             "estimate_ms": estimate_ms,
             "p75_ms": p75_ms,
