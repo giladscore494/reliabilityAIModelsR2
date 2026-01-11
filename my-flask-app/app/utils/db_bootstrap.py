@@ -78,6 +78,14 @@ def ensure_duration_ms_columns(engine, logger=None):
     dialect = getattr(engine, "dialect", None)
     dialect_name = dialect.name if dialect else ""
     targets = ("search_history", "advisor_history")
+    pg_statements = {
+        "search_history": text("ALTER TABLE search_history ADD COLUMN IF NOT EXISTS duration_ms INTEGER;"),
+        "advisor_history": text("ALTER TABLE advisor_history ADD COLUMN IF NOT EXISTS duration_ms INTEGER;"),
+    }
+    sqlite_statements = {
+        "search_history": text("ALTER TABLE search_history ADD COLUMN duration_ms INTEGER;"),
+        "advisor_history": text("ALTER TABLE advisor_history ADD COLUMN duration_ms INTEGER;"),
+    }
 
     for table_name in targets:
         try:
@@ -88,15 +96,9 @@ def ensure_duration_ms_columns(engine, logger=None):
                 continue
 
             if dialect_name == "postgresql":
-                statements = {
-                    "search_history": text("ALTER TABLE search_history ADD COLUMN IF NOT EXISTS duration_ms INTEGER;"),
-                    "advisor_history": text("ALTER TABLE advisor_history ADD COLUMN IF NOT EXISTS duration_ms INTEGER;"),
-                }
+                statements = pg_statements
             elif dialect_name == "sqlite":
-                statements = {
-                    "search_history": text("ALTER TABLE search_history ADD COLUMN duration_ms INTEGER;"),
-                    "advisor_history": text("ALTER TABLE advisor_history ADD COLUMN duration_ms INTEGER;"),
-                }
+                statements = sqlite_statements
             else:
                 if log:
                     log.warning("[DB] duration_ms ensure skipped: unsupported dialect %s", dialect_name)

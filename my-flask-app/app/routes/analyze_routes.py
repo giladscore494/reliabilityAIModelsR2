@@ -111,7 +111,7 @@ def timing_estimate():
             return None
         avg_ms = int(sum(durations) / len(durations))
         sorted_durations = sorted(durations)
-        p75_index = min(len(sorted_durations) - 1, max(0, int(len(sorted_durations) * 0.75)))
+        p75_index = int(len(sorted_durations) * 0.75)
         p75_ms = sorted_durations[p75_index]
         return {
             "average_ms": avg_ms,
