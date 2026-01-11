@@ -90,7 +90,7 @@
                     </div>
 
                     <!-- כפתור דף הדשבורד -->
-                    <a href="{{ url_for('dashboard') }}"
+                    <a href="{{ url_for('dashboard.dashboard') }}"
                        class="relative px-5 py-2.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/50 transition-all hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0">
                         החיפושים שלי
                     </a>
@@ -98,14 +98,14 @@
                     <!-- 🔹 מנוע ההמלצות -->
                     {% if is_owner %}
                         <!-- בעלים: כפתור פעיל למנוע ההמלצות -->
-                        <a href="{{ url_for('recommendations') }}"
+                        <a href="{{ url_for('advisor.recommendations') }}"
                            class="relative px-5 py-2.5 rounded-full bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 text-white border border-transparent transition-all hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0">
                             מנוע המלצות
                         </a>
                     {% else %}
                         <!-- משתמש מחובר שאינו הבעלים: כפתור "בקרוב" -->
                         <button type="button"
-                                onclick="window.location='{{ url_for('coming_soon') }}'"
+                                onclick="window.location='{{ url_for('public.coming_soon') }}'"
                                 class="relative px-5 py-2.5 rounded-full bg-slate-800/60 text-slate-300 border border-slate-700/70 hover:bg-slate-700/70 hover:text-white transition-all">
                             בקרוב
                         </button>
@@ -123,7 +123,7 @@
                     </a>
                 {% else %}
                     <!-- לא מחובר: כפתור התחברות בלבד -->
-                    <a href="{{ url_for('login') }}"
+                    <a href="{{ url_for('public.login') }}"
                        class="px-6 py-2.5 rounded-full font-bold bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 transition-all text-white shadow-lg shadow-primary/25 hover:shadow-primary/40 hover:-translate-y-0.5 active:translate-y-0">
                         התחברות
                     </a>
@@ -413,10 +413,10 @@
                                class="mt-1 w-6 h-6 rounded border-2 border-slate-600 text-primary focus:ring-offset-0 focus:ring-primary bg-slate-900/50 checked:bg-primary transition-colors">
                         <span class="text-sm text-slate-300 leading-relaxed">
                             אני מאשר/ת כי אני מעל גיל 18, וקראתי והסכמתי
-                            <a href="{{ url_for('terms') }}" target="_blank"
+                            <a href="{{ url_for('public.terms') }}" target="_blank"
                                class="text-primary font-bold hover:underline underline-offset-4">לתנאי השימוש</a>
                             ו
-                            <a href="{{ url_for('privacy') }}" target="_blank"
+                            <a href="{{ url_for('public.privacy') }}" target="_blank"
                                class="text-primary font-bold hover:underline underline-offset-4">מדיניות הפרטיות</a>
                             של האתר.
                         </span>
@@ -459,7 +459,7 @@
                         התחבר עם חשבון Google שלך כדי לגשת למערכת.
                     </p>
                 </div>
-                <a href="{{ url_for('login') }}"
+                <a href="{{ url_for('public.login') }}"
                    class="group relative inline-flex items-center justify-center px-10 py-5 text-xl font-bold text-white transition-all duration-300 bg-gradient-to-r from-primary to-secondary rounded-2xl hover:scale-[1.03] hover:shadow-neon active:scale-95 overflow-hidden">
                     <span
                         class="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full"></span>
@@ -584,10 +584,10 @@
             </div>
             <p class="text-slate-500 text-sm">© 2025 ידע רכב.</p>
             <div class="flex gap-6 text-sm font-medium">
-                <a href="{{ url_for('privacy') }}" class="text-slate-400 hover:text-primary transition-colors">
+                <a href="{{ url_for('public.privacy') }}" class="text-slate-400 hover:text-primary transition-colors">
                     מדיניות פרטיות
                 </a>
-                <a href="{{ url_for('terms') }}" class="text-slate-400 hover:text-primary transition-colors">
+                <a href="{{ url_for('public.terms') }}" class="text-slate-400 hover:text-primary transition-colors">
                     תקנון שימוש
                 </a>
             </div>
