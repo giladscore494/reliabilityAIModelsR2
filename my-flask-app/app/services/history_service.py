@@ -94,6 +94,10 @@ def search_details_response(search_id: int, user_id: int):
         data_safe = sanitize_analyze_response(json.loads(s.result_json))
         return api_ok({"meta": meta, "data": data_safe})
     except Exception as e:
+        try:
+            db.session.rollback()
+        except Exception:
+            current_app.logger.exception("[DETAILS] rollback failed request_id=%s", get_request_id())
         current_app.logger.error(f"[DETAILS] Error fetching search details: {e}")
         return api_error("details_fetch_failed", "שגיאת שרת בשליפת נתוני חיפוש", status=500)
 

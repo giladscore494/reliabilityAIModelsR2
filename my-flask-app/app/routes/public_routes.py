@@ -62,6 +62,10 @@ def auth():
     except MismatchingStateError:
         current_app.logger.warning("[AUTH] mismatching_state request_id=%s", get_request_id())
         try:
+            db.session.rollback()
+        except Exception:
+            current_app.logger.exception("[AUTH] rollback failed after mismatching_state")
+        try:
             logout_user()
         except Exception:
             pass
@@ -71,6 +75,10 @@ def auth():
         return redirect(url_for('public.login'))
     except Exception:
         current_app.logger.exception("[AUTH] login failed request_id=%s", get_request_id())
+        try:
+            db.session.rollback()
+        except Exception:
+            current_app.logger.exception("[AUTH] rollback failed after login error")
         try:
             logout_user()
         except Exception:

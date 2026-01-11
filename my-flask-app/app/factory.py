@@ -5,7 +5,7 @@
 # Phase 1 & 2: Security hardening complete
 # ===================================================================
 
-import os, re, json, traceback, logging, uuid, random, hashlib
+import os, re, json, traceback, logging, uuid, random, hashlib, concurrent.futures, atexit
 import time as pytime
 from typing import Optional, Tuple, Any, Dict, Mapping
 from datetime import datetime, time, timedelta, date
@@ -101,6 +101,9 @@ MAX_CACHE_DAYS = 45
 PER_IP_PER_MIN_LIMIT = 20
 QUOTA_RESERVATION_TTL_SECONDS = int(os.environ.get("QUOTA_RESERVATION_TTL_SECONDS", "600"))
 MAX_ACTIVE_RESERVATIONS = 1
+AI_EXECUTOR_WORKERS = int(os.environ.get("AI_EXECUTOR_WORKERS", "4"))
+AI_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=AI_EXECUTOR_WORKERS)
+atexit.register(lambda: AI_EXECUTOR.shutdown(wait=True))
 import app.quota as quota_module
 quota_module.USER_DAILY_LIMIT = USER_DAILY_LIMIT
 quota_module.GLOBAL_DAILY_LIMIT = GLOBAL_DAILY_LIMIT
@@ -570,6 +573,18 @@ def parse_model_json(raw: str) -> Tuple[Optional[dict], Optional[str]]:
             return None, "MODEL_JSON_INVALID"
 
 
+def _execute_with_timeout(fn, timeout_sec: int):
+    future = AI_EXECUTOR.submit(fn)
+    try:
+        return future.result(timeout=timeout_sec), None
+    except concurrent.futures.TimeoutError:
+        # cancel() won't stop already-running work; it prevents callbacks, and any late response may keep the thread busy briefly
+        future.cancel()
+        return None, "CALL_TIMEOUT"
+    except Exception as e:
+        return None, e
+
+
 def call_gemini_grounded_once(prompt: str) -> Tuple[Optional[dict], Optional[str]]:
     if extensions.ai_client is None:
         return None, "CLIENT_NOT_INITIALIZED"
@@ -581,17 +596,22 @@ def call_gemini_grounded_once(prompt: str) -> Tuple[Optional[dict], Optional[str
         tools=[search_tool],
         response_mime_type="application/json",
     )
-    try:
-        resp = extensions.ai_client.models.generate_content(
+    def _invoke():
+        return extensions.ai_client.models.generate_content(
             model=GEMINI3_MODEL_ID,
             contents=prompt,
             config=config,
         )
-        text = (getattr(resp, "text", "") or "").strip()
-        parsed, err = parse_model_json(text)
-        return parsed, err
-    except Exception as e:
-        return None, f"CALL_FAILED:{type(e).__name__}"
+    resp, err = _execute_with_timeout(_invoke, AI_CALL_TIMEOUT_SEC)
+    if err == "CALL_TIMEOUT":
+        return None, "CALL_TIMEOUT"
+    if isinstance(err, Exception):
+        return None, f"CALL_FAILED:{type(err).__name__}"
+    if resp is None:
+        return None, "CALL_FAILED:EMPTY"
+    text = (getattr(resp, "text", "") or "").strip()
+    parsed, err = parse_model_json(text)
+    return parsed, err
 
 
 # ======================================================
@@ -760,20 +780,25 @@ Return ONLY raw JSON. Do not add any backticks or explanation text.
         response_mime_type="application/json",
     )
 
-    try:
-        resp = extensions.advisor_client.models.generate_content(
+    def _invoke():
+        return extensions.advisor_client.models.generate_content(
             model=GEMINI3_MODEL_ID,
             contents=prompt,
             config=config,
         )
-        text = getattr(resp, "text", "") or ""
-        text = text.strip()
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            return {"_error": "JSON decode error from Gemini Car Advisor", "_raw": text}
-    except Exception as e:
-        return {"_error": f"Gemini Car Advisor call failed: {e}"}
+    resp, err = _execute_with_timeout(_invoke, AI_CALL_TIMEOUT_SEC)
+    if err == "CALL_TIMEOUT":
+        return {"_error": "CALL_TIMEOUT"}
+    if isinstance(err, Exception):
+        return {"_error": f"Gemini Car Advisor call failed: {err}"}
+    if resp is None:
+        return {"_error": "Gemini Car Advisor call failed: EMPTY"}
+    text = getattr(resp, "text", "") or ""
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return {"_error": "JSON decode error from Gemini Car Advisor", "_raw": text}
 
 
 def car_advisor_postprocess(profile: dict, parsed: dict) -> dict:
@@ -925,7 +950,7 @@ def _get_or_create_quota_row(user_id: int, day_key: date, now_utc: datetime) -> 
     except IntegrityError:
         db.session.rollback()
     except SQLAlchemyError:
-        pass
+        db.session.rollback()
 
     try:
         quota = (
@@ -935,6 +960,7 @@ def _get_or_create_quota_row(user_id: int, day_key: date, now_utc: datetime) -> 
             .first()
         )
     except SQLAlchemyError:
+        db.session.rollback()
         quota = (
             db.session.query(DailyQuotaUsage)
             .filter_by(user_id=user_id, day=day_key)
@@ -1230,7 +1256,7 @@ def check_and_increment_ip_rate_limit(ip: str, limit: int = 20, now_utc: Optiona
             db.session.rollback()
         except SQLAlchemyError:
             # Fallback to legacy lock-based approach if dialect upsert unavailable
-            pass
+            db.session.rollback()
 
         try:
             record = (
@@ -1240,6 +1266,7 @@ def check_and_increment_ip_rate_limit(ip: str, limit: int = 20, now_utc: Optiona
                 .first()
             )
         except SQLAlchemyError:
+            db.session.rollback()
             record = (
                 db.session.query(IpRateLimit)
                 .filter_by(ip=ip, window_start=window_start)
@@ -1697,12 +1724,17 @@ def create_app():
 
     @app.teardown_request
     def teardown_request_handler(exc):
-        if exc is not None:
+        try:
             try:
-                db.session.rollback()
+                in_tx = bool(getattr(db.session, "get_transaction", lambda: None)())
             except Exception:
-                logger.exception("[DB] teardown rollback failed")
-        db.session.remove()
+                in_tx = False
+            if db.session.is_active and (exc is not None or in_tx):
+                db.session.rollback()
+        except Exception:
+            logger.exception("[DB] teardown rollback failed")
+        finally:
+            db.session.remove()
 
     # ==========================
     # ✅ Run create_all ONLY ONCE

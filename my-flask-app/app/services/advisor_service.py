@@ -139,7 +139,10 @@ def handle_advisor_logic(payload, user, user_id):
     parsed = car_advisor_call_gemini_with_search(user_profile)
     model_duration_ms = int((time.perf_counter() - start_time) * 1000)
     if parsed.get("_error"):
-        log_access_decision('/advisor_api', user_id, 'error', f'AI error: {parsed.get("_error")}')
+        error_reason = parsed.get("_error")
+        log_access_decision('/advisor_api', user_id, 'error', f'AI error: {error_reason}')
+        if error_reason == "CALL_TIMEOUT":
+            return api_error("advisor_timeout", "זמן העיבוד חרג מהמותר. נסה שוב מאוחר יותר.", status=504)
         return api_error("advisor_ai_error", "שגיאת AI במנוע ההמלצות. נסה שוב מאוחר יותר.", status=502)
 
     result = car_advisor_postprocess(user_profile, parsed)
