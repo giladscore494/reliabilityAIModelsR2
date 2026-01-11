@@ -12,6 +12,7 @@ we preserve existing functions to avoid breaking callers.
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import datetime
 from typing import Any, Dict, Mapping
 
@@ -228,6 +229,31 @@ def _normalize_and_validate_text(field: str, value: Any, max_length: int) -> str
         return ''
 
     text = str(value)
+
+    # Unicode-aware normalization before validation
+    text = unicodedata.normalize("NFKC", text)
+    translate_map = {
+        ord("\u05f3"): "'",
+        ord("\u05f4"): '"',
+        ord("\u2013"): "-",
+        ord("\u2014"): "-",
+        ord("\u2212"): "-",
+        ord("\u2018"): "'",
+        ord("\u2019"): "'",
+        ord("\u201c"): '"',
+        ord("\u201d"): '"',
+        ord("\u00a0"): " ",
+        ord("\u200e"): None,
+        ord("\u200f"): None,
+        ord("\u202a"): None,
+        ord("\u202b"): None,
+        ord("\u202c"): None,
+        ord("\u202d"): None,
+        ord("\u202e"): None,
+    }
+    text = text.translate(translate_map)
+    # Drop any remaining control/format chars
+    text = ''.join(ch for ch in text if not unicodedata.category(ch).startswith('C'))
     text = _CONTROL_CHARS.sub('', text)
     text = re.sub(r'\s+', ' ', text).strip()
 

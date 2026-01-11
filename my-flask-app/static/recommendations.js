@@ -762,7 +762,9 @@
                     setTimeout(() => { window.location.href = '/login'; }, 1200);
                     return;
                 }
-                const msg = (res && res.error && res.error.message) || 'שגיאת שרת בעת הפעלת מנוע ההמלצות.';
+                const field = res && res.error && res.error.details && res.error.details.field;
+                const baseMsg = (res && res.error && res.error.message) || 'שגיאת שרת בעת הפעלת מנוע ההמלצות.';
+                const msg = field ? `${baseMsg} (שדה: ${field})` : baseMsg;
                 showRequestAwareError(msg, res && res.request_id);
                 return;
             }
