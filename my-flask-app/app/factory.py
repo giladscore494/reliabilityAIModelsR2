@@ -103,7 +103,7 @@ QUOTA_RESERVATION_TTL_SECONDS = int(os.environ.get("QUOTA_RESERVATION_TTL_SECOND
 MAX_ACTIVE_RESERVATIONS = 1
 AI_EXECUTOR_WORKERS = int(os.environ.get("AI_EXECUTOR_WORKERS", "4"))
 AI_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=AI_EXECUTOR_WORKERS)
-atexit.register(lambda: AI_EXECUTOR.shutdown(wait=True, cancel_futures=True))
+atexit.register(lambda: AI_EXECUTOR.shutdown(wait=True))
 import app.quota as quota_module
 quota_module.USER_DAILY_LIMIT = USER_DAILY_LIMIT
 quota_module.GLOBAL_DAILY_LIMIT = GLOBAL_DAILY_LIMIT
@@ -578,7 +578,7 @@ def _execute_with_timeout(fn, timeout_sec: int):
     try:
         return future.result(timeout=timeout_sec), None
     except concurrent.futures.TimeoutError:
-        # cancel() won't stop already-running work; it prevents result callbacks and we ignore the late response
+        # cancel() won't stop already-running work; it prevents callbacks, and any late response may keep the thread busy briefly
         future.cancel()
         return None, "CALL_TIMEOUT"
     except Exception as e:
@@ -1726,7 +1726,7 @@ def create_app():
     def teardown_request_handler(exc):
         try:
             try:
-                in_tx = db.session.in_transaction()
+                in_tx = bool(getattr(db.session, "get_transaction", lambda: None)())
             except Exception:
                 in_tx = False
             if db.session.is_active and (exc is not None or in_tx):
