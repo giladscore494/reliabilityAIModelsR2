@@ -213,7 +213,58 @@
             </div>
         {% endif %}
     </div>
+
+    <!-- Delete Account Section -->
+    <div class="mt-12 pt-8 border-t border-slate-800">
+        <div class="bg-dark-lighter/50 border border-red-900/30 rounded-xl p-6">
+            <h3 class="text-lg font-bold text-white mb-2">מחיקת חשבון</h3>
+            <p class="text-slate-400 text-sm mb-4">
+                מחיקת החשבון תסיר לצמיתות את כל הנתונים שלך, כולל היסטוריית חיפושים ושאלונים. פעולה זו אינה הפיכה.
+            </p>
+            <button 
+                onclick="openDeleteModal()"
+                class="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-colors">
+                מחק חשבון לצמיתות
+            </button>
+        </div>
+    </div>
+
 </main>
+
+<!-- Delete Account Modal -->
+<div id="deleteModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onclick="closeDeleteModal(event)">
+    <div class="bg-dark-lighter border-2 border-red-600/50 rounded-2xl p-8 max-w-md w-full overlay-open" onclick="event.stopPropagation()">
+        <h3 class="text-2xl font-bold text-white mb-4">אישור מחיקת חשבון</h3>
+        <p class="text-slate-300 mb-6">
+            פעולה זו תמחק לצמיתות את החשבון שלך וכל הנתונים הקשורים אליו.
+            <strong class="text-red-400">אין דרך לשחזר את הנתונים לאחר המחיקה.</strong>
+        </p>
+        <p class="text-slate-300 mb-4">
+            כדי לאשר, הקלד <strong class="text-red-400">DELETE</strong> בדיוק (באנגלית, באותיות גדולות):
+        </p>
+        <input 
+            type="text" 
+            id="deleteConfirmInput"
+            placeholder="הקלד DELETE"
+            class="w-full px-4 py-3 bg-slate-900 border-2 border-slate-700 focus:border-red-500 rounded-lg text-white mb-2"
+            onkeypress="if(event.key==='Enter') confirmDelete()"
+        />
+        <p id="deleteError" class="text-red-400 text-sm mb-4 hidden"></p>
+        
+        <div class="flex gap-3">
+            <button 
+                onclick="confirmDelete()"
+                class="flex-1 px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-colors">
+                אשר מחיקה
+            </button>
+            <button 
+                onclick="closeDeleteModal()"
+                class="flex-1 px-6 py-3 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-lg transition-colors">
+                ביטול
+            </button>
+        </div>
+    </div>
+</div>
 
 <div id="details-overlay"
      class="fixed inset-0 bg-dark/95 z-50 hidden flex flex-col overlay-open">
@@ -638,6 +689,60 @@
             </section>
         `;
     }
+
+    // Delete account modal functions
+    function openDeleteModal() {
+        document.getElementById('deleteModal').classList.remove('hidden');
+        document.getElementById('deleteConfirmInput').value = '';
+        document.getElementById('deleteError').classList.add('hidden');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeDeleteModal(event) {
+        if (event && event.target !== event.currentTarget) return;
+        document.getElementById('deleteModal').classList.add('hidden');
+        document.body.style.overflow = '';
+    }
+
+    async function confirmDelete() {
+        const input = document.getElementById('deleteConfirmInput');
+        const errorEl = document.getElementById('deleteError');
+        const confirmValue = input.value.trim();
+        
+        if (confirmValue !== 'DELETE') {
+            errorEl.textContent = 'נדרש להקליד DELETE בדיוק (באנגלית, באותיות גדולות)';
+            errorEl.classList.remove('hidden');
+            return;
+        }
+        
+        errorEl.classList.add('hidden');
+        
+        try {
+            const response = await fetch('/api/account/delete', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify({ confirm: 'DELETE' })
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                // Success - redirect to home page
+                alert('החשבון נמחק בהצלחה');
+                window.location.href = '/';
+            } else {
+                errorEl.textContent = data.message || 'שגיאה במחיקת החשבון';
+                errorEl.classList.remove('hidden');
+            }
+        } catch (error) {
+            errorEl.textContent = 'שגיאת רשת - נסה שוב';
+            errorEl.classList.remove('hidden');
+        }
+    }
+
 </script>
 
 </body>

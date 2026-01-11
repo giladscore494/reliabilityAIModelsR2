@@ -1813,6 +1813,60 @@ def create_app():
         logout_user()
         return redirect(url_for('index'))
 
+    # Delete account endpoint
+    @app.route('/api/account/delete', methods=['POST'])
+    @login_required
+    def delete_account():
+        """
+        Delete user account and all associated data.
+        Requires confirmation text 'DELETE' in request body.
+        """
+        request_id = get_request_id()
+        try:
+            data = request.get_json() or {}
+            confirmation = data.get('confirm', '').strip()
+            
+            if confirmation != 'DELETE':
+                return api_error(
+                    'INVALID_CONFIRMATION',
+                    'נדרש לכתוב DELETE בדיוק כדי לאשר מחיקה',
+                    status=400,
+                    request_id=request_id
+                )
+            
+            user_id = current_user.id
+            user_email = current_user.email
+            
+            # Log the deletion (without PII in the message, just request_id)
+            app.logger.info(f"[{request_id}] Account deletion initiated for user_id={user_id}")
+            
+            # Logout first
+            logout_user()
+            
+            # Delete user (cascade will delete all related data: searches, advisor_searches, quota, reservations)
+            user_to_delete = User.query.get(user_id)
+            if user_to_delete:
+                db.session.delete(user_to_delete)
+                db.session.commit()
+                app.logger.info(f"[{request_id}] Account deleted successfully")
+            
+            return api_ok(
+                {'message': 'החשבון נמחק בהצלחה'},
+                status=200,
+                request_id=request_id
+            )
+            
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f"[{request_id}] Account deletion failed: {str(e)}")
+            return api_error(
+                'DELETE_FAILED',
+                'שגיאה במחיקת החשבון',
+                status=500,
+                details={'error': str(e)},
+                request_id=request_id
+            )
+
     # Legal pages
     @app.route('/privacy')
     def privacy():
