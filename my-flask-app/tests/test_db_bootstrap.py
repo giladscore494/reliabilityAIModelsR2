@@ -23,3 +23,22 @@ def test_ensure_duration_ms_columns_adds_missing(tmp_path):
         assert "duration_ms" in cols
 
     engine.dispose()
+
+
+def test_ensure_duration_ms_columns_idempotent(tmp_path):
+    db_path = tmp_path / "legacy2.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE search_history (id INTEGER PRIMARY KEY, duration_ms INTEGER);"))
+        conn.execute(text("CREATE TABLE advisor_history (id INTEGER PRIMARY KEY, duration_ms INTEGER);"))
+
+    # Should not raise when columns already exist
+    ensure_duration_ms_columns(engine)
+    ensure_duration_ms_columns(engine)
+
+    inspector = inspect(engine)
+    assert "duration_ms" in {c["name"] for c in inspector.get_columns("search_history")}
+    assert "duration_ms" in {c["name"] for c in inspector.get_columns("advisor_history")}
+
+    engine.dispose()

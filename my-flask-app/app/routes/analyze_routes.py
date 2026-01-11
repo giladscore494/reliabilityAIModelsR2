@@ -17,6 +17,8 @@ from app.services import analyze_service
 from app.factory import QUOTA_RESERVATION_TTL_SECONDS
 
 bp = Blueprint('analyze', __name__)
+DEFAULT_ESTIMATE_MS = {"analyze": 15000, "advisor": 12000}
+TIMING_SAMPLE_LIMIT = 50
 
 
 @bp.route('/reliability_report', methods=['POST'])
@@ -87,11 +89,12 @@ def analyze_car():
 def timing_estimate():
     """
     Returns estimated timing for an endpoint.
-    Calculates user-specific average/p75, fallback to global aggregated stats.
     Supports both 'kind' (analyze|advisor) and 'endpoint' (analyze) parameters for backward compatibility.
+    Filters out null/zero/negative durations and never fails even if history is missing.
     """
     # Support both 'kind' and 'endpoint' parameters
-    kind = request.args.get('kind') or request.args.get('endpoint', 'analyze')
+    raw_kind = request.args.get('kind') or request.args.get('endpoint') or 'analyze'
+    kind = raw_kind.lower()
     
     if kind not in ['analyze', 'advisor']:
         return api_error('INVALID_KIND', 'Only "analyze" and "advisor" are supported', status=400)
@@ -99,25 +102,50 @@ def timing_estimate():
     # Choose the right table based on kind
     if kind == 'analyze':
         from app.models import SearchHistory as HistoryModel
-        user_limit = 20
-        global_limit = 100
     else:  # advisor
         from app.models import AdvisorHistory as HistoryModel
-        user_limit = 20
-        global_limit = 100
+
+    default_estimate = DEFAULT_ESTIMATE_MS.get(kind, 15000)
+
+    def _extract_duration(row):
+        if row is None:
+            return None
+        if hasattr(row, "duration_ms"):
+            return getattr(row, "duration_ms", None)
+        try:
+            return row[0]
+        except (TypeError, IndexError, KeyError):
+            return None
 
     def _compute_stats(records):
-        durations = [row[0] for row in records if row and row[0] is not None]
+        durations = []
+        for row in records:
+            raw = _extract_duration(row)
+            if raw is None:
+                continue
+            try:
+                val = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if val <= 0:
+                continue
+            durations.append(val)
         if not durations:
             return None
-        avg_ms = int(sum(durations) / len(durations))
-        sorted_durations = sorted(durations)
-        p75_index = min(len(sorted_durations) - 1, int(len(sorted_durations) * 0.75))
-        p75_ms = sorted_durations[p75_index]
+        durations_sorted = sorted(durations)
+        avg_ms = int(sum(durations_sorted) / len(durations_sorted))
+        mid = len(durations_sorted) // 2
+        if len(durations_sorted) % 2:
+            median_ms = durations_sorted[mid]
+        else:
+            median_ms = int((durations_sorted[mid - 1] + durations_sorted[mid]) / 2)
+        p75_index = min(len(durations_sorted) - 1, max(0, int(len(durations_sorted) * 0.75)))
+        p75_ms = durations_sorted[p75_index]
         return {
-            "average_ms": avg_ms,
+            "avg_ms": avg_ms,
+            "median_ms": median_ms,
             "p75_ms": p75_ms,
-            "sample_size": len(durations),
+            "sample_size": len(durations_sorted),
         }
 
     def _safe_query(fetch_fn, scope_kind: str):
@@ -129,49 +157,50 @@ def timing_estimate():
 
     user_records = _safe_query(
         lambda: db.session.query(HistoryModel.duration_ms)
-        .filter(HistoryModel.user_id == current_user.id, HistoryModel.duration_ms.isnot(None))
+        .filter(HistoryModel.user_id == current_user.id)
         .order_by(HistoryModel.timestamp.desc())
-        .limit(user_limit)
+        .limit(TIMING_SAMPLE_LIMIT)
         .all(),
-        kind,
+        f"{kind}_user",
     )
-    user_stats = _compute_stats(user_records)
-    if user_stats and user_stats["sample_size"] >= 3:
-        return api_ok(
-            {
-                "kind": kind,
-                **user_stats,
-                "source": "user",
-            }
-        )
+    stats = _compute_stats(user_records)
+    source = "user" if stats else "global"
 
-    global_records = _safe_query(
-        lambda: db.session.query(HistoryModel.duration_ms)
-        .filter(HistoryModel.duration_ms.isnot(None))
-        .order_by(HistoryModel.timestamp.desc())
-        .limit(global_limit)
-        .all(),
-        kind,
-    )
-    global_stats = _compute_stats(global_records)
-    if global_stats and global_stats["sample_size"] >= 10:
-        return api_ok(
-            {
-                "kind": kind,
-                **global_stats,
-                "source": "global",
-            }
+    if not stats:
+        global_records = _safe_query(
+            lambda: db.session.query(HistoryModel.duration_ms)
+            .order_by(HistoryModel.timestamp.desc())
+            .limit(TIMING_SAMPLE_LIMIT)
+            .all(),
+            f"{kind}_global",
         )
+        stats = _compute_stats(global_records)
+        if not stats:
+            source = "default"
 
-    default_avg = 15000 if kind == 'analyze' else 12000  # advisor is typically faster
-    default_p75 = 20000 if kind == 'analyze' else 15000
+    if stats:
+        estimate_ms = stats["avg_ms"]
+        avg_ms = stats["avg_ms"]
+        median_ms = stats["median_ms"]
+        p75_ms = stats["p75_ms"]
+        sample_size = stats["sample_size"]
+    else:
+        estimate_ms = default_estimate
+        avg_ms = None
+        median_ms = None
+        p75_ms = default_estimate
+        sample_size = 0
 
     return api_ok(
         {
             "kind": kind,
-            "average_ms": default_avg,
-            "p75_ms": default_p75,
-            "sample_size": 0,
-            "source": "default",
+            "avg_ms": avg_ms,
+            # average_ms kept for backward compatibility; TODO: remove once all clients use avg_ms/estimate_ms.
+            "average_ms": avg_ms,
+            "median_ms": median_ms,
+            "estimate_ms": estimate_ms,
+            "p75_ms": p75_ms,
+            "sample_size": sample_size,
+            "source": source,
         }
     )

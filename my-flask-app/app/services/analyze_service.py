@@ -58,6 +58,7 @@ def handle_analyze_request(
     reserved_count = 0
     quota_used_after = consumed_count
     display_quota_count = quota_used_after
+    model_duration_ms = 0
 
     analyze_allowed_fields = {
         "make",
@@ -248,7 +249,9 @@ def handle_analyze_request(
             raise RuntimeError("SIMULATED_AI_FAILURE")
         prompt = build_combined_prompt(validated, missing_info)
         ai_call = get_ai_call_fn()
+        model_start = pytime.perf_counter()
         model_output, ai_error = ai_call(prompt)
+        model_duration_ms = int((pytime.perf_counter() - model_start) * 1000)
         if model_output is None:
             raise ModelOutputInvalidError(ai_error or "MODEL_JSON_INVALID")
         if not isinstance(model_output, dict):
@@ -290,9 +293,6 @@ def handle_analyze_request(
 
             sanitized_output = sanitize_analyze_response(ai_output)
 
-            # Calculate duration
-            duration_ms = int(pytime.time() * 1000) - start_time_ms
-
             new_log = SearchHistory(
                 user_id=user_id,
                 cache_key=cache_key,
@@ -303,7 +303,7 @@ def handle_analyze_request(
                 fuel_type=final_fuel,
                 transmission=final_trans,
                 result_json=json.dumps(sanitized_output, ensure_ascii=False),
-                duration_ms=duration_ms
+                duration_ms=model_duration_ms
             )
             db.session.add(new_log)
             db.session.commit()
