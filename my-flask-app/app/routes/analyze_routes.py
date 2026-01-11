@@ -110,6 +110,7 @@ def timing_estimate():
         durations = []
         for row in records:
             try:
+                # SQLAlchemy may return a Row/tuple or a plain scalar; handle both safely.
                 raw = row[0] if isinstance(row, (list, tuple)) else row
                 if raw is None:
                     continue

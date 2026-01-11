@@ -293,6 +293,8 @@ def handle_analyze_request(
 
             sanitized_output = sanitize_analyze_response(ai_output)
 
+            duration_value = model_duration_ms if model_duration_ms is not None else None
+
             new_log = SearchHistory(
                 user_id=user_id,
                 cache_key=cache_key,
@@ -303,7 +305,7 @@ def handle_analyze_request(
                 fuel_type=final_fuel,
                 transmission=final_trans,
                 result_json=json.dumps(sanitized_output, ensure_ascii=False),
-                duration_ms=model_duration_ms
+                duration_ms=duration_value
             )
             db.session.add(new_log)
             db.session.commit()
