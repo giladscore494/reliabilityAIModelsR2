@@ -1608,7 +1608,7 @@ def create_app():
         if request.is_json or request.accept_mimetypes.accept_json:
             if request.path.startswith("/api/account/delete"):
                 rid = get_request_id()
-                resp = jsonify({"error": "login_required", "request_id": rid})
+                resp = jsonify({"error": "unauthorized", "message": "Login required", "request_id": rid})
                 resp.status_code = 401
                 resp.headers["X-Request-ID"] = rid
                 return resp

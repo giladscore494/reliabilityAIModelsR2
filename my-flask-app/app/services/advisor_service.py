@@ -27,8 +27,8 @@ def handle_advisor_logic(payload, user, user_id):
     """
     Process advisor payload and return Flask response.
     """
-    start_time = time.time()
     logger = current_app.logger
+    model_duration_ms = None
     try:
         # ---- שלב 1: בסיסי ----
         budget_min = float(payload.get("budget_min", 0))
@@ -135,7 +135,9 @@ def handle_advisor_logic(payload, user, user_id):
     user_profile["seats"] = seats_choice
 
     profile_for_storage = sanitize_profile_for_prompt(user_profile)
+    start_time = time.time()
     parsed = car_advisor_call_gemini_with_search(user_profile)
+    model_duration_ms = int((time.time() - start_time) * 1000)
     if parsed.get("_error"):
         log_access_decision('/advisor_api', user_id, 'error', f'AI error: {parsed.get("_error")}')
         return api_error("advisor_ai_error", "שגיאת AI במנוע ההמלצות. נסה שוב מאוחר יותר.", status=502)
@@ -149,7 +151,7 @@ def handle_advisor_logic(payload, user, user_id):
             user_id=user.id,
             profile_json=json.dumps(profile_for_storage, ensure_ascii=False),
             result_json=json.dumps(sanitized_result, ensure_ascii=False),
-            duration_ms=int((time.time() - start_time) * 1000),
+            duration_ms=model_duration_ms,
         )
         db.session.add(rec_log)
         db.session.commit()
