@@ -44,7 +44,7 @@ from app.utils.sanitization import (
     derive_missing_info,
     sanitize_reliability_report_response,
 )
-from app.utils.db_bootstrap import ensure_search_history_cache_key
+from app.utils.db_bootstrap import ensure_search_history_cache_key, ensure_duration_ms_columns
 from app.utils.micro_reliability import compute_micro_reliability
 from app.utils.timeline_plan import build_timeline_plan
 from app.utils.sim_model import build_sim_model
@@ -1493,6 +1493,7 @@ def create_app():
 
     with app.app_context():
         ensure_search_history_cache_key(app, db, logger)
+        ensure_duration_ms_columns(db.engine, logger)
         try:
             with db.engine.connect() as conn:
                 context = MigrationContext.configure(conn)

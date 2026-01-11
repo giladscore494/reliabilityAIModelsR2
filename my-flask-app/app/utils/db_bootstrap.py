@@ -59,3 +59,55 @@ def ensure_search_history_cache_key(app, db, logger=None):
             pass
         if log:
             log.exception("[DB] ensure_search_history_cache_key failed: %s", e)
+
+
+def ensure_duration_ms_columns(engine, logger=None):
+    """
+    Ensure duration_ms column exists on search_history and advisor_history tables.
+    Idempotent and best-effort: logs warnings on failure without raising.
+    """
+    log = logger
+    try:
+        dialect = getattr(engine, "dialect", None)
+        dialect_name = dialect.name if dialect else ""
+    except Exception as e:
+        if log:
+            log.warning("[DB] duration_ms dialect detection failed: %s", e)
+        return
+    targets = ("search_history", "advisor_history")
+    pg_statements = {
+        "search_history": text("ALTER TABLE search_history ADD COLUMN IF NOT EXISTS duration_ms INTEGER;"),
+        "advisor_history": text("ALTER TABLE advisor_history ADD COLUMN IF NOT EXISTS duration_ms INTEGER;"),
+    }
+    sqlite_statements = {
+        "search_history": text("ALTER TABLE search_history ADD COLUMN duration_ms INTEGER;"),
+        "advisor_history": text("ALTER TABLE advisor_history ADD COLUMN duration_ms INTEGER;"),
+    }
+
+    if dialect_name == "postgresql":
+        statements = pg_statements
+    elif dialect_name == "sqlite":
+        statements = sqlite_statements
+    else:
+        if log:
+            log.warning("[DB] duration_ms ensure skipped: unsupported dialect %s", dialect_name)
+        return
+
+    for table_name in targets:
+        try:
+            inspector = inspect(engine)
+            if not inspector.has_table(table_name):
+                continue
+            cols = {col["name"] for col in inspector.get_columns(table_name)}
+            if "duration_ms" in cols:
+                continue
+
+            stmt = statements.get(table_name)
+            if stmt is None:
+                continue
+
+            with engine.begin() as conn:
+                conn.execute(stmt)
+        except Exception as e:
+            if log:
+                log.warning("[DB] duration_ms ensure unexpected error for %s: %s", table_name, e)

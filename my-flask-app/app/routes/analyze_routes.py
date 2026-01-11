@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Analyze routes blueprint."""
 
+import math
 import time as pytime
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -94,71 +95,83 @@ def timing_estimate():
     
     if kind not in ['analyze', 'advisor']:
         return api_error('INVALID_KIND', 'Only "analyze" and "advisor" are supported', status=400)
-    
-    try:
-        # Choose the right table based on kind
-        if kind == 'analyze':
-            from app.models import SearchHistory as HistoryModel
-            user_limit = 20
-            global_limit = 100
-        else:  # advisor
-            from app.models import AdvisorHistory as HistoryModel
-            user_limit = 20
-            global_limit = 100
-        
-        # Try user-specific stats first
-        user_records = db.session.query(HistoryModel.duration_ms).filter(
-            HistoryModel.user_id == current_user.id,
-            HistoryModel.duration_ms.isnot(None)
-        ).order_by(HistoryModel.timestamp.desc()).limit(user_limit).all()
-        
-        if user_records and len(user_records) >= 3:
-            durations = [r[0] for r in user_records if r[0] is not None]
-            avg_ms = int(sum(durations) / len(durations))
-            sorted_durations = sorted(durations)
-            p75_index = int(len(sorted_durations) * 0.75)
-            p75_ms = sorted_durations[p75_index]
-            
-            return api_ok({
-                'kind': kind,
-                'average_ms': avg_ms,
-                'p75_ms': p75_ms,
-                'sample_size': len(durations),
-                'source': 'user'
-            })
-        
-        # Fallback to global aggregated stats
-        global_records = db.session.query(HistoryModel.duration_ms).filter(
-            HistoryModel.duration_ms.isnot(None)
-        ).order_by(HistoryModel.timestamp.desc()).limit(global_limit).all()
-        
-        if global_records and len(global_records) >= 10:
-            durations = [r[0] for r in global_records if r[0] is not None]
-            avg_ms = int(sum(durations) / len(durations))
-            sorted_durations = sorted(durations)
-            p75_index = int(len(sorted_durations) * 0.75)
-            p75_ms = sorted_durations[p75_index]
-            
-            return api_ok({
-                'kind': kind,
-                'average_ms': avg_ms,
-                'p75_ms': p75_ms,
-                'sample_size': len(durations),
-                'source': 'global'
-            })
-        
-        # Default fallback if no data
-        default_avg = 15000 if kind == 'analyze' else 12000  # advisor is typically faster
-        default_p75 = 20000 if kind == 'analyze' else 15000
-        
-        return api_ok({
-            'kind': kind,
-            'average_ms': default_avg,
-            'p75_ms': default_p75,
-            'sample_size': 0,
-            'source': 'default'
-        })
-        
-    except Exception as e:
-        current_app.logger.error(f"Timing estimate error: {str(e)}")
-        return api_error('ESTIMATE_FAILED', 'Failed to calculate timing estimate', status=500)
+
+    # Choose the right table based on kind
+    if kind == 'analyze':
+        from app.models import SearchHistory as HistoryModel
+        user_limit = 20
+        global_limit = 100
+    else:  # advisor
+        from app.models import AdvisorHistory as HistoryModel
+        user_limit = 20
+        global_limit = 100
+
+    def _compute_stats(records):
+        durations = [row[0] for row in records if row and row[0] is not None]
+        if not durations:
+            return None
+        avg_ms = int(sum(durations) / len(durations))
+        sorted_durations = sorted(durations)
+        p75_index = min(len(sorted_durations) - 1, int(len(sorted_durations) * 0.75))
+        p75_ms = sorted_durations[p75_index]
+        return {
+            "average_ms": avg_ms,
+            "p75_ms": p75_ms,
+            "sample_size": len(durations),
+        }
+
+    def _safe_query(fetch_fn, scope_kind: str):
+        try:
+            return fetch_fn()
+        except Exception as e:
+            current_app.logger.warning("Timing estimate query failed for %s: %s", scope_kind, e)
+            return []
+
+    user_records = _safe_query(
+        lambda: db.session.query(HistoryModel.duration_ms)
+        .filter(HistoryModel.user_id == current_user.id, HistoryModel.duration_ms.isnot(None))
+        .order_by(HistoryModel.timestamp.desc())
+        .limit(user_limit)
+        .all(),
+        kind,
+    )
+    user_stats = _compute_stats(user_records)
+    if user_stats and user_stats["sample_size"] >= 3:
+        return api_ok(
+            {
+                "kind": kind,
+                **user_stats,
+                "source": "user",
+            }
+        )
+
+    global_records = _safe_query(
+        lambda: db.session.query(HistoryModel.duration_ms)
+        .filter(HistoryModel.duration_ms.isnot(None))
+        .order_by(HistoryModel.timestamp.desc())
+        .limit(global_limit)
+        .all(),
+        kind,
+    )
+    global_stats = _compute_stats(global_records)
+    if global_stats and global_stats["sample_size"] >= 10:
+        return api_ok(
+            {
+                "kind": kind,
+                **global_stats,
+                "source": "global",
+            }
+        )
+
+    default_avg = 15000 if kind == 'analyze' else 12000  # advisor is typically faster
+    default_p75 = 20000 if kind == 'analyze' else 15000
+
+    return api_ok(
+        {
+            "kind": kind,
+            "average_ms": default_avg,
+            "p75_ms": default_p75,
+            "sample_size": 0,
+            "source": "default",
+        }
+    )
