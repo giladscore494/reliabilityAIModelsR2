@@ -95,7 +95,7 @@
                         החיפושים שלי
                     </a>
 
-                    <!-- 🔹 מנוע ההמלצות -->
+                    <!-- מנוע ההמלצות -->
                     {% if is_owner %}
                         <!-- בעלים: כפתור פעיל למנוע ההמלצות -->
                         <a href="{{ url_for('advisor.recommendations') }}"
@@ -435,7 +435,7 @@
                             class="relative w-full md:w-auto md:min-w-[360px] mx-auto flex items-center justify-center py-5 px-10 bg-gradient-to-r from-primary to-secondary hover:from-primary/110 hover:to-secondary/110 text-white font-black text-xl rounded-2xl shadow-xl shadow-primary/20 transition-all hover:scale-[1.02] active:scale-95 overflow-hidden group">
                         <span
                             class="absolute inset-0 w-full h-full bg-white/20 group-hover:w-0 transition-all duration-500 ease-out opacity-0 group-hover:opacity-100"></span>
-                        <span class="button-text relative z-10 flex items-center">🚀 הפעל מנוע ניתוח AI</span>
+                        <span class="button-text relative z-10 flex items-center">הפעל מנוע ניתוח AI</span>
                         <div class="spinner hidden relative z-10 mr-3" aria-hidden="true">
                             <div class="loader"></div>
                         </div>
@@ -471,6 +471,40 @@
                 </a>
             </div>
             {% endif %}
+        </div>
+
+        <!-- Timing Banner (hidden by default) -->
+        <div id="timingBanner" class="hidden fixed top-24 left-1/2 transform -translate-x-1/2 z-40 bg-dark-lighter/95 backdrop-blur-xl border-2 border-primary/50 rounded-2xl shadow-2xl p-6">
+            <div class="flex flex-col items-center gap-4">
+                <div class="relative w-32 h-32">
+                    <!-- SVG Circular Progress Ring -->
+                    <svg class="w-32 h-32 transform -rotate-90" viewBox="0 0 120 120">
+                        <circle cx="60" cy="60" r="54" fill="none" stroke="#1e293b" stroke-width="8"></circle>
+                        <circle id="progressRing" cx="60" cy="60" r="54" fill="none" stroke="url(#rainbowGradient)" stroke-width="8" 
+                                stroke-linecap="round" stroke-dasharray="339.292" stroke-dashoffset="339.292"
+                                style="transition: stroke-dashoffset 0.3s ease, stroke 0.5s ease;"></circle>
+                        <defs>
+                            <linearGradient id="rainbowGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" style="stop-color:rgb(255,0,0);stop-opacity:1" />
+                                <stop offset="16.67%" style="stop-color:rgb(255,165,0);stop-opacity:1" />
+                                <stop offset="33.33%" style="stop-color:rgb(255,255,0);stop-opacity:1" />
+                                <stop offset="50%" style="stop-color:rgb(0,255,0);stop-opacity:1" />
+                                <stop offset="66.67%" style="stop-color:rgb(0,127,255);stop-opacity:1" />
+                                <stop offset="83.33%" style="stop-color:rgb(139,0,255);stop-opacity:1" />
+                                <stop offset="100%" style="stop-color:rgb(255,0,0);stop-opacity:1" />
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                    <!-- Center Text (elapsed time) -->
+                    <div class="absolute inset-0 flex items-center justify-center">
+                        <span id="elapsedTime" class="text-3xl font-black text-white">0</span>
+                    </div>
+                </div>
+                <div class="text-center">
+                    <div id="etaText" class="text-sm text-slate-300 font-medium"></div>
+                    <div id="statusText" class="text-xs text-slate-400 mt-1">מעבד...</div>
+                </div>
+            </div>
         </div>
 
         <div id="results-container" class="hidden w-full max-w-5xl mt-16 fade-in delay-300">

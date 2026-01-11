@@ -100,6 +100,114 @@
         }
     }
 
+    // Timing Banner Elements
+    const timingBanner = document.getElementById('advisorTimingBanner');
+    const elapsedTimeEl = document.getElementById('advisorElapsedTime');
+    const etaTextEl = document.getElementById('advisorEtaText');
+    const statusTextEl = document.getElementById('advisorStatusText');
+    const progressRing = document.getElementById('advisorProgressRing');
+    const RING_CIRCUMFERENCE = 339.292; // 2 * PI * 54
+
+    let timingInterval = null;
+    let timingStartTime = null;
+
+    function showTimingBanner(kind = 'advisor') {
+        if (!timingBanner) return;
+        
+        // Fetch ETA estimate
+        safeFetchJson(`/api/timing/estimate?kind=${kind}`, {
+            method: 'GET',
+            credentials: 'include'
+        }).then(res => {
+            if (res && res.ok) {
+                const data = res.data || {};
+                const p75_ms = data.p75_ms || 15000;
+                const count = data.sample_size || 0;
+                
+                if (etaTextEl) {
+                    if (count > 0) {
+                        etaTextEl.textContent = `זמן משוער: ~${Math.ceil(p75_ms / 1000)} שניות (מבוסס על ${count} שאלונים)`;
+                    } else {
+                        etaTextEl.textContent = `זמן משוער: ~${Math.ceil(p75_ms / 1000)} שניות`;
+                    }
+                }
+                
+                // Start timer
+                timingStartTime = performance.now();
+                timingBanner.classList.remove('hidden');
+                
+                // Update timer every 100ms
+                timingInterval = setInterval(() => {
+                    const elapsed = Math.floor((performance.now() - timingStartTime) / 1000);
+                    if (elapsedTimeEl) elapsedTimeEl.textContent = elapsed;
+                    
+                    // Update progress ring (0 to 100% based on p75_ms)
+                    const elapsedMs = performance.now() - timingStartTime;
+                    const progress = Math.min(1, elapsedMs / p75_ms);
+                    const offset = RING_CIRCUMFERENCE * (1 - progress);
+                    if (progressRing) {
+                        progressRing.style.strokeDashoffset = offset;
+                        
+                        // Rainbow hue cycling (0-360 degrees over p75_ms)
+                        const hue = (elapsedMs / p75_ms) * 360;
+                        progressRing.style.stroke = `hsl(${hue % 360}, 80%, 60%)`;
+                    }
+                }, 100);
+            }
+        }).catch(err => {
+            console.warn('Failed to fetch timing estimate:', err);
+            // Show banner anyway with default
+            timingStartTime = performance.now();
+            timingBanner.classList.remove('hidden');
+            if (etaTextEl) etaTextEl.textContent = 'זמן משוער: ~15 שניות';
+            
+            timingInterval = setInterval(() => {
+                const elapsed = Math.floor((performance.now() - timingStartTime) / 1000);
+                if (elapsedTimeEl) elapsedTimeEl.textContent = elapsed;
+                
+                const elapsedMs = performance.now() - timingStartTime;
+                const progress = Math.min(1, elapsedMs / 15000);
+                const offset = RING_CIRCUMFERENCE * (1 - progress);
+                if (progressRing) {
+                    progressRing.style.strokeDashoffset = offset;
+                    const hue = (elapsedMs / 15000) * 360;
+                    progressRing.style.stroke = `hsl(${hue % 360}, 80%, 60%)`;
+                }
+            }, 100);
+        });
+    }
+
+    function hideTimingBanner(showCompletionMessage = true) {
+        if (timingInterval) {
+            clearInterval(timingInterval);
+            timingInterval = null;
+        }
+        
+        if (showCompletionMessage && timingStartTime && timingBanner && !timingBanner.classList.contains('hidden')) {
+            const finalElapsed = Math.floor((performance.now() - timingStartTime) / 1000);
+            if (statusTextEl) statusTextEl.textContent = `הסתיים תוך ${finalElapsed} שניות`;
+            
+            // Hide after 1.5 seconds
+            setTimeout(() => {
+                if (timingBanner) timingBanner.classList.add('hidden');
+                if (statusTextEl) statusTextEl.textContent = 'מעבד...';
+                if (progressRing) {
+                    progressRing.style.strokeDashoffset = RING_CIRCUMFERENCE;
+                    progressRing.style.stroke = 'url(#advisorRainbowGradient)';
+                }
+            }, 1500);
+        } else {
+            if (timingBanner) timingBanner.classList.add('hidden');
+            if (statusTextEl) statusTextEl.textContent = 'מעבד...';
+            if (progressRing) {
+                progressRing.style.strokeDashoffset = RING_CIRCUMFERENCE;
+                progressRing.style.stroke = 'url(#advisorRainbowGradient)';
+            }
+        }
+        
+        timingStartTime = null;
+    }
+
     // === מיפוי שם פרמטרי ה-method לעברית (כמו ב-Python) ===
     const methodLabelMap = {
         fuel_method: "שיטת חישוב צריכת דלק/חשמל",
@@ -747,11 +855,13 @@
         }
 
         setSubmitting(true);
+        showTimingBanner('advisor');
+        
         try {
             const res = await safeFetchJson('/advisor_api', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                credentials: 'include',  // ✅ Send session cookies
+                credentials: 'include',  // Send session cookies
                 body: JSON.stringify(payload)
             });
 
@@ -775,6 +885,7 @@
             console.error(err);
             showRequestAwareError('שגיאה כללית בחיבור לשרת. נסה שוב מאוחר יותר.', null);
         } finally {
+            hideTimingBanner(true);
             setSubmitting(false);
         }
     }

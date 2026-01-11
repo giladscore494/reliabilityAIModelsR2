@@ -1519,7 +1519,7 @@ def create_app():
             return None
         
         # Only check specific endpoints (not login/auth which may come from external OAuth flow)
-        protected_paths = ['/analyze', '/advisor_api']
+        protected_paths = ['/analyze', '/advisor_api', '/api/account/delete']
         if not any(request.path.startswith(p) for p in protected_paths):
             return None
         

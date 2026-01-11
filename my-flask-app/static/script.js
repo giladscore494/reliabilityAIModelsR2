@@ -131,7 +131,116 @@
     const faultsContainer = document.getElementById('faults');
     const costsContainer = document.getElementById('costs');
     const competitorsContainer = document.getElementById('competitors');
-    // All innerHTML below interpolates values passed through escapeHtml() to prevent XSS.
+    // All innerHTML below interpolates values passed through escapeHtml() to prevent XSS
+
+    // Timing Banner Elements
+    const timingBanner = document.getElementById('timingBanner');
+    const elapsedTimeEl = document.getElementById('elapsedTime');
+    const etaTextEl = document.getElementById('etaText');
+    const statusTextEl = document.getElementById('statusText');
+    const progressRing = document.getElementById('progressRing');
+    const RING_CIRCUMFERENCE = 339.292; // 2 * PI * 54
+
+    let timingInterval = null;
+    let timingStartTime = null;
+
+    function showTimingBanner(kind = 'analyze') {
+        if (!timingBanner) return;
+        
+        // Fetch ETA estimate
+        safeFetchJson(`/api/timing/estimate?kind=${kind}`, {
+            method: 'GET',
+            credentials: 'include'
+        }).then(res => {
+            if (res && res.ok) {
+                const data = res.data || {};
+                const p75_ms = data.p75_ms || 20000;
+                const count = data.sample_size || 0;
+                const source = data.source || 'default';
+                
+                if (etaTextEl) {
+                    if (count > 0) {
+                        etaTextEl.textContent = `זמן משוער: ~${Math.ceil(p75_ms / 1000)} שניות (מבוסס על ${count} בדיקות)`;
+                    } else {
+                        etaTextEl.textContent = `זמן משוער: ~${Math.ceil(p75_ms / 1000)} שניות`;
+                    }
+                }
+                
+                // Start timer
+                timingStartTime = performance.now();
+                timingBanner.classList.remove('hidden');
+                
+                // Update timer every 100ms
+                timingInterval = setInterval(() => {
+                    const elapsed = Math.floor((performance.now() - timingStartTime) / 1000);
+                    if (elapsedTimeEl) elapsedTimeEl.textContent = elapsed;
+                    
+                    // Update progress ring (0 to 100% based on p75_ms)
+                    const elapsedMs = performance.now() - timingStartTime;
+                    const progress = Math.min(1, elapsedMs / p75_ms);
+                    const offset = RING_CIRCUMFERENCE * (1 - progress);
+                    if (progressRing) {
+                        progressRing.style.strokeDashoffset = offset;
+                        
+                        // Rainbow hue cycling (0-360 degrees over p75_ms)
+                        const hue = (elapsedMs / p75_ms) * 360;
+                        progressRing.style.stroke = `hsl(${hue % 360}, 80%, 60%)`;
+                    }
+                }, 100);
+            }
+        }).catch(err => {
+            console.warn('Failed to fetch timing estimate:', err);
+            // Show banner anyway with default
+            timingStartTime = performance.now();
+            timingBanner.classList.remove('hidden');
+            if (etaTextEl) etaTextEl.textContent = 'זמן משוער: ~20 שניות';
+            
+            timingInterval = setInterval(() => {
+                const elapsed = Math.floor((performance.now() - timingStartTime) / 1000);
+                if (elapsedTimeEl) elapsedTimeEl.textContent = elapsed;
+                
+                const elapsedMs = performance.now() - timingStartTime;
+                const progress = Math.min(1, elapsedMs / 20000);
+                const offset = RING_CIRCUMFERENCE * (1 - progress);
+                if (progressRing) {
+                    progressRing.style.strokeDashoffset = offset;
+                    const hue = (elapsedMs / 20000) * 360;
+                    progressRing.style.stroke = `hsl(${hue % 360}, 80%, 60%)`;
+                }
+            }, 100);
+        });
+    }
+
+    function hideTimingBanner(showCompletionMessage = true) {
+        if (timingInterval) {
+            clearInterval(timingInterval);
+            timingInterval = null;
+        }
+        
+        if (showCompletionMessage && timingStartTime && timingBanner && !timingBanner.classList.contains('hidden')) {
+            const finalElapsed = Math.floor((performance.now() - timingStartTime) / 1000);
+            if (statusTextEl) statusTextEl.textContent = `הסתיים תוך ${finalElapsed} שניות`;
+            
+            // Hide after 1.5 seconds
+            setTimeout(() => {
+                if (timingBanner) timingBanner.classList.add('hidden');
+                if (statusTextEl) statusTextEl.textContent = 'מעבד...';
+                if (progressRing) {
+                    progressRing.style.strokeDashoffset = RING_CIRCUMFERENCE;
+                    progressRing.style.stroke = 'url(#rainbowGradient)';
+                }
+            }, 1500);
+        } else {
+            if (timingBanner) timingBanner.classList.add('hidden');
+            if (statusTextEl) statusTextEl.textContent = 'מעבד...';
+            if (progressRing) {
+                progressRing.style.strokeDashoffset = RING_CIRCUMFERENCE;
+                progressRing.style.stroke = 'url(#rainbowGradient)';
+            }
+        }
+        
+        timingStartTime = null;
+    }
 
     // טאבס
     window.openTab = function (evt, tabId) {
@@ -691,6 +800,8 @@
         }
 
         setSubmitting(true);
+        showTimingBanner('analyze');
+        
         try {
             const res = await safeFetchJson('/analyze', {
                 method: 'POST',
@@ -719,6 +830,7 @@
             console.error(err);
             alert('שגיאה כללית בשליחת הבקשה. אנא נסה שוב מאוחר יותר.');
         } finally {
+            hideTimingBanner(true);
             setSubmitting(false);
         }
     }
@@ -913,6 +1025,40 @@
                         </div>
                     `;
                 });
+            }
+            
+            // Add duration comparison if available
+            if (item1.duration_ms || item2.duration_ms) {
+                const dur1 = item1.duration_ms ? (item1.duration_ms / 1000).toFixed(1) : 'N/A';
+                const dur2 = item2.duration_ms ? (item2.duration_ms / 1000).toFixed(1) : 'N/A';
+                
+                html += `
+                    <div class="flex justify-between items-center py-2 border-b border-slate-700/50">
+                        <span class="text-slate-300 text-sm">זמן עיבוד (שניות)</span>
+                        <div class="flex gap-4 items-center">
+                            <span class="text-white text-sm">${dur1}</span>
+                            <span class="text-slate-500 text-sm">—</span>
+                            <span class="text-white text-sm">${dur2}</span>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Add repair cost comparison if available
+            if (item1.result?.avg_repair_cost_ILS || item2.result?.avg_repair_cost_ILS) {
+                const cost1 = item1.result?.avg_repair_cost_ILS || 'N/A';
+                const cost2 = item2.result?.avg_repair_cost_ILS || 'N/A';
+                
+                html += `
+                    <div class="flex justify-between items-center py-2 border-b border-slate-700/50">
+                        <span class="text-slate-300 text-sm">${labels['avg_repair_cost_ILS']}</span>
+                        <div class="flex gap-4 items-center">
+                            <span class="text-white text-sm">${cost1}</span>
+                            <span class="text-slate-500 text-sm">vs</span>
+                            <span class="text-white text-sm">${cost2}</span>
+                        </div>
+                    </div>
+                `;
             }
             
             html += `

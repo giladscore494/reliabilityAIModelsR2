@@ -43,10 +43,31 @@ def delete_account():
     """
     Delete user account and all associated data.
     Requires confirmation text 'DELETE' in request body.
+    Requires Content-Type: application/json and Origin/Referer validation (handled by factory.py).
     """
     request_id = get_request_id()
+    
+    # Validate Content-Type
+    content_type = request.headers.get('Content-Type', '')
+    if 'application/json' not in content_type.lower():
+        return api_error(
+            'INVALID_CONTENT_TYPE',
+            'דרוש Content-Type: application/json',
+            status=400,
+            request_id=request_id
+        )
+    
     try:
         data = request.get_json() or {}
+    except Exception:
+        return api_error(
+            'INVALID_JSON',
+            'נתוני JSON לא תקינים',
+            status=400,
+            request_id=request_id
+        )
+    
+    try:
         confirmation = data.get('confirm', '').strip()
         
         if confirmation != 'DELETE':
@@ -59,6 +80,15 @@ def delete_account():
         
         user_id = current_user.id
         user_email = current_user.email
+        
+        # Check if user is owner (owners cannot be deleted)
+        if is_owner_user():
+            return api_error(
+                'OWNER_CANNOT_DELETE',
+                'לא ניתן למחוק חשבון בעלים',
+                status=403,
+                request_id=request_id
+            )
         
         # Log the deletion (without PII in the message, just request_id)
         current_app.logger.info(f"[{request_id}] Account deletion initiated for user_id={user_id}")
