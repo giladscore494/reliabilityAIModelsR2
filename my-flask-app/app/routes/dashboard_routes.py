@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Dashboard routes blueprint."""
 
-from flask import Blueprint, render_template, current_app, request
+from flask import Blueprint, render_template, current_app, request, jsonify
 from flask_login import current_user, login_required
 
 from app.extensions import db
@@ -83,12 +83,10 @@ def delete_account():
         
         # Check if user is owner (owners cannot be deleted)
         if is_owner_user():
-            return api_error(
-                'OWNER_CANNOT_DELETE',
-                'לא ניתן למחוק חשבון בעלים',
-                status=403,
-                request_id=request_id
-            )
+            resp = jsonify({"error": "forbidden", "request_id": request_id})
+            resp.status_code = 403
+            resp.headers["X-Request-ID"] = request_id
+            return resp
         
         # Log the deletion (without PII in the message, just request_id)
         current_app.logger.info(f"[{request_id}] Account deletion initiated for user_id={user_id}")
@@ -103,11 +101,10 @@ def delete_account():
             db.session.commit()
             current_app.logger.info(f"[{request_id}] Account deleted successfully")
         
-        return api_ok(
-            {'message': 'החשבון נמחק בהצלחה'},
-            status=200,
-            request_id=request_id
-        )
+        resp = jsonify({"ok": True, "request_id": request_id})
+        resp.status_code = 200
+        resp.headers["X-Request-ID"] = request_id
+        return resp
         
     except Exception as e:
         db.session.rollback()

@@ -69,7 +69,8 @@ def build_searches_data(user_searches: List[SearchHistory]) -> list:
             "mileage_range": s.mileage_range or '',
             "fuel_type": s.fuel_type or '',
             "transmission": s.transmission or '',
-            "data": parsed_result
+            "data": parsed_result,
+            "duration_ms": getattr(s, "duration_ms", None),
         })
     return searches_data
 
@@ -104,7 +105,7 @@ def history_list_response(user_id: int):
         searches = SearchHistory.query.filter_by(
             user_id=user_id
         ).order_by(SearchHistory.timestamp.desc()).limit(50).all()
-        
+
         history_items = []
         for s in searches:
             history_items.append({
@@ -115,18 +116,18 @@ def history_list_response(user_id: int):
                 'year': s.year,
                 'mileage_range': s.mileage_range,
                 'fuel_type': s.fuel_type,
-                'transmission': s.transmission
+                'transmission': s.transmission,
+                'duration_ms': getattr(s, "duration_ms", None),
             })
-        
+
         return api_ok({'searches': history_items})
-        
     except SQLAlchemyError as e:
         try:
             db.session.rollback()
         except SQLAlchemyError:
             logger.exception("[HIST] history_list rollback failed request_id=%s", request_id)
         logger.exception("[HIST] history_list query failed request_id=%s error=%s", request_id, str(e))
-        return api_ok({'searches': [], 'history_error': 'history_unavailable'})
+        return api_error('history_unavailable', 'שגיאה בשליפת היסטוריית חיפושים', status=500)
 
 
 def history_item_response(item_id: int, user_id: int):
@@ -137,12 +138,12 @@ def history_item_response(item_id: int, user_id: int):
             id=item_id,
             user_id=user_id
         ).first()
-        
+
         if not search:
             return api_error('NOT_FOUND', 'פריט לא נמצא או אין לך גישה אליו', status=404)
-        
+
         result_data = json.loads(search.result_json) if search.result_json else {}
-        
+
         return api_ok({
             'id': search.id,
             'timestamp': search.timestamp.isoformat(),
@@ -152,13 +153,13 @@ def history_item_response(item_id: int, user_id: int):
             'mileage_range': search.mileage_range,
             'fuel_type': search.fuel_type,
             'transmission': search.transmission,
+            'duration_ms': getattr(search, "duration_ms", None),
             'result': result_data
         })
-        
     except SQLAlchemyError as e:
         try:
             db.session.rollback()
         except SQLAlchemyError:
             logger.exception("[HIST] history_item rollback failed request_id=%s", request_id)
         logger.exception("[HIST] history item error request_id=%s error=%s", request_id, str(e))
-        return api_ok({'search': None, 'history_error': 'history_unavailable'})
+        return api_error('history_unavailable', 'שגיאה בשליפת היסטוריית חיפושים', status=500)

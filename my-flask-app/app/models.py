@@ -108,6 +108,7 @@ class AdvisorHistory(db.Model):
     timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     profile_json = db.Column(db.Text, nullable=False)
     result_json = db.Column(db.Text, nullable=False)
+    duration_ms = db.Column(db.Integer, nullable=True)
 
 
 class IpRateLimit(db.Model):
