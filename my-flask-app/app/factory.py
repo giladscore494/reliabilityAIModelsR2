@@ -101,6 +101,7 @@ MAX_CACHE_DAYS = 45
 PER_IP_PER_MIN_LIMIT = 20
 QUOTA_RESERVATION_TTL_SECONDS = int(os.environ.get("QUOTA_RESERVATION_TTL_SECONDS", "600"))
 MAX_ACTIVE_RESERVATIONS = 1
+AI_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 import app.quota as quota_module
 quota_module.USER_DAILY_LIMIT = USER_DAILY_LIMIT
 quota_module.GLOBAL_DAILY_LIMIT = GLOBAL_DAILY_LIMIT
@@ -570,6 +571,17 @@ def parse_model_json(raw: str) -> Tuple[Optional[dict], Optional[str]]:
             return None, "MODEL_JSON_INVALID"
 
 
+def _execute_with_timeout(fn, timeout_sec: int):
+    future = AI_EXECUTOR.submit(fn)
+    try:
+        return future.result(timeout=timeout_sec), None
+    except concurrent.futures.TimeoutError:
+        future.cancel()
+        return None, "CALL_TIMEOUT"
+    except Exception as e:
+        return None, e
+
+
 def call_gemini_grounded_once(prompt: str) -> Tuple[Optional[dict], Optional[str]]:
     if extensions.ai_client is None:
         return None, "CLIENT_NOT_INITIALIZED"
@@ -587,17 +599,16 @@ def call_gemini_grounded_once(prompt: str) -> Tuple[Optional[dict], Optional[str
             contents=prompt,
             config=config,
         )
-    try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_invoke)
-            resp = future.result(timeout=AI_CALL_TIMEOUT_SEC)
-        text = (getattr(resp, "text", "") or "").strip()
-        parsed, err = parse_model_json(text)
-        return parsed, err
-    except concurrent.futures.TimeoutError:
+    resp, err = _execute_with_timeout(_invoke, AI_CALL_TIMEOUT_SEC)
+    if err == "CALL_TIMEOUT":
         return None, "CALL_TIMEOUT"
-    except Exception as e:
-        return None, f"CALL_FAILED:{type(e).__name__}"
+    if isinstance(err, Exception):
+        return None, f"CALL_FAILED:{type(err).__name__}"
+    if resp is None:
+        return None, "CALL_FAILED:EMPTY"
+    text = (getattr(resp, "text", "") or "").strip()
+    parsed, err = parse_model_json(text)
+    return parsed, err
 
 
 # ======================================================
@@ -772,20 +783,19 @@ Return ONLY raw JSON. Do not add any backticks or explanation text.
             contents=prompt,
             config=config,
         )
-    try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_invoke)
-            resp = future.result(timeout=AI_CALL_TIMEOUT_SEC)
-        text = getattr(resp, "text", "") or ""
-        text = text.strip()
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            return {"_error": "JSON decode error from Gemini Car Advisor", "_raw": text}
-    except concurrent.futures.TimeoutError:
+    resp, err = _execute_with_timeout(_invoke, AI_CALL_TIMEOUT_SEC)
+    if err == "CALL_TIMEOUT":
         return {"_error": "CALL_TIMEOUT"}
-    except Exception as e:
-        return {"_error": f"Gemini Car Advisor call failed: {e}"}
+    if isinstance(err, Exception):
+        return {"_error": f"Gemini Car Advisor call failed: {err}"}
+    if resp is None:
+        return {"_error": "Gemini Car Advisor call failed: EMPTY"}
+    text = getattr(resp, "text", "") or ""
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return {"_error": "JSON decode error from Gemini Car Advisor", "_raw": text}
 
 
 def car_advisor_postprocess(profile: dict, parsed: dict) -> dict:
@@ -1712,7 +1722,7 @@ def create_app():
     @app.teardown_request
     def teardown_request_handler(exc):
         try:
-            if exc is not None or db.session.get_transaction() is not None:
+            if exc is not None or db.session.in_transaction():
                 db.session.rollback()
         except Exception:
             logger.exception("[DB] teardown rollback failed")
