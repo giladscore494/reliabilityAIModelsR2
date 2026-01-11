@@ -1540,6 +1540,20 @@ def create_app():
         protected_paths = ['/analyze', '/advisor_api', '/api/account/delete']
         if not any(request.path.startswith(p) for p in protected_paths):
             return None
+
+        def _forbidden_response():
+            if request.path.startswith("/api/account/delete"):
+                rid = get_request_id()
+                resp = jsonify({"error": "forbidden", "request_id": rid})
+                resp.status_code = 403
+                resp.headers["X-Request-ID"] = rid
+                return resp
+            return api_error("forbidden_origin", "Request from unauthorized origin", status=403)
+
+        is_delete_endpoint = request.endpoint == "dashboard.delete_account"
+        xrw_header = request.headers.get("X-Requested-With")
+        if current_user.is_authenticated and is_delete_endpoint and xrw_header == "XMLHttpRequest":
+            return None
         
         # Get Origin or Referer header
         origin = request.headers.get('Origin')
@@ -1564,17 +1578,24 @@ def create_app():
             except Exception:
                 origin_host = None
         
+        if not current_user.is_authenticated:
+            if not origin_host:
+                logger.warning(f"[CSRF] Blocked unauthenticated POST to {request.path} with no Origin/Referer header")
+                return _forbidden_response()
+            host_no_port = origin_host.split(':')[0].lower() if ':' in origin_host else origin_host.lower()
+            if host_no_port not in ALLOWED_HOSTS:
+                logger.warning(f"[CSRF] Blocked unauthenticated POST to {request.path} from disallowed origin: {origin_host}")
+                return _forbidden_response()
+            return None
+
         # Check if origin_host is allowed
         if origin_host:
             # Strip port for comparison
             host_no_port = origin_host.split(':')[0].lower() if ':' in origin_host else origin_host.lower()
             if host_no_port not in ALLOWED_HOSTS:
                 logger.warning(f"[CSRF] Blocked POST to {request.path} from disallowed origin: {origin_host}")
-                return api_error("forbidden_origin", "Request from unauthorized origin", status=403)
+                return _forbidden_response()
         else:
-            # No Origin or Referer header - this is suspicious for browser requests
-            # However, some legitimate tools/clients may not send these headers
-            # Log for monitoring but allow (can be tightened if needed)
             logger.warning(f"[CSRF] POST to {request.path} with no Origin/Referer header")
         
         return None
@@ -1584,6 +1605,12 @@ def create_app():
     def unauthorized():
         """Return 401 for AJAX/JSON requests, otherwise redirect to login."""
         if request.is_json or request.accept_mimetypes.accept_json:
+            if request.path.startswith("/api/account/delete"):
+                rid = get_request_id()
+                resp = jsonify({"error": "login_required", "request_id": rid})
+                resp.status_code = 401
+                resp.headers["X-Request-ID"] = rid
+                return resp
             log_rejection("unauthenticated", "User not logged in, no valid session")
             return api_error("unauthenticated", "אנא התחבר כדי להשתמש בשירות זה", status=401)
         return redirect(url_for('public.login'))
@@ -1654,6 +1681,17 @@ def create_app():
                 )
         except Exception:
             pass
+        return response
+
+    @app.after_request
+    def apply_cache_control(response):
+        path = request.path or ""
+        if path.startswith("/static/") or path == "/favicon.ico":
+            return response
+        if path == "/dashboard" or path.startswith("/api/history/") or path.startswith("/api/account/"):
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
         return response
 
     @app.teardown_request

@@ -254,6 +254,7 @@
         <div class="flex gap-3">
             <button 
                 onclick="confirmDelete()"
+                id="deleteConfirmButton"
                 class="flex-1 px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-colors">
                 אשר מחיקה
             </button>
@@ -707,6 +708,7 @@
     async function confirmDelete() {
         const input = document.getElementById('deleteConfirmInput');
         const errorEl = document.getElementById('deleteError');
+        const confirmBtn = document.getElementById('deleteConfirmButton');
         const confirmValue = input.value.trim();
         
         if (confirmValue !== 'DELETE') {
@@ -716,14 +718,20 @@
         }
         
         errorEl.classList.add('hidden');
+        if (confirmBtn) {
+            confirmBtn.disabled = true;
+            confirmBtn.classList.add('opacity-70', 'cursor-not-allowed');
+        }
         
         try {
             const response = await fetch('/api/account/delete', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Cache-Control': 'no-store',
                 },
-                credentials: 'same-origin',
+                credentials: 'include',
                 body: JSON.stringify({ confirm: 'DELETE' })
             });
             
@@ -734,12 +742,21 @@
                 alert('החשבון נמחק בהצלחה');
                 window.location.href = '/';
             } else {
-                errorEl.textContent = data.message || 'שגיאה במחיקת החשבון';
+                const message = (data && (data.error?.message || data.error)) || data.message || 'שגיאה במחיקת החשבון';
+                errorEl.textContent = message;
                 errorEl.classList.remove('hidden');
+                if (confirmBtn) {
+                    confirmBtn.disabled = false;
+                    confirmBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+                }
             }
         } catch (error) {
             errorEl.textContent = 'שגיאת רשת - נסה שוב';
             errorEl.classList.remove('hidden');
+            if (confirmBtn) {
+                confirmBtn.disabled = false;
+                confirmBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+            }
         }
     }
 
