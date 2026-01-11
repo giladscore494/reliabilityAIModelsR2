@@ -12,6 +12,7 @@ from datetime import datetime, time, timedelta, date
 from zoneinfo import ZoneInfo
 from urllib.parse import urlparse
 from sqlalchemy import inspect, desc
+from alembic.runtime.migration import MigrationContext
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session, send_from_directory
@@ -1492,6 +1493,23 @@ def create_app():
 
     with app.app_context():
         ensure_search_history_cache_key(app, db, logger)
+        try:
+            with db.engine.connect() as conn:
+                context = MigrationContext.configure(conn)
+                current_rev = context.get_current_revision()
+            has_duration_ms = False
+            with db.engine.connect() as conn:
+                inspector = inspect(conn)
+                if inspector.has_table("search_history"):
+                    cols = [col["name"] for col in inspector.get_columns("search_history")]
+                    has_duration_ms = "duration_ms" in cols
+            logger.info(
+                "[DB] Alembic revision: %s (duration_ms column: %s)",
+                current_rev or "(none)",
+                "present" if has_duration_ms else "missing",
+            )
+        except Exception:
+            logger.exception("[DB] Alembic revision check failed")
 
     login_manager.login_view = 'public.login'
     

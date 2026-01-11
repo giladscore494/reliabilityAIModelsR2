@@ -3,6 +3,7 @@
 
 import json
 from typing import List, Tuple, Optional
+from sqlalchemy.exc import SQLAlchemyError
 
 from flask import current_app
 
@@ -97,6 +98,8 @@ def search_details_response(search_id: int, user_id: int):
 
 
 def history_list_response(user_id: int):
+    logger = current_app.logger
+    request_id = get_request_id()
     try:
         searches = SearchHistory.query.filter_by(
             user_id=user_id
@@ -117,12 +120,18 @@ def history_list_response(user_id: int):
         
         return api_ok({'searches': history_items})
         
-    except Exception as e:
-        current_app.logger.error(f"History list error: {str(e)}")
-        return api_error('HISTORY_LIST_FAILED', 'Failed to fetch history', status=500)
+    except SQLAlchemyError as e:
+        try:
+            db.session.rollback()
+        except SQLAlchemyError:
+            logger.exception("[HIST] history_list rollback failed request_id=%s", request_id)
+        logger.exception("[HIST] history_list query failed request_id=%s error=%s", request_id, str(e))
+        return api_ok({'searches': [], 'history_error': 'history_unavailable'})
 
 
 def history_item_response(item_id: int, user_id: int):
+    logger = current_app.logger
+    request_id = get_request_id()
     try:
         search = SearchHistory.query.filter_by(
             id=item_id,
@@ -146,6 +155,10 @@ def history_item_response(item_id: int, user_id: int):
             'result': result_data
         })
         
-    except Exception as e:
-        current_app.logger.error(f"History item error: {str(e)}")
-        return api_error('HISTORY_ITEM_FAILED', 'Failed to fetch history item', status=500)
+    except SQLAlchemyError as e:
+        try:
+            db.session.rollback()
+        except SQLAlchemyError:
+            logger.exception("[HIST] history_item rollback failed request_id=%s", request_id)
+        logger.exception("[HIST] history item error request_id=%s error=%s", request_id, str(e))
+        return api_ok({'search': None, 'history_error': 'history_unavailable'})
