@@ -112,7 +112,7 @@ def _get_or_create_quota_row(user_id: int, day_key: date, now_utc: datetime) -> 
     except IntegrityError:
         db.session.rollback()
     except SQLAlchemyError:
-        pass
+        db.session.rollback()
 
     try:
         quota = (
@@ -122,6 +122,7 @@ def _get_or_create_quota_row(user_id: int, day_key: date, now_utc: datetime) -> 
             .first()
         )
     except SQLAlchemyError:
+        db.session.rollback()
         quota = (
             db.session.query(DailyQuotaUsage)
             .filter_by(user_id=user_id, day=day_key)
@@ -296,7 +297,7 @@ def check_and_increment_ip_rate_limit(ip: str, limit: int = PER_IP_PER_MIN_LIMIT
         except IntegrityError:
             db.session.rollback()
         except SQLAlchemyError:
-            pass
+            db.session.rollback()
 
         try:
             record = (
@@ -306,6 +307,7 @@ def check_and_increment_ip_rate_limit(ip: str, limit: int = PER_IP_PER_MIN_LIMIT
                 .first()
             )
         except SQLAlchemyError:
+            db.session.rollback()
             record = (
                 db.session.query(IpRateLimit)
                 .filter_by(ip=ip, window_start=window_start)

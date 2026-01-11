@@ -12,7 +12,7 @@ from flask_login import login_required, current_user
 from app.extensions import db
 from app.models import SearchHistory
 from app.quota import check_and_increment_ip_rate_limit, get_client_ip, log_access_decision, PER_IP_PER_MIN_LIMIT
-from app.utils.http_helpers import api_error, is_owner_user
+from app.utils.http_helpers import api_error, api_ok, is_owner_user
 from app.services import analyze_service
 from app.factory import QUOTA_RESERVATION_TTL_SECONDS
 
@@ -152,55 +152,79 @@ def timing_estimate():
         try:
             return fetch_fn()
         except Exception as e:
+            try:
+                db.session.rollback()
+            except Exception:
+                current_app.logger.exception("[TIMING] rollback failed for %s", scope_kind)
             current_app.logger.warning("Timing estimate query failed for %s: %s", scope_kind, e)
             return []
 
-    user_records = _safe_query(
-        lambda: db.session.query(HistoryModel.duration_ms)
-        .filter(HistoryModel.user_id == current_user.id)
-        .order_by(HistoryModel.timestamp.desc())
-        .limit(TIMING_SAMPLE_LIMIT)
-        .all(),
-        f"{kind}_user",
-    )
-    stats = _compute_stats(user_records)
-    source = "user" if stats else "global"
-
-    if not stats:
-        global_records = _safe_query(
+    try:
+        user_records = _safe_query(
             lambda: db.session.query(HistoryModel.duration_ms)
+            .filter(HistoryModel.user_id == current_user.id)
             .order_by(HistoryModel.timestamp.desc())
             .limit(TIMING_SAMPLE_LIMIT)
             .all(),
-            f"{kind}_global",
+            f"{kind}_user",
         )
-        stats = _compute_stats(global_records)
+        stats = _compute_stats(user_records)
+        source = "user" if stats else "global"
+
         if not stats:
-            source = "default"
+            global_records = _safe_query(
+                lambda: db.session.query(HistoryModel.duration_ms)
+                .order_by(HistoryModel.timestamp.desc())
+                .limit(TIMING_SAMPLE_LIMIT)
+                .all(),
+                f"{kind}_global",
+            )
+            stats = _compute_stats(global_records)
+            if not stats:
+                source = "default"
 
-    if stats:
-        estimate_ms = stats["avg_ms"]
-        avg_ms = stats["avg_ms"]
-        median_ms = stats["median_ms"]
-        p75_ms = stats["p75_ms"]
-        sample_size = stats["sample_size"]
-    else:
-        estimate_ms = default_estimate
-        avg_ms = None
-        median_ms = None
-        p75_ms = default_estimate
-        sample_size = 0
+        if stats:
+            estimate_ms = stats["avg_ms"]
+            avg_ms = stats["avg_ms"]
+            median_ms = stats["median_ms"]
+            p75_ms = stats["p75_ms"]
+            sample_size = stats["sample_size"]
+        else:
+            estimate_ms = default_estimate
+            avg_ms = None
+            median_ms = None
+            p75_ms = default_estimate
+            sample_size = 0
 
-    return api_ok(
-        {
-            "kind": kind,
-            "avg_ms": avg_ms,
-            # average_ms kept for backward compatibility; TODO: remove once all clients use avg_ms/estimate_ms.
-            "average_ms": avg_ms,
-            "median_ms": median_ms,
-            "estimate_ms": estimate_ms,
-            "p75_ms": p75_ms,
-            "sample_size": sample_size,
-            "source": source,
-        }
-    )
+        return api_ok(
+            {
+                "kind": kind,
+                "avg_ms": avg_ms,
+                # average_ms kept for backward compatibility; TODO: remove once all clients use avg_ms/estimate_ms.
+                "average_ms": avg_ms,
+                "median_ms": median_ms,
+                "estimate_ms": estimate_ms,
+                "p75_ms": p75_ms,
+                "sample_size": sample_size,
+                "source": source,
+            }
+        )
+    except Exception as e:
+        current_app.logger.warning("Timing estimate failed: %s", e)
+        try:
+            db.session.rollback()
+        except Exception:
+            current_app.logger.exception("[TIMING] rollback failed after fatal error")
+        fallback_estimate = default_estimate
+        return api_ok(
+            {
+                "kind": kind,
+                "avg_ms": None,
+                "average_ms": None,
+                "median_ms": None,
+                "estimate_ms": fallback_estimate,
+                "p75_ms": fallback_estimate,
+                "sample_size": 0,
+                "source": "default",
+            }
+        )

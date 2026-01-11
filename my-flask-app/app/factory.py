@@ -5,7 +5,7 @@
 # Phase 1 & 2: Security hardening complete
 # ===================================================================
 
-import os, re, json, traceback, logging, uuid, random, hashlib
+import os, re, json, traceback, logging, uuid, random, hashlib, concurrent.futures
 import time as pytime
 from typing import Optional, Tuple, Any, Dict, Mapping
 from datetime import datetime, time, timedelta, date
@@ -581,15 +581,21 @@ def call_gemini_grounded_once(prompt: str) -> Tuple[Optional[dict], Optional[str
         tools=[search_tool],
         response_mime_type="application/json",
     )
-    try:
-        resp = extensions.ai_client.models.generate_content(
+    def _invoke():
+        return extensions.ai_client.models.generate_content(
             model=GEMINI3_MODEL_ID,
             contents=prompt,
             config=config,
         )
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_invoke)
+            resp = future.result(timeout=AI_CALL_TIMEOUT_SEC)
         text = (getattr(resp, "text", "") or "").strip()
         parsed, err = parse_model_json(text)
         return parsed, err
+    except concurrent.futures.TimeoutError:
+        return None, "CALL_TIMEOUT"
     except Exception as e:
         return None, f"CALL_FAILED:{type(e).__name__}"
 
@@ -760,18 +766,24 @@ Return ONLY raw JSON. Do not add any backticks or explanation text.
         response_mime_type="application/json",
     )
 
-    try:
-        resp = extensions.advisor_client.models.generate_content(
+    def _invoke():
+        return extensions.advisor_client.models.generate_content(
             model=GEMINI3_MODEL_ID,
             contents=prompt,
             config=config,
         )
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_invoke)
+            resp = future.result(timeout=AI_CALL_TIMEOUT_SEC)
         text = getattr(resp, "text", "") or ""
         text = text.strip()
         try:
             return json.loads(text)
         except json.JSONDecodeError:
             return {"_error": "JSON decode error from Gemini Car Advisor", "_raw": text}
+    except concurrent.futures.TimeoutError:
+        return {"_error": "CALL_TIMEOUT"}
     except Exception as e:
         return {"_error": f"Gemini Car Advisor call failed: {e}"}
 
@@ -925,7 +937,7 @@ def _get_or_create_quota_row(user_id: int, day_key: date, now_utc: datetime) -> 
     except IntegrityError:
         db.session.rollback()
     except SQLAlchemyError:
-        pass
+        db.session.rollback()
 
     try:
         quota = (
@@ -935,6 +947,7 @@ def _get_or_create_quota_row(user_id: int, day_key: date, now_utc: datetime) -> 
             .first()
         )
     except SQLAlchemyError:
+        db.session.rollback()
         quota = (
             db.session.query(DailyQuotaUsage)
             .filter_by(user_id=user_id, day=day_key)
@@ -1230,7 +1243,7 @@ def check_and_increment_ip_rate_limit(ip: str, limit: int = 20, now_utc: Optiona
             db.session.rollback()
         except SQLAlchemyError:
             # Fallback to legacy lock-based approach if dialect upsert unavailable
-            pass
+            db.session.rollback()
 
         try:
             record = (
@@ -1240,6 +1253,7 @@ def check_and_increment_ip_rate_limit(ip: str, limit: int = 20, now_utc: Optiona
                 .first()
             )
         except SQLAlchemyError:
+            db.session.rollback()
             record = (
                 db.session.query(IpRateLimit)
                 .filter_by(ip=ip, window_start=window_start)
@@ -1697,12 +1711,13 @@ def create_app():
 
     @app.teardown_request
     def teardown_request_handler(exc):
-        if exc is not None:
-            try:
+        try:
+            if exc is not None or db.session.get_transaction() is not None:
                 db.session.rollback()
-            except Exception:
-                logger.exception("[DB] teardown rollback failed")
-        db.session.remove()
+        except Exception:
+            logger.exception("[DB] teardown rollback failed")
+        finally:
+            db.session.remove()
 
     # ==========================
     # ✅ Run create_all ONLY ONCE

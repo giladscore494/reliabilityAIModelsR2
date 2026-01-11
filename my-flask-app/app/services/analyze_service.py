@@ -252,6 +252,10 @@ def handle_analyze_request(
         model_start = pytime.perf_counter()
         model_output, ai_error = ai_call(prompt)
         model_duration_ms = int((pytime.perf_counter() - model_start) * 1000)
+        if ai_error == "CALL_TIMEOUT":
+            if not bypass_owner:
+                release_quota_reservation(reservation_id, user_id, day_key)
+            return api_error("ai_timeout", "תשובת ה-AI התעכבה. נסה שוב מאוחר יותר.", status=504)
         if model_output is None:
             raise ModelOutputInvalidError(ai_error or "MODEL_JSON_INVALID")
         if not isinstance(model_output, dict):
