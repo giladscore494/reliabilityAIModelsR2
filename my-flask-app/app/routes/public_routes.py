@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
-Public routes blueprint - handles public-facing pages and authentication.
-"""
+"""Public routes blueprint - handles public-facing pages and authentication."""
 
 import os
 from flask import Blueprint, render_template, redirect, url_for, send_from_directory, session, flash, current_app
@@ -10,10 +8,9 @@ from authlib.integrations.base_client.errors import MismatchingStateError
 
 from app.extensions import db, oauth
 from app.models import User
-from app.data.israeli_car_market import israeli_car_market_full_compilation
-from app.routes.helpers import api_ok, api_error, is_owner_user, get_redirect_uri, get_request_id
+from car_models_dict import israeli_car_market_full_compilation
+from app.utils.http_helpers import api_ok, api_error, get_request_id, is_owner_user, get_redirect_uri
 
-# Create blueprint
 bp = Blueprint('public', __name__)
 
 
@@ -34,7 +31,6 @@ def index():
         car_models_data=israeli_car_market_full_compilation,
         user=current_user,
         is_owner=is_owner_user(),
-        is_logged_in=current_user.is_authenticated,
     )
 
 
