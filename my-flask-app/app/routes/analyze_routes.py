@@ -87,18 +87,30 @@ def timing_estimate():
     """
     Returns estimated timing for an endpoint.
     Calculates user-specific average/p75, fallback to global aggregated stats.
+    Supports both 'kind' (analyze|advisor) and 'endpoint' (analyze) parameters for backward compatibility.
     """
-    endpoint = request.args.get('endpoint', 'analyze')
+    # Support both 'kind' and 'endpoint' parameters
+    kind = request.args.get('kind') or request.args.get('endpoint', 'analyze')
     
-    if endpoint != 'analyze':
-        return api_error('INVALID_ENDPOINT', 'Only "analyze" endpoint is supported', status=400)
+    if kind not in ['analyze', 'advisor']:
+        return api_error('INVALID_KIND', 'Only "analyze" and "advisor" are supported', status=400)
     
     try:
+        # Choose the right table based on kind
+        if kind == 'analyze':
+            from app.models import SearchHistory as HistoryModel
+            user_limit = 20
+            global_limit = 100
+        else:  # advisor
+            from app.models import AdvisorHistory as HistoryModel
+            user_limit = 20
+            global_limit = 100
+        
         # Try user-specific stats first
-        user_records = db.session.query(SearchHistory.duration_ms).filter(
-            SearchHistory.user_id == current_user.id,
-            SearchHistory.duration_ms.isnot(None)
-        ).order_by(SearchHistory.timestamp.desc()).limit(20).all()
+        user_records = db.session.query(HistoryModel.duration_ms).filter(
+            HistoryModel.user_id == current_user.id,
+            HistoryModel.duration_ms.isnot(None)
+        ).order_by(HistoryModel.timestamp.desc()).limit(user_limit).all()
         
         if user_records and len(user_records) >= 3:
             durations = [r[0] for r in user_records if r[0] is not None]
@@ -108,7 +120,7 @@ def timing_estimate():
             p75_ms = sorted_durations[p75_index]
             
             return api_ok({
-                'endpoint': 'analyze',
+                'kind': kind,
                 'average_ms': avg_ms,
                 'p75_ms': p75_ms,
                 'sample_size': len(durations),
@@ -116,9 +128,9 @@ def timing_estimate():
             })
         
         # Fallback to global aggregated stats
-        global_records = db.session.query(SearchHistory.duration_ms).filter(
-            SearchHistory.duration_ms.isnot(None)
-        ).order_by(SearchHistory.timestamp.desc()).limit(100).all()
+        global_records = db.session.query(HistoryModel.duration_ms).filter(
+            HistoryModel.duration_ms.isnot(None)
+        ).order_by(HistoryModel.timestamp.desc()).limit(global_limit).all()
         
         if global_records and len(global_records) >= 10:
             durations = [r[0] for r in global_records if r[0] is not None]
@@ -128,7 +140,7 @@ def timing_estimate():
             p75_ms = sorted_durations[p75_index]
             
             return api_ok({
-                'endpoint': 'analyze',
+                'kind': kind,
                 'average_ms': avg_ms,
                 'p75_ms': p75_ms,
                 'sample_size': len(durations),
@@ -136,10 +148,13 @@ def timing_estimate():
             })
         
         # Default fallback if no data
+        default_avg = 15000 if kind == 'analyze' else 12000  # advisor is typically faster
+        default_p75 = 20000 if kind == 'analyze' else 15000
+        
         return api_ok({
-            'endpoint': 'analyze',
-            'average_ms': 15000,  # 15 seconds default
-            'p75_ms': 20000,      # 20 seconds p75 default
+            'kind': kind,
+            'average_ms': default_avg,
+            'p75_ms': default_p75,
             'sample_size': 0,
             'source': 'default'
         })
