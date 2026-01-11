@@ -128,7 +128,7 @@ select:disabled{cursor:not-allowed;opacity:.7}
 
 #results-content ul{list-style:none;padding:0}
 #results-content ul li{position:relative;padding-right:30px;margin-bottom:.7rem;font-size:1rem}
-#results-content ul li::before{content:"🔧";position:absolute;right:0;top:0}
+#results-content ul li::before{content:"•";position:absolute;right:0;top:0}
 
 .score-breakdown-list li{
   display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px dashed var(--border-color)

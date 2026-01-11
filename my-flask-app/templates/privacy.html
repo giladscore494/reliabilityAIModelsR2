@@ -48,7 +48,7 @@
   <main class="flex-grow container mx-auto px-4 sm:px-6 lg:px-8 py-16 md:py-24">
     <div class="max-w-4xl mx-auto bg-dark-lighter/50 backdrop-blur-xl shadow-xl p-10 rounded-3xl border border-slate-700/50 fade-in">
       <h2 class="text-4xl md:text-5xl font-extrabold text-white mb-6">מדיניות פרטיות</h2>
-      <p class="text-slate-400 mb-2"><strong>עדכון אחרון:</strong> 8 בנובמבר 2025</p>
+      <p class="text-slate-400 mb-2"><strong>עדכון אחרון:</strong> 11 בינואר 2026</p>
 
       <p class="text-slate-300 leading-relaxed mb-6">
         ב־yedaarechevAI אנו מכבדים את פרטיות המשתמשים ומחויבים להגן על הנתונים האישיים הנאספים במסגרת השימוש בשירות.
@@ -56,10 +56,14 @@
       </p>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">1. נתונים שאנו אוספים</h3>
-      <ul class="list-disc pr-6 space-y-2 text-slate-300">
-        <li><strong>נתונים אישיים:</strong> שם פרטי, כתובת אימייל, מזהה משתמש (בעת התחברות Google OAuth)</li>
-        <li><strong>נתוני שימוש:</strong> חיפושים שבוצעו (יצרן, דגם, שנתון וכו׳), תוצאות הדוחות, תאריכי הפקה</li>
+      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-4">
+        <li><strong>נתונים אישיים מ-Google OAuth:</strong> שם פרטי, כתובת אימייל, מזהה משתמש ייחודי (Google ID)</li>
+        <li><strong>נתוני שימוש:</strong> חיפושים שבוצעו (יצרן, דגם, שנתון, טווח קילומטראז׳, סוג דלק, תיבת הילוכים), תוצאות הדוחות, תאריכי הפקה</li>
+        <li><strong>מטא-נתונים:</strong> כתובת IP, timestamps, מזהי בקשות (request IDs)</li>
       </ul>
+      <p class="text-slate-300 leading-relaxed mb-6">
+        <strong>הערת AI:</strong> חלק מהנתונים (ללא פרטים מזהים אישית) עשויים להישלח לספקי שירותי AI חיצוניים (Google Gemini) לצורך ניתוח והפקת המלצות.
+      </p>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">2. מטרות איסוף והשימוש</h3>
       <ul class="list-disc pr-6 space-y-2 text-slate-300">
@@ -70,8 +74,12 @@
       </ul>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">3. עיבוד ושמירת נתונים</h3>
+      <p class="text-slate-300 leading-relaxed mb-4">
+        הנתונים נשמרים במסד נתונים מנוהל (managed database) המאובטח בהצפנה ובקרות גישה. 
+        חלק מהנתונים נשלחים למנוע AI (Google Gemini) ללא פרטים מזהים אישית (ללא שם, אימייל או מזהה משתמש).
+      </p>
       <p class="text-slate-300 leading-relaxed mb-6">
-        הנתונים נשמרים במסד נתונים מאובטח (PostgreSQL על Railway). חלק מהנתונים נשלחים למנוע AI (Google Gemini) ללא פרטים מזהים.
+        <strong>תקופת שמירה:</strong> הנתונים נשמרים כל עוד החשבון פעיל. בעת מחיקת החשבון, כל הנתונים הקשורים (כולל חיפושים, תוצאות ופרופיל) נמחקים לצמיתות מהמערכת.
       </p>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">4. העברת מידע לצד שלישי</h3>
@@ -87,11 +95,14 @@
       </p>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">6. זכויות משתמש</h3>
-      <ul class="list-disc pr-6 space-y-2 text-slate-300">
-        <li>קבלת עותק של נתוניך</li>
-        <li>מחיקת חשבון ונתונים</li>
+      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-4">
+        <li>קבלת עותק של נתוניך (ניתן לצפות בהיסטוריית החיפושים בדשבורד)</li>
+        <li><strong>מחיקת חשבון ונתונים:</strong> ניתן למחוק את החשבון בכל עת דרך הדשבורד. פעולה זו תמחק לצמיתות את כל הנתונים האישיים, חיפושים, תוצאות ופרופיל הקשורים למשתמש.</li>
         <li>תיקון מידע שגוי</li>
       </ul>
+      <p class="text-slate-300 leading-relaxed mb-6">
+        לבקשת מחיקה או לשאלות בנושא זכויות אלה, פנה אל <a class="text-primary hover:underline" href="mailto:support@yedaarechev.com">support@yedaarechev.com</a>
+      </p>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">7. שימוש ב־Cookies</h3>
       <p class="text-slate-300 leading-relaxed mb-6">
@@ -111,7 +122,7 @@
       <div class="flex items-center gap-3 opacity-75 hover:opacity-100 transition">
         <span class="font-bold text-white">yedaarechevAI</span>
       </div>
-      <p class="text-slate-500 text-sm">© 2025 ידע רכב. פותח בישראל 🇮🇱.</p>
+      <p class="text-slate-500 text-sm">© 2025 ידע רכב. פותח בישראל.</p>
       <div class="flex gap-6 text-sm font-medium">
         <a href="{{ url_for('privacy') }}" class="text-slate-400 hover:text-primary transition">מדיניות פרטיות</a>
         <a href="{{ url_for('terms') }}" class="text-slate-400 hover:text-primary transition">תקנון שימוש</a>

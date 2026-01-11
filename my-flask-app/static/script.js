@@ -757,5 +757,175 @@
         if (form) {
             form.addEventListener('submit', handleSubmit);
         }
+        
+        // Load history list on page load if logged in
+        if (typeof window.loadHistoryList === 'function') {
+            window.loadHistoryList();
+        }
     });
+    
+    // History comparison functions (global scope for onclick handlers)
+    window.loadHistoryList = async function() {
+        try {
+            const res = await safeFetchJson('/api/history/list', {
+                method: 'GET',
+                credentials: 'same-origin'
+            });
+            
+            if (!res.ok) {
+                console.error('Failed to load history:', res.error);
+                return;
+            }
+            
+            const searches = res.data?.searches || [];
+            const select1 = document.getElementById('history-select-1');
+            const select2 = document.getElementById('history-select-2');
+            
+            if (!select1 || !select2) return;
+            
+            // Clear and populate selects
+            select1.innerHTML = '<option value="">בחר חיפוש...</option>';
+            select2.innerHTML = '<option value="">בחר חיפוש...</option>';
+            
+            searches.forEach(item => {
+                const option1 = document.createElement('option');
+                option1.value = item.id;
+                option1.textContent = `${item.make} ${item.model} ${item.year} (${item.timestamp.split('T')[0]})`;
+                select1.appendChild(option1);
+                
+                const option2 = option1.cloneNode(true);
+                select2.appendChild(option2);
+            });
+        } catch (err) {
+            console.error('Error loading history:', err);
+        }
+    };
+    
+    window.compareHistory = async function() {
+        const select1 = document.getElementById('history-select-1');
+        const select2 = document.getElementById('history-select-2');
+        const resultDiv = document.getElementById('comparison-result');
+        
+        if (!select1 || !select2 || !resultDiv) return;
+        
+        const id1 = select1.value;
+        const id2 = select2.value;
+        
+        if (!id1 || !id2) {
+            alert('נא לבחור שני חיפושים להשוואה');
+            return;
+        }
+        
+        if (id1 === id2) {
+            alert('נא לבחור שני חיפושים שונים');
+            return;
+        }
+        
+        try {
+            // Fetch both items
+            const [res1, res2] = await Promise.all([
+                safeFetchJson(`/api/history/item/${id1}`, {
+                    method: 'GET',
+                    credentials: 'same-origin'
+                }),
+                safeFetchJson(`/api/history/item/${id2}`, {
+                    method: 'GET',
+                    credentials: 'same-origin'
+                })
+            ]);
+            
+            if (!res1.ok || !res2.ok) {
+                alert('שגיאה בטעינת נתוני ההשוואה');
+                return;
+            }
+            
+            const item1 = res1.data;
+            const item2 = res2.data;
+            
+            // Hebrew labels
+            const labels = {
+                'base_score_calculated': 'ציון אמינות כללי',
+                'avg_repair_cost_ILS': 'עלות תיקון ממוצעת (₪)',
+                'engine_transmission_score': 'מנוע ותיבת הילוכים',
+                'electrical_score': 'חשמל ואלקטרוניקה',
+                'suspension_brakes_score': 'מתלים ובלמים',
+                'maintenance_cost_score': 'עלויות תחזוקה',
+                'satisfaction_score': 'שביעות רצון',
+                'recalls_score': 'זכורות וכשלים'
+            };
+            
+            // Build comparison HTML
+            let html = `
+                <div class="bg-slate-900/40 border border-slate-700/70 rounded-2xl p-6">
+                    <h4 class="text-lg font-bold text-white mb-4">השוואה</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                        <div class="text-center">
+                            <div class="text-sm text-slate-400 mb-2">רכב 1</div>
+                            <div class="font-bold text-white">${escapeHtml(item1.make)} ${escapeHtml(item1.model)} ${escapeHtml(item1.year)}</div>
+                        </div>
+                        <div class="text-center text-slate-500">vs</div>
+                        <div class="text-center">
+                            <div class="text-sm text-slate-400 mb-2">רכב 2</div>
+                            <div class="font-bold text-white">${escapeHtml(item2.make)} ${escapeHtml(item2.model)} ${escapeHtml(item2.year)}</div>
+                        </div>
+                    </div>
+                    <div class="space-y-3">
+            `;
+            
+            // Compare scores
+            const score1 = item1.result?.base_score_calculated || 0;
+            const score2 = item2.result?.base_score_calculated || 0;
+            const diff = score1 - score2;
+            const diffColor = diff > 0 ? 'text-green-400' : diff < 0 ? 'text-red-400' : 'text-slate-400';
+            
+            html += `
+                <div class="flex justify-between items-center py-2 border-b border-slate-700/50">
+                    <span class="text-slate-300">${labels['base_score_calculated']}</span>
+                    <div class="flex gap-4 items-center">
+                        <span class="font-bold text-white">${score1}</span>
+                        <span class="${diffColor} text-sm">${diff > 0 ? '+' : ''}${diff.toFixed(0)}</span>
+                        <span class="font-bold text-white">${score2}</span>
+                    </div>
+                </div>
+            `;
+            
+            // Compare breakdown scores if available
+            if (item1.result?.score_breakdown && item2.result?.score_breakdown) {
+                const breakdown1 = item1.result.score_breakdown;
+                const breakdown2 = item2.result.score_breakdown;
+                
+                Object.keys(labels).forEach(key => {
+                    if (key === 'base_score_calculated' || key === 'avg_repair_cost_ILS') return;
+                    
+                    const val1 = breakdown1[key] || 0;
+                    const val2 = breakdown2[key] || 0;
+                    const diff = val1 - val2;
+                    const diffColor = diff > 0 ? 'text-green-400' : diff < 0 ? 'text-red-400' : 'text-slate-400';
+                    
+                    html += `
+                        <div class="flex justify-between items-center py-2 border-b border-slate-700/50">
+                            <span class="text-slate-300 text-sm">${labels[key]}</span>
+                            <div class="flex gap-4 items-center">
+                                <span class="text-white">${val1}</span>
+                                <span class="${diffColor} text-sm">${diff > 0 ? '+' : ''}${diff}</span>
+                                <span class="text-white">${val2}</span>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+            
+            html += `
+                    </div>
+                </div>
+            `;
+            
+            resultDiv.innerHTML = html;
+            resultDiv.classList.remove('hidden');
+            
+        } catch (err) {
+            console.error('Error comparing history:', err);
+            alert('שגיאה בהשוואה');
+        }
+    };
 })();

@@ -155,6 +155,51 @@
             <div class="absolute inset-0 rounded-[2.5rem] border-2 border-transparent bg-gradient-to-br from-primary/20 via-transparent to-secondary/20 pointer-events-none" style="mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);"></div>
 
             {% if is_logged_in %}
+            
+            <!-- History Comparison Section -->
+            <div class="mb-8 pb-8 border-b border-slate-700/50">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-bold text-white">השוואה מהיסטוריה</h3>
+                    <button 
+                        type="button"
+                        id="refresh-history-btn"
+                        onclick="window.loadHistoryList()"
+                        class="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors">
+                        רענן
+                    </button>
+                </div>
+                <div class="flex flex-col md:flex-row gap-4">
+                    <div class="flex-1">
+                        <label for="history-select-1" class="block text-sm text-slate-400 mb-2">בחר חיפוש ראשון</label>
+                        <select 
+                            id="history-select-1" 
+                            class="w-full bg-slate-900/70 border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all">
+                            <option value="">טוען היסטוריה...</option>
+                        </select>
+                    </div>
+                    <div class="flex-1">
+                        <label for="history-select-2" class="block text-sm text-slate-400 mb-2">בחר חיפוש שני</label>
+                        <select 
+                            id="history-select-2" 
+                            class="w-full bg-slate-900/70 border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all">
+                            <option value="">טוען היסטוריה...</option>
+                        </select>
+                    </div>
+                    <div class="flex items-end">
+                        <button 
+                            type="button"
+                            id="compare-btn"
+                            onclick="window.compareHistory()"
+                            class="px-6 py-3 bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 text-white font-bold rounded-xl transition-all whitespace-nowrap">
+                            השווה
+                        </button>
+                    </div>
+                </div>
+                <div id="comparison-result" class="mt-6 hidden">
+                    <!-- Comparison results will be inserted here -->
+                </div>
+            </div>
+            
             <form id="car-form" class="space-y-10">
                 <div class="flex items-center space-x-4 space-x-reverse border-b border-slate-700/50 pb-6">
                     <div class="bg-gradient-to-br from-primary to-secondary p-3 rounded-2xl shadow-lg">
@@ -403,13 +448,15 @@
                     <div class="absolute inset-0 bg-primary/30 blur-3xl rounded-full"></div>
                     <div
                         class="relative bg-dark-lighter p-6 rounded-3xl border border-slate-700/50 shadow-xl">
-                        <span class="text-7xl filter drop-shadow-lg">🔒</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-20 w-20 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                        </svg>
                     </div>
                 </div>
                 <div>
-                    <h3 class="text-3xl font-bold text-white mb-4">גישה לחברי מועדון בלבד</h3>
+                    <h3 class="text-3xl font-bold text-white mb-4">התחבר כדי להמשיך</h3>
                     <p class="text-slate-400 text-lg max-w-md mx-auto">
-                        הצטרף לאלפי ישראלים שכבר חסכו כסף וכאב ראש. ההרשמה קצרה וחינמית.
+                        התחבר עם חשבון Google שלך כדי לגשת למערכת.
                     </p>
                 </div>
                 <a href="{{ url_for('login') }}"
@@ -434,7 +481,7 @@
 
                     <div id="micro-container" class="hidden mb-8 bg-slate-900/40 border border-slate-700/70 rounded-2xl p-5">
                         <h3 class="text-lg font-bold text-white flex items-center gap-2 mb-3">
-                            🔍 מיקרו-אמינות מותאמת שימוש
+                            מיקרו-אמינות מותאמת שימוש
                         </h3>
                         <div class="flex flex-col md:flex-row gap-4 md:items-center">
                             <div class="flex items-center gap-3">
@@ -448,7 +495,7 @@
 
                     <div id="timeline-container" class="hidden mb-8 bg-slate-900/40 border border-slate-700/70 rounded-2xl p-5">
                         <div class="flex items-center justify-between">
-                            <h3 class="text-lg font-bold text-white flex items-center gap-2">📅 תוכנית 36 חודשים</h3>
+                            <h3 class="text-lg font-bold text-white flex items-center gap-2">תוכנית 36 חודשים</h3>
                             <span id="timeline-km" class="text-xs text-slate-400"></span>
                         </div>
                         <div id="timeline-phases" class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4"></div>
@@ -456,7 +503,7 @@
 
                     <div id="simulator-container" class="hidden mb-10 bg-slate-900/40 border border-slate-700/70 rounded-2xl p-5">
                         <div class="flex items-center justify-between mb-3">
-                            <h3 class="text-lg font-bold text-white flex items-center gap-2">🎛 סימולטור בעלות</h3>
+                            <h3 class="text-lg font-bold text-white flex items-center gap-2">סימולטור בעלות</h3>
                             <span class="text-xs text-slate-400">חישוב בצד לקוח בלבד</span>
                         </div>
                         <div id="sim-controls" class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 text-sm">
@@ -488,11 +535,11 @@
                     </div>
 
                     <div class="flex flex-wrap border-b border-slate-700 mb-6 overflow-x-auto">
-                        <button class="tab-btn active" onclick="window.openTab(event, 'summary')">📄 סיכום מנהלים</button>
-                        <button class="tab-btn" onclick="window.openTab(event, 'faults')">🔧 תקלות נפוצות</button>
-                        <button class="tab-btn" onclick="window.openTab(event, 'costs')">💰 עלויות אחזקה</button>
-                    <button class="tab-btn" onclick="window.openTab(event, 'report')">📑 דוח אמינות</button>
-                    <button class="tab-btn" onclick="window.openTab(event, 'competitors')">🆚 מתחרים</button>
+                        <button class="tab-btn active" onclick="window.openTab(event, 'summary')">סיכום מנהלים</button>
+                        <button class="tab-btn" onclick="window.openTab(event, 'faults')">תקלות נפוצות</button>
+                        <button class="tab-btn" onclick="window.openTab(event, 'costs')">עלויות אחזקה</button>
+                    <button class="tab-btn" onclick="window.openTab(event, 'report')">דוח אמינות</button>
+                    <button class="tab-btn" onclick="window.openTab(event, 'competitors')">מתחרים</button>
                 </div>
 
                 <div id="summary" class="tab-content active prose prose-invert max-w-none">

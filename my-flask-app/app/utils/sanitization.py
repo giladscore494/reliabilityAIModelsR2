@@ -243,6 +243,10 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
         if k in src:
             out[k] = _escape(src.get(k))
 
+    # boolean
+    if "km_warn" in src:
+        out["km_warn"] = bool(src.get("km_warn"))
+
     def _sanitize_sources(v: Any) -> list:
         items = _coerce_list(v)[:_MAX_LIST]
         out_list = []
@@ -315,6 +319,22 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
         out["timeline_plan"] = _sanitize_timeline_plan(src.get("timeline_plan"))
     if "sim_model" in src:
         out["sim_model"] = _sanitize_sim_model(src.get("sim_model"))
+
+    # Log dropped keys (only key names, no PII)
+    dropped_keys = set(src.keys()) - set(out.keys())
+    if dropped_keys:
+        import logging
+        logger = logging.getLogger(__name__)
+        # Get request_id from context if available
+        try:
+            from flask import has_request_context, g
+            if has_request_context() and hasattr(g, 'request_id'):
+                request_id = g.request_id
+            else:
+                request_id = "unknown"
+        except Exception:
+            request_id = "unknown"
+        logger.info(f"[SANITIZATION] Dropped keys in analyze response: {sorted(dropped_keys)} (request_id: {request_id})")
 
     return out
 

@@ -54,6 +54,15 @@ from app.utils.prompt_defense import (
     create_data_only_instruction,
     escape_prompt_input,
 )
+# --- HTTP Helpers (moved from create_app scope) ---
+from app.utils.http_helpers import (
+    api_ok,
+    api_error,
+    get_request_id,
+    is_owner_user,
+    get_redirect_uri,
+    log_rejection,
+)
 import app.extensions as extensions
 from app.extensions import db, login_manager, oauth, migrate, GEMINI3_MODEL_ID
 from app.models import (
@@ -1342,49 +1351,15 @@ def create_app():
     OWNER_EMAILS = parse_owner_emails(os.environ.get("OWNER_EMAILS", ""))
     OWNER_BYPASS_QUOTA = os.environ.get("OWNER_BYPASS_QUOTA", "1").lower() in ("1", "true", "yes")
     ADVISOR_OWNER_ONLY = os.environ.get("ADVISOR_OWNER_ONLY", "1").lower() in ("1", "true", "yes")
-
-    def is_owner_user() -> bool:
-        if not current_user.is_authenticated:
-            return False
-        email = (getattr(current_user, "email", "") or "").lower()
-        return email in OWNER_EMAILS
-
-    def log_rejection(reason: str, details: str = "") -> None:
-        """
-        Safely log rejection reasons without exposing sensitive data.
-        This function is defined inside create_app to access Flask context (current_user, request).
-        
-        Args:
-            reason: Short category (unauthenticated, quota, validation, server_error)
-            details: Safe description of the issue (no secrets, API keys, or DB details)
-        """
-        from flask import g
-        user_id = current_user.id if current_user.is_authenticated else "anonymous"
-        endpoint = request.endpoint or "unknown"
-        request_id = getattr(g, 'request_id', 'unknown')
-        logger.warning(f"[REJECT] request_id={request_id} endpoint={endpoint} user={user_id} reason={reason} details={details}")
     
-    def get_request_id() -> str:
-        """Get the current request_id from Flask g object."""
-        from flask import g
-        return getattr(g, 'request_id', 'unknown')
+    # Store config values for helper functions to access
+    app.config['OWNER_EMAILS'] = OWNER_EMAILS
+    app.config['CANONICAL_BASE'] = canonical_base
+    app.config['OWNER_BYPASS_QUOTA'] = OWNER_BYPASS_QUOTA
+    app.config['ADVISOR_OWNER_ONLY'] = ADVISOR_OWNER_ONLY
 
-    def api_ok(payload: Optional[dict] = None, status: int = 200, request_id: Optional[str] = None):
-        rid = request_id or get_request_id()
-        resp = jsonify({"ok": True, "data": payload, "request_id": rid})
-        resp.status_code = status
-        resp.headers["X-Request-ID"] = rid
-        return resp
-
-    def api_error(code: str, message: str, status: int = 400, details: Optional[Mapping[str, Any]] = None, request_id: Optional[str] = None):
-        rid = request_id or get_request_id()
-        body: Dict[str, Any] = {"ok": False, "error": {"code": code, "message": message}, "request_id": rid}
-        if details is not None:
-            body["error"]["details"] = details
-        resp = jsonify(body)
-        resp.status_code = status
-        resp.headers["X-Request-ID"] = rid
-        return resp
+    # Helper functions (is_owner_user, api_ok, api_error, get_request_id, get_redirect_uri)
+    # are now imported from app.utils.http_helpers and used throughout the code
 
     @app.before_request
     def assign_request_id_and_redirect():
@@ -1414,22 +1389,6 @@ def create_app():
             "current_user": current_user,
             "is_owner": is_owner_user(),
         }
-
-    def get_redirect_uri():
-        """
-        Build OAuth redirect URI.
-        - Always prefer apex canonical base (no www) for production.
-        - For local dev (localhost/127.0.0.1), fall back to request.url_root.
-        - Keeping the redirect URI stable avoids mismatches and ensures Google uses canonical_base/auth.
-        """
-        host = (request.host or "").lower()
-        host_only = host.split(":")[0]
-        if host_only in ("localhost", "127.0.0.1"):
-            uri = request.url_root.rstrip("/") + "/auth"
-        else:
-            uri = f"{canonical_base}/auth"
-        print(f"[AUTH] Using redirect_uri={uri} (host={host})")
-        return uri
 
     # Phase 2G: Allowed hosts validation
     ALLOWED_HOSTS = set()
@@ -1745,179 +1704,12 @@ def create_app():
     # ------------------
     # ===== ROUTES =====
     # ------------------
-
-    # Health check endpoint (Render Health Checks can hit /healthz)
-    @app.route('/healthz')
-    def healthz():
-        return api_ok({"status": "ok"})
-
-    @app.route('/favicon.ico')
-    def favicon():
-        return send_from_directory(os.path.join(app.root_path, 'static'), 'favicon.ico')
-
-    @app.route('/')
-    def index():
-        return render_template(
-            'index.html',
-            car_models_data=israeli_car_market_full_compilation,
-            user=current_user,
-            is_owner=is_owner_user(),
-        )
-
-    @app.route('/login')
-    def login():
-        for key in [k for k in session.keys() if k.startswith("google_oauth")]:
-            session.pop(key, None)
-        session.pop("authlib_oidc_nonce", None)
-        redirect_uri = get_redirect_uri()
-        return oauth.google.authorize_redirect(redirect_uri)  # state removed (default state handling)
-
-    @app.route('/auth')
-    def auth():
-        try:
-            token = oauth.google.authorize_access_token()
-            userinfo = oauth.google.get('userinfo').json()
-            user = User.query.filter_by(google_id=userinfo['id']).first()
-            if not user:
-                user = User(
-                    google_id=userinfo['id'],
-                    email=userinfo.get('email', ''),
-                    name=userinfo.get('name', '')
-                )
-                db.session.add(user)
-                db.session.commit()
-            login_user(user)
-            return redirect(url_for('index'))
-        except MismatchingStateError:
-            logger.warning("[AUTH] mismatching_state request_id=%s", get_request_id())
-            try:
-                logout_user()
-            except Exception:
-                pass
-            for key in [k for k in session.keys() if k.startswith("google_oauth")]:
-                session.pop(key, None)
-            flash("פג תוקף ההתחברות, אנא נסה שוב.", "error")
-            return redirect(url_for('login'))
-        except Exception:
-            logger.exception("[AUTH] login failed request_id=%s", get_request_id())
-            try:
-                logout_user()
-            except Exception:
-                pass
-            flash("שגיאת התחברות, נסה שוב מאוחר יותר.", "error")
-            return redirect(url_for('index'))
-
-    @app.route('/logout')
-    @login_required
-    def logout():
-        logout_user()
-        return redirect(url_for('index'))
-
-    # Legal pages
-    @app.route('/privacy')
-    def privacy():
-        return render_template(
-            'privacy.html',
-            user=current_user,
-            is_owner=is_owner_user(),
-        )
-
-    @app.route('/terms')
-    def terms():
-        return render_template(
-            'terms.html',
-            user=current_user,
-            is_owner=is_owner_user(),
-        )
-
-    @app.route('/coming-soon')
-    def coming_soon():
-        return render_template(
-            'coming_soon.html',
-            user=current_user,
-            is_owner=is_owner_user(),
-        )
-
-    @app.route('/dashboard')
-    @login_required
-    def dashboard():
-        history_error = None
-        user_searches = []
-        advisor_entries = []
-        try:
-            user_searches = SearchHistory.query.filter_by(
-                user_id=current_user.id
-            ).order_by(SearchHistory.timestamp.desc()).all()
-
-            advisor_entries = AdvisorHistory.query.filter_by(
-                user_id=current_user.id
-            ).order_by(AdvisorHistory.timestamp.desc()).all()
-        except Exception:
-            history_error = "לא הצלחנו לטעון את ההיסטוריה כעת."
-            try:
-                db.session.rollback()
-            except Exception:
-                logger.exception("[DASH] rollback failed request_id=%s", get_request_id())
-            logger.exception("[DASH] DB query failed request_id=%s", get_request_id())
-
-        searches_data = []
-        for s in user_searches:
-            try:
-                parsed_result = json.loads(s.result_json)
-            except Exception:
-                logger.warning(
-                    "[DASH] Malformed result_json search_id=%s request_id=%s",
-                    s.id,
-                    get_request_id(),
-                )
-                parsed_result = {}
-            searches_data.append({
-                "id": s.id,
-                "timestamp": s.timestamp.strftime('%d/%m/%Y %H:%M'),
-                "make": s.make,
-                "model": s.model,
-                "year": s.year,
-                "mileage_range": s.mileage_range or '',
-                "fuel_type": s.fuel_type or '',
-                "transmission": s.transmission or '',
-                "data": parsed_result
-            })
-
-        advisor_count = len(advisor_entries)
-
-        return render_template(
-            'dashboard.html',
-            searches=searches_data,
-            advisor_count=advisor_count,
-            user=current_user,
-            is_owner=is_owner_user(),
-            history_error=history_error,
-        )
-
-    # ✅ NEW ROUTE: שליפת פרטים לדשבורד (AJAX)
-    @app.route('/search-details/<int:search_id>')
-    @login_required
-    def search_details(search_id):
-        try:
-            s = SearchHistory.query.filter_by(id=search_id, user_id=current_user.id).first()
-            if not s:
-                return api_error("not_found", "לא נמצא רישום מתאים", status=404)
-
-            meta = {
-                "id": s.id,
-                "timestamp": s.timestamp.strftime("%d/%m/%Y %H:%M"),
-                "make": s.make.title() if s.make else "",
-                "model": s.model.title() if s.model else "",
-                "year": s.year,
-                "mileage_range": s.mileage_range,
-                "fuel_type": s.fuel_type,
-                "transmission": s.transmission,
-            }
-            data_safe = sanitize_analyze_response(json.loads(s.result_json))
-            return api_ok({"meta": meta, "data": data_safe})
-        except Exception as e:
-            logger.error(f"[DETAILS] Error fetching search details: {e}")
-            return api_error("details_fetch_failed", "שגיאת שרת בשליפת נתוני חיפוש", status=500)
+    
+    # Register blueprints
+    from app.routes.public_routes import bp as public_bp
+    from app.routes.dashboard_routes import bp as dashboard_bp
+    app.register_blueprint(public_bp)
+    app.register_blueprint(dashboard_bp)
 
     # ===========================
     # 🔹 Car Advisor – עמוד HTML
@@ -2130,6 +1922,9 @@ def create_app():
     @app.route('/analyze', methods=['POST'])
     @login_required
     def analyze_car():
+        # Start timing
+        start_time_ms = int(pytime.time() * 1000)
+        
         # Log access decision
         user_id = current_user.id if current_user.is_authenticated else None
         log_access_decision('/analyze', user_id, 'allowed', 'authenticated user')
@@ -2400,6 +2195,9 @@ def create_app():
 
                 sanitized_output = sanitize_analyze_response(ai_output)
 
+                # Calculate duration
+                duration_ms = int(pytime.time() * 1000) - start_time_ms
+
                 new_log = SearchHistory(
                     user_id=current_user.id,
                     cache_key=cache_key,
@@ -2409,7 +2207,8 @@ def create_app():
                     mileage_range=final_mileage,
                     fuel_type=final_fuel,
                     transmission=final_trans,
-                    result_json=json.dumps(sanitized_output, ensure_ascii=False)
+                    result_json=json.dumps(sanitized_output, ensure_ascii=False),
+                    duration_ms=duration_ms
                 )
                 db.session.add(new_log)
                 db.session.commit()
@@ -2451,6 +2250,73 @@ def create_app():
         )
 
         return api_ok(sanitized_output)
+
+    @app.route('/api/timing/estimate', methods=['GET'])
+    @login_required
+    def timing_estimate():
+        """
+        Returns estimated timing for an endpoint.
+        Calculates user-specific average/p75, fallback to global aggregated stats.
+        """
+        endpoint = request.args.get('endpoint', 'analyze')
+        
+        if endpoint != 'analyze':
+            return api_error('INVALID_ENDPOINT', 'Only "analyze" endpoint is supported', status=400)
+        
+        try:
+            # Try user-specific stats first
+            user_records = db.session.query(SearchHistory.duration_ms).filter(
+                SearchHistory.user_id == current_user.id,
+                SearchHistory.duration_ms.isnot(None)
+            ).order_by(SearchHistory.timestamp.desc()).limit(20).all()
+            
+            if user_records and len(user_records) >= 3:
+                durations = [r[0] for r in user_records if r[0] is not None]
+                avg_ms = int(sum(durations) / len(durations))
+                sorted_durations = sorted(durations)
+                p75_index = int(len(sorted_durations) * 0.75)
+                p75_ms = sorted_durations[p75_index]
+                
+                return api_ok({
+                    'endpoint': 'analyze',
+                    'average_ms': avg_ms,
+                    'p75_ms': p75_ms,
+                    'sample_size': len(durations),
+                    'source': 'user'
+                })
+            
+            # Fallback to global aggregated stats
+            global_records = db.session.query(SearchHistory.duration_ms).filter(
+                SearchHistory.duration_ms.isnot(None)
+            ).order_by(SearchHistory.timestamp.desc()).limit(100).all()
+            
+            if global_records and len(global_records) >= 10:
+                durations = [r[0] for r in global_records if r[0] is not None]
+                avg_ms = int(sum(durations) / len(durations))
+                sorted_durations = sorted(durations)
+                p75_index = int(len(sorted_durations) * 0.75)
+                p75_ms = sorted_durations[p75_index]
+                
+                return api_ok({
+                    'endpoint': 'analyze',
+                    'average_ms': avg_ms,
+                    'p75_ms': p75_ms,
+                    'sample_size': len(durations),
+                    'source': 'global'
+                })
+            
+            # Default fallback if no data
+            return api_ok({
+                'endpoint': 'analyze',
+                'average_ms': 15000,  # 15 seconds default
+                'p75_ms': 20000,      # 20 seconds p75 default
+                'sample_size': 0,
+                'source': 'default'
+            })
+            
+        except Exception as e:
+            app.logger.error(f"Timing estimate error: {str(e)}")
+            return api_error('ESTIMATE_FAILED', 'Failed to calculate timing estimate', status=500)
 
     @app.cli.command("init-db")
     def init_db_command():
