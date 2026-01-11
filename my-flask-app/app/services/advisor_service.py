@@ -2,6 +2,7 @@
 """Advisor service logic."""
 
 import json
+import time
 from datetime import datetime
 
 from flask import current_app
@@ -26,6 +27,7 @@ def handle_advisor_logic(payload, user, user_id):
     """
     Process advisor payload and return Flask response.
     """
+    start_time = time.time()
     logger = current_app.logger
     try:
         # ---- שלב 1: בסיסי ----
@@ -147,6 +149,7 @@ def handle_advisor_logic(payload, user, user_id):
             user_id=user.id,
             profile_json=json.dumps(profile_for_storage, ensure_ascii=False),
             result_json=json.dumps(sanitized_result, ensure_ascii=False),
+            duration_ms=int((time.time() - start_time) * 1000),
         )
         db.session.add(rec_log)
         db.session.commit()
