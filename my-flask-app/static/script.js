@@ -1027,6 +1027,40 @@
                 });
             }
             
+            // Add duration comparison if available
+            if (item1.duration_ms || item2.duration_ms) {
+                const dur1 = item1.duration_ms ? (item1.duration_ms / 1000).toFixed(1) : 'N/A';
+                const dur2 = item2.duration_ms ? (item2.duration_ms / 1000).toFixed(1) : 'N/A';
+                
+                html += `
+                    <div class="flex justify-between items-center py-2 border-b border-slate-700/50">
+                        <span class="text-slate-300 text-sm">זמן עיבוד (שניות)</span>
+                        <div class="flex gap-4 items-center">
+                            <span class="text-white text-sm">${dur1}</span>
+                            <span class="text-slate-500 text-sm">—</span>
+                            <span class="text-white text-sm">${dur2}</span>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Add repair cost comparison if available
+            if (item1.result?.avg_repair_cost_ILS || item2.result?.avg_repair_cost_ILS) {
+                const cost1 = item1.result?.avg_repair_cost_ILS || 'N/A';
+                const cost2 = item2.result?.avg_repair_cost_ILS || 'N/A';
+                
+                html += `
+                    <div class="flex justify-between items-center py-2 border-b border-slate-700/50">
+                        <span class="text-slate-300 text-sm">${labels['avg_repair_cost_ILS']}</span>
+                        <div class="flex gap-4 items-center">
+                            <span class="text-white text-sm">${cost1}</span>
+                            <span class="text-slate-500 text-sm">vs</span>
+                            <span class="text-white text-sm">${cost2}</span>
+                        </div>
+                    </div>
+                `;
+            }
+            
             html += `
                     </div>
                 </div>
