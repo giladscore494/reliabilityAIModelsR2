@@ -68,14 +68,12 @@ def ensure_duration_ms_columns(engine, logger=None):
     """
     log = logger
     try:
-        inspector = inspect(engine)
+        dialect = getattr(engine, "dialect", None)
+        dialect_name = dialect.name if dialect else ""
     except Exception as e:
         if log:
-            log.warning("[DB] duration_ms inspector init failed: %s", e)
+            log.warning("[DB] duration_ms dialect detection failed: %s", e)
         return
-
-    dialect = getattr(engine, "dialect", None)
-    dialect_name = dialect.name if dialect else ""
     targets = ("search_history", "advisor_history")
     pg_statements = {
         "search_history": text("ALTER TABLE search_history ADD COLUMN IF NOT EXISTS duration_ms INTEGER;"),
@@ -97,6 +95,7 @@ def ensure_duration_ms_columns(engine, logger=None):
 
     for table_name in targets:
         try:
+            inspector = inspect(engine)
             if not inspector.has_table(table_name):
                 continue
             cols = {col["name"] for col in inspector.get_columns(table_name)}
