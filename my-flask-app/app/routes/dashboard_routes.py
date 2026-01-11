@@ -83,10 +83,12 @@ def delete_account():
         
         # Check if user is owner (owners cannot be deleted)
         if is_owner_user():
-            resp = jsonify({"error": {"message": "Owner account cannot be deleted"}, "request_id": request_id})
-            resp.status_code = 403
-            resp.headers["X-Request-ID"] = request_id
-            return resp
+            return api_error(
+                "owner_forbidden",
+                "Owner account cannot be deleted",
+                status=403,
+                request_id=request_id,
+            )
         
         # Log the deletion (without PII in the message, just request_id)
         current_app.logger.info(f"[{request_id}] Account deletion initiated for user_id={user_id}")

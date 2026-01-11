@@ -121,11 +121,11 @@ def timing_estimate():
             "sample_size": len(durations),
         }
 
-    def _safe_query(fetch_fn):
+    def _safe_query(fetch_fn, scope_kind: str):
         try:
             return fetch_fn()
         except Exception as e:
-            current_app.logger.warning("Timing estimate query failed for %s: %s", kind, e)
+            current_app.logger.warning("Timing estimate query failed for %s: %s", scope_kind, e)
             return []
 
     user_records = _safe_query(
@@ -133,7 +133,8 @@ def timing_estimate():
         .filter(HistoryModel.user_id == current_user.id, HistoryModel.duration_ms.isnot(None))
         .order_by(HistoryModel.timestamp.desc())
         .limit(user_limit)
-        .all()
+        .all(),
+        kind,
     )
     user_stats = _compute_stats(user_records)
     if user_stats and user_stats["sample_size"] >= 3:
@@ -150,7 +151,8 @@ def timing_estimate():
         .filter(HistoryModel.duration_ms.isnot(None))
         .order_by(HistoryModel.timestamp.desc())
         .limit(global_limit)
-        .all()
+        .all(),
+        kind,
     )
     global_stats = _compute_stats(global_records)
     if global_stats and global_stats["sample_size"] >= 10:
