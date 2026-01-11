@@ -189,6 +189,7 @@ def timing_estimate():
         {
             "kind": kind,
             "avg_ms": avg_ms,
+            # average_ms kept for backward compatibility with existing clients.
             "average_ms": avg_ms,
             "median_ms": median_ms,
             "estimate_ms": estimate_ms,
