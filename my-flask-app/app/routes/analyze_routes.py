@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Analyze routes blueprint."""
 
+import math
 import time as pytime
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -111,7 +112,7 @@ def timing_estimate():
             return None
         avg_ms = int(sum(durations) / len(durations))
         sorted_durations = sorted(durations)
-        p75_index = int(len(sorted_durations) * 0.75)
+        p75_index = max(0, min(len(sorted_durations) - 1, math.ceil(len(sorted_durations) * 0.75) - 1))
         p75_ms = sorted_durations[p75_index]
         return {
             "average_ms": avg_ms,

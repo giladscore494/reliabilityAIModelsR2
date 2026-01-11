@@ -1,5 +1,4 @@
 from sqlalchemy import inspect, text
-from sqlalchemy.exc import SQLAlchemyError
 
 
 def ensure_search_history_cache_key(app, db, logger=None):
@@ -110,9 +109,6 @@ def ensure_duration_ms_columns(engine, logger=None):
 
             with engine.begin() as conn:
                 conn.execute(stmt)
-        except SQLAlchemyError as e:
-            if log:
-                log.warning("[DB] duration_ms add failed for %s: %s", table_name, e)
         except Exception as e:
             if log:
                 log.warning("[DB] duration_ms ensure unexpected error for %s: %s", table_name, e)
