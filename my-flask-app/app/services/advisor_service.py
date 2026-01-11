@@ -135,9 +135,9 @@ def handle_advisor_logic(payload, user, user_id):
     user_profile["seats"] = seats_choice
 
     profile_for_storage = sanitize_profile_for_prompt(user_profile)
-    start_time = time.time()
+    start_time = time.perf_counter()
     parsed = car_advisor_call_gemini_with_search(user_profile)
-    model_duration_ms = int((time.time() - start_time) * 1000)
+    model_duration_ms = int((time.perf_counter() - start_time) * 1000)
     if parsed.get("_error"):
         log_access_decision('/advisor_api', user_id, 'error', f'AI error: {parsed.get("_error")}')
         return api_error("advisor_ai_error", "שגיאת AI במנוע ההמלצות. נסה שוב מאוחר יותר.", status=502)

@@ -249,9 +249,9 @@ def handle_analyze_request(
             raise RuntimeError("SIMULATED_AI_FAILURE")
         prompt = build_combined_prompt(validated, missing_info)
         ai_call = get_ai_call_fn()
-        model_start = pytime.time()
+        model_start = pytime.perf_counter()
         model_output, ai_error = ai_call(prompt)
-        model_duration_ms = int((pytime.time() - model_start) * 1000)
+        model_duration_ms = int((pytime.perf_counter() - model_start) * 1000)
         if model_output is None:
             raise ModelOutputInvalidError(ai_error or "MODEL_JSON_INVALID")
         if not isinstance(model_output, dict):

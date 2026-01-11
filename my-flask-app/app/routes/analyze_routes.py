@@ -93,7 +93,8 @@ def timing_estimate():
     Filters out null/zero/negative durations and never fails even if history is missing.
     """
     # Support both 'kind' and 'endpoint' parameters
-    kind = (request.args.get('kind') or request.args.get('endpoint', 'analyze')).lower()
+    raw_kind = request.args.get('kind') or request.args.get('endpoint') or 'analyze'
+    kind = raw_kind.lower()
     
     if kind not in ['analyze', 'advisor']:
         return api_error('INVALID_KIND', 'Only "analyze" and "advisor" are supported', status=400)
