@@ -2184,6 +2184,9 @@ def create_app():
     @app.route('/analyze', methods=['POST'])
     @login_required
     def analyze_car():
+        # Start timing
+        start_time_ms = int(pytime.time() * 1000)
+        
         # Log access decision
         user_id = current_user.id if current_user.is_authenticated else None
         log_access_decision('/analyze', user_id, 'allowed', 'authenticated user')
@@ -2454,6 +2457,9 @@ def create_app():
 
                 sanitized_output = sanitize_analyze_response(ai_output)
 
+                # Calculate duration
+                duration_ms = int(pytime.time() * 1000) - start_time_ms
+
                 new_log = SearchHistory(
                     user_id=current_user.id,
                     cache_key=cache_key,
@@ -2463,7 +2469,8 @@ def create_app():
                     mileage_range=final_mileage,
                     fuel_type=final_fuel,
                     transmission=final_trans,
-                    result_json=json.dumps(sanitized_output, ensure_ascii=False)
+                    result_json=json.dumps(sanitized_output, ensure_ascii=False),
+                    duration_ms=duration_ms
                 )
                 db.session.add(new_log)
                 db.session.commit()
@@ -2505,6 +2512,73 @@ def create_app():
         )
 
         return api_ok(sanitized_output)
+
+    @app.route('/api/timing/estimate', methods=['GET'])
+    @login_required
+    def timing_estimate():
+        """
+        Returns estimated timing for an endpoint.
+        Calculates user-specific average/p75, fallback to global aggregated stats.
+        """
+        endpoint = request.args.get('endpoint', 'analyze')
+        
+        if endpoint != 'analyze':
+            return api_error('INVALID_ENDPOINT', 'Only "analyze" endpoint is supported', status=400)
+        
+        try:
+            # Try user-specific stats first
+            user_records = db.session.query(SearchHistory.duration_ms).filter(
+                SearchHistory.user_id == current_user.id,
+                SearchHistory.duration_ms.isnot(None)
+            ).order_by(SearchHistory.timestamp.desc()).limit(20).all()
+            
+            if user_records and len(user_records) >= 3:
+                durations = [r[0] for r in user_records if r[0] is not None]
+                avg_ms = int(sum(durations) / len(durations))
+                sorted_durations = sorted(durations)
+                p75_index = int(len(sorted_durations) * 0.75)
+                p75_ms = sorted_durations[p75_index]
+                
+                return api_ok({
+                    'endpoint': 'analyze',
+                    'average_ms': avg_ms,
+                    'p75_ms': p75_ms,
+                    'sample_size': len(durations),
+                    'source': 'user'
+                })
+            
+            # Fallback to global aggregated stats
+            global_records = db.session.query(SearchHistory.duration_ms).filter(
+                SearchHistory.duration_ms.isnot(None)
+            ).order_by(SearchHistory.timestamp.desc()).limit(100).all()
+            
+            if global_records and len(global_records) >= 10:
+                durations = [r[0] for r in global_records if r[0] is not None]
+                avg_ms = int(sum(durations) / len(durations))
+                sorted_durations = sorted(durations)
+                p75_index = int(len(sorted_durations) * 0.75)
+                p75_ms = sorted_durations[p75_index]
+                
+                return api_ok({
+                    'endpoint': 'analyze',
+                    'average_ms': avg_ms,
+                    'p75_ms': p75_ms,
+                    'sample_size': len(durations),
+                    'source': 'global'
+                })
+            
+            # Default fallback if no data
+            return api_ok({
+                'endpoint': 'analyze',
+                'average_ms': 15000,  # 15 seconds default
+                'p75_ms': 20000,      # 20 seconds p75 default
+                'sample_size': 0,
+                'source': 'default'
+            })
+            
+        except Exception as e:
+            app.logger.error(f"Timing estimate error: {str(e)}")
+            return api_error('ESTIMATE_FAILED', 'Failed to calculate timing estimate', status=500)
 
     @app.cli.command("init-db")
     def init_db_command():
