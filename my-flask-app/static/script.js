@@ -131,7 +131,7 @@
     const faultsContainer = document.getElementById('faults');
     const costsContainer = document.getElementById('costs');
     const competitorsContainer = document.getElementById('competitors');
-    // All innerHTML below interpolates values passed through escapeHtml() to prevent XSS.
+    // All innerHTML below interpolates values passed through escapeHtml() to prevent XSS
 
     // טאבס
     window.openTab = function (evt, tabId) {

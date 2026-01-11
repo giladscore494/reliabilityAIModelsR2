@@ -751,7 +751,7 @@
             const res = await safeFetchJson('/advisor_api', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                credentials: 'include',  // ✅ Send session cookies
+                credentials: 'include',  // Send session cookies
                 body: JSON.stringify(payload)
             });
 

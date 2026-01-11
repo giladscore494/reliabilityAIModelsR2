@@ -28,17 +28,17 @@
   <!-- NAV -->
   <header class="sticky top-0 z-50 bg-dark/80 backdrop-blur-lg border-b border-slate-800/80">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-      <a href="/" class="flex items-center space-x-2 space-x-reverse group">
+      <a href="{{ url_for('public.index') }}" class="flex items-center space-x-2 space-x-reverse group">
         <h1 class="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-primary via-purple-500 to-secondary">
           yedaarechevAI
         </h1>
       </a>
       <div class="flex items-center gap-3 sm:gap-6 text-sm font-medium">
         {% if user and user.is_authenticated %}
-        <a href="/dashboard" class="px-4 py-2 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition">החיפושים שלי</a>
-        <a href="/logout" class="px-4 py-2 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition">התנתק</a>
+        <a href="{{ url_for('dashboard.dashboard') }}" class="px-4 py-2 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition">החיפושים שלי</a>
+        <a href="{{ url_for('public.logout') }}" class="px-4 py-2 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition">התנתק</a>
         {% else %}
-        <a href="/login" class="px-6 py-2 rounded-full font-bold bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 transition-all text-white shadow-lg">התחברות</a>
+        <a href="{{ url_for('public.login') }}" class="px-6 py-2 rounded-full font-bold bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 transition-all text-white shadow-lg">התחברות</a>
         {% endif %}
       </div>
     </div>
@@ -66,7 +66,8 @@
         yedaarechevAI לא יישא בשום אחריות לנזק ישיר, עקיף, כספי או אחר הנובע משימוש בתוכן או בשירות.
       </p>
       <p class="text-slate-300 mb-6">
-        <strong>הערת AI:</strong> השירות משתמש במודלי בינה מלאכותית (AI) לניתוח נתונים והפקת המלצות. תוצאות AI עשויות להיות לא מדויקות, להכיל טעויות או הטיות. 
+        <strong>הערת AI:</strong> השירות משתמש במודלי בינה מלאכותית (AI) לניתוח נתונים והפקת המלצות. התוצאות מבוססות על חיפושים אינטרנטיים ואנליזה חישובית.
+        תוצאות AI עשויות להיות לא מדויקות, להכיל טעויות או הטיות. 
         אין להסתמך על תוצאות אלה כעל ייעוץ מקצועי, משפטי או רפואי. המשתמש נדרש לבצע בדיקות עצמאיות ולהיוועץ במומחים מוסמכים לפני קבלת החלטות.
       </p>
 
@@ -104,9 +105,14 @@
       <p class="text-slate-300 mb-6">השירות מיועד לבני 18 ומעלה בלבד.</p>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">9. שמירה ומחיקת נתונים</h3>
+      <p class="text-slate-300 mb-4">
+        נתוני המשתמש (כולל חיפושים, תוצאות, זמני תגובה, ופרופיל) נשמרים במסד נתונים כל עוד החשבון פעיל. 
+        הנתונים כוללים: פרטי הרכב שהוזנו, ציוני אמינות, תקלות נפוצות, עלויות תחזוקה, וזמני ביצוע (duration_ms).
+      </p>
       <p class="text-slate-300 mb-6">
-        נתוני המשתמש (כולל חיפושים, תוצאות ופרופיל) נשמרים במסד נתונים כל עוד החשבון פעיל. 
-        ניתן למחוק את החשבון בכל עת דרך הדשבורד, פעולה שתמחק לצמיתות את כל הנתונים הקשורים למשתמש.
+        <strong>מחיקת חשבון:</strong> ניתן למחוק את החשבון בכל עת דרך <a href="{{ url_for('dashboard.dashboard') }}" class="text-primary hover:underline">הדשבורד</a>. 
+        פעולת המחיקה תמחק לצמיתות את כל הנתונים הקשורים למשתמש, כולל היסטוריית חיפושים, שאלונים, ונתוני קוטה.
+        פעולה זו אינה הפיכה.
       </p>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">10. דין וסמכות שיפוט</h3>
@@ -116,7 +122,7 @@
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">11. יצירת קשר</h3>
       <p class="text-slate-300 leading-relaxed">
-        לשאלות משפטיות או פניות אחרות: <a class="text-primary hover:underline" href="mailto:support@yedaarechev.com">support@yedaarechev.com</a>
+        לשאלות משפטיות או פניות אחרות, ניתן ליצור קשר דרך <a href="{{ url_for('public.index') }}" class="text-primary hover:underline">האתר</a>.
       </p>
     </div>
   </main>
