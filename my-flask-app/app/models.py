@@ -15,21 +15,18 @@ class User(db.Model, UserMixin):
     searches = relationship(
         "SearchHistory",
         cascade="all, delete-orphan",
-        passive_deletes=True,
         backref="user",
         lazy=True,
     )
     advisor_searches = relationship(
         "AdvisorHistory",
         cascade="all, delete-orphan",
-        passive_deletes=True,
         backref="user",
         lazy=True,
     )
     daily_quota_usages = relationship(
         "DailyQuotaUsage",
         cascade="all, delete-orphan",
-        passive_deletes=True,
         backref="user",
         lazy=True,
     )

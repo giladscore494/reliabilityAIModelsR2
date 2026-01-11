@@ -1,4 +1,6 @@
+from app.models import SearchHistory
 import main
+from main import db
 from app.utils.micro_reliability import compute_micro_reliability
 from app.utils.timeline_plan import build_timeline_plan
 
@@ -171,3 +173,33 @@ def test_delete_account_success_with_valid_request(logged_in_client, app):
         from main import db, User
         user = User.query.get(user_id)
         assert user is None
+
+
+def test_delete_account_removes_search_history(logged_in_client, app):
+    client, user_id = logged_in_client
+
+    with app.app_context():
+        db.session.add(
+            SearchHistory(
+                user_id=user_id,
+                make="test",
+                model="case",
+                year=2020,
+                mileage_range="0-10",
+                fuel_type="gas",
+                transmission="auto",
+                result_json="{}",
+            )
+        )
+        db.session.commit()
+
+    resp = client.post(
+        "/api/account/delete",
+        json={"confirm": "DELETE"},
+        content_type="application/json",
+    )
+
+    assert resp.status_code == 200
+
+    with app.app_context():
+        assert SearchHistory.query.filter_by(user_id=user_id).count() == 0
