@@ -11,7 +11,8 @@ from app.factory import (
     QUOTA_RESERVATION_TTL_SECONDS,
     MAX_ACTIVE_RESERVATIONS,
 )
-from app.extensions import db, login_manager, oauth, migrate, ai_client, advisor_client
+from app.extensions import db, login_manager, oauth, migrate
+import app.extensions as extensions
 from app.models import User, SearchHistory, AdvisorHistory, DailyQuotaUsage, QuotaReservation, IpRateLimit
 from app.quota import (
     resolve_app_timezone,
@@ -64,8 +65,16 @@ __all__ = [
     "PER_IP_PER_MIN_LIMIT",
     "QUOTA_RESERVATION_TTL_SECONDS",
     "MAX_ACTIVE_RESERVATIONS",
-    "ai_client",
-    "advisor_client",
+    "get_ai_client",
+    "get_advisor_client",
     "current_user_daily_limit",
     "redirect",
 ]
+
+
+def get_ai_client():
+    return extensions.ai_client
+
+
+def get_advisor_client():
+    return extensions.advisor_client

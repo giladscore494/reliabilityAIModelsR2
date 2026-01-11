@@ -30,6 +30,12 @@ class User(db.Model, UserMixin):
         backref="user",
         lazy=True,
     )
+    quota_reservations = relationship(
+        "QuotaReservation",
+        cascade="all, delete-orphan",
+        backref="user",
+        lazy=True,
+    )
 
 
 class DailyQuotaUsage(db.Model):

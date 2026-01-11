@@ -35,7 +35,11 @@ def test_redirect_www_to_apex(client):
 
 def test_api_schema_error(logged_in_client):
     client, _ = logged_in_client
-    resp = client.post("/analyze", json={"make": "", "model": "", "year": ""})
+    resp = client.post(
+        "/analyze",
+        json={"make": "", "model": "", "year": ""},
+        headers={"Origin": "http://localhost"},
+    )
     data = resp.get_json()
     assert resp.status_code == 400
     assert data["ok"] is False
@@ -56,7 +60,7 @@ def test_quota_refund_on_failure(app, logged_in_client, monkeypatch):
     client, user_id = logged_in_client
     monkeypatch.setenv("SIMULATE_AI_FAIL", "1")
 
-    resp = client.post("/analyze", json=_valid_payload())
+    resp = client.post("/analyze", json=_valid_payload(), headers={"Origin": "http://localhost"})
     data = resp.get_json()
 
     assert resp.status_code >= 500
@@ -90,7 +94,7 @@ def test_quota_atomic_limit(app, logged_in_client, monkeypatch):
 
     monkeypatch.setattr(main, "call_gemini_grounded_once", fake_gemini)
 
-    resp_ok = client.post("/analyze", json=_valid_payload())
+    resp_ok = client.post("/analyze", json=_valid_payload(), headers={"Origin": "http://localhost"})
     data_ok = resp_ok.get_json()
     assert resp_ok.status_code == 200
     assert data_ok["ok"] is True
@@ -99,7 +103,7 @@ def test_quota_atomic_limit(app, logged_in_client, monkeypatch):
         SearchHistory.query.delete()
         db.session.commit()
 
-    resp_block = client.post("/analyze", json=_valid_payload())
+    resp_block = client.post("/analyze", json=_valid_payload(), headers={"Origin": "http://localhost"})
     data_block = resp_block.get_json()
     assert resp_block.status_code == 429
     assert data_block["ok"] is False
@@ -144,7 +148,7 @@ def test_quota_finalized_when_history_save_fails(app, logged_in_client, monkeypa
 
     monkeypatch.setattr(main.db.session, "commit", commit_with_failure)
 
-    resp = client.post("/analyze", json=_valid_payload())
+    resp = client.post("/analyze", json=_valid_payload(), headers={"Origin": "http://localhost"})
     data = resp.get_json()
 
     assert resp.status_code == 200
@@ -247,3 +251,16 @@ def test_dashboard_handles_bad_json(app, logged_in_client):
 
     resp = client.get("/dashboard")
     assert resp.status_code == 200
+
+
+def test_pending_rollback_cleared_between_requests(app, logged_in_client):
+    client, _ = logged_in_client
+    with app.app_context():
+        try:
+            db.session.execute("SELECT * FROM non_existing_table_should_fail")
+        except Exception:
+            # leave session dirty on purpose
+            pass
+
+    resp = client.get("/dashboard")
+    assert resp.status_code != 500
