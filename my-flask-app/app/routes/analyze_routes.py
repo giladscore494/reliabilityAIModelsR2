@@ -112,6 +112,7 @@ def timing_estimate():
             return None
         avg_ms = int(sum(durations) / len(durations))
         sorted_durations = sorted(durations)
+        # Ceil to bias slightly high, clamp inside list bounds
         p75_index = max(0, min(len(sorted_durations) - 1, math.ceil(len(sorted_durations) * 0.75) - 1))
         p75_ms = sorted_durations[p75_index]
         return {

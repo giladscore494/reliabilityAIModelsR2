@@ -86,21 +86,21 @@ def ensure_duration_ms_columns(engine, logger=None):
         "advisor_history": text("ALTER TABLE advisor_history ADD COLUMN duration_ms INTEGER;"),
     }
 
+    if dialect_name == "postgresql":
+        statements = pg_statements
+    elif dialect_name == "sqlite":
+        statements = sqlite_statements
+    else:
+        if log:
+            log.warning("[DB] duration_ms ensure skipped: unsupported dialect %s", dialect_name)
+        return
+
     for table_name in targets:
         try:
             if not inspector.has_table(table_name):
                 continue
             cols = {col["name"] for col in inspector.get_columns(table_name)}
             if "duration_ms" in cols:
-                continue
-
-            if dialect_name == "postgresql":
-                statements = pg_statements
-            elif dialect_name == "sqlite":
-                statements = sqlite_statements
-            else:
-                if log:
-                    log.warning("[DB] duration_ms ensure skipped: unsupported dialect %s", dialect_name)
                 continue
 
             stmt = statements.get(table_name)
