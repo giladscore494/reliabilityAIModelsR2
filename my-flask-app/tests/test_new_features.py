@@ -1,5 +1,6 @@
+from app.models import SearchHistory
 import main
-from main import db, SearchHistory
+from main import db
 from app.utils.micro_reliability import compute_micro_reliability
 from app.utils.timeline_plan import build_timeline_plan
 
