@@ -101,7 +101,8 @@ MAX_CACHE_DAYS = 45
 PER_IP_PER_MIN_LIMIT = 20
 QUOTA_RESERVATION_TTL_SECONDS = int(os.environ.get("QUOTA_RESERVATION_TTL_SECONDS", "600"))
 MAX_ACTIVE_RESERVATIONS = 1
-AI_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+AI_EXECUTOR_WORKERS = int(os.environ.get("AI_EXECUTOR_WORKERS", "4"))
+AI_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=AI_EXECUTOR_WORKERS)
 import app.quota as quota_module
 quota_module.USER_DAILY_LIMIT = USER_DAILY_LIMIT
 quota_module.GLOBAL_DAILY_LIMIT = GLOBAL_DAILY_LIMIT
@@ -576,6 +577,7 @@ def _execute_with_timeout(fn, timeout_sec: int):
     try:
         return future.result(timeout=timeout_sec), None
     except concurrent.futures.TimeoutError:
+        # cancel() won't stop already-running work but ensures no new callbacks fire
         future.cancel()
         return None, "CALL_TIMEOUT"
     except Exception as e:
@@ -1722,7 +1724,7 @@ def create_app():
     @app.teardown_request
     def teardown_request_handler(exc):
         try:
-            if exc is not None or db.session.in_transaction():
+            if exc is not None or db.session.in_transaction() or not db.session.is_active:
                 db.session.rollback()
         except Exception:
             logger.exception("[DB] teardown rollback failed")
