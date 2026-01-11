@@ -2580,6 +2580,69 @@ def create_app():
             app.logger.error(f"Timing estimate error: {str(e)}")
             return api_error('ESTIMATE_FAILED', 'Failed to calculate timing estimate', status=500)
 
+    @app.route('/api/history/list', methods=['GET'])
+    @login_required
+    def history_list():
+        """
+        Returns list of user's search history (Reliability Analyzer only).
+        """
+        try:
+            searches = SearchHistory.query.filter_by(
+                user_id=current_user.id
+            ).order_by(SearchHistory.timestamp.desc()).limit(50).all()
+            
+            history_items = []
+            for s in searches:
+                history_items.append({
+                    'id': s.id,
+                    'timestamp': s.timestamp.isoformat(),
+                    'make': s.make,
+                    'model': s.model,
+                    'year': s.year,
+                    'mileage_range': s.mileage_range,
+                    'fuel_type': s.fuel_type,
+                    'transmission': s.transmission
+                })
+            
+            return api_ok({'searches': history_items})
+            
+        except Exception as e:
+            app.logger.error(f"History list error: {str(e)}")
+            return api_error('HISTORY_LIST_FAILED', 'Failed to fetch history', status=500)
+
+    @app.route('/api/history/item/<int:item_id>', methods=['GET'])
+    @login_required
+    def history_item(item_id):
+        """
+        Returns a specific search history item (current_user only).
+        """
+        try:
+            search = SearchHistory.query.filter_by(
+                id=item_id,
+                user_id=current_user.id
+            ).first()
+            
+            if not search:
+                return api_error('NOT_FOUND', 'פריט לא נמצא או אין לך גישה אליו', status=404)
+            
+            result_data = json.loads(search.result_json) if search.result_json else {}
+            
+            return api_ok({
+                'id': search.id,
+                'timestamp': search.timestamp.isoformat(),
+                'make': search.make,
+                'model': search.model,
+                'year': search.year,
+                'mileage_range': search.mileage_range,
+                'fuel_type': search.fuel_type,
+                'transmission': search.transmission,
+                'result': result_data
+            })
+            
+        except Exception as e:
+            app.logger.error(f"History item error: {str(e)}")
+            return api_error('HISTORY_ITEM_FAILED', 'Failed to fetch history item', status=500)
+
     @app.cli.command("init-db")
     def init_db_command():
         with app.app_context():
