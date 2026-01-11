@@ -117,7 +117,7 @@ def timing_estimate():
                 if val <= 0:
                     continue
                 durations.append(val)
-            except Exception:
+            except (TypeError, ValueError, AttributeError, IndexError):
                 continue
         if not durations:
             return None
