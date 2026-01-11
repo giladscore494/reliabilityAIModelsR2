@@ -5,7 +5,7 @@
 # Phase 1 & 2: Security hardening complete
 # ===================================================================
 
-import os, re, json, traceback, logging, uuid, random, hashlib, concurrent.futures
+import os, re, json, traceback, logging, uuid, random, hashlib, concurrent.futures, atexit
 import time as pytime
 from typing import Optional, Tuple, Any, Dict, Mapping
 from datetime import datetime, time, timedelta, date
@@ -103,6 +103,7 @@ QUOTA_RESERVATION_TTL_SECONDS = int(os.environ.get("QUOTA_RESERVATION_TTL_SECOND
 MAX_ACTIVE_RESERVATIONS = 1
 AI_EXECUTOR_WORKERS = int(os.environ.get("AI_EXECUTOR_WORKERS", "4"))
 AI_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=AI_EXECUTOR_WORKERS)
+atexit.register(lambda: AI_EXECUTOR.shutdown(wait=False))
 import app.quota as quota_module
 quota_module.USER_DAILY_LIMIT = USER_DAILY_LIMIT
 quota_module.GLOBAL_DAILY_LIMIT = GLOBAL_DAILY_LIMIT
@@ -577,7 +578,7 @@ def _execute_with_timeout(fn, timeout_sec: int):
     try:
         return future.result(timeout=timeout_sec), None
     except concurrent.futures.TimeoutError:
-        # cancel() won't stop already-running work but ensures no new callbacks fire
+        # cancel() won't stop already-running work; it prevents result callbacks and we ignore the late response
         future.cancel()
         return None, "CALL_TIMEOUT"
     except Exception as e:
@@ -1724,7 +1725,7 @@ def create_app():
     @app.teardown_request
     def teardown_request_handler(exc):
         try:
-            if exc is not None or db.session.in_transaction() or not db.session.is_active:
+            if db.session.is_active and (exc is not None or db.session.in_transaction()):
                 db.session.rollback()
         except Exception:
             logger.exception("[DB] teardown rollback failed")
