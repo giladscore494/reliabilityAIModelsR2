@@ -73,7 +73,9 @@ from app.models import (
     DailyQuotaUsage,
     QuotaReservation,
     IpRateLimit,
+    LegalAcceptance,
 )
+from app.legal import CONTACT_EMAIL, TERMS_VERSION, PRIVACY_VERSION, parse_legal_confirm
 from app.quota import (
     resolve_app_timezone,
     compute_quota_window,
@@ -1405,6 +1407,9 @@ def create_app():
     app.config['ADVISOR_OWNER_ONLY'] = ADVISOR_OWNER_ONLY
     app.config['PER_IP_PER_MIN_LIMIT'] = PER_IP_PER_MIN_LIMIT
     app.config['QUOTA_RESERVATION_TTL_SECONDS'] = QUOTA_RESERVATION_TTL_SECONDS
+    app.config["TERMS_VERSION"] = TERMS_VERSION
+    app.config["PRIVACY_VERSION"] = PRIVACY_VERSION
+    app.config["CONTACT_EMAIL"] = CONTACT_EMAIL
 
     # Helper functions (is_owner_user, api_ok, api_error, get_request_id, get_redirect_uri)
     # are now imported from app.utils.http_helpers and used throughout the code
@@ -1436,6 +1441,7 @@ def create_app():
             "is_logged_in": current_user.is_authenticated,
             "current_user": current_user,
             "is_owner": is_owner_user(),
+            "contact_email": app.config.get("CONTACT_EMAIL", CONTACT_EMAIL),
         }
 
     # Phase 2G: Allowed hosts validation
@@ -1629,6 +1635,55 @@ def create_app():
         
         return None
 
+    @app.before_request
+    def enforce_legal_acceptance():
+        """
+        Centralized legal enforcement to avoid missing endpoints.
+        ProxyFix normalizes request.remote_addr; only allowlisted paths bypass acceptance.
+        """
+        path = request.path or ""
+        allowlist = {
+            "/",
+            "/terms",
+            "/privacy",
+            "/api/legal/accept",
+            "/login",
+            "/logout",
+            "/auth",
+            "/healthz",
+            "/recommendations",
+        }
+        if path in allowlist or path.startswith(("/static/", "/assets/")) or path == "/favicon.ico":
+            return None
+        if not current_user.is_authenticated:
+            return None
+
+        def _legal_error(code: str, message: str):
+            rid = get_request_id()
+            resp = jsonify({"error": code, "message": message, "request_id": rid})
+            resp.status_code = 412
+            resp.headers["X-Request-ID"] = rid
+            return resp
+
+        if request.method in ("POST", "PUT", "PATCH", "DELETE") and path.startswith(("/analyze", "/advisor_api")):
+            payload = request.get_json(silent=True) if request.is_json else request.form
+            if not parse_legal_confirm((payload or {}).get("legal_confirm")):
+                return _legal_error("TERMS_NOT_ACCEPTED", "Please accept Terms & Privacy to continue.")
+
+        terms_version = app.config.get("TERMS_VERSION")
+        privacy_version = app.config.get("PRIVACY_VERSION")
+        current_acceptance = LegalAcceptance.query.filter_by(
+            user_id=current_user.id,
+            terms_version=terms_version,
+            privacy_version=privacy_version,
+        ).first()
+        if current_acceptance:
+            return None
+        previous_acceptance = LegalAcceptance.query.filter_by(user_id=current_user.id).first()
+        if previous_acceptance:
+            return _legal_error("TERMS_VERSION_MISMATCH", "Updated Terms & Privacy require re-acceptance.")
+        return _legal_error("TERMS_NOT_ACCEPTED", "Please accept Terms & Privacy to continue.")
+
     # Handle unauthorized access for AJAX/JSON requests
     @login_manager.unauthorized_handler
     def unauthorized():
@@ -1798,10 +1853,12 @@ def create_app():
     from app.routes.analyze_routes import bp as analyze_bp
     from app.routes.advisor_routes import bp as advisor_bp
     from app.routes.dashboard_routes import bp as dashboard_bp
+    from app.routes.legal_routes import bp as legal_bp
     app.register_blueprint(public_bp)
     app.register_blueprint(analyze_bp)
     app.register_blueprint(advisor_bp)
     app.register_blueprint(dashboard_bp)
+    app.register_blueprint(legal_bp)
 
 
     @app.cli.command("init-db")

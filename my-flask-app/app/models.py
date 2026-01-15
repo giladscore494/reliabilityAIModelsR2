@@ -36,6 +36,12 @@ class User(db.Model, UserMixin):
         backref="user",
         lazy=True,
     )
+    legal_acceptances = relationship(
+        "LegalAcceptance",
+        cascade="all, delete-orphan",
+        backref="user",
+        lazy=True,
+    )
 
 
 class DailyQuotaUsage(db.Model):
@@ -133,4 +139,22 @@ class IpRateLimit(db.Model):
     __table_args__ = (
         db.UniqueConstraint("ip", "window_start", name="uq_ip_window"),
         db.Index("ix_ip_window", "ip", "window_start"),
+    )
+
+
+class LegalAcceptance(db.Model):
+    __tablename__ = "legal_acceptance"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
+    terms_version = db.Column(db.String(32), nullable=False)
+    privacy_version = db.Column(db.String(32), nullable=False)
+    accepted_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    accepted_ip = db.Column(db.String(64), nullable=False)
+    accepted_user_agent = db.Column(db.String(512), nullable=True)
+    source = db.Column(db.String(32), nullable=False, default="web")
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "terms_version", "privacy_version", name="uq_legal_acceptance_user_version"),
+        db.Index("ix_legal_acceptance_user_version", "user_id", "terms_version", "privacy_version"),
     )

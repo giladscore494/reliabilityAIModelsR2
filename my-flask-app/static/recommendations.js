@@ -11,6 +11,7 @@
     const tableWrapper = document.getElementById('advisor-table-wrapper');
     const errorEl = document.getElementById('advisor-error');
     const consentCheckbox = document.getElementById('advisor-consent');
+    let legalAccepted = false;
 
     const profileSummaryEl = document.getElementById('advisor-profile-summary');
     const highlightCardsEl = document.getElementById('advisor-highlight-cards');
@@ -71,11 +72,13 @@
         if (!response.ok) {
             const snippet = parsed ? JSON.stringify(parsed).slice(0, 300) : (textBody || '').slice(0, 300);
             const errObj = parsed && parsed.error ? parsed.error : null;
+            const errorCode = (errObj && errObj.code) || (typeof errObj === 'string' ? errObj : null) || 'HTTP_ERROR';
+            const errorMessage = (errObj && errObj.message) || (parsed && parsed.message) || response.statusText || 'שגיאה בבקשה';
             return {
                 ok: false,
                 error: {
-                    code: (errObj && errObj.code) || 'HTTP_ERROR',
-                    message: (errObj && errObj.message) || response.statusText || 'שגיאה בבקשה',
+                    code: errorCode,
+                    message: errorMessage,
                     details: { status: response.status, body_snippet: snippet }
                 },
                 request_id: requestId
@@ -98,6 +101,23 @@
         } else {
             alert(`${message}${suffix}`);
         }
+    }
+
+    async function ensureLegalAcceptance() {
+        if (legalAccepted) return true;
+        const res = await safeFetchJson('/api/legal/accept', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ legal_confirm: true })
+        });
+        if (res && res.ok) {
+            legalAccepted = true;
+            return true;
+        }
+        const message = (res && res.error && res.error.message) || 'נדרש לאשר את תנאי השימוש והפרטיות.';
+        showRequestAwareError(message, res && res.request_id);
+        return false;
     }
 
     // Timing Banner Elements
@@ -843,7 +863,11 @@
             return;
         }
 
-        const payload = buildPayload();
+        if (!(await ensureLegalAcceptance())) {
+            return;
+        }
+
+        const payload = { ...buildPayload(), legal_confirm: true };
 
         if (!payload.budget_max || payload.budget_max <= 0 || payload.budget_min > payload.budget_max) {
             if (errorEl) {

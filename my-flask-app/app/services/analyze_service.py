@@ -68,6 +68,7 @@ def handle_analyze_request(
         "fuel_type",
         "transmission",
         "sub_model",
+        "legal_confirm",
         "annual_km",
         "city_pct",
         "terrain",

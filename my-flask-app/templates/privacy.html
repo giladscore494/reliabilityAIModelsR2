@@ -59,11 +59,11 @@
       <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-4">
         <li><strong>נתונים אישיים מ-Google OAuth:</strong> שם פרטי, כתובת אימייל, מזהה משתמש ייחודי (Google ID)</li>
         <li><strong>נתוני שימוש:</strong> חיפושים שבוצעו (יצרן, דגם, שנתון, טווח קילומטראז׳, סוג דלק, תיבת הילוכים, פרופיל שימוש אישי), תוצאות הדוחות, תאריכי הפקה, זמני תגובה (duration_ms למעקב ביצועים)</li>
-        <li><strong>מטא-נתונים:</strong> כתובת IP, timestamps, מזהי בקשות (request IDs), User-Agent</li>
+        <li><strong>מטא-נתונים:</strong> כתובת IP (מאוחסנת בצורה מקוצרת/מאובטחת), timestamps, מזהי בקשות (request IDs), User-Agent</li>
       </ul>
       <p class="text-slate-300 leading-relaxed mb-6">
         <strong>הערת AI:</strong> חלק מהנתונים (ללא פרטים מזהים אישית כמו שם ואימייל) עשויים להישלח לספקי שירותי AI חיצוניים (Google Gemini) לצורך ניתוח והפקת המלצות.
-        המידע הנשלח כולל רק את מפרט הרכב והקלט הטכני, ללא קישור למשתמש ספציפי.
+        המידע הנשלח כולל מפרטי רכב וקלטים טכניים הדרושים לניתוח, ללא קישור למשתמש ספציפי.
       </p>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">2. מטרות איסוף והשימוש</h3>
@@ -81,8 +81,9 @@
         חלק מהנתונים נשלחים למנוע AI (Google Gemini) ללא פרטים מזהים אישית (ללא שם, אימייל או מזהה משתמש).
       </p>
       <p class="text-slate-300 leading-relaxed mb-6">
-        <strong>תקופת שמירה:</strong> הנתונים נשמרים כל עוד החשבון פעיל. בעת מחיקת החשבון מ<a href="{{ url_for('dashboard.dashboard') }}" class="text-primary hover:underline">הדשבורד</a>, 
-        כל הנתונים הקשורים (כולל חיפושים, תוצאות, קוטה, רזרבציות, ופרופיל) נמחקים לצמיתות מהמערכת.
+        <strong>תקופת שמירה:</strong> לוגים טכניים נשמרים לרוב עד 30–90 יום לצורך אבטחה ותפעול. היסטוריית משתמש נשמרת כל עוד החשבון פעיל.
+        בעת מחיקת החשבון מ<a href="{{ url_for('dashboard.dashboard') }}" class="text-primary hover:underline">הדשבורד</a>,
+        כל הנתונים הקשורים (כולל חיפושים, תוצאות, קוטה, רזרבציות, ופרופיל) נמחקים לצמיתות מהמערכת. ניתן לפנות אלינו לבקשת מחיקה.
       </p>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">4. העברת מידע לצד שלישי</h3>
@@ -116,7 +117,8 @@
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">8. יצירת קשר</h3>
       <p class="text-slate-300 leading-relaxed">
-        לפניות משפטיות, בקשות מחיקה, או שאלות בנושא פרטיות, ניתן ליצור קשר דרך <a href="{{ url_for('public.index') }}" class="text-primary hover:underline">האתר</a> או במייל אם יסופק.
+        לפניות משפטיות, בקשות מחיקה, או שאלות בנושא פרטיות, ניתן ליצור קשר בכתובת
+        <a href="mailto:{{ contact_email }}" class="text-primary hover:underline">{{ contact_email }}</a>.
       </p>
     </div>
   </main>

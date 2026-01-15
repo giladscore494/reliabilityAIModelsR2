@@ -72,8 +72,10 @@ def test_analyze_response_includes_new_sections(logged_in_client, monkeypatch):
         "fuel_type": "בנזין",
         "transmission": "אוטומטית",
         "sub_model": "",
+        "legal_confirm": True,
     }
 
+    client.post("/api/legal/accept", json={"legal_confirm": True})
     resp1 = client.post("/analyze", json=payload, headers={"Origin": "http://localhost"})
     data1 = resp1.get_json()
     assert resp1.status_code == 200
@@ -85,6 +87,7 @@ def test_analyze_response_includes_new_sections(logged_in_client, monkeypatch):
 def test_delete_account_requires_json_content_type(logged_in_client):
     """Test that delete account endpoint requires Content-Type: application/json"""
     client, _ = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
 
     # Try without Content-Type header
     resp = client.post(
@@ -100,6 +103,7 @@ def test_delete_account_requires_json_content_type(logged_in_client):
 def test_delete_account_requires_valid_json(logged_in_client):
     """Test that delete account endpoint requires valid JSON"""
     client, _ = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
     
     # Try with invalid JSON
     resp = client.post('/api/account/delete',
@@ -114,6 +118,7 @@ def test_delete_account_requires_valid_json(logged_in_client):
 def test_delete_account_requires_confirmation(logged_in_client):
     """Test that delete account endpoint requires exact confirmation text"""
     client, _ = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
     
     # Try with wrong confirmation
     resp = client.post('/api/account/delete',
@@ -128,6 +133,7 @@ def test_delete_account_requires_confirmation(logged_in_client):
 def test_delete_account_rejects_without_origin(logged_in_client, app, monkeypatch):
     """Test that delete account endpoint rejects requests without Origin/Referer when CANONICAL_BASE is set"""
     client, _ = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
     
     # Set CANONICAL_BASE to enable same-origin checking
     monkeypatch.setenv('CANONICAL_BASE_URL', 'https://example.com')
@@ -163,6 +169,7 @@ def test_delete_account_rejects_without_origin(logged_in_client, app, monkeypatc
 
 def test_delete_account_rejects_bad_origin(logged_in_client):
     client, _ = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
 
     resp = client.post(
         "/api/account/delete",
@@ -177,6 +184,7 @@ def test_delete_account_rejects_bad_origin(logged_in_client):
 def test_delete_account_success_with_valid_request(logged_in_client, app):
     """Test that delete account works with valid request"""
     client, user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
     
     # Valid delete request
     resp = client.post(
@@ -199,6 +207,7 @@ def test_delete_account_success_with_valid_request(logged_in_client, app):
 
 def test_delete_account_removes_search_history(logged_in_client, app):
     client, user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
 
     with app.app_context():
         db.session.add(
@@ -230,6 +239,7 @@ def test_delete_account_removes_search_history(logged_in_client, app):
 
 def test_delete_account_removes_quota_reservations(logged_in_client, app):
     client, user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
 
     with app.app_context():
         db.session.add(

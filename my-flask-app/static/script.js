@@ -69,11 +69,13 @@
         if (!response.ok) {
             const snippet = parsed ? JSON.stringify(parsed).slice(0, 300) : (textBody || '').slice(0, 300);
             const errObj = parsed && parsed.error ? parsed.error : null;
+            const errorCode = (errObj && errObj.code) || (typeof errObj === 'string' ? errObj : null) || 'HTTP_ERROR';
+            const errorMessage = (errObj && errObj.message) || (parsed && parsed.message) || response.statusText || 'שגיאה בבקשה';
             return {
                 ok: false,
                 error: {
-                    code: (errObj && errObj.code) || 'HTTP_ERROR',
-                    message: (errObj && errObj.message) || response.statusText || 'שגיאה בבקשה',
+                    code: errorCode,
+                    message: errorMessage,
                     details: { status: response.status, body_snippet: snippet },
                 },
                 request_id: requestId,
@@ -101,6 +103,7 @@
     const resultsContainer = document.getElementById('results-container');
     const legalCheckbox = document.getElementById('legal-confirm');
     const legalError = document.getElementById('legal-error');
+    let legalAccepted = false;
 
     const summarySimpleEl = document.getElementById('summary-simple-text');
     const summaryDetailedEl = document.getElementById('summary-detailed-text');
@@ -769,6 +772,23 @@
         return true;
     }
 
+    async function ensureLegalAcceptance() {
+        if (legalAccepted) return true;
+        const res = await safeFetchJson('/api/legal/accept', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ legal_confirm: true })
+        });
+        if (res && res.ok) {
+            legalAccepted = true;
+            return true;
+        }
+        const message = (res && res.error && res.error.message) || 'נדרש לאשר את תנאי השימוש והפרטיות.';
+        showRequestAwareError(message, res && res.request_id);
+        return false;
+    }
+
     function collectFormData() {
         const payload = {
             make: makeSelect ? makeSelect.value.trim() : '',
@@ -792,8 +812,9 @@
     async function handleSubmit(e) {
         e.preventDefault();
         if (!validateLegal()) return;
+        if (!(await ensureLegalAcceptance())) return;
 
-        const payload = collectFormData();
+        const payload = { ...collectFormData(), legal_confirm: true };
         if (!payload.make || !payload.model || !payload.year) {
             alert('נא למלא יצרן, דגם ושנתון.');
             return;
