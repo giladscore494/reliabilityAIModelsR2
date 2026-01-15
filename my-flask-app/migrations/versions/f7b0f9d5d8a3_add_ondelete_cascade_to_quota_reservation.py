@@ -28,8 +28,33 @@ def _get_existing_fk_names(bind):
     return names
 
 
+def _get_user_fk(inspector):
+    fks = inspector.get_foreign_keys("quota_reservation")
+    return next(
+        (
+            fk
+            for fk in fks
+            if fk.get("referred_table") == "user" and fk.get("constrained_columns") == ["user_id"]
+        ),
+        None,
+    )
+
+
 def upgrade():
     bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    dialect_name = getattr(bind.dialect, "name", "")
+    if not inspector.has_table("quota_reservation"):
+        print("[MIGRATION] quota_reservation missing; skipping FK update")
+        return
+    user_fk = _get_user_fk(inspector)
+    ondelete = (user_fk.get("options") or {}).get("ondelete") if user_fk else None
+    if ondelete == "CASCADE":
+        print("[MIGRATION] quota_reservation ondelete already CASCADE; skipping FK update")
+        return
+    if dialect_name == "sqlite":
+        print("[MIGRATION] SQLite detected; skipping quota_reservation FK alter")
+        return
     fk_names = _get_existing_fk_names(bind)
     with op.batch_alter_table("quota_reservation") as batch_op:
         for fk_name in fk_names:
@@ -41,6 +66,7 @@ def upgrade():
             ["id"],
             ondelete="CASCADE",
         )
+    print("[MIGRATION] quota_reservation ondelete set to CASCADE")
 
 
 def downgrade():

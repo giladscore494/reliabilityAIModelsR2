@@ -1540,10 +1540,12 @@ def create_app():
     login_manager.init_app(app)
     oauth.init_app(app)
     migrate.init_app(app, db)
+    runtime_bootstrap_enabled = os.environ.get("ENABLE_RUNTIME_DB_BOOTSTRAP", "").lower() in ("1", "true", "yes")
 
     with app.app_context():
-        ensure_search_history_cache_key(app, db, logger)
-        ensure_duration_ms_columns(db.engine, logger)
+        if runtime_bootstrap_enabled:
+            ensure_search_history_cache_key(app, db, logger)
+            ensure_duration_ms_columns(db.engine, logger)
         try:
             with db.engine.connect() as conn:
                 context = MigrationContext.configure(conn)
@@ -1657,18 +1659,25 @@ def create_app():
             return None
         if not current_user.is_authenticated:
             return None
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return None
 
         def _legal_error(code: str, message: str):
             rid = get_request_id()
             resp = jsonify({"error": code, "message": message, "request_id": rid})
-            resp.status_code = 412
+            resp.status_code = 403
             resp.headers["X-Request-ID"] = rid
             return resp
 
-        if request.method in ("POST", "PUT", "PATCH", "DELETE") and path.startswith(("/analyze", "/advisor_api")):
-            payload = request.get_json(silent=True) if request.is_json else request.form
-            if not parse_legal_confirm((payload or {}).get("legal_confirm")):
-                return _legal_error("TERMS_NOT_ACCEPTED", "Please accept Terms & Privacy to continue.")
+        is_ai_write = request.method in ("POST", "PUT", "PATCH", "DELETE") and path.startswith(
+            ("/analyze", "/advisor_api")
+        )
+        if not is_ai_write:
+            return None
+
+        payload = request.get_json(silent=True) if request.is_json else request.form
+        if not parse_legal_confirm((payload or {}).get("legal_confirm")):
+            return _legal_error("TERMS_NOT_ACCEPTED", "Please accept Terms & Privacy to continue.")
 
         terms_version = app.config.get("TERMS_VERSION")
         privacy_version = app.config.get("PRIVACY_VERSION")
@@ -1797,7 +1806,9 @@ def create_app():
             quota_usage_exists = inspector.has_table('daily_quota_usage')
             ip_rate_limit_exists = inspector.has_table('ip_rate_limit')
             quota_reservation_exists = inspector.has_table('quota_reservation')
-            if is_render:
+            if not runtime_bootstrap_enabled:
+                print("[DB] ⏭️ Runtime schema bootstrap disabled in this environment")
+            elif is_render:
                 print("[DB] ⏭️ Render detected - skipping db.create_all(); run `flask db upgrade` via release/preDeploy")
             elif os.environ.get("SKIP_CREATE_ALL", "").lower() in ("1", "true", "yes"):
                 print("[DB] ⏭️ SKIP_CREATE_ALL enabled - skipping db.create_all()")

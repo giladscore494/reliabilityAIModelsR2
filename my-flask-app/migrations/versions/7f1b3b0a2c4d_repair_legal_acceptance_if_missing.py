@@ -30,11 +30,24 @@ def upgrade():
             sa.Column("source", sa.String(length=32), nullable=False, server_default=sa.text("'web'")),
             sa.UniqueConstraint("user_id", "terms_version", "privacy_version", name="uq_legal_acceptance_user_version"),
         )
+        print("[MIGRATION] legal_acceptance table created")
+    else:
+        print("[MIGRATION] legal_acceptance already exists; skipping create_table")
+
+    index_name = "ix_legal_acceptance_user_version"
+    try:
+        indexes = {idx.get("name") for idx in inspector.get_indexes("legal_acceptance")}
+    except Exception:
+        indexes = set()
+    if index_name in indexes:
+        print("[MIGRATION] ix_legal_acceptance_user_version already exists; skipping index")
+    else:
         op.create_index(
-            "ix_legal_acceptance_user_version",
+            index_name,
             "legal_acceptance",
             ["user_id", "terms_version", "privacy_version"],
         )
+        print("[MIGRATION] ix_legal_acceptance_user_version created")
 
 
 def downgrade():

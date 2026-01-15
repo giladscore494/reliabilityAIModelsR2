@@ -18,10 +18,14 @@ depends_on = None
 
 def _ensure_duration_column(inspector, table_name: str):
     if not inspector.has_table(table_name):
+        print(f"[MIGRATION] {table_name} missing; skipping duration_ms add")
         return
     columns = {col["name"] for col in inspector.get_columns(table_name)}
     if "duration_ms" not in columns:
         op.add_column(table_name, sa.Column("duration_ms", sa.Integer(), nullable=True))
+        print(f"[MIGRATION] {table_name}.duration_ms added")
+    else:
+        print(f"[MIGRATION] {table_name}.duration_ms already exists; skipping add_column")
 
 
 def upgrade():
