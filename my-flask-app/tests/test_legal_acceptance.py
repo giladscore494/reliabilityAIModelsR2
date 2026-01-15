@@ -12,9 +12,15 @@ def test_protected_endpoint_requires_acceptance(logged_in_client):
         json={"legal_confirm": True},
         headers={"Origin": "http://localhost"},
     )
-    assert resp.status_code == 412
+    assert resp.status_code == 403
     data = resp.get_json()
     assert data["error"] == "TERMS_NOT_ACCEPTED"
+
+
+def test_dashboard_read_only_allows_without_acceptance(logged_in_client):
+    client, _ = logged_in_client
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
 
 
 def test_legal_accept_is_idempotent(logged_in_client, app):
@@ -49,7 +55,7 @@ def test_version_mismatch_requires_reacceptance(logged_in_client, app):
         json={"legal_confirm": True},
         headers={"Origin": "http://localhost"},
     )
-    assert resp.status_code == 412
+    assert resp.status_code == 403
     data = resp.get_json()
     assert data["error"] == "TERMS_VERSION_MISMATCH"
 

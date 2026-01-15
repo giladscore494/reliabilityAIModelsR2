@@ -1,3 +1,4 @@
+import os
 from sqlalchemy import inspect, text
 
 
@@ -7,6 +8,10 @@ def ensure_search_history_cache_key(app, db, logger=None):
     Safe to run multiple times and under concurrency.
     """
     log = logger or getattr(app, "logger", None)
+    if os.environ.get("ENABLE_RUNTIME_DB_BOOTSTRAP", "").lower() not in ("1", "true", "yes"):
+        if log:
+            log.info("[DB] Runtime bootstrap disabled; skipping cache_key ensure")
+        return
     try:
         engine = db.engine
         dialect = engine.dialect.name if engine else ""
@@ -67,6 +72,10 @@ def ensure_duration_ms_columns(engine, logger=None):
     Idempotent and best-effort: logs warnings on failure without raising.
     """
     log = logger
+    if os.environ.get("ENABLE_RUNTIME_DB_BOOTSTRAP", "").lower() not in ("1", "true", "yes"):
+        if log:
+            log.info("[DB] Runtime bootstrap disabled; skipping duration_ms ensure")
+        return
     try:
         dialect = getattr(engine, "dialect", None)
         dialect_name = dialect.name if dialect else ""

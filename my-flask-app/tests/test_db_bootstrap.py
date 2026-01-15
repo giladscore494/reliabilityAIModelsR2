@@ -3,9 +3,10 @@ from sqlalchemy import create_engine, inspect, text
 from app.utils.db_bootstrap import ensure_duration_ms_columns
 
 
-def test_ensure_duration_ms_columns_adds_missing(tmp_path):
+def test_ensure_duration_ms_columns_adds_missing(tmp_path, monkeypatch):
     db_path = tmp_path / "legacy.db"
     engine = create_engine(f"sqlite:///{db_path}")
+    monkeypatch.setenv("ENABLE_RUNTIME_DB_BOOTSTRAP", "1")
 
     with engine.begin() as conn:
         conn.execute(text("CREATE TABLE search_history (id INTEGER PRIMARY KEY, user_id INTEGER);"))
@@ -25,9 +26,10 @@ def test_ensure_duration_ms_columns_adds_missing(tmp_path):
     engine.dispose()
 
 
-def test_ensure_duration_ms_columns_idempotent(tmp_path):
+def test_ensure_duration_ms_columns_idempotent(tmp_path, monkeypatch):
     db_path = tmp_path / "legacy2.db"
     engine = create_engine(f"sqlite:///{db_path}")
+    monkeypatch.setenv("ENABLE_RUNTIME_DB_BOOTSTRAP", "1")
 
     with engine.begin() as conn:
         conn.execute(text("CREATE TABLE search_history (id INTEGER PRIMARY KEY, duration_ms INTEGER);"))
