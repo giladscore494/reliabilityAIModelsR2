@@ -11,7 +11,7 @@ Option B (Manual Web Service):
 - Set **Root Directory** to `my-flask-app` (repo root contains docs/tests; the app code lives here)
 - Build Command: `pip install -r requirements.txt`
 - Predeploy/Release Command: `flask --app main:create_app db upgrade && flask --app main:create_app db current && python -c "import os; from sqlalchemy import create_engine, inspect; url = os.environ.get('DATABASE_URL') or os.environ.get('SQLALCHEMY_DATABASE_URI'); assert url, 'DATABASE_URL missing'; eng = create_engine(url); insp = inspect(eng); assert insp.has_table('legal_acceptance'), 'legal_acceptance table missing after db upgrade'; print('OK: legal_acceptance exists')"`
- - Start Command (recommended): `flask --app main:create_app db upgrade && flask --app main:create_app db current && python -c "import os; from sqlalchemy import create_engine, inspect; url = os.environ.get('DATABASE_URL') or os.environ.get('SQLALCHEMY_DATABASE_URI'); assert url, 'DATABASE_URL missing'; eng = create_engine(url); insp = inspect(eng); assert insp.has_table('legal_acceptance'), 'legal_acceptance table missing after db upgrade'; print('OK: legal_acceptance exists')" && gunicorn "main:create_app()" --bind 0.0.0.0:$PORT --timeout 180 --graceful-timeout 30 --keep-alive 5 --workers 2`
+ - Start Command (recommended): `flask --app main:create_app db upgrade && flask --app main:create_app db current && gunicorn "main:create_app()" --bind 0.0.0.0:$PORT --timeout 180 --graceful-timeout 30 --keep-alive 5 --workers 2`
 
 ## 2) Environment variables (Render > Service > Environment)
 These must be present (app will hard-fail on Render without `SECRET_KEY`/`DATABASE_URL`):
