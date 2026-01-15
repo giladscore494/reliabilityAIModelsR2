@@ -61,8 +61,13 @@ def log_access_decision(route_name: str, user_id: Optional[int], decision: str, 
 
 
 def get_client_ip() -> str:
-    xff = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip() if request else ""
-    ip = xff or (request.remote_addr or "")
+    if not request:
+        return "unknown"
+    # Prefer request.remote_addr after ProxyFix; only fall back to X-Forwarded-For when explicitly trusted.
+    ip = request.remote_addr or ""
+    if not ip and int(os.environ.get("TRUSTED_PROXY_COUNT", "0")) > 0:
+        xff = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+        ip = xff
     return ip[:64] if ip else "unknown"
 
 
