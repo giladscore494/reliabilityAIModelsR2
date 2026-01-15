@@ -1659,9 +1659,10 @@ def create_app():
             return None
 
         def _legal_error(code: str, message: str):
-            resp = jsonify({"error": code, "message": message, "request_id": get_request_id()})
+            rid = get_request_id()
+            resp = jsonify({"error": code, "message": message, "request_id": rid})
             resp.status_code = 412
-            resp.headers["X-Request-ID"] = get_request_id()
+            resp.headers["X-Request-ID"] = rid
             return resp
 
         if request.method in ("POST", "PUT", "PATCH", "DELETE") and path.startswith(("/analyze", "/advisor_api")):

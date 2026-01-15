@@ -26,7 +26,7 @@ def upgrade():
         sa.Column("accepted_at", sa.DateTime(), nullable=False),
         sa.Column("accepted_ip", sa.String(length=64), nullable=False),
         sa.Column("accepted_user_agent", sa.String(length=512), nullable=True),
-        sa.Column("source", sa.String(length=32), nullable=False),
+        sa.Column("source", sa.String(length=32), nullable=False, server_default=sa.text("'web'")),
         sa.UniqueConstraint("user_id", "terms_version", "privacy_version", name="uq_legal_acceptance_user_version"),
     )
     op.create_index(

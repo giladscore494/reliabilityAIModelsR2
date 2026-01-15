@@ -107,6 +107,7 @@
         if (legalAccepted) return true;
         const res = await safeFetchJson('/api/legal/accept', {
             method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
             body: JSON.stringify({ legal_confirm: true })
         });

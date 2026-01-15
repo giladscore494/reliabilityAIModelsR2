@@ -23,11 +23,8 @@ def normalize_legal_ip(raw_ip: str) -> str:
     except ValueError:
         return raw_ip[:64]
     if parsed.version == 4:
-        parts = raw_ip.split(".")
-        if len(parts) == 4:
-            parts[-1] = "0"
-            return ".".join(parts)
-        return raw_ip
+        network = ip_network(f"{parsed}/24", strict=False)
+        return str(network.network_address)
     network = ip_network(f"{parsed}/64", strict=False)
     return str(network.network_address)
 
