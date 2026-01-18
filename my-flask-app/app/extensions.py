@@ -1,3 +1,4 @@
+import os
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager
@@ -12,4 +13,5 @@ oauth = OAuth()
 # AI client placeholders (initialized in factory)
 ai_client = None
 advisor_client = None
-GEMINI3_MODEL_ID = "gemini-3-flash-preview"
+GEMINI_RELIABILITY_MODEL_ID = os.environ.get("GEMINI_RELIABILITY_MODEL_ID", "gemini-3-flash-preview")
+GEMINI_RECOMMENDER_MODEL_ID = os.environ.get("GEMINI_RECOMMENDER_MODEL_ID", "gemini-3-pro-preview")
