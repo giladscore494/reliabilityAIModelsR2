@@ -65,7 +65,14 @@ from app.utils.http_helpers import (
     log_rejection,
 )
 import app.extensions as extensions
-from app.extensions import db, login_manager, oauth, migrate, GEMINI3_MODEL_ID
+from app.extensions import (
+    db,
+    login_manager,
+    oauth,
+    migrate,
+    GEMINI_RELIABILITY_MODEL_ID,
+    GEMINI_RECOMMENDER_MODEL_ID,
+)
 from app.models import (
     User,
     SearchHistory,
@@ -96,6 +103,7 @@ from app.quota import (
 # =========================
 # ========= CONFIG ========
 # =========================
+logger = logging.getLogger(__name__)
 AI_CALL_TIMEOUT_SEC = int(os.environ.get("AI_CALL_TIMEOUT_SEC", "170"))  # timeout for each AI call attempt
 GLOBAL_DAILY_LIMIT = 1000
 USER_DAILY_LIMIT = int(os.environ.get("QUOTA_LIMIT", "5"))
@@ -601,34 +609,43 @@ def _execute_with_timeout(fn, timeout_sec: int):
 
 
 def call_gemini_grounded_once(prompt: str) -> Tuple[Optional[dict], Optional[str]]:
-    if extensions.ai_client is None:
-        return None, "CLIENT_NOT_INITIALIZED"
-    search_tool = genai_types.Tool(google_search=genai_types.GoogleSearch())
-    config = genai_types.GenerateContentConfig(
-        temperature=0.3,
-        top_p=0.9,
-        top_k=40,
-        tools=[search_tool],
-        response_mime_type="application/json",
-    )
-    def _invoke():
-        return extensions.ai_client.models.generate_content(
-            model=GEMINI3_MODEL_ID,
-            contents=prompt,
-            config=config,
+    start_time = pytime.perf_counter()
+    try:
+        if extensions.ai_client is None:
+            return None, "CLIENT_NOT_INITIALIZED"
+        search_tool = genai_types.Tool(google_search=genai_types.GoogleSearch())
+        config = genai_types.GenerateContentConfig(
+            temperature=0.3,
+            top_p=0.9,
+            top_k=40,
+            tools=[search_tool],
+            response_mime_type="application/json",
         )
-    resp, err = _execute_with_timeout(_invoke, AI_CALL_TIMEOUT_SEC)
-    if err == "EXECUTOR_SATURATED":
-        return None, "SERVER_BUSY"
-    if err == "CALL_TIMEOUT":
-        return None, "CALL_TIMEOUT"
-    if isinstance(err, Exception):
-        return None, f"CALL_FAILED:{type(err).__name__}"
-    if resp is None:
-        return None, "CALL_FAILED:EMPTY"
-    text = (getattr(resp, "text", "") or "").strip()
-    parsed, err = parse_model_json(text)
-    return parsed, err
+        def _invoke():
+            return extensions.ai_client.models.generate_content(
+                model=GEMINI_RELIABILITY_MODEL_ID,
+                contents=prompt,
+                config=config,
+            )
+        resp, err = _execute_with_timeout(_invoke, AI_CALL_TIMEOUT_SEC)
+        if err == "EXECUTOR_SATURATED":
+            return None, "SERVER_BUSY"
+        if err == "CALL_TIMEOUT":
+            return None, "CALL_TIMEOUT"
+        if isinstance(err, Exception):
+            return None, f"CALL_FAILED:{type(err).__name__}"
+        if resp is None:
+            return None, "CALL_FAILED:EMPTY"
+        text = (getattr(resp, "text", "") or "").strip()
+        parsed, err = parse_model_json(text)
+        return parsed, err
+    finally:
+        duration_ms = (pytime.perf_counter() - start_time) * 1000
+        logger.info(
+            "[AI] feature=reliability model=%s duration_ms=%.2f",
+            GEMINI_RELIABILITY_MODEL_ID,
+            duration_ms,
+        )
 
 
 # ======================================================
@@ -717,17 +734,19 @@ def car_advisor_call_gemini_with_search(profile: dict) -> dict:
     """
     קריאה ל-Gemini 3 Pro (SDK החדש) עם Google Search ו-output כ-JSON בלבד.
     """
-    if extensions.advisor_client is None:
-        return {"_error": "Gemini Car Advisor client unavailable."}
+    start_time = pytime.perf_counter()
+    try:
+        if extensions.advisor_client is None:
+            return {"_error": "Gemini Car Advisor client unavailable."}
 
-    sanitized_profile = sanitize_profile_for_prompt(profile)
-    bounded_profile = wrap_user_input_in_boundary(
-        json.dumps(sanitized_profile, ensure_ascii=False, indent=2),
-        boundary_tag="user_input"
-    )
-    data_instruction = create_data_only_instruction()
+        sanitized_profile = sanitize_profile_for_prompt(profile)
+        bounded_profile = wrap_user_input_in_boundary(
+            json.dumps(sanitized_profile, ensure_ascii=False, indent=2),
+            boundary_tag="user_input"
+        )
+        data_instruction = create_data_only_instruction()
 
-    prompt = f"""
+        prompt = f"""
 {data_instruction}
 
 Please recommend cars for an Israeli customer. Here is the user profile (JSON wrapped in <user_input>):
@@ -785,39 +804,46 @@ IMPORTANT MARKET REALITY:
 Return ONLY raw JSON. Do not add any backticks or explanation text.
 """
 
-    search_tool = genai_types.Tool(
-        google_search=genai_types.GoogleSearch()
-    )
-
-    config = genai_types.GenerateContentConfig(
-        temperature=0.3,
-        top_p=0.9,
-        top_k=40,
-        tools=[search_tool],
-        response_mime_type="application/json",
-    )
-
-    def _invoke():
-        return extensions.advisor_client.models.generate_content(
-            model=GEMINI3_MODEL_ID,
-            contents=prompt,
-            config=config,
+        search_tool = genai_types.Tool(
+            google_search=genai_types.GoogleSearch()
         )
-    resp, err = _execute_with_timeout(_invoke, AI_CALL_TIMEOUT_SEC)
-    if err == "EXECUTOR_SATURATED":
-        return {"_error": "SERVER_BUSY"}
-    if err == "CALL_TIMEOUT":
-        return {"_error": "CALL_TIMEOUT"}
-    if isinstance(err, Exception):
-        return {"_error": f"Gemini Car Advisor call failed: {err}"}
-    if resp is None:
-        return {"_error": "Gemini Car Advisor call failed: EMPTY"}
-    text = getattr(resp, "text", "") or ""
-    text = text.strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return {"_error": "JSON decode error from Gemini Car Advisor", "_raw": text}
+
+        config = genai_types.GenerateContentConfig(
+            temperature=0.3,
+            top_p=0.9,
+            top_k=40,
+            tools=[search_tool],
+            response_mime_type="application/json",
+        )
+
+        def _invoke():
+            return extensions.advisor_client.models.generate_content(
+                model=GEMINI_RECOMMENDER_MODEL_ID,
+                contents=prompt,
+                config=config,
+            )
+        resp, err = _execute_with_timeout(_invoke, AI_CALL_TIMEOUT_SEC)
+        if err == "EXECUTOR_SATURATED":
+            return {"_error": "SERVER_BUSY"}
+        if err == "CALL_TIMEOUT":
+            return {"_error": "CALL_TIMEOUT"}
+        if isinstance(err, Exception):
+            return {"_error": f"Gemini Car Advisor call failed: {err}"}
+        if resp is None:
+            return {"_error": "Gemini Car Advisor call failed: EMPTY"}
+        text = getattr(resp, "text", "") or ""
+        text = text.strip()
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return {"_error": "JSON decode error from Gemini Car Advisor", "_raw": text}
+    finally:
+        duration_ms = (pytime.perf_counter() - start_time) * 1000
+        logger.info(
+            "[AI] feature=recommender model=%s duration_ms=%.2f",
+            GEMINI_RECOMMENDER_MODEL_ID,
+            duration_ms,
+        )
 
 
 def car_advisor_postprocess(profile: dict, parsed: dict) -> dict:
