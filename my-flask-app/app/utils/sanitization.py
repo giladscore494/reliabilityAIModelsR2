@@ -65,15 +65,6 @@ def _clamp_int(value: Any, *, lo: int, hi: int, default: int = 0) -> int:
     return max(lo, min(hi, n))
 
 
-def _clamp_float(value: Any, *, lo: float, hi: float, default: float = 0.0) -> float:
-    try:
-        if isinstance(value, bool):
-            return default
-        n = float(value)
-    except Exception:
-        return default
-    return max(lo, min(hi, n))
-
 
 def _sanitize_str_list(value: Any, *, max_items: int = _MAX_LIST) -> list:
     arr = _coerce_list(value)[:max_items]
