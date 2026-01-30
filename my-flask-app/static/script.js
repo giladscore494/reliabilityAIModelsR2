@@ -380,63 +380,40 @@
         resultsContainer.classList.remove('hidden');
         const safe = (v) => escapeHtml(v);
 
-        // ציון
+        // אמינות מוערכת (קטגורית בלבד)
         if (scoreContainer) {
             scoreContainer.innerHTML = '';
-            const baseRaw = data.base_score_calculated;
-            let baseNum = null;
-            if (baseRaw !== undefined && baseRaw !== null) {
-                const m = String(baseRaw).match(/-?\d+(\.\d+)?/);
-                if (m) baseNum = parseFloat(m[0]);
-            }
-
-            const reliabilityLevel = getReliabilityLevel(baseNum);
-
+            const estimated = data.estimated_reliability || '';
             const sourceTag = data.source_tag || '';
             const mileageNote = data.mileage_note || '';
 
             const wrapper = document.createElement('div');
-            wrapper.className = 'flex flex-col md:flex-row items-center md:items-center md:justify-center gap-6 mb-4';
+            wrapper.className = 'flex flex-col gap-2 mb-4';
 
-            const circle = document.createElement('div');
-            circle.className = 'score-circle';
-            circle.style.backgroundImage = reliabilityLevel.gradient;
+            const headline = document.createElement('div');
+            headline.className = 'text-xl md:text-2xl font-bold text-white';
+            headline.textContent = estimated ? `אמינות מוערכת: ${estimated}` : 'אמינות מוערכת: לא ידוע';
+            wrapper.appendChild(headline);
 
-            const scoreText = document.createElement('div');
-            scoreText.className = 'text-4xl md:text-5xl font-black leading-none';
-            scoreText.textContent = reliabilityLevel.label;
-
-            const label = document.createElement('div');
-            label.className = 'mt-1 text-xs font-semibold tracking-wide uppercase text-white/80';
-            label.textContent = 'רמת אמינות';
-
-            circle.appendChild(scoreText);
-            circle.appendChild(label);
-
-            const side = document.createElement('div');
-            side.className = 'text-xs md:text-sm text-slate-300 space-y-2 max-w-md';
-
-            const gradeBadge = document.createElement('div');
-            gradeBadge.className = `inline-flex items-center px-3 py-1 rounded-full border text-xs font-semibold ${reliabilityLevel.badgeClass}`;
-            gradeBadge.textContent = `אמינות: ${reliabilityLevel.label}`;
-            side.appendChild(gradeBadge);
+            const subtitle = document.createElement('div');
+            subtitle.className = 'text-xs text-slate-400';
+            subtitle.textContent = 'מבוסס על ניתוח AI';
+            wrapper.appendChild(subtitle);
 
             if (sourceTag) {
                 const p = document.createElement('p');
                 p.textContent = sourceTag;
                 p.className = 'text-[11px] text-slate-500';
-                side.appendChild(p);
+                wrapper.appendChild(p);
             }
 
             if (mileageNote) {
                 const p = document.createElement('p');
                 p.textContent = mileageNote;
                 p.className = 'text-xs bg-amber-950/40 text-amber-300 border border-amber-700/60 rounded-lg px-3 py-2';
-                side.appendChild(p);
+                wrapper.appendChild(p);
             }
 
-            wrapper.appendChild(circle);
-            wrapper.appendChild(side);
             scoreContainer.appendChild(wrapper);
         }
 
@@ -811,7 +788,7 @@
             
             // Hebrew labels
             const labels = {
-                'base_score_calculated': 'ציון אמינות כללי',
+                'estimated_reliability': 'אמינות מוערכת',
                 'avg_repair_cost_ILS': 'עלות תיקון ממוצעת (₪)',
                 'engine_transmission_score': 'מנוע ותיבת הילוכים',
                 'electrical_score': 'חשמל ואלקטרוניקה',
@@ -839,30 +816,28 @@
                     <div class="space-y-3">
             `;
             
-            // Compare scores
-            const score1 = item1.result?.base_score_calculated || 0;
-            const score2 = item2.result?.base_score_calculated || 0;
-            const diff = score1 - score2;
-            const diffColor = diff > 0 ? 'text-green-400' : diff < 0 ? 'text-red-400' : 'text-slate-400';
-            
+            // Compare estimated reliability (categorical)
+            const rel1 = item1.result?.estimated_reliability || 'לא ידוע';
+            const rel2 = item2.result?.estimated_reliability || 'לא ידוע';
+
             html += `
                 <div class="flex justify-between items-center py-2 border-b border-slate-700/50">
-                    <span class="text-slate-300">${labels['base_score_calculated']}</span>
+                    <span class="text-slate-300">${labels['estimated_reliability']}</span>
                     <div class="flex gap-4 items-center">
-                        <span class="font-bold text-white">${score1}</span>
-                        <span class="${diffColor} text-sm">${diff > 0 ? '+' : ''}${diff.toFixed(0)}</span>
-                        <span class="font-bold text-white">${score2}</span>
+                        <span class="font-bold text-white">${escapeHtml(rel1)}</span>
+                        <span class="text-slate-500">←→</span>
+                        <span class="font-bold text-white">${escapeHtml(rel2)}</span>
                     </div>
                 </div>
             `;
-            
+
             // Compare breakdown scores if available
             if (item1.result?.score_breakdown && item2.result?.score_breakdown) {
                 const breakdown1 = item1.result.score_breakdown;
                 const breakdown2 = item2.result.score_breakdown;
                 
                 Object.keys(labels).forEach(key => {
-                    if (key === 'base_score_calculated' || key === 'avg_repair_cost_ILS') return;
+                    if (key === 'estimated_reliability' || key === 'avg_repair_cost_ILS') return;
                     
                     const val1 = breakdown1[key] || 0;
                     const val2 = breakdown2[key] || 0;

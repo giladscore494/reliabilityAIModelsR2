@@ -188,6 +188,9 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
     if "reliability_report" in src:
         out["reliability_report"] = sanitize_reliability_report_response(src.get("reliability_report"))
 
+    if "estimated_reliability" in src:
+        out["estimated_reliability"] = _escape(src.get("estimated_reliability"))
+
     # Log dropped keys (only key names, no PII)
     dropped_keys = set(src.keys()) - set(out.keys())
     if dropped_keys:

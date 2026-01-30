@@ -204,15 +204,20 @@
             `);
         }
 
-        // ציון בסיסי
-        if (data.base_score_calculated !== undefined) {
+        // אמינות מוערכת (קטגורית)
+        if (data.estimated_reliability) {
             sections.push(`
-                <div class="border border-slate-100 rounded-2xl p-3 bg-slate-50 flex items-center justify-between">
-                    <div class="text-[11px] text-slate-600">
-                        ציון אמינות כללי (0–100)
+                <div class="border border-slate-100 rounded-2xl p-3 bg-slate-50">
+                    <div class="flex items-center justify-between">
+                        <div class="text-[11px] text-slate-600">
+                            אמינות מוערכת
+                        </div>
+                        <div class="font-semibold text-sm text-slate-900">
+                            ${escapeHtml(data.estimated_reliability)}
+                        </div>
                     </div>
-                    <div class="font-semibold text-sm text-slate-900">
-                        ${escapeHtml(data.base_score_calculated)}
+                    <div class="text-[10px] text-slate-500 mt-1">
+                        מבוסס על ניתוח AI
                     </div>
                 </div>
             `);

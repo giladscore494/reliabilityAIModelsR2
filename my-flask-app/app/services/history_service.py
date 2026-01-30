@@ -60,6 +60,8 @@ def build_searches_data(user_searches: List[SearchHistory]) -> list:
                 get_request_id(),
             )
             parsed_result = {}
+        parsed_result.pop("reliability_score", None)
+        parsed_result.pop("base_score_calculated", None)
         searches_data.append({
             "id": s.id,
             "timestamp": s.timestamp.strftime('%d/%m/%Y %H:%M'),

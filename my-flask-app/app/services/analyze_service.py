@@ -95,22 +95,7 @@ def handle_analyze_request(
         final_fuel = str(validated.get('fuel_type'))
         final_trans = str(validated.get('transmission'))
         usage_profile = validated.get("usage_profile") or {}
-        cache_key = hashlib.sha256(
-            json.dumps(
-                {
-                    "make": final_make,
-                    "model": final_model,
-                    "sub_model": final_sub_model,
-                    "year": final_year,
-                    "mileage_range": final_mileage,
-                    "fuel_type": final_fuel,
-                    "transmission": final_trans,
-                    "usage_profile": usage_profile,
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-            ).encode("utf-8")
-        ).hexdigest()
+        cache_key = None
 
         if not (final_make and final_model and final_year):
             log_access_decision('/analyze', user_id, 'rejected', 'validation error: missing required fields')
@@ -122,40 +107,8 @@ def handle_analyze_request(
         log_access_decision('/analyze', user_id, 'rejected', 'validation error: invalid payload')
         return api_error("validation_error", "שגיאת קלט (שלב 0): בקשת JSON לא תקינה.", status=400, details={"field": "payload"})
 
-    # 1) Cache first (no quota impact on hit)
-    try:
-        cutoff_date = datetime.utcnow() - timedelta(days=MAX_CACHE_DAYS)
-        cached = SearchHistory.query.filter(
-            SearchHistory.user_id == user_id,
-            SearchHistory.cache_key == cache_key,
-            SearchHistory.timestamp >= cutoff_date
-        ).order_by(SearchHistory.timestamp.desc()).first()
-        if cached:
-            cache_hit = True
-            logger.info(
-                "[CACHE] hit user_id=%s cache_key=%s request_id=%s",
-                user_id,
-                cache_key,
-                get_request_id(),
-            )
-            result = json.loads(cached.result_json)
-            result['source_tag'] = f"מקור: מטמון DB (נשמר ב-{cached.timestamp.strftime('%Y-%m-%d')})"
-            result = sanitize_analyze_response(result)
-            return api_ok(result)
-    except Exception:
-        try:
-            if db.session.get_transaction() or db.session.is_active:
-                db.session.rollback()
-        except Exception:
-            logger.exception("[CACHE] rollback failed after cache lookup error")
-        logger.exception("[CACHE] cache lookup failed request_id=%s", get_request_id())
-    if not cache_hit:
-        logger.info(
-            "[CACHE] miss user_id=%s cache_key=%s request_id=%s",
-            user_id,
-            cache_key,
-            get_request_id(),
-        )
+    # 1) Cache disabled: always perform new AI analysis
+    cache_hit = False
 
     # 2) Quota enforcement (only on cache miss)
     limit_val = current_user_daily_limit()
@@ -272,6 +225,19 @@ def handle_analyze_request(
             ai_output['source_tag'] = f"מקור: ניתוח AI חדש (חיפוש {display_quota_count}/{limit_val})"
             ai_output['mileage_note'] = note
             ai_output['km_warn'] = False
+            estimated_map = {
+                "low": "נמוך",
+                "medium": "בינוני",
+                "high": "גבוה",
+                "unknown": "לא ידוע",
+                "": "לא ידוע",
+                None: "לא ידוע",
+            }
+            est_raw = ai_output.get("estimated_reliability")
+            est_norm = str(est_raw).strip().lower() if est_raw is not None else "unknown"
+            ai_output["estimated_reliability"] = estimated_map.get(est_norm, "לא ידוע")
+            ai_output.pop("reliability_score", None)
+            ai_output.pop("base_score_calculated", None)
             sanitized_output = sanitize_analyze_response(ai_output)
 
             new_log = SearchHistory(
