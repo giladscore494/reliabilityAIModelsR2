@@ -228,6 +228,36 @@
         timingStartTime = null;
     }
 
+    function getReliabilityLevel(score) {
+        const numericScore = Number(score);
+        if (score === null || score === undefined || Number.isNaN(numericScore)) {
+            return {
+                label: 'לא ידוע',
+                gradient: 'linear-gradient(135deg, #64748b, #475569)',
+                badgeClass: 'bg-slate-500/20 text-slate-200 border-slate-500/40'
+            };
+        }
+        if (numericScore >= 80) {
+            return {
+                label: 'גבוה',
+                gradient: 'linear-gradient(135deg, #22c55e, #15803d)',
+                badgeClass: 'bg-emerald-500/20 text-emerald-200 border-emerald-500/40'
+            };
+        }
+        if (numericScore >= 60) {
+            return {
+                label: 'בינוני',
+                gradient: 'linear-gradient(135deg, #fbbf24, #d97706)',
+                badgeClass: 'bg-amber-500/20 text-amber-200 border-amber-500/40'
+            };
+        }
+        return {
+            label: 'נמוך',
+            gradient: 'linear-gradient(135deg, #f97373, #b91c1c)',
+            badgeClass: 'bg-red-500/20 text-red-200 border-red-500/40'
+        };
+    }
+
     // טאבס
     window.openTab = function (evt, tabId) {
         const btns = document.querySelectorAll('.tab-btn');
@@ -360,11 +390,7 @@
                 if (m) baseNum = parseFloat(m[0]);
             }
 
-            let gradient = 'linear-gradient(135deg, #f97373, #b91c1c)'; // נמוך
-            if (baseNum !== null) {
-                if (baseNum >= 80) gradient = 'linear-gradient(135deg, #22c55e, #15803d)';
-                else if (baseNum >= 60) gradient = 'linear-gradient(135deg, #fbbf24, #d97706)';
-            }
+            const reliabilityLevel = getReliabilityLevel(baseNum);
 
             const sourceTag = data.source_tag || '';
             const mileageNote = data.mileage_note || '';
@@ -374,15 +400,15 @@
 
             const circle = document.createElement('div');
             circle.className = 'score-circle';
-            circle.style.backgroundImage = gradient;
+            circle.style.backgroundImage = reliabilityLevel.gradient;
 
             const scoreText = document.createElement('div');
             scoreText.className = 'text-4xl md:text-5xl font-black leading-none';
-            scoreText.textContent = baseNum !== null ? String(Math.round(baseNum)) : '?';
+            scoreText.textContent = reliabilityLevel.label;
 
             const label = document.createElement('div');
             label.className = 'mt-1 text-xs font-semibold tracking-wide uppercase text-white/80';
-            label.textContent = 'ציון אמינות';
+            label.textContent = 'רמת אמינות';
 
             circle.appendChild(scoreText);
             circle.appendChild(label);
@@ -391,19 +417,8 @@
             side.className = 'text-xs md:text-sm text-slate-300 space-y-2 max-w-md';
 
             const gradeBadge = document.createElement('div');
-            let gradeLabel = 'נמוך';
-            let gradeClass = 'bg-red-500/20 text-red-200 border-red-500/40';
-            if (baseNum !== null) {
-                if (baseNum >= 80) {
-                    gradeLabel = 'גבוה';
-                    gradeClass = 'bg-emerald-500/20 text-emerald-200 border-emerald-500/40';
-                } else if (baseNum >= 60) {
-                    gradeLabel = 'בינוני';
-                    gradeClass = 'bg-amber-500/20 text-amber-200 border-amber-500/40';
-                }
-            }
-            gradeBadge.className = `inline-flex items-center px-3 py-1 rounded-full border text-xs font-semibold ${gradeClass}`;
-            gradeBadge.textContent = `רמת אמינות: ${gradeLabel}`;
+            gradeBadge.className = `inline-flex items-center px-3 py-1 rounded-full border text-xs font-semibold ${reliabilityLevel.badgeClass}`;
+            gradeBadge.textContent = `אמינות: ${reliabilityLevel.label}`;
             side.appendChild(gradeBadge);
 
             if (sourceTag) {
