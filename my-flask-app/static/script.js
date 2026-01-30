@@ -388,7 +388,21 @@
             const mileageNote = data.mileage_note || '';
 
             const wrapper = document.createElement('div');
-            wrapper.className = 'flex flex-col gap-2 mb-4';
+            wrapper.className = 'flex flex-col gap-3 mb-6 items-center';
+
+            const circle = document.createElement('div');
+            const levelClass = {
+                'גבוה': 'from-emerald-400 to-emerald-700 shadow-emerald-500/30',
+                'בינוני': 'from-amber-300 to-amber-600 shadow-amber-400/30',
+                'נמוך': 'from-rose-400 to-red-700 shadow-red-500/30',
+                'לא ידוע': 'from-slate-400 to-slate-600 shadow-slate-500/30'
+            }[estimated] || 'from-slate-400 to-slate-600 shadow-slate-500/30';
+            circle.className = `score-circle w-32 h-32 rounded-full bg-gradient-to-br ${levelClass} flex items-center justify-center shadow-lg`;
+            const label = document.createElement('div');
+            label.className = 'text-2xl font-black text-white';
+            label.textContent = estimated || 'לא ידוע';
+            circle.appendChild(label);
+            wrapper.appendChild(circle);
 
             const headline = document.createElement('div');
             headline.className = 'text-xl md:text-2xl font-bold text-white';

@@ -532,6 +532,7 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
     "recalls_score": "מספר (1-10)"
   }},
   "base_score_calculated": "מספר (0-100)",
+  "estimated_reliability": "נמוך/בינוני/גבוה/לא ידוע (לחשב על בסיס base_score_calculated: 80 ומעלה = גבוה, 60-79 = בינוני, מתחת ל-60 = נמוך)",
   "common_issues": ["תקלות נפוצות רלוונטיות לק\"מ"],
   "avg_repair_cost_ILS": "מספר ממוצע",
   "issues_with_costs": [
