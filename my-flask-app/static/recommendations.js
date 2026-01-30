@@ -444,6 +444,19 @@
         return null;
     }
 
+    function getReliabilityGrade(score) {
+        if (score == null || Number.isNaN(Number(score))) {
+            return { label: 'לא ידוע', className: 'bg-slate-500/20 text-slate-200 border-slate-500/40' };
+        }
+        if (score >= 7) {
+            return { label: 'גבוה', className: 'bg-emerald-500/20 text-emerald-200 border-emerald-500/40' };
+        }
+        if (score >= 4) {
+            return { label: 'בינוני', className: 'bg-amber-500/20 text-amber-200 border-amber-500/40' };
+        }
+        return { label: 'נמוך', className: 'bg-red-500/20 text-red-200 border-red-500/40' };
+    }
+
     function renderHighlightCards(cars) {
         if (!highlightCardsEl) return;
 
@@ -484,11 +497,13 @@
 
         if (mostReliable && mostReliable !== bestFit) {
             const relScore = getReliabilityScore(mostReliable);
+            const relGrade = getReliabilityGrade(relScore);
             cards.push({
                 label: 'הכי חזק באמינות',
                 badge: 'אמינות',
                 car: mostReliable,
                 chip: relScore != null ? `ציון אמינות ${safeNum(relScore, 1)}` : '',
+                grade: relGrade,
                 text: 'דגש על מינימום תקלות לאור נתוני אמינות והיסטוריית תקלות ביחס לשאר הדגמים שהוצגו.'
             });
         }
@@ -506,6 +521,9 @@
             const label = escapeHtml(card.label || '');
             const chipText = card.chip ? escapeHtml(card.chip) : '';
             const cardText = escapeHtml(card.text || '');
+            const grade = card.grade || null;
+            const gradeLabel = grade ? escapeHtml(grade.label) : '';
+            const gradeClass = grade ? grade.className : '';
             return `
                 <article class="bg-slate-900/60 border border-slate-800 rounded-xl p-3 md:p-4 flex flex-col justify-between">
                     <div class="flex items-center justify-between mb-2">
@@ -521,6 +539,11 @@
                         ${chipText ? `
                             <div class="mt-1 inline-flex items-center px-2 py-0.5 rounded-full bg-primary/15 text-[11px] text-primary border border-primary/40">
                                 ${chipText}
+                            </div>
+                        ` : ''}
+                        ${grade ? `
+                            <div class="mt-1 inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold ${gradeClass}">
+                                רמת אמינות: ${gradeLabel}
                             </div>
                         ` : ''}
                     </div>
@@ -552,6 +575,9 @@
 
         const annualFee = car.annual_fee != null ? `${safeNum(car.annual_fee)} ₪` : '';
         const reliabilityScore = car.reliability_score != null ? safeNum(car.reliability_score, 1) : '';
+        const reliabilityGrade = getReliabilityGrade(
+            car.reliability_score != null ? Number(car.reliability_score) : null
+        );
         const maintenanceCost = car.maintenance_cost != null ? `${safeNum(car.maintenance_cost)} ₪` : '';
         const safetyRating = car.safety_rating != null ? safeNum(car.safety_rating, 1) : '';
         const insuranceCost = car.insurance_cost != null ? `${safeNum(car.insurance_cost)} ₪` : '';
@@ -633,6 +659,11 @@
                         <span class="inline-flex items-center justify-center min-w-[52px] px-2 py-1 rounded-full text-[11px] font-bold ${fitClass}">
                             ${fit !== null ? fit + '% Fit' : '?'}
                         </span>
+                        ${reliabilityScore !== '' ? `
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold ${reliabilityGrade.className}">
+                                רמת אמינות: ${escapeHtml(reliabilityGrade.label)}
+                            </span>
+                        ` : ''}
                         ${marketSupply ? `
                             <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-800 text-[10px] text-slate-100 border border-slate-700">
                                 היצע בשוק: ${safeMarketSupply}

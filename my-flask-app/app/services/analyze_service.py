@@ -25,9 +25,6 @@ from app.quota import (
 )
 from app.utils.http_helpers import api_ok, api_error, get_request_id, log_rejection
 from app.utils.sanitization import sanitize_analyze_response, derive_missing_info
-from app.utils.micro_reliability import compute_micro_reliability
-from app.utils.timeline_plan import build_timeline_plan
-from app.utils.sim_model import build_sim_model
 from app.utils.validation import validate_analyze_request, ValidationError
 from app.factory import (
     apply_mileage_logic,
@@ -142,23 +139,6 @@ def handle_analyze_request(
                 get_request_id(),
             )
             result = json.loads(cached.result_json)
-            if not all(k in result for k in ("micro_reliability", "timeline_plan", "sim_model")):
-                micro = compute_micro_reliability(result, usage_profile)
-                timeline = build_timeline_plan(usage_profile, micro, {**result, "mileage_range": final_mileage})
-                sim = build_sim_model(usage_profile, micro, timeline)
-                result.update(
-                    {
-                        "micro_reliability": micro,
-                        "timeline_plan": timeline,
-                        "sim_model": sim,
-                    }
-                )
-                result = sanitize_analyze_response(result)
-                try:
-                    cached.result_json = json.dumps(result, ensure_ascii=False)
-                    db.session.commit()
-                except Exception:
-                    db.session.rollback()
             result['source_tag'] = f"מקור: מטמון DB (נשמר ב-{cached.timestamp.strftime('%Y-%m-%d')})"
             result = sanitize_analyze_response(result)
             return api_ok(result)
@@ -292,10 +272,6 @@ def handle_analyze_request(
             ai_output['source_tag'] = f"מקור: ניתוח AI חדש (חיפוש {display_quota_count}/{limit_val})"
             ai_output['mileage_note'] = note
             ai_output['km_warn'] = False
-            ai_output["micro_reliability"] = compute_micro_reliability(ai_output, usage_profile)
-            ai_output["timeline_plan"] = build_timeline_plan(usage_profile, ai_output["micro_reliability"], {"mileage_range": final_mileage})
-            ai_output["sim_model"] = build_sim_model(usage_profile, ai_output["micro_reliability"], ai_output["timeline_plan"])
-
             sanitized_output = sanitize_analyze_response(ai_output)
 
             new_log = SearchHistory(

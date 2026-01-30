@@ -45,9 +45,6 @@ from app.utils.sanitization import (
     sanitize_reliability_report_response,
 )
 from app.utils.db_bootstrap import ensure_search_history_cache_key, ensure_duration_ms_columns
-from app.utils.micro_reliability import compute_micro_reliability
-from app.utils.timeline_plan import build_timeline_plan
-from app.utils.sim_model import build_sim_model
 # --- Prompt Injection Defense (Security: Phase 1C) ---
 from app.utils.prompt_defense import (
     sanitize_user_input_for_prompt,
