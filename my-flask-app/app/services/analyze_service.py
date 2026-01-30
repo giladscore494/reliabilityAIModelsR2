@@ -230,12 +230,42 @@ def handle_analyze_request(
                 "medium": "בינוני",
                 "high": "גבוה",
                 "unknown": "לא ידוע",
+                "נמוך": "נמוך",
+                "בינוני": "בינוני",
+                "גבוה": "גבוה",
+                "לא ידוע": "לא ידוע",
                 "": "לא ידוע",
                 None: "לא ידוע",
             }
             est_raw = ai_output.get("estimated_reliability")
             est_norm = str(est_raw).strip().lower() if est_raw is not None else "unknown"
-            ai_output["estimated_reliability"] = estimated_map.get(est_norm, "לא ידוע")
+
+            derived = None
+            if estimated_map.get(est_norm) is None or estimated_map.get(est_norm) == "לא ידוע":
+                try:
+                    if "base_score_calculated" in ai_output:
+                        base_val = float(ai_output["base_score_calculated"])
+                        if base_val >= 80:
+                            derived = "גבוה"
+                        elif base_val >= 60:
+                            derived = "בינוני"
+                        else:
+                            derived = "נמוך"
+                    elif "reliability_score" in ai_output:
+                        rel_val = float(ai_output["reliability_score"])
+                        if rel_val >= 7:
+                            derived = "גבוה"
+                        elif rel_val >= 4:
+                            derived = "בינוני"
+                        else:
+                            derived = "נמוך"
+                except Exception:
+                    derived = None
+
+            final_est = estimated_map.get(est_norm)
+            if final_est is None or final_est == "לא ידוע":
+                final_est = derived or "לא ידוע"
+            ai_output["estimated_reliability"] = final_est
             ai_output.pop("reliability_score", None)
             ai_output.pop("base_score_calculated", None)
             sanitized_output = sanitize_analyze_response(ai_output)
