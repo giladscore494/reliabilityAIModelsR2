@@ -502,7 +502,7 @@
                 label: 'הכי חזק באמינות',
                 badge: 'אמינות',
                 car: mostReliable,
-                chip: relScore != null ? `ציון אמינות ${safeNum(relScore, 1)}` : '',
+                chip: relScore != null ? `אמינות: ${relGrade.label}` : '',
                 grade: relGrade,
                 text: 'דגש על מינימום תקלות לאור נתוני אמינות והיסטוריית תקלות ביחס לשאר הדגמים שהוצגו.'
             });
@@ -574,10 +574,12 @@
             : '';
 
         const annualFee = car.annual_fee != null ? `${safeNum(car.annual_fee)} ₪` : '';
-        const reliabilityScore = car.reliability_score != null ? safeNum(car.reliability_score, 1) : '';
-        const reliabilityGrade = getReliabilityGrade(
-            car.reliability_score != null ? Number(car.reliability_score) : null
-        );
+        let reliabilityValue = null;
+        if (car.reliability_score != null) {
+            const parsedReliability = Number(car.reliability_score);
+            reliabilityValue = Number.isNaN(parsedReliability) ? null : parsedReliability;
+        }
+        const reliabilityGrade = getReliabilityGrade(reliabilityValue);
         const maintenanceCost = car.maintenance_cost != null ? `${safeNum(car.maintenance_cost)} ₪` : '';
         const safetyRating = car.safety_rating != null ? safeNum(car.safety_rating, 1) : '';
         const insuranceCost = car.insurance_cost != null ? `${safeNum(car.insurance_cost)} ₪` : '';
@@ -621,7 +623,7 @@
         const safePriceRange = h(priceRange || '-');
         const safeAvgFuel = h(avgFuel || '-');
         const safeAnnualFee = h(annualFee || '-');
-        const safeReliabilityScore = h(reliabilityScore || '-');
+        const safeReliabilityGrade = h(reliabilityGrade.label || 'לא ידוע');
         const safeMaintenanceCost = h(maintenanceCost || '-');
         const safeSafetyRating = h(safetyRating || '-');
         const safeInsuranceCost = h(insuranceCost || '-');
@@ -659,7 +661,7 @@
                         <span class="inline-flex items-center justify-center min-w-[52px] px-2 py-1 rounded-full text-[11px] font-bold ${fitClass}">
                             ${fit !== null ? fit + '% Fit' : '?'}
                         </span>
-                        ${reliabilityScore !== '' ? `
+                        ${reliabilityValue != null ? `
                             <span class="inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold ${reliabilityGrade.className}">
                                 רמת אמינות: ${escapeHtml(reliabilityGrade.label)}
                             </span>
@@ -713,8 +715,8 @@
                             </tr>` : ''}
 
                             <tr>
-                                <th class="px-2 py-1 font-semibold text-slate-300">ציון אמינות (1–10)</th>
-                                <td class="px-2 py-1 text-slate-100">${safeReliabilityScore}</td>
+                                <th class="px-2 py-1 font-semibold text-slate-300">רמת אמינות</th>
+                                <td class="px-2 py-1 text-slate-100">${safeReliabilityGrade}</td>
                             </tr>
                             ${reliabilityMethod ? `
                             <tr>
