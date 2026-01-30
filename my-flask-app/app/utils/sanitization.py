@@ -65,15 +65,6 @@ def _clamp_int(value: Any, *, lo: int, hi: int, default: int = 0) -> int:
     return max(lo, min(hi, n))
 
 
-def _clamp_float(value: Any, *, lo: float, hi: float, default: float = 0.0) -> float:
-    try:
-        if isinstance(value, bool):
-            return default
-        n = float(value)
-    except Exception:
-        return default
-    return max(lo, min(hi, n))
-
 
 def _sanitize_str_list(value: Any, *, max_items: int = _MAX_LIST) -> list:
     arr = _coerce_list(value)[:max_items]
@@ -103,122 +94,6 @@ def _sanitize_score_breakdown(value: Any) -> Dict[str, int]:
     return out
 
 
-def _sanitize_micro_reliability(value: Any) -> Dict[str, Any]:
-    src = _coerce_dict(value)
-    out: Dict[str, Any] = {
-        "base_score": _clamp_int(src.get("base_score"), lo=0, hi=100, default=0),
-        "adjusted_score": _clamp_int(src.get("adjusted_score"), lo=0, hi=100, default=0),
-        "delta": _clamp_int(src.get("delta"), lo=-100, hi=100, default=0),
-    }
-    risks = []
-    for row in _coerce_list(src.get("top_risks"))[:8]:
-        if not isinstance(row, dict):
-            continue
-        risks.append(
-            {
-                "subsystem": _escape(row.get("subsystem")),
-                "level": _escape(row.get("level")),
-                "why": _escape(row.get("why")),
-                "mitigation": _escape(row.get("mitigation")),
-                "score": _clamp_int(row.get("score"), lo=0, hi=100, default=0),
-            }
-        )
-    if risks:
-        out["top_risks"] = risks
-    quick = _sanitize_str_list(src.get("quick_actions"), max_items=10)
-    if quick:
-        out["quick_actions"] = quick
-    return out
-
-
-def _sanitize_timeline_plan(value: Any) -> Dict[str, Any]:
-    src = _coerce_dict(value)
-    out: Dict[str, Any] = {
-        "horizon_months": _clamp_int(src.get("horizon_months"), lo=0, hi=120, default=36),
-    }
-    phases_out = []
-    for row in _coerce_list(src.get("phases"))[:6]:
-        if not isinstance(row, dict):
-            continue
-        actions_out = []
-        for act in _coerce_list(row.get("actions"))[:25]:
-            if not isinstance(act, dict):
-                continue
-            actions_out.append(
-                {
-                    "name": _escape(act.get("name")),
-                    "subsystem": _escape(act.get("subsystem")),
-                    "phase_title": _escape(act.get("phase_title")),
-                    "month_target": _clamp_int(act.get("month_target"), lo=0, hi=120, default=0),
-                    "reason": _escape(act.get("reason")),
-                    "cost_ils": [
-                        _clamp_int((act.get("cost_ils") or [0, 0])[0], lo=0, hi=1_000_000, default=0),
-                        _clamp_int((act.get("cost_ils") or [0, 0])[1], lo=0, hi=1_000_000, default=0),
-                    ],
-                }
-            )
-        phases_out.append(
-            {
-                "month_range": _coerce_list(row.get("month_range"))[:2],
-                "title": _escape(row.get("title")),
-                "actions": actions_out,
-                "total_ils": [
-                    _clamp_int((row.get("total_ils") or [0, 0])[0], lo=0, hi=1_000_000, default=0),
-                    _clamp_int((row.get("total_ils") or [0, 0])[1], lo=0, hi=1_000_000, default=0),
-                ],
-            }
-        )
-    if phases_out:
-        out["phases"] = phases_out
-
-    totals_src = _coerce_dict(src.get("totals_by_phase"))
-    if totals_src:
-        totals_out = {}
-        for k, v in totals_src.items():
-            if isinstance(v, (list, tuple)) and len(v) >= 2:
-                totals_out[_escape(k)] = [
-                    _clamp_int(v[0], lo=0, hi=1_000_000, default=0),
-                    _clamp_int(v[1], lo=0, hi=1_000_000, default=0),
-                ]
-        out["totals_by_phase"] = totals_out
-
-    proj_src = _coerce_dict(src.get("projected_km"))
-    if proj_src:
-        out["projected_km"] = {k: _clamp_int(v, lo=0, hi=2_000_000, default=0) for k, v in proj_src.items()}
-    return out
-
-
-def _sanitize_sim_model(value: Any) -> Dict[str, Any]:
-    src = _coerce_dict(value)
-    defaults_src = _coerce_dict(src.get("defaults"))
-    cost_src = _coerce_dict(src.get("cost_buckets"))
-    out: Dict[str, Any] = {
-        "defaults": {
-            "annual_km": _clamp_int(defaults_src.get("annual_km"), lo=0, hi=200000, default=15000),
-            "city_pct": _clamp_int(defaults_src.get("city_pct"), lo=0, hi=100, default=50),
-            "keep_years": _clamp_int(defaults_src.get("keep_years"), lo=0, hi=20, default=3),
-            "driver_style": _escape(defaults_src.get("driver_style")),
-        },
-        "cost_buckets": {
-            "maintenance_per_km_ils": [
-                _clamp_float((cost_src.get("maintenance_per_km_ils") or [0, 0])[0], lo=0, hi=100000.0, default=0.0),
-                _clamp_float((cost_src.get("maintenance_per_km_ils") or [0, 0])[1], lo=0, hi=100000.0, default=0.0),
-            ],
-            "risk_repairs_yearly_ils": [
-                _clamp_int((cost_src.get("risk_repairs_yearly_ils") or [0, 0])[0], lo=0, hi=1_000_000, default=0),
-                _clamp_int((cost_src.get("risk_repairs_yearly_ils") or [0, 0])[1], lo=0, hi=1_000_000, default=0),
-            ],
-            "tires_per_km_ils": [
-                _clamp_float((cost_src.get("tires_per_km_ils") or [0, 0])[0], lo=0, hi=100000.0, default=0.0),
-                _clamp_float((cost_src.get("tires_per_km_ils") or [0, 0])[1], lo=0, hi=100000.0, default=0.0),
-            ],
-            "brakes_city_multiplier": float(cost_src.get("brakes_city_multiplier") or 1.0),
-            "heat_ac_multiplier": float(cost_src.get("heat_ac_multiplier") or 1.0),
-        },
-        "risk_index": float(src.get("risk_index") or 0.0),
-        "notes": _sanitize_str_list(src.get("notes"), max_items=10),
-    }
-    return out
 
 
 def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
@@ -312,13 +187,6 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
 
     if "reliability_report" in src:
         out["reliability_report"] = sanitize_reliability_report_response(src.get("reliability_report"))
-
-    if "micro_reliability" in src:
-        out["micro_reliability"] = _sanitize_micro_reliability(src.get("micro_reliability"))
-    if "timeline_plan" in src:
-        out["timeline_plan"] = _sanitize_timeline_plan(src.get("timeline_plan"))
-    if "sim_model" in src:
-        out["sim_model"] = _sanitize_sim_model(src.get("sim_model"))
 
     # Log dropped keys (only key names, no PII)
     dropped_keys = set(src.keys()) - set(out.keys())

@@ -113,23 +113,6 @@
     const sourcesListEl = document.getElementById('sources-list');
     const sourcesBlockEl = document.getElementById('sources-block');
     const reportContainer = document.getElementById('report');
-    const microContainer = document.getElementById('micro-container');
-    const microAdjusted = document.getElementById('micro-adjusted-score');
-    const microDelta = document.getElementById('micro-delta');
-    const microRisks = document.getElementById('micro-risks');
-    const microActions = document.getElementById('micro-actions');
-    const timelineContainer = document.getElementById('timeline-container');
-    const timelinePhases = document.getElementById('timeline-phases');
-    const timelineKm = document.getElementById('timeline-km');
-    const simContainer = document.getElementById('simulator-container');
-    const simOutput = document.getElementById('sim-output');
-    const simAnnualInput = document.getElementById('sim-annual-km');
-    const simAnnualLabel = document.getElementById('sim-annual-km-label');
-    const simCityInput = document.getElementById('sim-city-pct');
-    const simCityLabel = document.getElementById('sim-city-pct-label');
-    const simKeepInput = document.getElementById('sim-keep-years');
-    const simKeepLabel = document.getElementById('sim-keep-years-label');
-    const simDriverSelect = document.getElementById('sim-driver-style');
 
     const faultsContainer = document.getElementById('faults');
     const costsContainer = document.getElementById('costs');
@@ -355,182 +338,6 @@
         if (textSpan) textSpan.classList.toggle('opacity-60', isSubmitting);
     }
 
-    function renderMicroReliability(micro) {
-        if (!microContainer) return;
-        if (!micro) {
-            microContainer.classList.add('hidden');
-            return;
-        }
-        microContainer.classList.remove('hidden');
-        if (microAdjusted) microAdjusted.textContent = micro.adjusted_score ?? '';
-        if (microDelta) {
-            const delta = micro.delta || 0;
-            microDelta.textContent = delta === 0 ? 'ללא שינוי' : `${delta > 0 ? '+' : ''}${delta} נק׳ מהבסיס`;
-            microDelta.className = 'text-sm ' + (delta >= 0 ? 'text-green-400' : 'text-amber-300');
-        }
-        if (microRisks) {
-            const risks = Array.isArray(micro.top_risks) ? micro.top_risks : [];
-            microRisks.innerHTML = risks.slice(0, 4).map(r => `
-                <div class="bg-slate-800/60 border border-slate-700/70 rounded-xl px-3 py-2">
-                    <div class="flex items-center justify-between text-xs text-slate-300">
-                        <span class="font-semibold">${escapeHtml(r.subsystem || '')}</span>
-                        <span class="px-2 py-0.5 rounded-full border border-slate-600 text-[11px]">${escapeHtml(r.level || '')}</span>
-                    </div>
-                    <p class="text-[12px] text-slate-400 mt-1">${escapeHtml(r.why || '')}</p>
-                    <p class="text-[11px] text-slate-300 mt-1">${escapeHtml(r.mitigation || '')}</p>
-                </div>
-            `).join('');
-        }
-        if (microActions) {
-            const actions = Array.isArray(micro.quick_actions) ? micro.quick_actions : [];
-            microActions.innerHTML = actions.map(a => `<li>${escapeHtml(a)}</li>`).join('');
-        }
-    }
-
-    function renderTimeline(plan) {
-        if (!timelineContainer) return;
-        if (!plan) {
-            timelineContainer.classList.add('hidden');
-            return;
-        }
-        timelineContainer.classList.remove('hidden');
-        if (timelineKm) {
-            const proj = plan.projected_km || {};
-            timelineKm.textContent = `נוכחי ${proj.current || 0} → 36ח׳ ${proj.m36 || ''} ק״מ`;
-        }
-        if (timelinePhases) {
-            const phases = Array.isArray(plan.phases) ? plan.phases : [];
-            timelinePhases.innerHTML = phases.map(ph => {
-                const actions = Array.isArray(ph.actions) ? ph.actions : [];
-                return `
-                    <div class="bg-slate-800/60 border border-slate-700/70 rounded-xl p-3">
-                        <div class="flex items-center justify-between mb-2">
-                            <div class="font-semibold text-slate-100">${escapeHtml(ph.title || '')}</div>
-                            <div class="text-[11px] text-slate-400">${(ph.month_range||[]).join('-')} ח׳</div>
-                        </div>
-                        <div class="space-y-2 text-xs text-slate-200">
-                            ${actions.map(a => `
-                                <div class="border border-slate-700/60 rounded-lg px-2 py-1">
-                                    <div class="flex items-center justify-between">
-                                        <span class="font-semibold">${escapeHtml(a.name || '')}</span>
-                                        <span class="text-[11px] text-slate-400">${escapeHtml(a.subsystem || '')}</span>
-                                    </div>
-                                    <div class="text-[11px] text-slate-400">${escapeHtml(a.reason || '')}</div>
-                                    <div class="text-[11px] text-slate-300 mt-0.5">עלות: ${escapeHtml((a.cost_ils||[]).join('–'))} ₪</div>
-                                </div>
-                            `).join('') || '<div class="text-slate-500 text-xs">אין פעולות מתוכננות</div>'}
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        }
-    }
-
-    function computeSim(simModel, sliders) {
-        const defaults = simModel.defaults || {};
-        const buckets = simModel.cost_buckets || {};
-        const annual = Number(sliders.annual_km ?? defaults.annual_km ?? 15000);
-        const city = Number(sliders.city_pct ?? defaults.city_pct ?? 50);
-        const years = Number(sliders.keep_years ?? defaults.keep_years ?? 3);
-        const driverStyle = sliders.driver_style || defaults.driver_style || 'normal';
-
-        const maintKm = buckets.maintenance_per_km_ils || [0, 0];
-        const baseMin = (maintKm[0] || 0) * annual * years;
-        const baseMax = (maintKm[1] || 0) * annual * years;
-        const risk = buckets.risk_repairs_yearly_ils || [0, 0];
-        const tiresKm = buckets.tires_per_km_ils || [0, 0];
-
-        const cityMult = buckets.brakes_city_multiplier || 1;
-        const heatMult = buckets.heat_ac_multiplier || 1;
-        const driverMult = driverStyle === 'aggressive' ? 1.2 : (driverStyle === 'calm' ? 0.9 : 1);
-
-        const tiresMin = (tiresKm[0] || 0) * annual * years * driverMult;
-        const tiresMax = (tiresKm[1] || 0) * annual * years * driverMult;
-
-        const riskMin = (risk[0] || 0) * years * heatMult;
-        const riskMax = (risk[1] || 0) * years * heatMult * cityMult;
-
-        const totalMin = Math.round(baseMin + tiresMin + riskMin);
-        const totalMax = Math.round(baseMax + tiresMax + riskMax);
-
-        return {
-            total_min: totalMin,
-            total_max: totalMax,
-            breakdown: {
-                maintenance: [Math.round(baseMin), Math.round(baseMax)],
-                tires: [Math.round(tiresMin), Math.round(tiresMax)],
-                risk_repairs: [Math.round(riskMin), Math.round(riskMax)],
-            }
-        };
-    }
-
-    let simUpdateHandler = null;
-
-    function renderSimulator(simModel) {
-        if (!simContainer) return;
-        if (!simModel) {
-            simContainer.classList.add('hidden');
-            return;
-        }
-        simContainer.classList.remove('hidden');
-        const defaults = simModel.defaults || {};
-
-        // Remove previous listeners to avoid duplication
-        [simAnnualInput, simCityInput, simKeepInput].forEach(inp => {
-            if (inp && simUpdateHandler) inp.removeEventListener('input', simUpdateHandler);
-        });
-        if (simDriverSelect && simUpdateHandler) simDriverSelect.removeEventListener('change', simUpdateHandler);
-
-        const syncLabels = () => {
-            if (simAnnualLabel) simAnnualLabel.textContent = simAnnualInput ? simAnnualInput.value : defaults.annual_km;
-            if (simCityLabel) simCityLabel.textContent = simCityInput ? simCityInput.value : defaults.city_pct;
-            if (simKeepLabel) simKeepLabel.textContent = simKeepInput ? simKeepInput.value : defaults.keep_years;
-        };
-
-        if (simAnnualInput) simAnnualInput.value = defaults.annual_km || 15000;
-        if (simCityInput) simCityInput.value = defaults.city_pct || 50;
-        if (simKeepInput) simKeepInput.value = defaults.keep_years || 3;
-        if (simDriverSelect) simDriverSelect.value = defaults.driver_style || 'normal';
-        syncLabels();
-
-        const update = () => {
-            syncLabels();
-            const sliders = {
-                annual_km: simAnnualInput ? simAnnualInput.value : defaults.annual_km,
-                city_pct: simCityInput ? simCityInput.value : defaults.city_pct,
-                keep_years: simKeepInput ? simKeepInput.value : defaults.keep_years,
-                driver_style: simDriverSelect ? simDriverSelect.value : defaults.driver_style,
-            };
-            const calc = computeSim(simModel, sliders);
-            if (simOutput) {
-                simOutput.innerHTML = `
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <div class="bg-slate-800/70 rounded-xl p-3">
-                            <div class="text-xs text-slate-400">סה\"כ מינימום</div>
-                            <div class="text-2xl font-bold text-green-400">${calc.total_min.toLocaleString()} ₪</div>
-                        </div>
-                        <div class="bg-slate-800/70 rounded-xl p-3">
-                            <div class="text-xs text-slate-400">סה\"כ מקסימום</div>
-                            <div class="text-2xl font-bold text-amber-300">${calc.total_max.toLocaleString()} ₪</div>
-                        </div>
-                        <div class="bg-slate-800/70 rounded-xl p-3 text-xs text-slate-300 space-y-1">
-                            <div>תחזוקה: ${calc.breakdown.maintenance[0].toLocaleString()}–${calc.breakdown.maintenance[1].toLocaleString()} ₪</div>
-                            <div>צמיגים/בלמים: ${calc.breakdown.tires[0].toLocaleString()}–${calc.breakdown.tires[1].toLocaleString()} ₪</div>
-                            <div>סיכוני תקלות: ${calc.breakdown.risk_repairs[0].toLocaleString()}–${calc.breakdown.risk_repairs[1].toLocaleString()} ₪</div>
-                        </div>
-                    </div>
-                `;
-            }
-        };
-
-        simUpdateHandler = update;
-        [simAnnualInput, simCityInput, simKeepInput].forEach(inp => {
-            if (!inp) return;
-            inp.addEventListener('input', simUpdateHandler);
-        });
-        if (simDriverSelect) simDriverSelect.addEventListener('change', simUpdateHandler);
-        update();
-    }
 
     function renderResults(data) {
         if (!resultsContainer) return;
@@ -542,10 +349,6 @@
 
         resultsContainer.classList.remove('hidden');
         const safe = (v) => escapeHtml(v);
-
-        renderMicroReliability(data.micro_reliability);
-        renderTimeline(data.timeline_plan);
-        renderSimulator(data.sim_model);
 
         // ציון
         if (scoreContainer) {
@@ -586,6 +389,22 @@
 
             const side = document.createElement('div');
             side.className = 'text-xs md:text-sm text-slate-300 space-y-2 max-w-md';
+
+            const gradeBadge = document.createElement('div');
+            let gradeLabel = 'נמוך';
+            let gradeClass = 'bg-red-500/20 text-red-200 border-red-500/40';
+            if (baseNum !== null) {
+                if (baseNum >= 80) {
+                    gradeLabel = 'גבוה';
+                    gradeClass = 'bg-emerald-500/20 text-emerald-200 border-emerald-500/40';
+                } else if (baseNum >= 60) {
+                    gradeLabel = 'בינוני';
+                    gradeClass = 'bg-amber-500/20 text-amber-200 border-amber-500/40';
+                }
+            }
+            gradeBadge.className = `inline-flex items-center px-3 py-1 rounded-full border text-xs font-semibold ${gradeClass}`;
+            gradeBadge.textContent = `רמת אמינות: ${gradeLabel}`;
+            side.appendChild(gradeBadge);
 
             if (sourceTag) {
                 const p = document.createElement('p');

@@ -30,6 +30,7 @@
             background-color: #0F172A;
             color: #E2E8F0;
             margin: 0;
+            overflow-x: hidden;
         }
     </style>
 </head>
@@ -77,7 +78,7 @@
     </div>
 </header>
 
-<main class="flex-grow relative container mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-16">
+<main class="flex-grow relative container mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-16 overflow-hidden">
     <div class="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[900px] opacity-20 pointer-events-none"
          style="background: radial-gradient(circle, rgba(99,102,241,0.25) 0%, rgba(15,23,42,0) 70%);"></div>
 
@@ -458,7 +459,7 @@
                 </form>
 
                 <!-- Timing Banner (hidden by default) -->
-                <div id="advisorTimingBanner" class="hidden fixed top-24 left-1/2 transform -translate-x-1/2 z-40 bg-dark-lighter/95 backdrop-blur-xl border-2 border-primary/50 rounded-2xl shadow-2xl p-6">
+                <div id="advisorTimingBanner" class="hidden fixed top-24 left-1/2 transform -translate-x-1/2 z-50 bg-dark-lighter/95 backdrop-blur-xl border-2 border-primary/50 rounded-2xl shadow-2xl p-6">
                     <div class="flex flex-col items-center gap-4">
                         <div class="relative w-32 h-32">
                             <!-- SVG Circular Progress Ring -->

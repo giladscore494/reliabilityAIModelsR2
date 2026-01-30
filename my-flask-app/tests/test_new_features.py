@@ -2,8 +2,6 @@ from datetime import datetime, date
 from app.models import SearchHistory, QuotaReservation, User
 import main
 from main import db
-from app.utils.micro_reliability import compute_micro_reliability
-from app.utils.timeline_plan import build_timeline_plan
 
 
 def _base_usage(**overrides):
@@ -20,31 +18,7 @@ def _base_usage(**overrides):
     return usage
 
 
-def test_micro_risk_hot_and_city():
-    base_report = {"base_score_calculated": 70}
-    hot_usage = _base_usage(climate="south_hot", parking="outdoor")
-    micro_hot = compute_micro_reliability(base_report, hot_usage)
-    subs_hot = [r.get("subsystem") for r in micro_hot.get("top_risks", [])]
-    assert "ac" in subs_hot or "battery_electrical" in subs_hot
-
-    city_usage = _base_usage(city_pct=90)
-    micro_city = compute_micro_reliability(base_report, city_usage)
-    subs_city = [r.get("subsystem") for r in micro_city.get("top_risks", [])]
-    assert "brakes" in subs_city or "suspension" in subs_city
-    assert 0 <= micro_city["adjusted_score"] <= 100
-
-
-def test_timeline_brake_risk_pull_in():
-    usage = _base_usage()
-    micro = {"top_risks": [{"subsystem": "brakes", "level": "high"}], "delta": 0}
-    plan = build_timeline_plan(usage, micro, {"mileage_range": "0-50k"})
-    actions = [a for ph in plan["phases"] for a in ph.get("actions", [])]
-    assert any("brake" in (a.get("name") or "") for a in actions)
-    assert "totals_by_phase" in plan
-    assert isinstance(plan["totals_by_phase"].get("0_3", [0])[0], int)
-
-
-def test_analyze_response_includes_new_sections(logged_in_client, monkeypatch):
+def test_analyze_response_drops_removed_sections(logged_in_client, monkeypatch):
     client, _ = logged_in_client
     calls = {"count": 0}
 
@@ -79,9 +53,9 @@ def test_analyze_response_includes_new_sections(logged_in_client, monkeypatch):
     resp1 = client.post("/analyze", json=payload, headers={"Origin": "http://localhost"})
     data1 = resp1.get_json()
     assert resp1.status_code == 200
-    assert data1["data"]["micro_reliability"]
-    assert data1["data"]["timeline_plan"]
-    assert data1["data"]["sim_model"]
+    assert "micro_reliability" not in data1["data"]
+    assert "timeline_plan" not in data1["data"]
+    assert "sim_model" not in data1["data"]
 
 
 def test_delete_account_requires_json_content_type(logged_in_client):

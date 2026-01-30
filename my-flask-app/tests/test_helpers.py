@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import main  # noqa: E402
-from app.utils.sanitization import sanitize_reliability_report_response  # noqa: E402
+from app.utils.sanitization import sanitize_analyze_response, sanitize_reliability_report_response  # noqa: E402
 
 
 class QuotaWindowTests(unittest.TestCase):
@@ -73,6 +73,21 @@ class ReliabilityReportSanitizationTests(unittest.TestCase):
         self.assertTrue(len(sanitized["top_risks"]) >= 3)
         self.assertEqual(sanitized["expected_ownership_cost"]["maintenance_level"], "medium")
         self.assertIn("&lt;b&gt;טוב", sanitized["one_sentence_verdict"])
+
+
+class AnalyzeSanitizationTests(unittest.TestCase):
+    def test_sanitize_analyze_response_drops_removed_sections(self):
+        raw = {
+            "ok": True,
+            "base_score_calculated": 70,
+            "micro_reliability": {"adjusted_score": 50},
+            "timeline_plan": {"horizon_months": 36},
+            "sim_model": {"defaults": {"annual_km": 12000}},
+        }
+        sanitized = sanitize_analyze_response(raw)
+        self.assertNotIn("micro_reliability", sanitized)
+        self.assertNotIn("timeline_plan", sanitized)
+        self.assertNotIn("sim_model", sanitized)
 
 
 if __name__ == "__main__":
