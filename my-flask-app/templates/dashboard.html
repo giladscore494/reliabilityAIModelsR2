@@ -177,23 +177,13 @@
                                 </div>
                             </div>
 
-                            {% set base = s.data.get('base_score_calculated') %}
-                            {% if base %}
-                                {% set base_str = base|string %}
-                                {% set base_num = (base_str.split()[0])|float(default=0) %}
-                                {% if base_num >= 80 %}
-                                    {% set score_col = 'text-emerald-400' %}
-                                {% elif base_num >= 60 %}
-                                    {% set score_col = 'text-amber-400' %}
-                                {% else %}
-                                    {% set score_col = 'text-rose-400' %}
-                                {% endif %}
+                            {% if s.data.get('estimated_reliability') %}
                                 <div class="flex flex-col items-end gap-1">
-                                    <div class="text-2xl font-black {{ score_col }}">
-                                        {{ base_num|round(0, 'floor')|int }}
+                                    <div class="text-sm font-bold text-emerald-200">
+                                        אמינות מוערכת: {{ s.data.get('estimated_reliability') }}
                                     </div>
                                     <div class="text-[10px] text-slate-400">
-                                        ציון אמינות
+                                        מבוסס על ניתוח AI
                                     </div>
                                 </div>
                             {% endif %}
