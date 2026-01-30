@@ -13,6 +13,50 @@ from app.utils.http_helpers import api_ok, api_error, get_request_id
 from app.utils.sanitization import sanitize_analyze_response
 
 
+_ESTIMATED_MAP = {
+    "low": "נמוך",
+    "medium": "בינוני",
+    "high": "גבוה",
+    "unknown": "לא ידוע",
+    "נמוך": "נמוך",
+    "בינוני": "בינוני",
+    "גבוה": "גבוה",
+    "לא ידוע": "לא ידוע",
+    "": "לא ידוע",
+    None: "לא ידוע",
+}
+
+
+def _derive_estimated_reliability(raw_data: dict) -> str:
+    est_raw = raw_data.get("estimated_reliability")
+    est_norm = str(est_raw).strip().lower() if est_raw is not None else "unknown"
+    derived = None
+    if _ESTIMATED_MAP.get(est_norm) in (None, "לא ידוע"):
+        try:
+            if "base_score_calculated" in raw_data:
+                base_val = float(raw_data["base_score_calculated"])
+                if base_val >= 80:
+                    derived = "גבוה"
+                elif base_val >= 60:
+                    derived = "בינוני"
+                else:
+                    derived = "נמוך"
+            elif "reliability_score" in raw_data:
+                rel_val = float(raw_data["reliability_score"])
+                if rel_val >= 7:
+                    derived = "גבוה"
+                elif rel_val >= 4:
+                    derived = "בינוני"
+                else:
+                    derived = "נמוך"
+        except Exception:
+            derived = None
+    final_est = _ESTIMATED_MAP.get(est_norm)
+    if final_est is None or final_est == "לא ידוע":
+        final_est = derived or "לא ידוע"
+    return final_est
+
+
 def fetch_dashboard_history(user_id: int) -> Tuple[list, list, Optional[str], Optional[str]]:
     search_error = None
     advisor_error = None
@@ -93,7 +137,11 @@ def search_details_response(search_id: int, user_id: int):
             "fuel_type": s.fuel_type,
             "transmission": s.transmission,
         }
-        data_safe = sanitize_analyze_response(json.loads(s.result_json))
+        raw_data = json.loads(s.result_json) if s.result_json else {}
+        data_safe = sanitize_analyze_response(raw_data)
+        data_safe["estimated_reliability"] = _derive_estimated_reliability(raw_data)
+        data_safe.pop("base_score_calculated", None)
+        data_safe.pop("reliability_score", None)
         return api_ok({"meta": meta, "data": data_safe})
     except Exception as e:
         try:

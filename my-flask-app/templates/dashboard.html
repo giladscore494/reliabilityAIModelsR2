@@ -397,10 +397,7 @@
 
         detailsMetaEl.textContent = metaBits.join(' • ');
 
-        const baseScore = data.base_score_calculated;
-        const baseScoreText = baseScore !== undefined && baseScore !== null
-            ? safeNumber(baseScore, 1)
-            : null;
+        const estimatedReliability = data.estimated_reliability || 'לא ידוע';
 
         const scoreBreakdown = data.score_breakdown || {};
         const simpleSummary = data.reliability_summary_simple || '';
@@ -415,13 +412,10 @@
         const sourceTag = data.source_tag || '';
         const reliabilityReport = data.reliability_report || {};
 
-        let baseColor = 'text-slate-100';
-        const baseNum = Number(baseScore);
-        if (!Number.isNaN(baseNum)) {
-            if (baseNum >= 80) baseColor = 'text-emerald-400';
-            else if (baseNum >= 60) baseColor = 'text-amber-400';
-            else baseColor = 'text-rose-400';
-        }
+        let reliabilityColor = 'text-slate-100';
+        if (estimatedReliability === 'גבוה') reliabilityColor = 'text-emerald-400';
+        else if (estimatedReliability === 'בינוני') reliabilityColor = 'text-amber-400';
+        else if (estimatedReliability === 'נמוך') reliabilityColor = 'text-rose-400';
 
         let breakdownRows = '';
         const labels = {
@@ -598,15 +592,13 @@
                 <div class="flex items-center justify-between gap-4">
                     <div>
                         <div class="text-xs font-semibold text-slate-400 mb-1">
-                            ציון אמינות כללי
+                            אמינות מוערכת
                         </div>
-                        <div class="flex items-end gap-2">
-                            <div class="text-3xl md:text-4xl font-black ${baseColor}">
-                                ${baseScoreText || '?'}
-                            </div>
-                            <div class="text-[11px] text-slate-400 mb-1">
-                                מתוך 100
-                            </div>
+                        <div class="text-3xl md:text-4xl font-black ${reliabilityColor}">
+                            ${escapeHtml(estimatedReliability)}
+                        </div>
+                        <div class="text-[11px] text-slate-400 mt-1">
+                            מבוסס על ניתוח AI
                         </div>
                         ${mileageNoteHtml}
                     </div>
