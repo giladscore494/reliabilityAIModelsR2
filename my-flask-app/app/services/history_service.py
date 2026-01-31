@@ -94,6 +94,8 @@ def search_details_response(search_id: int, user_id: int):
             "transmission": s.transmission,
         }
         data_safe = sanitize_analyze_response(json.loads(s.result_json))
+        if not data_safe.get("estimated_reliability"):
+            data_safe["estimated_reliability"] = "לא ידוע"
         return api_ok({"meta": meta, "data": data_safe})
     except Exception as e:
         try:
