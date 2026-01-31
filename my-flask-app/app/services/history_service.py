@@ -93,7 +93,56 @@ def search_details_response(search_id: int, user_id: int):
             "fuel_type": s.fuel_type,
             "transmission": s.transmission,
         }
-        data_safe = sanitize_analyze_response(json.loads(s.result_json))
+        raw = json.loads(s.result_json)
+
+        est = raw.get("estimated_reliability")
+        estimated_map = {
+            "low": "נמוך",
+            "medium": "בינוני",
+            "high": "גבוה",
+            "unknown": "לא ידוע",
+            "נמוך": "נמוך",
+            "בינוני": "בינוני",
+            "גבוה": "גבוה",
+            "לא ידוע": "לא ידוע",
+            "": "לא ידוע",
+            None: "לא ידוע",
+        }
+        derived = None
+        est_norm = str(est).strip().lower() if est is not None else "unknown"
+        if estimated_map.get(est_norm) is None or estimated_map.get(est_norm) == "לא ידוע":
+            try:
+                if "base_score_calculated" in raw:
+                    base_val = float(raw["base_score_calculated"])
+                    if base_val >= 80:
+                        derived = "גבוה"
+                    elif base_val >= 60:
+                        derived = "בינוני"
+                    else:
+                        derived = "נמוך"
+                elif "reliability_score" in raw:
+                    rel_val = float(raw["reliability_score"])
+                    if rel_val >= 7:
+                        derived = "גבוה"
+                    elif rel_val >= 4:
+                        derived = "בינוני"
+                    else:
+                        derived = "נמוך"
+            except Exception:
+                derived = None
+        final_est = estimated_map.get(est_norm)
+        if final_est is None or final_est == "לא ידוע":
+            final_est = derived or "לא ידוע"
+
+        raw["estimated_reliability"] = final_est
+        raw.pop("base_score_calculated", None)
+        raw.pop("reliability_score", None)
+
+        allowed_set = {"נמוך", "בינוני", "גבוה", "לא ידוע"}
+        if raw["estimated_reliability"] not in allowed_set:
+            raw["estimated_reliability"] = "לא ידוע"
+
+        data_safe = sanitize_analyze_response(raw)
         return api_ok({"meta": meta, "data": data_safe})
     except Exception as e:
         try:

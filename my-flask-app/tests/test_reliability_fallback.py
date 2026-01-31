@@ -82,3 +82,33 @@ def test_numeric_removed_but_estimated_stays(logged_in_client, monkeypatch):
     assert "base_score_calculated" not in data
     assert "reliability_score" not in data
     assert data["estimated_reliability"] == "נמוך"
+
+
+def test_search_details_returns_estimated_without_numeric(logged_in_client, monkeypatch, app):
+    client, user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    # Seed history entry
+    with app.app_context():
+        db.session.add(
+            main.SearchHistory(
+                user_id=user_id,
+                make="Honda",
+                model="Civic",
+                year=2018,
+                mileage_range="50-100k",
+                fuel_type="בנזין",
+                transmission="אוטומטית",
+                result_json='{"base_score_calculated": 82, "reliability_summary": "ok"}',
+            )
+        )
+        db.session.commit()
+        search_id = main.SearchHistory.query.filter_by(user_id=user_id).first().id
+
+    resp = client.get(f"/search-details/{search_id}")
+    assert resp.status_code == 200
+    payload = resp.get_json()["data"]["data"]
+    assert "estimated_reliability" in payload
+    assert payload["estimated_reliability"] == "גבוה"
+    assert "base_score_calculated" not in payload
+    assert "reliability_score" not in payload
