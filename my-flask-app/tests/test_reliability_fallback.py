@@ -1,5 +1,7 @@
+from pathlib import Path
+
 import main
-from main import db
+from main import db, SearchHistory
 
 
 def _base_payload():
@@ -82,3 +84,35 @@ def test_numeric_removed_but_estimated_stays(logged_in_client, monkeypatch):
     assert "base_score_calculated" not in data
     assert "reliability_score" not in data
     assert data["estimated_reliability"] == "נמוך"
+
+
+def test_history_detail_uses_estimated_reliability(logged_in_client, app):
+    client, user_id = logged_in_client
+    with app.app_context():
+        history = SearchHistory(
+            user_id=user_id,
+            make="Toyota",
+            model="Corolla",
+            year=2020,
+            mileage_range="0-50k",
+            fuel_type="בנזין",
+            transmission="אוטומטית",
+            result_json='{"ok": true}',
+        )
+        db.session.add(history)
+        db.session.commit()
+        history_id = history.id
+
+    resp = client.get(f"/search-details/{history_id}")
+    assert resp.status_code == 200
+    payload = resp.get_json()
+    data = payload["data"]["data"]
+    assert data["estimated_reliability"] in ["נמוך", "בינוני", "גבוה", "לא ידוע"]
+
+
+def test_detail_template_no_numeric_reliability():
+    template_path = Path(__file__).resolve().parents[1] / "templates" / "dashboard.html"
+    with open(template_path, encoding="utf-8") as handle:
+        html = handle.read()
+    assert "ציון אמינות" not in html
+    assert "מתוך 100" not in html
