@@ -1,4 +1,4 @@
-israeli_car_market_2026_update = {
+israeli_car_market_full_compilation  = {
     "Toyota": [
         "Yaris (1999-2026)",
         "Corolla (1966-2026)",
