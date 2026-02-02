@@ -552,7 +552,7 @@ def compute_comparison_results(model_output: Dict) -> Dict:
         
         # Generate reasons
         cat_names_he = {
-            "reliability_risk": "אמינות ובטיחון",
+            "reliability_risk": "אמינות וסיכונים",
             "ownership_cost": "עלות אחזקה",
             "practicality_comfort": "נוחות ופרקטיות",
             "driving_performance": "ביצועים ונהיגה",
@@ -651,13 +651,16 @@ def call_gemini_comparison(prompt: str, timeout_sec: int = AI_CALL_TIMEOUT_SEC) 
 # ============================================================
 
 def compute_request_hash(cars: List[Dict]) -> str:
-    """Compute a hash for caching based on selected cars and prompt version."""
+    """
+    Compute a hash for caching based on selected cars and prompt version.
+    Uses 32 characters (128 bits) of SHA256 for adequate collision resistance.
+    """
     data = {
         "cars": sorted([f"{c.get('make')}|{c.get('model')}" for c in cars]),
         "prompt_version": COMPARISON_PROMPT_VERSION,
     }
     data_str = json.dumps(data, sort_keys=True)
-    return hashlib.sha256(data_str.encode()).hexdigest()[:16]
+    return hashlib.sha256(data_str.encode()).hexdigest()[:32]  # 128 bits
 
 
 # ============================================================
@@ -757,7 +760,7 @@ def validate_grounding(model_output: Dict) -> Tuple[bool, str]:
     # (we'll skip scoring those metrics)
     if unsourced_values:
         current_app.logger.warning(
-            f"[GROUNDING] Values without sources: {', '.join(unsourced_values[:5])}..."
+            f"[GROUNDING] Values without sources ({len(unsourced_values)} total): {', '.join(unsourced_values[:5])}..."
         )
     
     # At least half the cars should have sourced data
