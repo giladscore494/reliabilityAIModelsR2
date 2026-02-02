@@ -1,9 +1,41 @@
 from datetime import datetime
-from sqlalchemy import desc
-from sqlalchemy.orm import relationship
+from sqlalchemy import desc, event
+from sqlalchemy.orm import relationship, validates
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.types import TypeDecorator, Text
 from flask_login import UserMixin
+import json
 
 from app.extensions import db
+
+
+class JSONEncodedText(TypeDecorator):
+    """
+    A type that stores JSON as Text but validates it on assignment.
+    Use JSONB on PostgreSQL, fallback to Text on other databases.
+    """
+    impl = Text
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is not None:
+            if isinstance(value, str):
+                # Validate it's valid JSON
+                json.loads(value)
+                return value
+            return json.dumps(value, ensure_ascii=False)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None:
+            return value  # Return as string, let caller parse if needed
+        return value
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == 'postgresql':
+            return dialect.type_descriptor(JSONB())
+        else:
+            return dialect.type_descriptor(Text())
 
 
 class User(db.Model, UserMixin):
@@ -38,6 +70,12 @@ class User(db.Model, UserMixin):
     )
     legal_acceptances = relationship(
         "LegalAcceptance",
+        cascade="all, delete-orphan",
+        backref="user",
+        lazy=True,
+    )
+    comparison_histories = relationship(
+        "ComparisonHistory",
         cascade="all, delete-orphan",
         backref="user",
         lazy=True,
@@ -158,3 +196,51 @@ class LegalAcceptance(db.Model):
         db.UniqueConstraint("user_id", "terms_version", "privacy_version", name="uq_legal_acceptance_user_version"),
         db.Index("ix_legal_acceptance_user_version", "user_id", "terms_version", "privacy_version"),
     )
+
+
+class ComparisonHistory(db.Model):
+    """
+    Stores car comparison results for the Car Comparison feature.
+    Supports comparisons of up to 3 cars with full source transparency.
+    Uses JSONB on PostgreSQL, Text with JSON validation on other databases.
+    """
+    __tablename__ = "comparison_history"
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=True)
+    session_id = db.Column(db.String(64), nullable=True, index=True)
+    
+    # JSON columns - use JSONB on Postgres, validated Text elsewhere
+    cars_selected = db.Column(JSONEncodedText, nullable=False)  # JSON array of selected cars
+    model_json_raw = db.Column(JSONEncodedText, nullable=True)  # Raw model output JSON
+    computed_result = db.Column(JSONEncodedText, nullable=True)  # Computed scores and winners JSON
+    sources_index = db.Column(JSONEncodedText, nullable=True)  # Sources index JSON
+    
+    # Metadata columns
+    model_name = db.Column(db.String(64), nullable=False, default="gemini-3-flash")
+    grounding_enabled = db.Column(db.Boolean, nullable=False, default=True)
+    prompt_version = db.Column(db.String(32), nullable=False, default="v1")
+    request_hash = db.Column(db.String(64), nullable=True, index=True)  # For caching
+    duration_ms = db.Column(db.Integer, nullable=True)
+
+    __table_args__ = (
+        db.Index("ix_comparison_history_user_created", "user_id", desc("created_at")),
+        db.Index("ix_comparison_history_request_hash", "request_hash"),
+    )
+
+    @validates('cars_selected', 'model_json_raw', 'computed_result', 'sources_index')
+    def validate_json_fields(self, key, value):
+        """Validate that JSON fields contain valid JSON."""
+        if value is None:
+            return value
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, ensure_ascii=False)
+        if isinstance(value, str):
+            # Validate it's parseable JSON
+            try:
+                json.loads(value)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid JSON in {key}: {e}")
+            return value
+        raise ValueError(f"Invalid type for {key}: expected dict, list, or JSON string")

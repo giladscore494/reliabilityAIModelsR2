@@ -88,6 +88,14 @@
                 <span class="text-slate-400 hidden sm:inline">
                     {{ user.name.split(' ')[0] if user.name else 'אורח' }}
                 </span>
+                
+                <!-- השוואת רכבים -->
+                <a href="{{ url_for('comparison.compare_page') }}"
+                   class="px-4 py-1.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/50 transition-all text-sm"
+                   title="השוואת רכבים">
+                    השוואה
+                </a>
+                
                 <a href="{{ url_for('public.logout') }}"
                    class="p-2 rounded-full text-slate-300 hover:bg-white/10"
                    title="התנתקות">

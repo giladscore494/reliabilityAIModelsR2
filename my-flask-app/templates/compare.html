@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <title>yedaarechevAI – השוואת רכבים</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#6366F1',
+                        secondary: '#EC4899',
+                        dark: '#0F172A',
+                        'dark-lighter': '#1E293B',
+                        success: '#10B981',
+                        warning: '#F59E0B',
+                        danger: '#EF4444',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Heebo', system-ui, -apple-system, sans-serif;
+            background-color: #0F172A;
+            color: #E2E8F0;
+            margin: 0;
+            overflow-x: hidden;
+        }
+        .fade-in { animation: fadeIn 0.4s ease-out forwards; opacity: 0; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .loader { border: 3px solid rgba(255,255,255,0.2); border-top-color: var(--primary, #6366F1); border-radius: 50%; width: 1.5rem; height: 1.5rem; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        /* Autocomplete dropdown */
+        .autocomplete-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: #1E293B;
+            border: 1px solid #475569;
+            border-radius: 0.5rem;
+            max-height: 240px;
+            overflow-y: auto;
+            z-index: 100;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+        }
+        .autocomplete-item {
+            padding: 0.75rem 1rem;
+            cursor: pointer;
+            border-bottom: 1px solid #334155;
+        }
+        .autocomplete-item:hover, .autocomplete-item.highlighted {
+            background: #334155;
+        }
+        .autocomplete-item:last-child {
+            border-bottom: none;
+        }
+        
+        /* Category rows */
+        .category-row {
+            background: #1E293B;
+            border: 1px solid #334155;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            transition: all 0.2s ease;
+        }
+        .category-row:hover {
+            border-color: #475569;
+        }
+        .category-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem 1.25rem;
+            cursor: pointer;
+            background: #1E293B;
+        }
+        .category-header:hover {
+            background: #263449;
+        }
+        .category-content {
+            display: none;
+            padding: 0 1.25rem 1rem;
+            border-top: 1px solid #334155;
+        }
+        .category-content.open {
+            display: block;
+            animation: fadeIn 0.3s ease-out;
+        }
+        
+        /* Metric rows */
+        .metric-row {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 0;
+            border-bottom: 1px solid #334155;
+        }
+        .metric-row:last-child {
+            border-bottom: none;
+        }
+        
+        /* Winner badge */
+        .winner-badge {
+            background: linear-gradient(135deg, #10B981, #059669);
+            color: white;
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 0.2rem 0.5rem;
+            border-radius: 9999px;
+        }
+        
+        /* Sources toggle */
+        .sources-toggle {
+            font-size: 0.75rem;
+            color: #94A3B8;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        .sources-toggle:hover {
+            color: #CBD5E1;
+        }
+        .sources-list {
+            display: none;
+            margin-top: 0.5rem;
+            padding: 0.5rem;
+            background: #0F172A;
+            border-radius: 0.5rem;
+            font-size: 0.75rem;
+        }
+        .sources-list.open {
+            display: block;
+        }
+        .source-item {
+            margin-bottom: 0.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #1E293B;
+        }
+        .source-item:last-child {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+        .source-link {
+            color: #818CF8;
+            text-decoration: none;
+        }
+        .source-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body class="bg-dark text-slate-200 min-h-screen flex flex-col antialiased">
+
+<header class="sticky top-0 z-40 bg-dark/80 backdrop-blur-lg border-b border-slate-800/80 supports-[backdrop-filter]:bg-dark/60">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+        <a href="{{ url_for('public.index') }}" class="flex items-center space-x-2 space-x-reverse group transition duration-300">
+            <h1 class="text-2xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-primary via-purple-500 to-secondary">
+                yedaarechevAI
+            </h1>
+        </a>
+
+        <div class="flex items-center gap-3 sm:gap-6 text-sm font-medium">
+            {% if user and user.is_authenticated %}
+                <div class="hidden md:flex items-center gap-2 text-slate-400">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
+                    </svg>
+                    <span>{{ user.name.split(' ')[0] if user.name else 'אורח' }}</span>
+                </div>
+
+                <a href="{{ url_for('dashboard.dashboard') }}" class="relative px-5 py-2.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/50 transition-all hover:-translate-y-0.5">
+                    החיפושים שלי
+                </a>
+
+                <a href="{{ url_for('comparison.compare_page') }}"
+                   class="relative px-5 py-2.5 rounded-full bg-gradient-to-r from-primary to-secondary text-white border border-transparent font-bold transition-all hover:from-primary/90 hover:to-secondary/90 hover:-translate-y-0.5">
+                    השוואת רכבים
+                </a>
+
+                <a href="{{ url_for('public.logout') }}" class="px-4 py-2 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition-all flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                    </svg>
+                    <span class="hidden sm:inline">התנתק</span>
+                </a>
+            {% else %}
+                <a href="{{ url_for('public.login') }}" class="px-6 py-2.5 rounded-full font-bold bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 transition-all text-white shadow-lg shadow-primary/25 hover:shadow-primary/40 hover:-translate-y-0.5 active:translate-y-0">
+                    התחברות
+                </a>
+            {% endif %}
+        </div>
+    </div>
+</header>
+
+<main class="flex-grow relative container mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-16 overflow-hidden">
+    <div class="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[900px] opacity-20 pointer-events-none"
+         style="background: radial-gradient(circle, rgba(99,102,241,0.25) 0%, rgba(15,23,42,0) 70%);"></div>
+
+    {% if not user or not user.is_authenticated %}
+        <div class="relative z-10 max-w-xl mx-auto text-center bg-dark-lighter/70 border border-slate-700/70 rounded-3xl p-10">
+            <h2 class="text-3xl font-extrabold text-white mb-4">השוואת רכבים – התחברות נדרשת</h2>
+            <p class="text-slate-400 mb-6 text-sm md:text-base">
+                כדי להשתמש בכלי השוואת הרכבים, יש להתחבר עם חשבון Google.
+            </p>
+            <a href="{{ url_for('public.login') }}"
+               class="inline-flex items-center justify-center px-8 py-3 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold text-sm hover:from-primary/90 hover:to-secondary/90 transition-all">
+                התחברות מהירה עם Google
+            </a>
+        </div>
+    {% else %}
+        <section class="relative z-10 max-w-6xl mx-auto space-y-8">
+            <!-- Header -->
+            <header class="text-center space-y-4">
+                <h2 class="text-4xl md:text-5xl font-extrabold text-white">
+                    השוואת רכבים
+                </h2>
+                <p class="text-slate-400 max-w-2xl mx-auto">
+                    בחר עד 3 רכבים להשוואה מקיפה על בסיס נתונים מאומתים מהאינטרנט
+                </p>
+            </header>
+
+            <!-- Car Selection -->
+            <div id="carSelectionSection" class="bg-dark-lighter/70 border border-slate-700/70 rounded-2xl p-6 md:p-8">
+                <h3 class="text-xl font-bold text-white mb-6">בחר רכבים להשוואה</h3>
+                
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <!-- Car Slot 1 -->
+                    <div class="car-slot" data-slot="0">
+                        <label class="block text-sm font-medium text-slate-300 mb-2">רכב 1</label>
+                        <div class="relative">
+                            <input type="text" 
+                                   class="car-input w-full px-4 py-3 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                                   placeholder="הקלד יצרן או דגם..."
+                                   data-slot="0"
+                                   autocomplete="off">
+                            <div class="autocomplete-dropdown hidden"></div>
+                        </div>
+                        <div class="selected-car hidden mt-2 p-3 bg-slate-700/50 rounded-lg">
+                            <div class="flex justify-between items-center">
+                                <span class="car-display text-white font-medium"></span>
+                                <button type="button" class="remove-car text-slate-400 hover:text-red-400 text-xl">&times;</button>
+                            </div>
+                            <span class="car-years text-slate-400 text-sm"></span>
+                        </div>
+                    </div>
+                    
+                    <!-- Car Slot 2 -->
+                    <div class="car-slot" data-slot="1">
+                        <label class="block text-sm font-medium text-slate-300 mb-2">רכב 2</label>
+                        <div class="relative">
+                            <input type="text" 
+                                   class="car-input w-full px-4 py-3 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                                   placeholder="הקלד יצרן או דגם..."
+                                   data-slot="1"
+                                   autocomplete="off">
+                            <div class="autocomplete-dropdown hidden"></div>
+                        </div>
+                        <div class="selected-car hidden mt-2 p-3 bg-slate-700/50 rounded-lg">
+                            <div class="flex justify-between items-center">
+                                <span class="car-display text-white font-medium"></span>
+                                <button type="button" class="remove-car text-slate-400 hover:text-red-400 text-xl">&times;</button>
+                            </div>
+                            <span class="car-years text-slate-400 text-sm"></span>
+                        </div>
+                    </div>
+                    
+                    <!-- Car Slot 3 -->
+                    <div class="car-slot" data-slot="2">
+                        <label class="block text-sm font-medium text-slate-300 mb-2">רכב 3 (אופציונלי)</label>
+                        <div class="relative">
+                            <input type="text" 
+                                   class="car-input w-full px-4 py-3 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                                   placeholder="הקלד יצרן או דגם..."
+                                   data-slot="2"
+                                   autocomplete="off">
+                            <div class="autocomplete-dropdown hidden"></div>
+                        </div>
+                        <div class="selected-car hidden mt-2 p-3 bg-slate-700/50 rounded-lg">
+                            <div class="flex justify-between items-center">
+                                <span class="car-display text-white font-medium"></span>
+                                <button type="button" class="remove-car text-slate-400 hover:text-red-400 text-xl">&times;</button>
+                            </div>
+                            <span class="car-years text-slate-400 text-sm"></span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="flex justify-center">
+                    <button id="compareBtn" type="button"
+                            class="px-8 py-3 bg-gradient-to-r from-primary to-secondary text-white font-bold rounded-full hover:from-primary/90 hover:to-secondary/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled>
+                        <span class="btn-text">השווה רכבים</span>
+                        <span class="btn-loading hidden flex items-center gap-2">
+                            <span class="loader"></span>
+                            מעבד...
+                        </span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Results Section (hidden initially) -->
+            <div id="resultsSection" class="hidden space-y-6">
+                <!-- Overall Verdict -->
+                <div id="verdictSection" class="bg-gradient-to-br from-slate-800/90 to-slate-900/90 border border-slate-700/70 rounded-2xl p-6 md:p-8">
+                    <h3 class="text-2xl font-bold text-white mb-4">תוצאת ההשוואה</h3>
+                    
+                    <div id="winnerDisplay" class="mb-6">
+                        <!-- Winner will be displayed here -->
+                    </div>
+                    
+                    <div id="assumptionsDisplay" class="mb-4 p-4 bg-slate-700/30 rounded-lg text-sm text-slate-300">
+                        <strong class="text-white">הנחות:</strong>
+                        <ul id="assumptionsList" class="mt-2 space-y-1"></ul>
+                    </div>
+                    
+                    <div id="topReasons" class="space-y-2">
+                        <strong class="text-white">סיבות עיקריות:</strong>
+                        <ul id="reasonsList" class="mt-2 space-y-1 text-slate-300"></ul>
+                    </div>
+                </div>
+                
+                <!-- Category Comparisons -->
+                <div id="categoriesSection" class="space-y-4">
+                    <!-- Categories will be rendered here -->
+                </div>
+            </div>
+            
+            <!-- Error Section -->
+            <div id="errorSection" class="hidden bg-red-900/30 border border-red-700/50 rounded-2xl p-6 text-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto text-red-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <p id="errorMessage" class="text-red-300 font-medium"></p>
+                <button id="retryBtn" type="button" class="mt-4 px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-full transition-all">
+                    נסה שוב
+                </button>
+            </div>
+        </section>
+    {% endif %}
+</main>
+
+<footer class="text-center text-slate-500 text-sm py-6 border-t border-slate-800/70">
+    © 2026 yedaarechevAI – כל הזכויות שמורות.
+</footer>
+
+<script>
+(function() {
+    'use strict';
+    
+    // State
+    let carsData = [];
+    let selectedCars = [null, null, null];
+    let comparisonResult = null;
+    
+    // Category names in Hebrew
+    const CATEGORY_NAMES = {
+        'reliability_risk': 'אמינות וסיכונים',
+        'ownership_cost': 'עלות בעלות',
+        'practicality_comfort': 'נוחות ופרקטיות',
+        'driving_performance': 'ביצועים ונהיגה'
+    };
+    
+    const METRIC_NAMES = {
+        'reliability_rating': 'דירוג אמינות',
+        'major_failure_risk': 'סיכון לתקלות חמורות',
+        'common_failure_patterns': 'תקלות נפוצות',
+        'mileage_sensitivity': 'רגישות לקילומטראז׳',
+        'maintenance_complexity': 'מורכבות תחזוקה',
+        'expected_maintenance_cost_level': 'עלות תחזוקה צפויה',
+        'fuel_economy_real_world': 'צריכת דלק אמיתית',
+        'insurance_cost_level': 'עלות ביטוח',
+        'depreciation_value_retention': 'שימור ערך',
+        'parts_availability': 'זמינות חלפים',
+        'service_network_ease': 'נגישות שירות',
+        'cabin_space': 'מרחב פנימי',
+        'trunk_space_liters': 'נפח תא מטען (ליטר)',
+        'ride_comfort': 'נוחות נסיעה',
+        'noise_insulation': 'בידוד רעש',
+        'city_driveability': 'נהיגה עירונית',
+        'features_value': 'תמורה לאביזרים',
+        'acceleration_0_100': 'תאוצה 0-100',
+        'engine_power_hp': 'הספק מנוע (כ"ס)',
+        'handling_stability': 'יציבות ואחיזה',
+        'braking_performance': 'ביצועי בלימה',
+        'highway_stability': 'יציבות בכביש מהיר'
+    };
+    
+    // DOM Elements
+    const carInputs = document.querySelectorAll('.car-input');
+    const compareBtn = document.getElementById('compareBtn');
+    const resultsSection = document.getElementById('resultsSection');
+    const errorSection = document.getElementById('errorSection');
+    const retryBtn = document.getElementById('retryBtn');
+    
+    // Load car data
+    async function loadCarsData() {
+        try {
+            const resp = await fetch('/api/compare/cars');
+            const data = await resp.json();
+            if (data.ok && data.data && data.data.cars) {
+                carsData = data.data.cars;
+                console.log('[COMPARE] Loaded', carsData.length, 'cars');
+            }
+        } catch (err) {
+            console.error('[COMPARE] Failed to load cars:', err);
+        }
+    }
+    
+    // Autocomplete functionality
+    function setupAutocomplete() {
+        carInputs.forEach(input => {
+            const slot = parseInt(input.dataset.slot);
+            const dropdown = input.parentElement.querySelector('.autocomplete-dropdown');
+            
+            input.addEventListener('input', () => {
+                const query = input.value.toLowerCase().trim();
+                if (query.length < 2) {
+                    dropdown.classList.add('hidden');
+                    return;
+                }
+                
+                const matches = carsData.filter(car => 
+                    car.display.toLowerCase().includes(query) ||
+                    car.make.toLowerCase().includes(query) ||
+                    car.model.toLowerCase().includes(query)
+                ).slice(0, 10);
+                
+                if (matches.length === 0) {
+                    dropdown.classList.add('hidden');
+                    return;
+                }
+                
+                dropdown.innerHTML = matches.map((car, i) => `
+                    <div class="autocomplete-item" data-index="${i}" data-make="${car.make}" data-model="${car.model}" data-year-start="${car.year_start || ''}" data-year-end="${car.year_end || ''}">
+                        <span class="font-medium">${car.display}</span>
+                        ${car.year_start ? `<span class="text-slate-400 text-sm mr-2">(${car.year_start}-${car.year_end})</span>` : ''}
+                    </div>
+                `).join('');
+                
+                dropdown.classList.remove('hidden');
+            });
+            
+            dropdown.addEventListener('click', (e) => {
+                const item = e.target.closest('.autocomplete-item');
+                if (!item) return;
+                
+                const car = {
+                    make: item.dataset.make,
+                    model: item.dataset.model,
+                    year_start: item.dataset.yearStart ? parseInt(item.dataset.yearStart) : null,
+                    year_end: item.dataset.yearEnd ? parseInt(item.dataset.yearEnd) : null,
+                    display: `${item.dataset.make} ${item.dataset.model}`
+                };
+                
+                selectCar(slot, car);
+                dropdown.classList.add('hidden');
+                input.value = '';
+            });
+            
+            // Close dropdown on blur
+            input.addEventListener('blur', () => {
+                setTimeout(() => dropdown.classList.add('hidden'), 200);
+            });
+        });
+    }
+    
+    function selectCar(slot, car) {
+        selectedCars[slot] = car;
+        
+        const slotEl = document.querySelector(`.car-slot[data-slot="${slot}"]`);
+        const inputWrapper = slotEl.querySelector('.relative');
+        const selectedEl = slotEl.querySelector('.selected-car');
+        
+        inputWrapper.classList.add('hidden');
+        selectedEl.classList.remove('hidden');
+        selectedEl.querySelector('.car-display').textContent = car.display;
+        selectedEl.querySelector('.car-years').textContent = car.year_start ? `${car.year_start}-${car.year_end}` : '';
+        
+        updateCompareButton();
+    }
+    
+    function removeCar(slot) {
+        selectedCars[slot] = null;
+        
+        const slotEl = document.querySelector(`.car-slot[data-slot="${slot}"]`);
+        const inputWrapper = slotEl.querySelector('.relative');
+        const selectedEl = slotEl.querySelector('.selected-car');
+        
+        inputWrapper.classList.remove('hidden');
+        selectedEl.classList.add('hidden');
+        slotEl.querySelector('.car-input').value = '';
+        
+        updateCompareButton();
+    }
+    
+    function updateCompareButton() {
+        const count = selectedCars.filter(c => c !== null).length;
+        compareBtn.disabled = count < 2;
+    }
+    
+    // Remove car buttons
+    document.querySelectorAll('.remove-car').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const slot = parseInt(e.target.closest('.car-slot').dataset.slot);
+            removeCar(slot);
+        });
+    });
+    
+    // Compare action
+    async function runComparison() {
+        const cars = selectedCars.filter(c => c !== null);
+        if (cars.length < 2) return;
+        
+        // UI state
+        compareBtn.querySelector('.btn-text').classList.add('hidden');
+        compareBtn.querySelector('.btn-loading').classList.remove('hidden');
+        compareBtn.disabled = true;
+        resultsSection.classList.add('hidden');
+        errorSection.classList.add('hidden');
+        
+        try {
+            const resp = await fetch('/api/compare', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ cars })
+            });
+            
+            const data = await resp.json();
+            
+            if (!resp.ok || !data.ok) {
+                throw new Error(data.message || data.error || 'השוואה נכשלה');
+            }
+            
+            comparisonResult = data.data;
+            renderResults(comparisonResult);
+            resultsSection.classList.remove('hidden');
+            
+        } catch (err) {
+            console.error('[COMPARE] Error:', err);
+            document.getElementById('errorMessage').textContent = err.message || 'שגיאה בביצוע ההשוואה';
+            errorSection.classList.remove('hidden');
+        } finally {
+            compareBtn.querySelector('.btn-text').classList.remove('hidden');
+            compareBtn.querySelector('.btn-loading').classList.add('hidden');
+            compareBtn.disabled = false;
+        }
+    }
+    
+    function renderResults(result) {
+        // Render winner
+        const winnerDisplay = document.getElementById('winnerDisplay');
+        const winner = result.computed_result?.overall_winner;
+        
+        if (winner) {
+            winnerDisplay.innerHTML = `
+                <div class="flex items-center gap-4">
+                    <div class="text-5xl">🏆</div>
+                    <div>
+                        <div class="text-3xl font-bold text-white">${winner}</div>
+                        <div class="text-slate-400">המנצח הכולל</div>
+                    </div>
+                </div>
+            `;
+        } else {
+            winnerDisplay.innerHTML = '<p class="text-slate-400">לא ניתן היה לקבוע מנצח</p>';
+        }
+        
+        // Render assumptions
+        const assumptionsList = document.getElementById('assumptionsList');
+        const assumptions = result.assumptions || {};
+        assumptionsList.innerHTML = Object.entries(assumptions).map(([key, val]) => 
+            `<li>• ${val}</li>`
+        ).join('') || '<li>אין הנחות מיוחדות</li>';
+        
+        // Render top reasons
+        const reasonsList = document.getElementById('reasonsList');
+        const reasons = result.computed_result?.top_reasons || [];
+        reasonsList.innerHTML = reasons.map(r => `<li>• ${r}</li>`).join('') || '<li>אין נתונים</li>';
+        
+        // Render categories
+        const categoriesSection = document.getElementById('categoriesSection');
+        categoriesSection.innerHTML = '';
+        
+        const categories = ['reliability_risk', 'ownership_cost', 'practicality_comfort', 'driving_performance'];
+        const carIds = Object.keys(result.computed_result?.cars || {});
+        
+        categories.forEach(catName => {
+            const catDiv = document.createElement('div');
+            catDiv.className = 'category-row fade-in';
+            
+            // Category scores per car
+            const catScores = {};
+            carIds.forEach(carId => {
+                const catData = result.computed_result?.cars[carId]?.categories[catName];
+                catScores[carId] = catData?.score;
+            });
+            
+            const catWinner = result.computed_result?.category_winners[catName];
+            
+            catDiv.innerHTML = `
+                <div class="category-header" data-category="${catName}">
+                    <div class="flex items-center gap-3">
+                        <span class="text-lg font-bold text-white">${CATEGORY_NAMES[catName] || catName}</span>
+                        ${catWinner ? `<span class="winner-badge">${catWinner}</span>` : ''}
+                    </div>
+                    <div class="flex items-center gap-4">
+                        ${carIds.map(carId => `
+                            <div class="text-center min-w-[80px]">
+                                <div class="text-sm text-slate-400">${carId.split(' ')[0]}</div>
+                                <div class="text-xl font-bold ${catScores[carId] !== null ? getScoreColor(catScores[carId]) : 'text-slate-500'}">
+                                    ${catScores[carId] !== null ? catScores[carId].toFixed(0) : '-'}
+                                </div>
+                            </div>
+                        `).join('')}
+                        <svg class="expand-icon h-5 w-5 text-slate-400 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                </div>
+                <div class="category-content" id="content-${catName}">
+                    ${renderMetrics(catName, carIds, result)}
+                </div>
+            `;
+            
+            categoriesSection.appendChild(catDiv);
+        });
+        
+        // Add click handlers for expand/collapse
+        document.querySelectorAll('.category-header').forEach(header => {
+            header.addEventListener('click', () => {
+                const catName = header.dataset.category;
+                const content = document.getElementById(`content-${catName}`);
+                const icon = header.querySelector('.expand-icon');
+                
+                content.classList.toggle('open');
+                icon.style.transform = content.classList.contains('open') ? 'rotate(180deg)' : '';
+            });
+        });
+    }
+    
+    function renderMetrics(catName, carIds, result) {
+        const modelOutput = result.model_output?.cars || {};
+        const computedResult = result.computed_result?.cars || {};
+        const metricWinners = result.computed_result?.metric_winners[catName] || {};
+        
+        // Get metrics for this category
+        const sampleCar = Object.values(modelOutput)[0];
+        if (!sampleCar || !sampleCar[catName]) return '<p class="text-slate-500">אין נתונים</p>';
+        
+        const metrics = Object.keys(sampleCar[catName]);
+        
+        return metrics.map(metricName => {
+            const metricWinner = metricWinners[metricName];
+            
+            return `
+                <div class="metric-row">
+                    <div class="flex-1">
+                        <div class="flex items-center gap-2">
+                            <span class="text-slate-300">${METRIC_NAMES[metricName] || metricName}</span>
+                            ${metricWinner ? `<span class="winner-badge text-xs">${metricWinner.split(' ')[0]}</span>` : ''}
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        ${carIds.map(carId => {
+                            const metricData = modelOutput[carId]?.[catName]?.[metricName] || {};
+                            const score = computedResult[carId]?.categories?.[catName]?.metrics?.[metricName];
+                            const value = metricData.value;
+                            const sources = metricData.sources || [];
+                            
+                            return `
+                                <div class="text-center min-w-[80px]">
+                                    <div class="text-sm ${value !== null ? 'text-white' : 'text-slate-500'}">
+                                        ${formatValue(value)}
+                                    </div>
+                                    ${sources.length > 0 ? `
+                                        <button class="sources-toggle" onclick="toggleSources(this)">
+                                            ${sources.length} מקורות
+                                        </button>
+                                        <div class="sources-list">
+                                            ${sources.map(s => `
+                                                <div class="source-item">
+                                                    <a href="${s.url}" target="_blank" class="source-link">${s.title || s.url}</a>
+                                                    ${s.snippet ? `<p class="text-slate-400 mt-1">${s.snippet}</p>` : ''}
+                                                </div>
+                                            `).join('')}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+    
+    function formatValue(value) {
+        if (value === null || value === undefined) return '-';
+        if (typeof value === 'number') return value.toFixed(1);
+        if (Array.isArray(value)) {
+            return value.map(v => v.issue || v).slice(0, 2).join(', ');
+        }
+        // Translate ordinal values
+        const translations = {
+            'low': 'נמוך',
+            'medium': 'בינוני',
+            'high': 'גבוה',
+            'small': 'קטן',
+            'large': 'גדול'
+        };
+        return translations[value.toLowerCase()] || value;
+    }
+    
+    function getScoreColor(score) {
+        if (score >= 75) return 'text-green-400';
+        if (score >= 50) return 'text-yellow-400';
+        return 'text-red-400';
+    }
+    
+    // Global function for sources toggle
+    window.toggleSources = function(btn) {
+        const sourcesList = btn.nextElementSibling;
+        sourcesList.classList.toggle('open');
+    };
+    
+    // Event listeners
+    compareBtn.addEventListener('click', runComparison);
+    retryBtn.addEventListener('click', () => {
+        errorSection.classList.add('hidden');
+    });
+    
+    // Initialize
+    loadCarsData();
+    setupAutocomplete();
+})();
+</script>
+
+</body>
+</html>
