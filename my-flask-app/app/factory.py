@@ -1889,11 +1889,13 @@ def create_app():
     from app.routes.advisor_routes import bp as advisor_bp
     from app.routes.dashboard_routes import bp as dashboard_bp
     from app.routes.legal_routes import bp as legal_bp
+    from app.routes.comparison_routes import bp as comparison_bp
     app.register_blueprint(public_bp)
     app.register_blueprint(analyze_bp)
     app.register_blueprint(advisor_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(legal_bp)
+    app.register_blueprint(comparison_bp)
 
 
     @app.cli.command("init-db")

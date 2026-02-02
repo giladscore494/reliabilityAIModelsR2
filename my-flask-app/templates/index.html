@@ -95,6 +95,12 @@
                         החיפושים שלי
                     </a>
 
+                    <!-- השוואת רכבים - זמין לכולם -->
+                    <a href="{{ url_for('comparison.compare_page') }}"
+                       class="relative px-5 py-2.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/50 transition-all hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0">
+                        השוואה
+                    </a>
+
                     <!-- מנוע ההמלצות -->
                     {% if is_owner %}
                         <!-- בעלים: כפתור פעיל למנוע ההמלצות -->
