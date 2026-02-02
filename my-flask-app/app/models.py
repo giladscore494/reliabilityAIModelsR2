@@ -221,7 +221,7 @@ class ComparisonHistory(db.Model):
     model_name = db.Column(db.String(64), nullable=False, default="gemini-3-flash")
     grounding_enabled = db.Column(db.Boolean, nullable=False, default=True)
     prompt_version = db.Column(db.String(32), nullable=False, default="v1")
-    request_hash = db.Column(db.String(64), nullable=True, index=True)  # For caching
+    request_hash = db.Column(db.String(64), nullable=True)  # Index defined in __table_args__
     duration_ms = db.Column(db.Integer, nullable=True)
 
     __table_args__ = (
