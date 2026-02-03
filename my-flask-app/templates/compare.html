@@ -79,11 +79,42 @@
         .metric-row {
             display: flex;
             align-items: center;
+            flex-wrap: wrap;
+            gap: 0.75rem;
             padding: 0.75rem 0;
             border-bottom: 1px solid #334155;
         }
         .metric-row:last-child {
             border-bottom: none;
+        }
+
+        .metric-direction {
+            font-size: 0.75rem;
+            color: #94A3B8;
+        }
+
+        details.metric-details summary {
+            cursor: pointer;
+            list-style: none;
+        }
+        details.metric-details summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .mobile-cards {
+            display: none;
+        }
+        @media (max-width: 768px) {
+            .desktop-table {
+                display: none;
+            }
+            .mobile-cards {
+                display: grid;
+                gap: 1rem;
+            }
+            .category-content {
+                display: block;
+            }
         }
         
         /* Winner badge */
@@ -206,7 +237,7 @@
                             <div class="space-y-2">
                                 <label class="text-xs font-bold uppercase tracking-wider text-slate-400">סוג מנוע</label>
                                 <select id="engine_1" name="engine_1"
-                                        class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                        class="w-full bg-slate-900/50 border-2 border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:ring-primary focus:border-primary">
                                     <option value="בנזין" selected>בנזין</option>
                                     <option value="דיזל">דיזל</option>
                                     <option value="היברידי">היברידי</option>
@@ -216,7 +247,7 @@
                             <div class="space-y-2">
                                 <label class="text-xs font-bold uppercase tracking-wider text-slate-400">תיבת הילוכים</label>
                                 <select id="gear_1" name="gear_1"
-                                        class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                        class="w-full bg-slate-900/50 border-2 border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:ring-primary focus:border-primary">
                                     <option value="אוטומטית" selected>אוטומטית</option>
                                     <option value="רובוטית">רובוטית (DSG)</option>
                                     <option value="ידנית">ידנית</option>
@@ -258,7 +289,7 @@
                             <div class="space-y-2">
                                 <label class="text-xs font-bold uppercase tracking-wider text-slate-400">סוג מנוע</label>
                                 <select id="engine_2" name="engine_2"
-                                        class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                        class="w-full bg-slate-900/50 border-2 border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:ring-primary focus:border-primary">
                                     <option value="בנזין" selected>בנזין</option>
                                     <option value="דיזל">דיזל</option>
                                     <option value="היברידי">היברידי</option>
@@ -268,7 +299,7 @@
                             <div class="space-y-2">
                                 <label class="text-xs font-bold uppercase tracking-wider text-slate-400">תיבת הילוכים</label>
                                 <select id="gear_2" name="gear_2"
-                                        class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                        class="w-full bg-slate-900/50 border-2 border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:ring-primary focus:border-primary">
                                     <option value="אוטומטית" selected>אוטומטית</option>
                                     <option value="רובוטית">רובוטית (DSG)</option>
                                     <option value="ידנית">ידנית</option>
@@ -310,7 +341,7 @@
                             <div class="space-y-2">
                                 <label class="text-xs font-bold uppercase tracking-wider text-slate-400">סוג מנוע</label>
                                 <select id="engine_3" name="engine_3"
-                                        class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                        class="w-full bg-slate-900/50 border-2 border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:ring-primary focus:border-primary">
                                     <option value="בנזין" selected>בנזין</option>
                                     <option value="דיזל">דיזל</option>
                                     <option value="היברידי">היברידי</option>
@@ -320,7 +351,7 @@
                             <div class="space-y-2">
                                 <label class="text-xs font-bold uppercase tracking-wider text-slate-400">תיבת הילוכים</label>
                                 <select id="gear_3" name="gear_3"
-                                        class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                        class="w-full bg-slate-900/50 border-2 border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:ring-primary focus:border-primary">
                                     <option value="אוטומטית" selected>אוטומטית</option>
                                     <option value="רובוטית">רובוטית (DSG)</option>
                                     <option value="ידנית">ידנית</option>
@@ -332,7 +363,7 @@
                 
                 <div class="flex justify-center mt-6">
                     <button id="compareBtn" type="button"
-                            class="px-8 py-3 bg-gradient-to-r from-primary to-secondary text-white font-bold rounded-full hover:from-primary/90 hover:to-secondary/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            class="w-full sm:w-auto sm:min-w-[240px] px-8 py-3 bg-gradient-to-r from-primary to-secondary text-white font-bold rounded-full hover:from-primary/90 hover:to-secondary/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                             disabled>
                         <span class="btn-text">השווה רכבים</span>
                         <span class="btn-loading hidden flex items-center gap-2">
@@ -365,6 +396,13 @@
                 </div>
                 
                 <!-- Category Comparisons -->
+                <div id="comparisonLegend" class="hidden bg-slate-900/60 border border-slate-700/60 rounded-2xl p-4 md:p-6 text-sm text-slate-200 space-y-4">
+                    <div>
+                        <h4 class="text-lg font-bold text-white mb-2">איך לקרוא את המדדים?</h4>
+                        <p class="text-slate-300 text-sm">כל מדד מדורג לפי סף ניקוד שמחושב מהנתונים (0–100). ערכי "נמוך/בינוני/גבוה" מתורגמים לפי סוג המדד כפי שמופיע בכל כרטיס.</p>
+                    </div>
+                    <div id="legendMetrics" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+                </div>
                 <div id="categoriesSection" class="space-y-4">
                     <!-- Categories will be rendered here -->
                 </div>
@@ -421,9 +459,7 @@
     </div>
 </div>
 
-<footer class="text-center text-slate-500 text-sm py-6 border-t border-slate-800/70">
-    © 2026 yedaarechevAI – כל הזכויות שמורות.
-</footer>
+{% include "_footer.html" %}
 
 <!-- Car data JSON -->
 <script type="application/json" id="car-data">
@@ -508,6 +544,141 @@
         'handling_stability': 'יציבות ואחיזה',
         'braking_performance': 'ביצועי בלימה',
         'highway_stability': 'יציבות בכביש מהיר'
+    };
+
+    const METRIC_DEFINITIONS = {
+        reliability_rating: {
+            category: 'reliability_risk',
+            description: 'מדד מסכם של אמינות כללית על סולם 0–100.',
+            direction: 'גבוה = אמינות טובה יותר',
+            scoreRange: '0–100 (ציון יחסי)'
+        },
+        major_failure_risk: {
+            category: 'reliability_risk',
+            description: 'הערכת סיכון לתקלות חמורות במכלולים מרכזיים.',
+            direction: 'נמוך = סיכון נמוך (טוב יותר)',
+            scoreRange: 'נמוך=100 · בינוני=60 · גבוה=20'
+        },
+        common_failure_patterns: {
+            category: 'reliability_risk',
+            description: 'רשימת תקלות נפוצות שעלו ממקורות.',
+            direction: 'לא מדורג לניקוד (מידע תיאורי בלבד)',
+            scoreRange: 'ללא ציון'
+        },
+        mileage_sensitivity: {
+            category: 'reliability_risk',
+            description: 'כמה ביצועי המערכת רגישים לעלייה בקילומטראז׳.',
+            direction: 'נמוך = רגישות נמוכה (טוב יותר)',
+            scoreRange: 'נמוך=100 · בינוני=60 · גבוה=20'
+        },
+        maintenance_complexity: {
+            category: 'reliability_risk',
+            description: 'מורכבות משוערת של תחזוקה ותיקונים.',
+            direction: 'נמוך = תחזוקה פשוטה יותר',
+            scoreRange: 'נמוך=100 · בינוני=60 · גבוה=20'
+        },
+        expected_maintenance_cost_level: {
+            category: 'reliability_risk',
+            description: 'רמת עלויות תחזוקה צפויה.',
+            direction: 'נמוך = עלות נמוכה יותר',
+            scoreRange: 'נמוך=100 · בינוני=60 · גבוה=20'
+        },
+        fuel_economy_real_world: {
+            category: 'ownership_cost',
+            description: 'צריכת דלק אמיתית בליטר ל-100 ק״מ.',
+            direction: 'נמוך = חסכוני יותר',
+            scoreRange: '5–25 ל׳/100 ק״מ (נמוך=ציון גבוה)'
+        },
+        insurance_cost_level: {
+            category: 'ownership_cost',
+            description: 'רמת עלות ביטוח טיפוסית.',
+            direction: 'נמוך = ביטוח זול יותר',
+            scoreRange: 'נמוך=100 · בינוני=60 · גבוה=20'
+        },
+        depreciation_value_retention: {
+            category: 'ownership_cost',
+            description: 'יכולת לשמור על ערך לאורך זמן.',
+            direction: 'גבוה = שימור ערך טוב יותר',
+            scoreRange: 'נמוך=20 · בינוני=60 · גבוה=100'
+        },
+        parts_availability: {
+            category: 'ownership_cost',
+            description: 'זמינות חלפים בשוק.',
+            direction: 'גבוה = זמינות טובה יותר',
+            scoreRange: 'נמוך=20 · בינוני=60 · גבוה=100'
+        },
+        service_network_ease: {
+            category: 'ownership_cost',
+            description: 'קלות למצוא שירות ותיקונים.',
+            direction: 'גבוה = נגישות טובה יותר',
+            scoreRange: 'נמוך=20 · בינוני=60 · גבוה=100'
+        },
+        cabin_space: {
+            category: 'practicality_comfort',
+            description: 'תחושת מרחב בתא הנוסעים.',
+            direction: 'גדול = מרחב טוב יותר',
+            scoreRange: 'קטן=30 · בינוני=60 · גדול=100'
+        },
+        trunk_space_liters: {
+            category: 'practicality_comfort',
+            description: 'נפח תא המטען בליטרים.',
+            direction: 'גבוה = תא מטען גדול יותר',
+            scoreRange: '200–700 ל׳ (ציון יחסי)'
+        },
+        ride_comfort: {
+            category: 'practicality_comfort',
+            description: 'רמת נוחות בנסיעה יומיומית.',
+            direction: 'גבוה = נוחות טובה יותר',
+            scoreRange: 'נמוך=20 · בינוני=60 · גבוה=100'
+        },
+        noise_insulation: {
+            category: 'practicality_comfort',
+            description: 'יכולת בידוד רעשים בנסיעה.',
+            direction: 'גבוה = בידוד טוב יותר',
+            scoreRange: 'נמוך=20 · בינוני=60 · גבוה=100'
+        },
+        city_driveability: {
+            category: 'practicality_comfort',
+            description: 'נוחות תפעול בעיר (חנייה, תמרון).',
+            direction: 'גבוה = תפעול קל יותר',
+            scoreRange: 'נמוך=20 · בינוני=60 · גבוה=100'
+        },
+        features_value: {
+            category: 'practicality_comfort',
+            description: 'תמורה ביחס לרמת אבזור.',
+            direction: 'גבוה = תמורה טובה יותר',
+            scoreRange: 'נמוך=20 · בינוני=60 · גבוה=100'
+        },
+        acceleration_0_100: {
+            category: 'driving_performance',
+            description: 'זמן תאוצה מ-0 ל-100 קמ״ש (שניות).',
+            direction: 'נמוך = תאוצה מהירה יותר',
+            scoreRange: '5–15 שנ׳ (נמוך=ציון גבוה)'
+        },
+        engine_power_hp: {
+            category: 'driving_performance',
+            description: 'הספק מנוע בסוסי כוח.',
+            direction: 'גבוה = הספק חזק יותר',
+            scoreRange: '80–300 כ"ס (ציון יחסי)'
+        },
+        handling_stability: {
+            category: 'driving_performance',
+            description: 'יציבות ואחיזה כללית.',
+            direction: 'גבוה = יציבות טובה יותר',
+            scoreRange: 'נמוך=20 · בינוני=60 · גבוה=100'
+        },
+        braking_performance: {
+            category: 'driving_performance',
+            description: 'יכולת בלימה ובטיחות.',
+            direction: 'גבוה = בלימה טובה יותר',
+            scoreRange: 'נמוך=20 · בינוני=60 · גבוה=100'
+        },
+        highway_stability: {
+            category: 'driving_performance',
+            description: 'יציבות במהירויות גבוהות.',
+            direction: 'גבוה = יציבות טובה יותר',
+            scoreRange: 'נמוך=20 · בינוני=60 · גבוה=100'
+        }
     };
     
     // ============================================================
@@ -692,16 +863,79 @@
     // COMPARISON API CALL
     // ============================================================
     
+    async function safeFetchJson(url, options = {}) {
+        const headers = new Headers(options.headers || {});
+        if (!headers.has('Accept')) {
+            headers.set('Accept', 'application/json');
+        }
+        const hasBody = options.body !== undefined && options.body !== null;
+        const isFormBody = options.body instanceof FormData || options.body instanceof URLSearchParams;
+        if (hasBody && !isFormBody && !headers.has('Content-Type')) {
+            headers.set('Content-Type', 'application/json');
+        }
+        options.headers = headers;
+        let response;
+        try {
+            response = await fetch(url, options);
+        } catch (err) {
+            return {
+                ok: false,
+                error: { code: 'NETWORK_ERROR', message: 'שגיאת רשת או חיבור.', details: { message: err.message } },
+                request_id: null,
+            };
+        }
+
+        const contentType = response.headers.get('content-type') || '';
+        let parsed = null;
+        let textBody = '';
+        if (contentType.includes('application/json')) {
+            try {
+                parsed = await response.json();
+            } catch (e) {
+                parsed = null;
+            }
+        }
+        if (!parsed) {
+            try {
+                textBody = await response.text();
+            } catch (e) {
+                textBody = '';
+            }
+        }
+
+        const requestId = (parsed && parsed.request_id) || response.headers.get('X-Request-ID');
+        if (!response.ok) {
+            const snippet = parsed ? JSON.stringify(parsed).slice(0, 300) : (textBody || '').slice(0, 300);
+            const errObj = parsed && parsed.error ? parsed.error : null;
+            const errorCode = (errObj && errObj.code) || (typeof errObj === 'string' ? errObj : null) || 'HTTP_ERROR';
+            const errorMessage = (errObj && errObj.message) || (parsed && parsed.message) || response.statusText || 'שגיאה בבקשה';
+            return {
+                ok: false,
+                error: {
+                    code: errorCode,
+                    message: errorMessage,
+                    details: { status: response.status, body_snippet: snippet },
+                },
+                request_id: requestId,
+            };
+        }
+
+        if (parsed) {
+            parsed.request_id = parsed.request_id || requestId;
+            return parsed;
+        }
+
+        return { ok: true, data: textBody, request_id: requestId };
+    }
+
     async function ensureLegalAcceptance() {
         if (window.legalAccepted) return true;
-        const res = await fetch('/api/legal/accept', {
+        const data = await safeFetchJson('/api/legal/accept', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
             body: JSON.stringify({ legal_confirm: true })
         });
-        const data = await res.json();
-        if (res.ok && data.ok) {
+        if (data && data.ok) {
             window.legalAccepted = true;
             return true;
         }
@@ -738,25 +972,21 @@
                 return;
             }
             
-            const resp = await fetch('/api/compare', {
+            const data = await safeFetchJson('/api/compare', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
                 body: JSON.stringify({ cars, legal_confirm: true })
             });
             
-            const data = await resp.json();
-            
-            if (!resp.ok || !data.ok) {
-                if (data.error === 'TERMS_NOT_ACCEPTED') {
+            if (!data.ok) {
+                if (data.error && (data.error.code || data.error) === 'TERMS_NOT_ACCEPTED') {
                     openLegalModal();
                     throw new Error('נדרש לאשר תנאי שימוש ומדיניות פרטיות');
                 }
-                if (data.error === 'limit_reached') {
+                if (data.error && (data.error.code || data.error) === 'limit_reached') {
                     throw new Error('הגעת למקסימום 3 השוואות היום. נסה מחר.');
                 }
-                throw new Error(data.message || data.error || 'השוואה נכשלה');
+                const errorMessage = (data.error && data.error.message) || data.message || data.error || 'השוואה נכשלה';
+                throw new Error(errorMessage);
             }
             
             comparisonResult = data.data;
@@ -809,6 +1039,9 @@
         const reasons = result.computed_result?.top_reasons || [];
         reasonsList.innerHTML = reasons.map(r => `<li>• ${escapeHtml(r)}</li>`).join('') || '<li>אין נתונים</li>';
         
+        // Render legend
+        renderLegend();
+
         // Render categories
         const categoriesSection = document.getElementById('categoriesSection');
         categoriesSection.innerHTML = '';
@@ -830,7 +1063,7 @@
             const catWinner = result.computed_result?.category_winners[catName];
             
             catDiv.innerHTML = `
-                <div class="category-header" data-category="${catName}">
+                <div class="category-header desktop-table" data-category="${catName}">
                     <div class="flex items-center gap-3">
                         <span class="text-lg font-bold text-white">${CATEGORY_NAMES[catName] || catName}</span>
                         ${catWinner ? `<span class="winner-badge">${escapeHtml(catWinner)}</span>` : ''}
@@ -850,7 +1083,8 @@
                     </div>
                 </div>
                 <div class="category-content" id="content-${catName}">
-                    ${renderMetrics(catName, carIds, result)}
+                    ${renderDesktopMetrics(catName, carIds, result)}
+                    ${renderMobileCards(catName, carIds, result)}
                 </div>
             `;
             
@@ -870,7 +1104,7 @@
         });
     }
     
-    function renderMetrics(catName, carIds, result) {
+    function renderDesktopMetrics(catName, carIds, result) {
         const modelOutput = result.model_output?.cars || {};
         const computedResult = result.computed_result?.cars || {};
         const metricWinners = result.computed_result?.metric_winners[catName] || {};
@@ -883,13 +1117,18 @@
         
         return metrics.map(metricName => {
             const metricWinner = metricWinners[metricName];
+            const metricDef = METRIC_DEFINITIONS[metricName] || {};
+            const directionText = metricDef.direction ? `<span class="metric-direction">${escapeHtml(metricDef.direction)}</span>` : '';
+            const rangeText = metricDef.scoreRange ? `<span class="metric-direction">${escapeHtml(metricDef.scoreRange)}</span>` : '';
             
             return `
-                <div class="metric-row">
+                <div class="metric-row desktop-table">
                     <div class="flex-1">
-                        <div class="flex items-center gap-2">
-                            <span class="text-slate-300">${METRIC_NAMES[metricName] || metricName}</span>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="text-slate-300 font-semibold">${METRIC_NAMES[metricName] || metricName}</span>
                             ${metricWinner ? `<span class="winner-badge text-xs">${escapeHtml(metricWinner.split(' ')[0])}</span>` : ''}
+                            ${directionText}
+                            ${rangeText}
                         </div>
                     </div>
                     <div class="flex items-center gap-4">
@@ -898,12 +1137,14 @@
                             const score = computedResult[carId]?.categories?.[catName]?.metrics?.[metricName];
                             const value = metricData.value;
                             const sources = metricData.sources || [];
+                            const scoreLabel = score !== null && score !== undefined ? `${score.toFixed(0)}/100` : '-';
                             
                             return `
                                 <div class="text-center min-w-[80px]">
                                     <div class="text-sm ${value !== null ? 'text-white' : 'text-slate-500'}">
                                         ${formatValue(value)}
                                     </div>
+                                    <div class="text-[11px] text-slate-400">${scoreLabel}</div>
                                     ${sources.length > 0 ? `
                                         <button class="sources-toggle" onclick="toggleSources(this)">
                                             ${sources.length} מקורות
@@ -924,6 +1165,91 @@
                 </div>
             `;
         }).join('');
+    }
+
+    function renderMobileCards(catName, carIds, result) {
+        const modelOutput = result.model_output?.cars || {};
+        const computedResult = result.computed_result?.cars || {};
+        const metricWinners = result.computed_result?.metric_winners[catName] || {};
+        const sampleCar = Object.values(modelOutput)[0];
+        if (!sampleCar || !sampleCar[catName]) return '';
+
+        const metrics = Object.keys(sampleCar[catName]);
+        return `
+            <div class="mobile-cards">
+                ${carIds.map(carId => {
+                    return `
+                        <article class="bg-slate-900/60 border border-slate-700/60 rounded-2xl p-4 space-y-3">
+                            <div class="flex items-center justify-between">
+                                <h4 class="text-base font-bold text-white">${escapeHtml(carId)}</h4>
+                            </div>
+                            <div class="space-y-3">
+                                ${metrics.map(metricName => {
+                                    const metricData = modelOutput[carId]?.[catName]?.[metricName] || {};
+                                    const score = computedResult[carId]?.categories?.[catName]?.metrics?.[metricName];
+                                    const value = metricData.value;
+                                    const sources = metricData.sources || [];
+                                    const metricDef = METRIC_DEFINITIONS[metricName] || {};
+                                    const metricWinner = metricWinners[metricName];
+                                    const scoreLabel = score !== null && score !== undefined ? `${score.toFixed(0)}/100` : '-';
+                                    return `
+                                        <div class="border-b border-slate-800/80 pb-3">
+                                            <div class="flex items-center gap-2 text-sm text-slate-200 font-semibold">
+                                                <span>${METRIC_NAMES[metricName] || metricName}</span>
+                                                ${metricWinner && metricWinner === carId ? `<span class="winner-badge text-xs">${escapeHtml(metricWinner.split(' ')[0])}</span>` : ''}
+                                            </div>
+                                            <div class="mt-1 text-sm text-white">${formatValue(value)}</div>
+                                            <div class="text-[11px] text-slate-400">ציון: ${scoreLabel}</div>
+                                            ${metricDef.direction ? `<div class="text-[11px] text-slate-400">${escapeHtml(metricDef.direction)}</div>` : ''}
+                                            ${metricDef.scoreRange ? `<div class="text-[11px] text-slate-500">${escapeHtml(metricDef.scoreRange)}</div>` : ''}
+                                            <details class="metric-details mt-2 text-[11px] text-slate-400">
+                                                <summary class="text-slate-300">מה המשמעות?</summary>
+                                                <div class="mt-2 text-slate-400">
+                                                    ${escapeHtml(metricDef.description || 'אין תיאור זמין.')}
+                                                </div>
+                                            </details>
+                                            ${sources.length > 0 ? `
+                                                <button class="sources-toggle mt-2" onclick="toggleSources(this)">
+                                                    ${sources.length} מקורות
+                                                </button>
+                                                <div class="sources-list">
+                                                    ${sources.map(s => `
+                                                        <div class="source-item">
+                                                            <a href="${escapeHtml(s.url)}" target="_blank" class="source-link">${escapeHtml(s.title || s.url)}</a>
+                                                            ${s.snippet ? `<p class="text-slate-400 mt-1">${escapeHtml(s.snippet)}</p>` : ''}
+                                                        </div>
+                                                    `).join('')}
+                                                </div>
+                                            ` : ''}
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </article>
+                    `;
+                }).join('')}
+            </div>
+        `;
+    }
+
+    function renderLegend() {
+        const legendBox = document.getElementById('comparisonLegend');
+        const legendMetrics = document.getElementById('legendMetrics');
+        if (!legendBox || !legendMetrics) return;
+
+        const entries = Object.entries(METRIC_DEFINITIONS).map(([key, def]) => {
+            return `
+                <div class="bg-slate-800/50 border border-slate-700/60 rounded-xl p-3">
+                    <div class="text-sm font-semibold text-white">${METRIC_NAMES[key] || key}</div>
+                    <div class="text-[11px] text-slate-300 mt-1">${escapeHtml(def.description || '')}</div>
+                    <div class="text-[11px] text-slate-400 mt-1">${escapeHtml(def.direction || '')}</div>
+                    <div class="text-[11px] text-slate-500">${escapeHtml(def.scoreRange || '')}</div>
+                </div>
+            `;
+        });
+
+        legendMetrics.innerHTML = entries.join('');
+        legendBox.classList.remove('hidden');
     }
     
     // ============================================================
