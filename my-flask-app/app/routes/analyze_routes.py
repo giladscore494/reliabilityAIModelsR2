@@ -17,7 +17,7 @@ from app.services import analyze_service
 from app.factory import QUOTA_RESERVATION_TTL_SECONDS
 
 bp = Blueprint('analyze', __name__)
-DEFAULT_ESTIMATE_MS = {"analyze": 15000, "advisor": 12000}
+DEFAULT_ESTIMATE_MS = {"analyze": 15000, "advisor": 12000, "compare": 70000}
 TIMING_SAMPLE_LIMIT = 50
 
 
@@ -89,21 +89,23 @@ def analyze_car():
 def timing_estimate():
     """
     Returns estimated timing for an endpoint.
-    Supports both 'kind' (analyze|advisor) and 'endpoint' (analyze) parameters for backward compatibility.
+    Supports both 'kind' (analyze|advisor|compare) and 'endpoint' (analyze) parameters for backward compatibility.
     Filters out null/zero/negative durations and never fails even if history is missing.
     """
     # Support both 'kind' and 'endpoint' parameters
     raw_kind = request.args.get('kind') or request.args.get('endpoint') or 'analyze'
     kind = raw_kind.lower()
     
-    if kind not in ['analyze', 'advisor']:
-        return api_error('INVALID_KIND', 'Only "analyze" and "advisor" are supported', status=400)
+    if kind not in ['analyze', 'advisor', 'compare']:
+        return api_error('INVALID_KIND', 'Only "analyze", "advisor" and "compare" are supported', status=400)
 
     # Choose the right table based on kind
     if kind == 'analyze':
         from app.models import SearchHistory as HistoryModel
-    else:  # advisor
+    elif kind == 'advisor':
         from app.models import AdvisorHistory as HistoryModel
+    else:  # compare
+        from app.models import ComparisonHistory as HistoryModel
 
     default_estimate = DEFAULT_ESTIMATE_MS.get(kind, 15000)
 

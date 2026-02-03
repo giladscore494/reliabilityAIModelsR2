@@ -78,8 +78,15 @@ def compare_api():
     # Process comparison
     try:
         resp = comparison_service.handle_comparison_request(data, user_id, session_id)
-        if resp.status_code == 403 and getattr(resp, "json", lambda: {}).get("error") == "TERMS_NOT_ACCEPTED":
-            return resp
+        # Check for legal terms enforcement
+        # Support both standard API format and legal enforcement format
+        if resp.status_code == 403:
+            try:
+                resp_json = resp.get_json()
+                if resp_json and resp_json.get("error") == "TERMS_NOT_ACCEPTED":
+                    return resp
+            except Exception:
+                pass  # If JSON parsing fails, just return the response
         return resp
     except Exception:
         current_app.logger.exception("compare_api failed")
