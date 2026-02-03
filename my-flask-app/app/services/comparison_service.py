@@ -668,10 +668,16 @@ def compute_request_hash(cars: List[Dict]) -> str:
     """
     car_keys = []
     for c in cars:
+        # Consistent year extraction: prefer year, fallback to year_start
+        year_val = c.get('year')
+        if year_val is None:
+            year_val = c.get('year_start')
+        year_str = str(year_val) if year_val is not None else ''
+        
         key_parts = [
             c.get('make', ''),
             c.get('model', ''),
-            str(c.get('year', c.get('year_start', ''))),
+            year_str,
             c.get('engine_type', ''),
             c.get('gearbox', ''),
         ]
@@ -721,19 +727,29 @@ def validate_comparison_request(data: Dict) -> Tuple[bool, Optional[str], List[D
         if not make or not model:
             return False, f"רכב {i+1}: חובה לציין יצרן ודגם", []
         
-        # Extract year (either single year or use year_start)
+        # Extract year (either single year or use year_start for fallback)
         year = car.get("year")
         if year:
             try:
                 year = int(year)
             except (ValueError, TypeError):
                 return False, f"רכב {i+1}: שנתון לא תקין", []
+        else:
+            # Fallback to year_start for consistent hashing
+            year_start = car.get("year_start")
+            if year_start:
+                try:
+                    year = int(year_start)
+                except (ValueError, TypeError):
+                    year = None
         
         engine_type = car.get("engine_type", "").strip()
         gearbox = car.get("gearbox", "").strip()
         
         # Check for duplicates (same make, model, year, engine, gearbox)
-        car_key = f"{make}|{model}|{year}|{engine_type}|{gearbox}"
+        # Use empty string for None year to ensure consistent comparison
+        year_key = str(year) if year is not None else ""
+        car_key = f"{make}|{model}|{year_key}|{engine_type}|{gearbox}"
         if car_key in seen_keys:
             return False, "לא ניתן להשוות רכבים זהים. אנא בחר רכבים שונים.", []
         seen_keys.add(car_key)
