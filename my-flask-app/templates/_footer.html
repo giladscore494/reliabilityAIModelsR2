@@ -7,10 +7,10 @@
         <div class="flex flex-col md:flex-row items-center gap-2 md:gap-4">
             <p class="text-slate-500 text-sm">© 2026 yedaarechevAI. כל הזכויות שמורות.</p>
             <div class="flex gap-4 text-sm font-medium">
-                <a href="{{ url_for('public.terms') }}" target="_blank" class="text-slate-400 hover:text-primary transition-colors">
+                <a href="{{ url_for('public.terms') }}" target="_blank" rel="noopener noreferrer" class="text-slate-400 hover:text-primary transition-colors" aria-label="תנאי שימוש (נפתח בחלון חדש)">
                     תנאי שימוש
                 </a>
-                <a href="{{ url_for('public.privacy') }}" target="_blank" class="text-slate-400 hover:text-primary transition-colors">
+                <a href="{{ url_for('public.privacy') }}" target="_blank" rel="noopener noreferrer" class="text-slate-400 hover:text-primary transition-colors" aria-label="מדיניות פרטיות (נפתח בחלון חדש)">
                     מדיניות פרטיות
                 </a>
             </div>
