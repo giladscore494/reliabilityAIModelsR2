@@ -53,13 +53,23 @@
                     <span>{{ user.name.split(' ')[0] if user.name else 'אורח' }}</span>
                 </div>
 
-                <a href="{{ url_for('dashboard.dashboard') }}" class="relative px-5 py-2.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/50 transition-all hover:-translate-y-0.5">
-                    החיפושים שלי
+                <a href="{{ url_for('public.index') }}" class="relative px-5 py-2.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/50 transition-all hover:-translate-y-0.5">
+                    בודק אמינות
                 </a>
 
-                <a href="{{ url_for('advisor.recommendations') }}"
-                   class="relative px-5 py-2.5 rounded-full bg-gradient-to-r from-primary to-secondary text-white border border-transparent font-bold transition-all hover:from-primary/90 hover:to-secondary/90 hover:-translate-y-0.5">
-                    מנוע המלצות
+                <a href="{{ url_for('comparison.compare_page') }}" class="relative px-5 py-2.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/50 transition-all hover:-translate-y-0.5">
+                    השוואה
+                </a>
+
+                {% if is_owner %}
+                    <a href="{{ url_for('advisor.recommendations') }}"
+                       class="relative px-5 py-2.5 rounded-full bg-gradient-to-r from-primary to-secondary text-white border border-transparent font-bold transition-all hover:from-primary/90 hover:to-secondary/90 hover:-translate-y-0.5">
+                        מנוע המלצות
+                    </a>
+                {% endif %}
+
+                <a href="{{ url_for('dashboard.dashboard') }}" class="relative px-5 py-2.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/50 transition-all hover:-translate-y-0.5">
+                    החיפושים שלי
                 </a>
 
                 <a href="{{ url_for('public.logout') }}" class="px-4 py-2 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition-all flex items-center gap-2">
