@@ -1062,15 +1062,22 @@
                 }
                 
                 // Handle specific error codes
+                // Use a custom error object that extends Error-like behavior
+                const createCompareError = (msg, reqId) => {
+                    const error = new Error(msg);
+                    error.requestId = reqId;
+                    return error;
+                };
+                
                 if (errorCode === 'TERMS_NOT_ACCEPTED' || data.error === 'TERMS_NOT_ACCEPTED') {
                     openLegalModal();
-                    throw { message: 'נדרש לאשר תנאי שימוש ומדיניות פרטיות', requestId };
+                    throw createCompareError('נדרש לאשר תנאי שימוש ומדיניות פרטיות', requestId);
                 }
                 if (errorCode === 'limit_reached' || data.error === 'limit_reached') {
-                    throw { message: 'הגעת למקסימום 3 השוואות היום. נסה מחר.', requestId };
+                    throw createCompareError('הגעת למקסימום 3 השוואות היום. נסה מחר.', requestId);
                 }
                 
-                throw { message: errorMsg, requestId };
+                throw createCompareError(errorMsg, requestId);
             }
             
             comparisonResult = data.data;
@@ -1079,6 +1086,7 @@
             
         } catch (err) {
             console.error('[COMPARE] Error:', err);
+            // Handle both standard Error objects and errors with requestId
             const errorMessage = err.message || 'שגיאה בביצוע ההשוואה';
             const requestId = err.requestId || '';
             

@@ -657,13 +657,17 @@ def call_gemini_comparison(prompt: str, timeout_sec: int = AI_CALL_TIMEOUT_SEC) 
         )
 
 
-def normalize_model_output(parsed: Any, request_id: str) -> Tuple[Optional[Dict], Optional[str]]:
+def normalize_model_output(parsed: Any, request_id: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """
     Normalize parsed JSON into a dict.
     Handles the case where Gemini returns a JSON array (list) instead of a dict.
     
+    Args:
+        parsed: The parsed JSON output from the model (can be dict, list, or other)
+        request_id: Request ID for logging purposes
+    
     Returns:
-        (normalized_dict, error_code) - error_code is None if successful
+        Tuple of (normalized_dict, error_code) - error_code is None if successful
     """
     if parsed is None:
         return None, "MODEL_SHAPE_INVALID"

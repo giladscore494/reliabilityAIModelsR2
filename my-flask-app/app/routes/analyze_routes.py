@@ -17,6 +17,10 @@ from app.services import analyze_service
 from app.factory import QUOTA_RESERVATION_TTL_SECONDS
 
 bp = Blueprint('analyze', __name__)
+# DEFAULT_ESTIMATE_MS: Fallback timing estimates for various API operations (in milliseconds).
+# - analyze: Standard reliability analysis (~15s)
+# - advisor: Car recommendation engine (~12s)
+# - compare: Multi-car comparison with web grounding (~70s) - longer due to fetching multiple car metrics from web sources
 DEFAULT_ESTIMATE_MS = {"analyze": 15000, "advisor": 12000, "compare": 70000}
 TIMING_SAMPLE_LIMIT = 50
 
