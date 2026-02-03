@@ -17,6 +17,7 @@ from flask import current_app
 from app.extensions import db
 from app.models import ComparisonHistory
 from app.utils.http_helpers import api_ok, api_error, get_request_id
+from app.quota import log_access_decision
 from app.utils.prompt_defense import (
     escape_prompt_input,
     wrap_user_input_in_boundary,
@@ -656,6 +657,52 @@ def call_gemini_comparison(prompt: str, timeout_sec: int = AI_CALL_TIMEOUT_SEC) 
         )
 
 
+def normalize_model_output(parsed: Any, request_id: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """
+    Normalize parsed JSON into a dict.
+    Handles the case where Gemini returns a JSON array (list) instead of a dict.
+    
+    Args:
+        parsed: The parsed JSON output from the model (can be dict, list, or other)
+        request_id: Request ID for logging purposes
+    
+    Returns:
+        Tuple of (normalized_dict, error_code) - error_code is None if successful
+    """
+    if parsed is None:
+        return None, "MODEL_SHAPE_INVALID"
+    
+    # If already a dict, return as-is
+    if isinstance(parsed, dict):
+        return parsed, None
+    
+    # If it's a list, try to extract the dict
+    if isinstance(parsed, list):
+        if len(parsed) == 1 and isinstance(parsed[0], dict):
+            # Single-element list containing a dict - use it with a warning
+            current_app.logger.warning(
+                "[COMPARISON] Model returned list with single dict, normalizing. request_id=%s",
+                request_id
+            )
+            return parsed[0], None
+        else:
+            # List with multiple elements or non-dict elements
+            current_app.logger.error(
+                "[COMPARISON] Model returned invalid list shape (len=%d). request_id=%s",
+                len(parsed),
+                request_id
+            )
+            return None, "MODEL_SHAPE_INVALID"
+    
+    # Any other type is invalid
+    current_app.logger.error(
+        "[COMPARISON] Model returned unexpected type: %s. request_id=%s",
+        type(parsed).__name__,
+        request_id
+    )
+    return None, "MODEL_SHAPE_INVALID"
+
+
 # ============================================================
 # REQUEST HASH FOR CACHING
 # ============================================================
@@ -939,8 +986,21 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
             return api_error("ai_timeout", "זמן העיבוד חרג מהמותר. נסה שוב מאוחר יותר.", status=504)
         elif error == "SERVER_BUSY":
             return api_error("server_busy", "השרת עמוס כרגע. נסה שוב בעוד רגע.", status=503)
+        elif error == "MODEL_JSON_INVALID":
+            return api_error("model_json_invalid", "המודל החזיר פורמט לא תקין. נסה שוב.", status=502, details={"request_id": request_id})
         else:
             return api_error("ai_call_failed", "שגיאה בתקשורת עם מנוע ה-AI. נסה שוב מאוחר יותר.", status=500)
+    
+    # Normalize model output shape (handles list vs dict mismatch)
+    model_output, shape_error = normalize_model_output(model_output, request_id)
+    if shape_error:
+        logger.error(f"[COMPARISON] Model output shape invalid request_id={request_id} error={shape_error}")
+        return api_error(
+            "model_output_invalid",
+            "המודל החזיר פורמט נתונים לא צפוי. נסה שוב מאוחר יותר.",
+            status=502,
+            details={"request_id": request_id, "error_code": shape_error}
+        )
     
     # Validate grounding
     grounding_valid, grounding_reason = validate_grounding(model_output)

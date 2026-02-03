@@ -508,8 +508,8 @@
                     </details>
                 </div>
                 
-                <!-- Category Comparisons -->
-                <div id="categoriesSection" class="space-y-4">
+                <!-- Category Comparisons - responsive with overflow for wide content -->
+                <div id="categoriesSection" class="space-y-4 overflow-x-auto">
                     <!-- Categories will be rendered here -->
                 </div>
             </div>
@@ -520,11 +520,46 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
                 <p id="errorMessage" class="text-red-300 font-medium"></p>
+                <p id="errorRequestId" class="text-xs text-red-400/70 mt-2 hidden"></p>
                 <button id="retryBtn" type="button" class="mt-4 px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-full transition-all">
                     נסה שוב
                 </button>
             </div>
         </section>
+        
+        <!-- Timing Banner (hidden by default) - responsive for mobile -->
+        <div id="compareTimingBanner" class="hidden fixed top-20 sm:top-24 left-1/2 transform -translate-x-1/2 z-50 bg-dark-lighter/95 backdrop-blur-xl border-2 border-primary/50 rounded-2xl shadow-2xl p-4 sm:p-6">
+            <div class="flex flex-col items-center gap-3 sm:gap-4">
+                <div class="relative w-24 h-24 sm:w-32 sm:h-32">
+                    <!-- SVG Circular Progress Ring -->
+                    <svg class="w-24 h-24 sm:w-32 sm:h-32 transform -rotate-90" viewBox="0 0 120 120">
+                        <circle cx="60" cy="60" r="54" fill="none" stroke="#1e293b" stroke-width="8"></circle>
+                        <circle id="compareProgressRing" cx="60" cy="60" r="54" fill="none" stroke="url(#compareRainbowGradient)" stroke-width="8" 
+                                stroke-linecap="round" stroke-dasharray="339.292" stroke-dashoffset="339.292"
+                                style="transition: stroke-dashoffset 0.3s ease, stroke 0.5s ease;"></circle>
+                        <defs>
+                            <linearGradient id="compareRainbowGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" style="stop-color:rgb(255,0,0);stop-opacity:1" />
+                                <stop offset="16.67%" style="stop-color:rgb(255,165,0);stop-opacity:1" />
+                                <stop offset="33.33%" style="stop-color:rgb(255,255,0);stop-opacity:1" />
+                                <stop offset="50%" style="stop-color:rgb(0,255,0);stop-opacity:1" />
+                                <stop offset="66.67%" style="stop-color:rgb(0,127,255);stop-opacity:1" />
+                                <stop offset="83.33%" style="stop-color:rgb(139,0,255);stop-opacity:1" />
+                                <stop offset="100%" style="stop-color:rgb(255,0,0);stop-opacity:1" />
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                    <!-- Center Text (elapsed time) -->
+                    <div class="absolute inset-0 flex items-center justify-center">
+                        <span id="compareElapsedTime" class="text-2xl sm:text-3xl font-black text-white">0</span>
+                    </div>
+                </div>
+                <div class="text-center">
+                    <div id="compareEtaText" class="text-xs sm:text-sm text-slate-300 font-medium"></div>
+                    <div id="compareStatusText" class="text-xs text-slate-400 mt-1">מעבד...</div>
+                </div>
+            </div>
+        </div>
     {% endif %}
 </main>
 
@@ -658,6 +693,119 @@
     const resultsSection = document.getElementById('resultsSection');
     const errorSection = document.getElementById('errorSection');
     const retryBtn = document.getElementById('retryBtn');
+    
+    // Timing Banner Elements
+    const compareTimingBanner = document.getElementById('compareTimingBanner');
+    const compareElapsedTime = document.getElementById('compareElapsedTime');
+    const compareEtaText = document.getElementById('compareEtaText');
+    const compareStatusText = document.getElementById('compareStatusText');
+    const compareProgressRing = document.getElementById('compareProgressRing');
+    const RING_CIRCUMFERENCE = 339.292; // 2 * PI * 54
+    const DEFAULT_COMPARE_ESTIMATE_MS = 70000; // 70 seconds default ETA for compare
+    
+    let compareTimingInterval = null;
+    let compareTimingStartTime = null;
+    
+    // ============================================================
+    // TIMING BANNER FUNCTIONS
+    // ============================================================
+    
+    function startCompareTimingBanner() {
+        if (!compareTimingBanner) return;
+        
+        // Fetch ETA estimate
+        fetch('/api/timing/estimate?kind=compare', {
+            method: 'GET',
+            credentials: 'include'
+        }).then(res => res.json()).then(res => {
+            if (res && res.ok) {
+                const data = res.data || {};
+                const p75_ms = data.p75_ms || DEFAULT_COMPARE_ESTIMATE_MS;
+                const count = data.sample_size || 0;
+                
+                if (compareEtaText) {
+                    if (count > 0) {
+                        compareEtaText.textContent = `זמן משוער: ~${Math.ceil(p75_ms / 1000)} שניות (מבוסס על ${count} השוואות)`;
+                    } else {
+                        compareEtaText.textContent = `זמן משוער: ~${Math.ceil(p75_ms / 1000)} שניות`;
+                    }
+                }
+                
+                // Start timer
+                compareTimingStartTime = performance.now();
+                compareTimingBanner.classList.remove('hidden');
+                
+                // Update timer every 100ms
+                compareTimingInterval = setInterval(() => {
+                    const elapsed = Math.floor((performance.now() - compareTimingStartTime) / 1000);
+                    if (compareElapsedTime) compareElapsedTime.textContent = elapsed;
+                    
+                    // Update progress ring (0 to 100% based on p75_ms)
+                    const elapsedMs = performance.now() - compareTimingStartTime;
+                    const progress = Math.min(1, elapsedMs / p75_ms);
+                    const offset = RING_CIRCUMFERENCE * (1 - progress);
+                    if (compareProgressRing) {
+                        compareProgressRing.style.strokeDashoffset = offset;
+                        
+                        // Rainbow hue cycling
+                        const hue = (elapsedMs / p75_ms) * 360;
+                        compareProgressRing.style.stroke = `hsl(${hue % 360}, 80%, 60%)`;
+                    }
+                }, 100);
+            }
+        }).catch(err => {
+            console.warn('Failed to fetch timing estimate:', err);
+            // Show banner anyway with default
+            compareTimingStartTime = performance.now();
+            compareTimingBanner.classList.remove('hidden');
+            if (compareEtaText) compareEtaText.textContent = `זמן משוער: ~${Math.ceil(DEFAULT_COMPARE_ESTIMATE_MS / 1000)} שניות`;
+            
+            compareTimingInterval = setInterval(() => {
+                const elapsed = Math.floor((performance.now() - compareTimingStartTime) / 1000);
+                if (compareElapsedTime) compareElapsedTime.textContent = elapsed;
+                
+                const elapsedMs = performance.now() - compareTimingStartTime;
+                const progress = Math.min(1, elapsedMs / DEFAULT_COMPARE_ESTIMATE_MS);
+                const offset = RING_CIRCUMFERENCE * (1 - progress);
+                if (compareProgressRing) {
+                    compareProgressRing.style.strokeDashoffset = offset;
+                    const hue = (elapsedMs / DEFAULT_COMPARE_ESTIMATE_MS) * 360;
+                    compareProgressRing.style.stroke = `hsl(${hue % 360}, 80%, 60%)`;
+                }
+            }, 100);
+        });
+    }
+    
+    function stopCompareTimingBanner(showCompletionMessage = true) {
+        if (compareTimingInterval) {
+            clearInterval(compareTimingInterval);
+            compareTimingInterval = null;
+        }
+        
+        if (showCompletionMessage && compareTimingStartTime && compareTimingBanner && !compareTimingBanner.classList.contains('hidden')) {
+            const finalElapsed = Math.floor((performance.now() - compareTimingStartTime) / 1000);
+            if (compareStatusText) compareStatusText.textContent = `הושלם תוך ${finalElapsed} שניות`;
+            
+            // Hide after 1.5 seconds
+            setTimeout(() => {
+                if (compareTimingBanner) compareTimingBanner.classList.add('hidden');
+                if (compareStatusText) compareStatusText.textContent = 'מעבד...';
+                if (compareProgressRing) {
+                    compareProgressRing.style.strokeDashoffset = RING_CIRCUMFERENCE;
+                    compareProgressRing.style.stroke = 'url(#compareRainbowGradient)';
+                }
+            }, 1500);
+        } else {
+            if (compareTimingBanner) compareTimingBanner.classList.add('hidden');
+            if (compareStatusText) compareStatusText.textContent = 'מעבד...';
+            if (compareProgressRing) {
+                compareProgressRing.style.strokeDashoffset = RING_CIRCUMFERENCE;
+                compareProgressRing.style.stroke = 'url(#compareRainbowGradient)';
+            }
+        }
+        
+        compareTimingStartTime = null;
+    }
     
     // ============================================================
     // CAR SELECTOR INITIALIZATION (for each slot)
@@ -871,12 +1019,16 @@
         compareBtn.disabled = true;
         resultsSection.classList.add('hidden');
         errorSection.classList.add('hidden');
+        document.getElementById('errorRequestId').classList.add('hidden');
         
         try {
             if (!window.legalAccepted) {
                 openLegalModal();
                 return;
             }
+            
+            // Start timing banner before API call
+            startCompareTimingBanner();
             
             const resp = await fetch('/api/compare', {
                 method: 'POST',
@@ -889,14 +1041,43 @@
             const data = await resp.json();
             
             if (!resp.ok || !data.ok) {
-                if (data.error === 'TERMS_NOT_ACCEPTED') {
+                // Extract error message and request_id
+                // Handle both standard API format: { ok:false, error:{code,message}, request_id }
+                // and legal enforcement format: { error:"TERMS_NOT_ACCEPTED", message:"..." }
+                let errorMsg = 'השוואה נכשלה';
+                let errorCode = '';
+                let requestId = data.request_id || '';
+                
+                if (data.ok === false && data.error && typeof data.error === 'object') {
+                    // Standard API error format
+                    errorMsg = data.error.message || 'שגיאה';
+                    errorCode = data.error.code || '';
+                    if (data.error.details?.request_id) {
+                        requestId = data.error.details.request_id;
+                    }
+                } else if (typeof data.error === 'string') {
+                    // Legacy/legal enforcement format
+                    errorCode = data.error;
+                    errorMsg = data.message || errorCode;
+                }
+                
+                // Handle specific error codes
+                // Use a custom error object that extends Error-like behavior
+                const createCompareError = (msg, reqId) => {
+                    const error = new Error(msg);
+                    error.requestId = reqId;
+                    return error;
+                };
+                
+                if (errorCode === 'TERMS_NOT_ACCEPTED' || data.error === 'TERMS_NOT_ACCEPTED') {
                     openLegalModal();
-                    throw new Error('נדרש לאשר תנאי שימוש ומדיניות פרטיות');
+                    throw createCompareError('נדרש לאשר תנאי שימוש ומדיניות פרטיות', requestId);
                 }
-                if (data.error === 'limit_reached') {
-                    throw new Error('הגעת למקסימום 3 השוואות היום. נסה מחר.');
+                if (errorCode === 'limit_reached' || data.error === 'limit_reached') {
+                    throw createCompareError('הגעת למקסימום 3 השוואות היום. נסה מחר.', requestId);
                 }
-                throw new Error(data.message || data.error || 'השוואה נכשלה');
+                
+                throw createCompareError(errorMsg, requestId);
             }
             
             comparisonResult = data.data;
@@ -905,9 +1086,24 @@
             
         } catch (err) {
             console.error('[COMPARE] Error:', err);
-            document.getElementById('errorMessage').textContent = err.message || 'שגיאה בביצוע ההשוואה';
+            // Handle both standard Error objects and errors with requestId
+            const errorMessage = err.message || 'שגיאה בביצוע ההשוואה';
+            const requestId = err.requestId || '';
+            
+            document.getElementById('errorMessage').textContent = errorMessage;
+            
+            // Show request_id if available
+            const errorRequestIdEl = document.getElementById('errorRequestId');
+            if (requestId && errorRequestIdEl) {
+                errorRequestIdEl.textContent = `מזהה בקשה: ${requestId}`;
+                errorRequestIdEl.classList.remove('hidden');
+            }
+            
             errorSection.classList.remove('hidden');
         } finally {
+            // Stop timing banner
+            stopCompareTimingBanner();
+            
             compareBtn.querySelector('.btn-text').classList.remove('hidden');
             compareBtn.querySelector('.btn-loading').classList.add('hidden');
             updateCompareButton();
