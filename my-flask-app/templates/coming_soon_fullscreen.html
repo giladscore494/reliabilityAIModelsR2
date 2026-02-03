@@ -2,24 +2,43 @@
 <html lang="he" dir="rtl">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>בקרוב – המלצות רכבים</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio"></script>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<script>
+    tailwind.config = {
+        darkMode: 'class',
+        theme: {
+            extend: {
+                colors: {
+                    primary: '#6366F1',
+                    secondary: '#EC4899',
+                    dark: '#0F172A',
+                    'dark-lighter': '#1E293B'
+                }
+            }
+        }
+    }
+</script>
 <style>
     body {
         margin: 0;
         padding: 0;
         background:#0F172A;
         color:#E2E8F0;
-        font-family: Heebo, sans-serif;
-        display:flex;
-        align-items:center;
-        justify-content:center;
-        height:100vh;
-        text-align:center;
+        font-family: 'Heebo', system-ui, sans-serif;
     }
-    h1 { font-size: 4rem; font-weight:900; }
 </style>
 </head>
-<body>
-    <h1>בקרוב...</h1>
+<body class="min-h-screen flex flex-col">
+    <main class="flex-grow flex items-center justify-center">
+        <div class="text-center px-4">
+            <h1 class="text-4xl md:text-6xl font-black text-white">בקרוב...</h1>
+            <p class="mt-4 text-slate-400">מנוע ההמלצות בפיתוח</p>
+            <a href="{{ url_for('public.index') }}" class="inline-block mt-6 px-5 py-2 rounded-full bg-primary text-white font-bold hover:bg-primary/90 transition">חזרה לדף הראשי</a>
+        </div>
+    </main>
+    {% include '_footer.html' %}
 </body>
 </html>
