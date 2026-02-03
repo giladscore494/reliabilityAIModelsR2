@@ -880,6 +880,26 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     if not is_valid:
         return api_error("validation_error", error_msg, status=400)
     
+    # Enforce per-user daily limit before any AI calls
+    if user_id:
+        now = datetime.utcnow()
+        day_start = datetime(now.year, now.month, now.day)
+        day_end = day_start + timedelta(days=1)
+        today_count = (
+            ComparisonHistory.query.filter(
+                ComparisonHistory.user_id == user_id,
+                ComparisonHistory.created_at >= day_start,
+                ComparisonHistory.created_at < day_end,
+            ).count()
+        )
+        if today_count >= 3:
+            log_access_decision('/api/compare', user_id, 'rejected', 'daily limit reached')
+            return api_error(
+                "limit_reached",
+                "הגעת למקסימום 3 השוואות היום. נסה מחר.",
+                status=429,
+            )
+    
     # Compute request hash for caching
     request_hash = compute_request_hash(validated_cars)
     

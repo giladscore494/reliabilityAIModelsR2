@@ -160,21 +160,22 @@
                     בודק אמינות
                 </a>
 
-                <!-- השוואה (Compare - current page, active state) -->
-                <a href="{{ url_for('comparison.compare_page') }}"
-                   class="relative px-5 py-2.5 rounded-full bg-gradient-to-r from-primary to-secondary text-white border border-transparent font-bold transition-all hover:from-primary/90 hover:to-secondary/90 hover:-translate-y-0.5">
-                    השוואה
+                <a href="{{ url_for('public.index') }}" class="relative px-5 py-2.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/50 transition-all hover:-translate-y-0.5">
+                    בודק אמינות
                 </a>
 
-                <!-- מנוע ההמלצות (Recommendations - owner-only) -->
+                <a href="{{ url_for('comparison.compare_page') }}"
+                   class="relative px-5 py-2.5 rounded-full bg-gradient-to-r from-primary to-secondary text-white border border-transparent font-bold transition-all hover:from-primary/90 hover:to-secondary/90 hover:-translate-y-0.5">
+                    השוואת רכבים
+                </a>
+
                 {% if is_owner %}
                     <a href="{{ url_for('advisor.recommendations') }}"
-                       class="relative px-5 py-2.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/50 transition-all hover:-translate-y-0.5">
-                        מנוע המלצות
+                       class="relative px-5 py-2.5 rounded-full bg-gradient-to-r from-primary to-secondary text-white border border-transparent font-bold transition-all hover:from-primary/90 hover:to-secondary/90 hover:-translate-y-0.5">
+                        מנוע ההמלצות
                     </a>
                 {% endif %}
 
-                <!-- החיפושים שלי (Dashboard) -->
                 <a href="{{ url_for('dashboard.dashboard') }}" class="relative px-5 py-2.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/50 transition-all hover:-translate-y-0.5">
                     החיפושים שלי
                 </a>
@@ -438,6 +439,43 @@
         </section>
     {% endif %}
 </main>
+
+<!-- Legal Acceptance Modal -->
+<div id="legalModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl max-w-xl w-full mx-4 p-6 space-y-6">
+        <div class="flex items-center justify-between">
+            <h3 class="text-2xl font-bold text-white">אישור תנאי שימוש ופרטיות</h3>
+            <button id="legalCancelBtn" class="text-slate-400 hover:text-white transition-colors">✕</button>
+        </div>
+        <p class="text-slate-300 text-sm leading-relaxed">
+            כדי להשתמש במנוע השוואת הרכבים, יש לאשר את תנאי השימוש ומדיניות הפרטיות.
+        </p>
+        <div class="space-y-3">
+            <label class="flex items-start gap-3 p-3 rounded-xl bg-slate-800/40 border border-slate-700/60 cursor-pointer">
+                <input type="checkbox" id="legalTerms" class="mt-1 w-5 h-5 rounded border-2 border-slate-600 text-primary focus:ring-offset-0 focus:ring-primary bg-slate-900/50">
+                <span class="text-sm text-slate-200">
+                    אני מאשר/ת כי קראתי והסכמתי
+                    <a href="{{ url_for('public.terms') }}" target="_blank" class="text-primary font-semibold hover:underline">לתנאי השימוש</a>
+                </span>
+            </label>
+            <label class="flex items-start gap-3 p-3 rounded-xl bg-slate-800/40 border border-slate-700/60 cursor-pointer">
+                <input type="checkbox" id="legalPrivacy" class="mt-1 w-5 h-5 rounded border-2 border-slate-600 text-primary focus:ring-offset-0 focus:ring-primary bg-slate-900/50">
+                <span class="text-sm text-slate-200">
+                    אני מאשר/ת כי קראתי והסכמתי
+                    <a href="{{ url_for('public.privacy') }}" target="_blank" class="text-primary font-semibold hover:underline">למדיניות הפרטיות</a>
+                </span>
+            </label>
+            <p id="legalModalError" class="hidden text-sm text-red-400 bg-red-900/30 border border-red-700/60 p-3 rounded-lg">
+                יש לאשר את שני הסעיפים לפני המשך.
+            </p>
+        </div>
+        <div class="flex justify-end gap-3">
+            <button id="legalAcceptBtn" class="px-5 py-2 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-semibold disabled:opacity-50">
+                מאשר/ת וממשיך/ה
+            </button>
+        </div>
+    </div>
+</div>
 
 <footer class="text-center text-slate-500 text-sm py-6 border-t border-slate-800/70">
     © 2026 yedaarechevAI – כל הזכויות שמורות.
@@ -710,6 +748,30 @@
     // COMPARISON API CALL
     // ============================================================
     
+    async function ensureLegalAcceptance() {
+        if (window.legalAccepted) return true;
+        const res = await fetch('/api/legal/accept', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ legal_confirm: true })
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+            window.legalAccepted = true;
+            return true;
+        }
+        return false;
+    }
+    
+    function openLegalModal() {
+        document.getElementById('legalModal').classList.remove('hidden');
+    }
+    
+    function closeLegalModal() {
+        document.getElementById('legalModal').classList.add('hidden');
+    }
+    
     async function runComparison() {
         const cars = getSelectedCars();
         if (cars.length < 2) return;
@@ -727,17 +789,29 @@
         errorSection.classList.add('hidden');
         
         try {
+            if (!window.legalAccepted) {
+                openLegalModal();
+                return;
+            }
+            
             const resp = await fetch('/api/compare', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ cars })
+                body: JSON.stringify({ cars, legal_confirm: true })
             });
             
             const data = await resp.json();
             
             if (!resp.ok || !data.ok) {
+                if (data.error === 'TERMS_NOT_ACCEPTED') {
+                    openLegalModal();
+                    throw new Error('נדרש לאשר תנאי שימוש ומדיניות פרטיות');
+                }
+                if (data.error === 'limit_reached') {
+                    throw new Error('הגעת למקסימום 3 השוואות היום. נסה מחר.');
+                }
                 throw new Error(data.message || data.error || 'השוואה נכשלה');
             }
             
@@ -957,6 +1031,31 @@
     // ============================================================
     
     compareBtn.addEventListener('click', runComparison);
+    
+    // Legal modal handlers
+    document.getElementById('legalAcceptBtn')?.addEventListener('click', async () => {
+        const terms = document.getElementById('legalTerms');
+        const privacy = document.getElementById('legalPrivacy');
+        const error = document.getElementById('legalModalError');
+        error.classList.add('hidden');
+        
+        if (!terms.checked || !privacy.checked) {
+            error.classList.remove('hidden');
+            return;
+        }
+        
+        const ok = await ensureLegalAcceptance();
+        if (ok) {
+            closeLegalModal();
+            runComparison();
+        } else {
+            error.classList.remove('hidden');
+        }
+    });
+    
+    document.getElementById('legalCancelBtn')?.addEventListener('click', () => {
+        closeLegalModal();
+    });
     retryBtn.addEventListener('click', () => {
         errorSection.classList.add('hidden');
     });

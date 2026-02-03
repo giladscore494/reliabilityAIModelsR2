@@ -76,7 +76,10 @@ def compare_api():
     session_id = session.get('_id') if not user_id else None
     
     # Process comparison
-    return comparison_service.handle_comparison_request(data, user_id, session_id)
+    resp = comparison_service.handle_comparison_request(data, user_id, session_id)
+    if resp.status_code == 403 and getattr(resp, "json", lambda: {}).get("error") == "TERMS_NOT_ACCEPTED":
+        return resp
+    return resp
 
 
 @bp.route('/api/compare/history', methods=['GET'])
