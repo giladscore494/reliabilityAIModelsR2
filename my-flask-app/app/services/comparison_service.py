@@ -119,15 +119,25 @@ METRICS_DEFINITION = {
 def build_comparison_prompt(cars: List[Dict[str, str]]) -> str:
     """Build the comparison prompt for Gemini with strict JSON output."""
     
-    # Sanitize car inputs
+    # Sanitize car inputs including year, engine_type, and gearbox
     sanitized_cars = []
     for car in cars:
-        sanitized_cars.append({
+        sanitized_car = {
             "make": escape_prompt_input(car.get("make", ""), max_length=50),
             "model": escape_prompt_input(car.get("model", ""), max_length=100),
-            "year_start": car.get("year_start"),
-            "year_end": car.get("year_end"),
-        })
+        }
+        # Include explicit year if provided (single year, not a range)
+        if car.get("year"):
+            sanitized_car["year"] = int(car.get("year"))
+        elif car.get("year_start"):
+            sanitized_car["year_start"] = car.get("year_start")
+            sanitized_car["year_end"] = car.get("year_end")
+        # Include engine type and gearbox as explicit assumptions
+        if car.get("engine_type"):
+            sanitized_car["engine_type"] = escape_prompt_input(car.get("engine_type", ""), max_length=50)
+        if car.get("gearbox"):
+            sanitized_car["gearbox"] = escape_prompt_input(car.get("gearbox", ""), max_length=50)
+        sanitized_cars.append(sanitized_car)
     
     cars_json = json.dumps(sanitized_cars, ensure_ascii=False, indent=2)
     bounded_cars = wrap_user_input_in_boundary(cars_json, boundary_tag="cars_input")
@@ -654,9 +664,27 @@ def compute_request_hash(cars: List[Dict]) -> str:
     """
     Compute a hash for caching based on selected cars and prompt version.
     Uses 32 characters (128 bits) of SHA256 for adequate collision resistance.
+    Includes year, engine_type, and gearbox in hash calculation.
     """
+    car_keys = []
+    for c in cars:
+        # Consistent year extraction: prefer year, fallback to year_start
+        year_val = c.get('year')
+        if year_val is None:
+            year_val = c.get('year_start')
+        year_str = str(year_val) if year_val is not None else ''
+        
+        key_parts = [
+            c.get('make', ''),
+            c.get('model', ''),
+            year_str,
+            c.get('engine_type', ''),
+            c.get('gearbox', ''),
+        ]
+        car_keys.append('|'.join(key_parts))
+    
     data = {
-        "cars": sorted([f"{c.get('make')}|{c.get('model')}" for c in cars]),
+        "cars": sorted(car_keys),
         "prompt_version": COMPARISON_PROMPT_VERSION,
     }
     data_str = json.dumps(data, sort_keys=True)
@@ -671,6 +699,7 @@ def validate_comparison_request(data: Dict) -> Tuple[bool, Optional[str], List[D
     """
     Validate comparison request data.
     Returns (is_valid, error_message, validated_cars).
+    Accepts year, engine_type, and gearbox as explicit assumptions.
     """
     cars = data.get("cars")
     
@@ -687,6 +716,7 @@ def validate_comparison_request(data: Dict) -> Tuple[bool, Optional[str], List[D
         return False, "ניתן להשוות עד 3 רכבים בלבד", []
     
     validated_cars = []
+    seen_keys = set()
     for i, car in enumerate(cars):
         if not isinstance(car, dict):
             return False, f"פורמט רכב {i+1} לא תקין", []
@@ -697,12 +727,50 @@ def validate_comparison_request(data: Dict) -> Tuple[bool, Optional[str], List[D
         if not make or not model:
             return False, f"רכב {i+1}: חובה לציין יצרן ודגם", []
         
-        validated_cars.append({
+        # Extract year (either single year or use year_start for fallback)
+        year = car.get("year")
+        if year:
+            try:
+                year = int(year)
+            except (ValueError, TypeError):
+                return False, f"רכב {i+1}: שנתון לא תקין", []
+        else:
+            # Fallback to year_start for consistent hashing
+            year_start = car.get("year_start")
+            if year_start:
+                try:
+                    year = int(year_start)
+                except (ValueError, TypeError):
+                    year = None
+        
+        engine_type = car.get("engine_type", "").strip()
+        gearbox = car.get("gearbox", "").strip()
+        
+        # Check for duplicates (same make, model, year, engine, gearbox)
+        # Use empty string for None year to ensure consistent comparison
+        year_key = str(year) if year is not None else ""
+        car_key = f"{make}|{model}|{year_key}|{engine_type}|{gearbox}"
+        if car_key in seen_keys:
+            return False, "לא ניתן להשוות רכבים זהים. אנא בחר רכבים שונים.", []
+        seen_keys.add(car_key)
+        
+        validated_car = {
             "make": make,
             "model": model,
-            "year_start": car.get("year_start"),
-            "year_end": car.get("year_end"),
-        })
+        }
+        if year:
+            validated_car["year"] = year
+        if engine_type:
+            validated_car["engine_type"] = engine_type
+        if gearbox:
+            validated_car["gearbox"] = gearbox
+        # Keep year_start/year_end for backward compatibility
+        if car.get("year_start"):
+            validated_car["year_start"] = car.get("year_start")
+        if car.get("year_end"):
+            validated_car["year_end"] = car.get("year_end")
+            
+        validated_cars.append(validated_car)
     
     return True, None, validated_cars
 

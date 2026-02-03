@@ -1614,7 +1614,7 @@ def create_app():
             return None
         
         # Only check specific endpoints (not login/auth which may come from external OAuth flow)
-        protected_paths = ['/analyze', '/advisor_api', '/api/account/delete']
+        protected_paths = ['/analyze', '/advisor_api', '/api/account/delete', '/api/compare']
         if not any(request.path.startswith(p) for p in protected_paths):
             return None
 
@@ -1694,7 +1694,7 @@ def create_app():
             return resp
 
         is_ai_write = request.method in ("POST", "PUT", "PATCH", "DELETE") and path.startswith(
-            ("/analyze", "/advisor_api")
+            ("/analyze", "/advisor_api", "/api/compare")
         )
         if not is_ai_write:
             return None

@@ -89,6 +89,13 @@
                     {{ user.name.split(' ')[0] if user.name else 'אורח' }}
                 </span>
                 
+                <!-- בודק אמינות (Reliability Checker) -->
+                <a href="{{ url_for('public.index') }}"
+                   class="px-4 py-1.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/50 transition-all text-sm"
+                   title="בודק אמינות רכבים">
+                    בודק אמינות
+                </a>
+                
                 <!-- השוואת רכבים -->
                 <a href="{{ url_for('comparison.compare_page') }}"
                    class="px-4 py-1.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/50 transition-all text-sm"
@@ -135,16 +142,22 @@
         {% endif %}
 
         <div class="flex gap-2 overflow-x-auto no-scrollbar pb-2">
-            <span class="whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-800 text-slate-100 border border-slate-600">
+            <button type="button" onclick="showTab('reliability')" id="tab-reliability"
+                    class="tab-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-800 text-slate-100 border border-slate-600 cursor-pointer transition-colors">
                 היסטוריית בדיקות אמינות
-            </span>
+            </button>
+            <button type="button" onclick="showTab('comparisons')" id="tab-comparisons"
+                    class="tab-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50 cursor-pointer transition-colors hover:bg-slate-800 hover:text-slate-300">
+                השוואות
+            </button>
             <span class="whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50">
                 היסטוריית המלצות (בקרוב · {{ advisor_count or 0 }} שאלונים)
             </span>
         </div>
     </div>
 
-    <div class="relative z-10">
+    <!-- Reliability History Tab -->
+    <div id="tab-content-reliability" class="relative z-10">
         {% if searches and searches|length > 0 %}
             <div class="grid gap-4">
                 {% for s in searches %}
@@ -210,6 +223,13 @@
                 </a>
             </div>
         {% endif %}
+    </div>
+
+    <!-- Comparisons History Tab -->
+    <div id="tab-content-comparisons" class="relative z-10 hidden">
+        <div id="comparisons-list" class="grid gap-4">
+            <div class="text-center py-8 text-slate-400">טוען היסטוריית השוואות...</div>
+        </div>
     </div>
 
     <!-- Delete Account Section -->
@@ -750,6 +770,102 @@
                 confirmBtn.disabled = false;
                 confirmBtn.classList.remove('opacity-70', 'cursor-not-allowed');
             }
+        }
+    }
+
+    // ============================================================
+    // TAB SWITCHING & COMPARISON HISTORY
+    // ============================================================
+    
+    let currentTab = 'reliability';
+    let comparisonsLoaded = false;
+    
+    function showTab(tabName) {
+        currentTab = tabName;
+        
+        // Update tab buttons
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.remove('bg-slate-800', 'text-slate-100', 'border-slate-600');
+            btn.classList.add('bg-slate-900/50', 'text-slate-500', 'border-slate-700/50');
+        });
+        const activeBtn = document.getElementById(`tab-${tabName}`);
+        if (activeBtn) {
+            activeBtn.classList.remove('bg-slate-900/50', 'text-slate-500', 'border-slate-700/50');
+            activeBtn.classList.add('bg-slate-800', 'text-slate-100', 'border-slate-600');
+        }
+        
+        // Show/hide content
+        document.getElementById('tab-content-reliability').classList.toggle('hidden', tabName !== 'reliability');
+        document.getElementById('tab-content-comparisons').classList.toggle('hidden', tabName !== 'comparisons');
+        
+        // Load comparisons if switching to that tab for the first time
+        if (tabName === 'comparisons' && !comparisonsLoaded) {
+            loadComparisonsHistory();
+        }
+    }
+    
+    async function loadComparisonsHistory() {
+        const container = document.getElementById('comparisons-list');
+        try {
+            const response = await fetch('/api/compare/history?limit=20', {
+                headers: { 'Accept': 'application/json' },
+                credentials: 'same-origin'
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok || !data.ok) {
+                container.innerHTML = `<div class="text-center py-8 text-red-400">${escapeHtml(data.message || 'שגיאה בטעינת היסטוריית השוואות')}</div>`;
+                return;
+            }
+            
+            const history = data.data?.history || [];
+            comparisonsLoaded = true;
+            
+            if (history.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-12 bg-dark-lighter/40 rounded-2xl border border-slate-800">
+                        <p class="text-slate-400 mb-4">אין היסטוריית השוואות עדיין.</p>
+                        <a href="/compare" class="px-6 py-2 rounded-full bg-primary text-white font-bold text-sm">
+                            התחל השוואה
+                        </a>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = history.map(item => {
+                const cars = item.cars || [];
+                const carsDisplay = cars.map(c => `${c.make} ${c.model}`).join(' vs ');
+                const winner = item.overall_winner;
+                const date = new Date(item.created_at).toLocaleDateString('he-IL', {
+                    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                });
+                
+                return `
+                    <article class="bg-dark-lighter/80 border border-slate-700/60 rounded-xl p-4 shadow-lg">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                                    ${escapeHtml(carsDisplay)}
+                                </h3>
+                                <div class="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-slate-400">
+                                    <span>${escapeHtml(date)}</span>
+                                    ${winner ? `<span>•</span><span class="text-emerald-300">מנצח: ${escapeHtml(winner)}</span>` : ''}
+                                </div>
+                            </div>
+                            <a href="/compare?load=${item.id}" 
+                               class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg text-white transition-colors">
+                                צפה בפרטים
+                            </a>
+                        </div>
+                    </article>
+                `;
+            }).join('');
+            
+        } catch (err) {
+            console.error('[DASHBOARD] Failed to load comparisons:', err);
+            container.innerHTML = '<div class="text-center py-8 text-red-400">שגיאה בטעינת היסטוריית השוואות</div>';
         }
     }
 

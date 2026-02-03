@@ -40,31 +40,8 @@
         .loader { border: 3px solid rgba(255,255,255,0.2); border-top-color: var(--primary, #6366F1); border-radius: 50%; width: 1.5rem; height: 1.5rem; animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
         
-        /* Autocomplete dropdown */
-        .autocomplete-dropdown {
-            position: absolute;
-            top: 100%;
-            left: 0;
-            right: 0;
-            background: #1E293B;
-            border: 1px solid #475569;
-            border-radius: 0.5rem;
-            max-height: 240px;
-            overflow-y: auto;
-            z-index: 100;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
-        }
-        .autocomplete-item {
-            padding: 0.75rem 1rem;
-            cursor: pointer;
-            border-bottom: 1px solid #334155;
-        }
-        .autocomplete-item:hover, .autocomplete-item.highlighted {
-            background: #334155;
-        }
-        .autocomplete-item:last-child {
-            border-bottom: none;
-        }
+        /* LTR select for car dropdowns */
+        .ltr-select { direction: ltr; text-align: left; }
         
         /* Category rows */
         .category-row {
@@ -178,15 +155,31 @@
                     <span>{{ user.name.split(' ')[0] if user.name else 'אורח' }}</span>
                 </div>
 
+                <!-- בודק אמינות (Reliability Checker) -->
+                <a href="{{ url_for('public.index') }}" class="relative px-5 py-2.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/50 transition-all hover:-translate-y-0.5">
+                    בודק אמינות
+                </a>
+
+                <!-- השוואה (Compare - current page, active state) -->
+                <a href="{{ url_for('comparison.compare_page') }}"
+                   class="relative px-5 py-2.5 rounded-full bg-gradient-to-r from-primary to-secondary text-white border border-transparent font-bold transition-all hover:from-primary/90 hover:to-secondary/90 hover:-translate-y-0.5">
+                    השוואה
+                </a>
+
+                <!-- מנוע ההמלצות (Recommendations - owner-only) -->
+                {% if is_owner %}
+                    <a href="{{ url_for('advisor.recommendations') }}"
+                       class="relative px-5 py-2.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/50 transition-all hover:-translate-y-0.5">
+                        מנוע המלצות
+                    </a>
+                {% endif %}
+
+                <!-- החיפושים שלי (Dashboard) -->
                 <a href="{{ url_for('dashboard.dashboard') }}" class="relative px-5 py-2.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/50 transition-all hover:-translate-y-0.5">
                     החיפושים שלי
                 </a>
 
-                <a href="{{ url_for('comparison.compare_page') }}"
-                   class="relative px-5 py-2.5 rounded-full bg-gradient-to-r from-primary to-secondary text-white border border-transparent font-bold transition-all hover:from-primary/90 hover:to-secondary/90 hover:-translate-y-0.5">
-                    השוואת רכבים
-                </a>
-
+                <!-- התנתקות -->
                 <a href="{{ url_for('public.logout') }}" class="px-4 py-2 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition-all flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -234,69 +227,165 @@
             <div id="carSelectionSection" class="bg-dark-lighter/70 border border-slate-700/70 rounded-2xl p-6 md:p-8">
                 <h3 class="text-xl font-bold text-white mb-6">בחר רכבים להשוואה</h3>
                 
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div class="space-y-8">
                     <!-- Car Slot 1 -->
-                    <div class="car-slot" data-slot="0">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">רכב 1</label>
-                        <div class="relative">
-                            <input type="text" 
-                                   class="car-input w-full px-4 py-3 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                                   placeholder="הקלד יצרן או דגם..."
-                                   data-slot="0"
-                                   autocomplete="off">
-                            <div class="autocomplete-dropdown hidden"></div>
+                    <div class="car-slot-container border border-slate-700/50 rounded-xl p-4 bg-slate-800/30" data-slot="1">
+                        <div class="flex items-center justify-between mb-4">
+                            <h4 class="text-lg font-bold text-white">רכב 1 <span class="text-secondary">*</span></h4>
+                            <button type="button" class="clear-slot-btn hidden px-3 py-1 text-xs bg-slate-700 hover:bg-red-600 rounded-full text-slate-300 hover:text-white transition-colors">
+                                נקה
+                            </button>
                         </div>
-                        <div class="selected-car hidden mt-2 p-3 bg-slate-700/50 rounded-lg">
-                            <div class="flex justify-between items-center">
-                                <span class="car-display text-white font-medium"></span>
-                                <button type="button" class="remove-car text-slate-400 hover:text-red-400 text-xl">&times;</button>
+                        <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400">יצרן</label>
+                                <select id="make_1" name="make_1"
+                                        class="ltr-select w-full appearance-none bg-slate-900/50 border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all cursor-pointer">
+                                    <option value="">בחר יצרן...</option>
+                                </select>
                             </div>
-                            <span class="car-years text-slate-400 text-sm"></span>
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400">דגם</label>
+                                <select id="model_1" name="model_1" disabled
+                                        class="ltr-select w-full appearance-none bg-slate-900/50 border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <option value="">בחר יצרן תחילה</option>
+                                </select>
+                            </div>
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400">שנתון</label>
+                                <select id="year_1" name="year_1" disabled
+                                        class="ltr-select w-full appearance-none bg-slate-900/50 border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <option value="">בחר דגם תחילה</option>
+                                </select>
+                            </div>
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400">סוג מנוע</label>
+                                <select id="engine_1" name="engine_1"
+                                        class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                    <option value="בנזין" selected>בנזין</option>
+                                    <option value="דיזל">דיזל</option>
+                                    <option value="היברידי">היברידי</option>
+                                    <option value="חשמלי">חשמלי</option>
+                                </select>
+                            </div>
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400">תיבת הילוכים</label>
+                                <select id="gear_1" name="gear_1"
+                                        class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                    <option value="אוטומטית" selected>אוטומטית</option>
+                                    <option value="רובוטית">רובוטית (DSG)</option>
+                                    <option value="ידנית">ידנית</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
-                    
+
                     <!-- Car Slot 2 -->
-                    <div class="car-slot" data-slot="1">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">רכב 2</label>
-                        <div class="relative">
-                            <input type="text" 
-                                   class="car-input w-full px-4 py-3 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                                   placeholder="הקלד יצרן או דגם..."
-                                   data-slot="1"
-                                   autocomplete="off">
-                            <div class="autocomplete-dropdown hidden"></div>
+                    <div class="car-slot-container border border-slate-700/50 rounded-xl p-4 bg-slate-800/30" data-slot="2">
+                        <div class="flex items-center justify-between mb-4">
+                            <h4 class="text-lg font-bold text-white">רכב 2 <span class="text-secondary">*</span></h4>
+                            <button type="button" class="clear-slot-btn hidden px-3 py-1 text-xs bg-slate-700 hover:bg-red-600 rounded-full text-slate-300 hover:text-white transition-colors">
+                                נקה
+                            </button>
                         </div>
-                        <div class="selected-car hidden mt-2 p-3 bg-slate-700/50 rounded-lg">
-                            <div class="flex justify-between items-center">
-                                <span class="car-display text-white font-medium"></span>
-                                <button type="button" class="remove-car text-slate-400 hover:text-red-400 text-xl">&times;</button>
+                        <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400">יצרן</label>
+                                <select id="make_2" name="make_2"
+                                        class="ltr-select w-full appearance-none bg-slate-900/50 border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all cursor-pointer">
+                                    <option value="">בחר יצרן...</option>
+                                </select>
                             </div>
-                            <span class="car-years text-slate-400 text-sm"></span>
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400">דגם</label>
+                                <select id="model_2" name="model_2" disabled
+                                        class="ltr-select w-full appearance-none bg-slate-900/50 border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <option value="">בחר יצרן תחילה</option>
+                                </select>
+                            </div>
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400">שנתון</label>
+                                <select id="year_2" name="year_2" disabled
+                                        class="ltr-select w-full appearance-none bg-slate-900/50 border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <option value="">בחר דגם תחילה</option>
+                                </select>
+                            </div>
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400">סוג מנוע</label>
+                                <select id="engine_2" name="engine_2"
+                                        class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                    <option value="בנזין" selected>בנזין</option>
+                                    <option value="דיזל">דיזל</option>
+                                    <option value="היברידי">היברידי</option>
+                                    <option value="חשמלי">חשמלי</option>
+                                </select>
+                            </div>
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400">תיבת הילוכים</label>
+                                <select id="gear_2" name="gear_2"
+                                        class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                    <option value="אוטומטית" selected>אוטומטית</option>
+                                    <option value="רובוטית">רובוטית (DSG)</option>
+                                    <option value="ידנית">ידנית</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
-                    
-                    <!-- Car Slot 3 -->
-                    <div class="car-slot" data-slot="2">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">רכב 3 (אופציונלי)</label>
-                        <div class="relative">
-                            <input type="text" 
-                                   class="car-input w-full px-4 py-3 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                                   placeholder="הקלד יצרן או דגם..."
-                                   data-slot="2"
-                                   autocomplete="off">
-                            <div class="autocomplete-dropdown hidden"></div>
+
+                    <!-- Car Slot 3 (optional) -->
+                    <div class="car-slot-container border border-slate-700/50 rounded-xl p-4 bg-slate-800/30" data-slot="3">
+                        <div class="flex items-center justify-between mb-4">
+                            <h4 class="text-lg font-bold text-white">רכב 3 <span class="text-slate-500">(אופציונלי)</span></h4>
+                            <button type="button" class="clear-slot-btn hidden px-3 py-1 text-xs bg-slate-700 hover:bg-red-600 rounded-full text-slate-300 hover:text-white transition-colors">
+                                נקה
+                            </button>
                         </div>
-                        <div class="selected-car hidden mt-2 p-3 bg-slate-700/50 rounded-lg">
-                            <div class="flex justify-between items-center">
-                                <span class="car-display text-white font-medium"></span>
-                                <button type="button" class="remove-car text-slate-400 hover:text-red-400 text-xl">&times;</button>
+                        <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400">יצרן</label>
+                                <select id="make_3" name="make_3"
+                                        class="ltr-select w-full appearance-none bg-slate-900/50 border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all cursor-pointer">
+                                    <option value="">בחר יצרן...</option>
+                                </select>
                             </div>
-                            <span class="car-years text-slate-400 text-sm"></span>
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400">דגם</label>
+                                <select id="model_3" name="model_3" disabled
+                                        class="ltr-select w-full appearance-none bg-slate-900/50 border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <option value="">בחר יצרן תחילה</option>
+                                </select>
+                            </div>
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400">שנתון</label>
+                                <select id="year_3" name="year_3" disabled
+                                        class="ltr-select w-full appearance-none bg-slate-900/50 border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <option value="">בחר דגם תחילה</option>
+                                </select>
+                            </div>
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400">סוג מנוע</label>
+                                <select id="engine_3" name="engine_3"
+                                        class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                    <option value="בנזין" selected>בנזין</option>
+                                    <option value="דיזל">דיזל</option>
+                                    <option value="היברידי">היברידי</option>
+                                    <option value="חשמלי">חשמלי</option>
+                                </select>
+                            </div>
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400">תיבת הילוכים</label>
+                                <select id="gear_3" name="gear_3"
+                                        class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                    <option value="אוטומטית" selected>אוטומטית</option>
+                                    <option value="רובוטית">רובוטית (DSG)</option>
+                                    <option value="ידנית">ידנית</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
                 </div>
                 
-                <div class="flex justify-center">
+                <div class="flex justify-center mt-6">
                     <button id="compareBtn" type="button"
                             class="px-8 py-3 bg-gradient-to-r from-primary to-secondary text-white font-bold rounded-full hover:from-primary/90 hover:to-secondary/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                             disabled>
@@ -354,13 +443,56 @@
     © 2026 yedaarechevAI – כל הזכויות שמורות.
 </footer>
 
+<!-- Car data JSON -->
+<script type="application/json" id="car-data">
+    {{ car_models_data | tojson | safe }}
+</script>
+
 <script>
 (function() {
     'use strict';
     
-    // State
-    let carsData = [];
-    let selectedCars = [null, null, null];
+    // ============================================================
+    // CAR DATA & MODEL MAP
+    // ============================================================
+    
+    const carDataScript = document.getElementById('car-data');
+    let CAR_DATA = {};
+    if (carDataScript) {
+        try {
+            CAR_DATA = JSON.parse(carDataScript.textContent || carDataScript.innerHTML || '{}');
+        } catch (e) {
+            console.error('[CAR-DATA] JSON parse error', e);
+            CAR_DATA = {};
+        }
+    }
+    
+    // Build model map: { make: [ {name, years:[min,max]} ] }
+    const MODEL_MAP = {};
+    function buildModelMap() {
+        Object.entries(CAR_DATA || {}).forEach(([make, models]) => {
+            if (!Array.isArray(models)) return;
+            MODEL_MAP[make] = models.map(str => {
+                let name = String(str || '').trim();
+                let years = null;
+                const m = name.match(/\((\d{4})\s*-\s*(\d{2,4})\)/);
+                if (m) {
+                    const start = parseInt(m[1], 10);
+                    let end = parseInt(m[2], 10);
+                    if (end < 100) end = 2000 + end;
+                    years = [start, end];
+                    name = name.replace(m[0], '').trim();
+                }
+                return { name, years };
+            });
+        });
+    }
+    buildModelMap();
+    
+    // ============================================================
+    // STATE
+    // ============================================================
+    
     let comparisonResult = null;
     
     // Category names in Hebrew
@@ -396,131 +528,196 @@
         'highway_stability': 'יציבות בכביש מהיר'
     };
     
-    // DOM Elements
-    const carInputs = document.querySelectorAll('.car-input');
+    // ============================================================
+    // DOM ELEMENTS
+    // ============================================================
+    
     const compareBtn = document.getElementById('compareBtn');
     const resultsSection = document.getElementById('resultsSection');
     const errorSection = document.getElementById('errorSection');
     const retryBtn = document.getElementById('retryBtn');
     
-    // Load car data
-    async function loadCarsData() {
-        try {
-            const resp = await fetch('/api/compare/cars');
-            const data = await resp.json();
-            if (data.ok && data.data && data.data.cars) {
-                carsData = data.data.cars;
-                console.log('[COMPARE] Loaded', carsData.length, 'cars');
+    // ============================================================
+    // CAR SELECTOR INITIALIZATION (for each slot)
+    // ============================================================
+    
+    function initCarSelector(slotSuffix) {
+        const makeSelect = document.getElementById(`make_${slotSuffix}`);
+        const modelSelect = document.getElementById(`model_${slotSuffix}`);
+        const yearSelect = document.getElementById(`year_${slotSuffix}`);
+        const clearBtn = document.querySelector(`.car-slot-container[data-slot="${slotSuffix}"] .clear-slot-btn`);
+        
+        if (!makeSelect || !modelSelect || !yearSelect) return;
+        
+        // Populate makes
+        makeSelect.innerHTML = '<option value="">בחר יצרן...</option>';
+        Object.keys(CAR_DATA).sort().forEach(make => {
+            const opt = document.createElement('option');
+            opt.value = make;
+            opt.textContent = make;
+            makeSelect.appendChild(opt);
+        });
+        
+        // Event: Make changed
+        makeSelect.addEventListener('change', function() {
+            const make = this.value;
+            modelSelect.innerHTML = '';
+            yearSelect.innerHTML = '<option value="">בחר דגם תחילה</option>';
+            yearSelect.disabled = true;
+            
+            if (!make) {
+                modelSelect.innerHTML = '<option value="">בחר יצרן תחילה</option>';
+                modelSelect.disabled = true;
+                updateClearButton(slotSuffix);
+                updateCompareButton();
+                return;
             }
-        } catch (err) {
-            console.error('[COMPARE] Failed to load cars:', err);
+            
+            const models = MODEL_MAP[make] || [];
+            modelSelect.innerHTML = '<option value="">בחר דגם...</option>';
+            models.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.name;
+                opt.textContent = m.name;
+                modelSelect.appendChild(opt);
+            });
+            modelSelect.disabled = false;
+            updateClearButton(slotSuffix);
+            updateCompareButton();
+        });
+        
+        // Event: Model changed
+        modelSelect.addEventListener('change', function() {
+            const make = makeSelect.value;
+            const modelName = this.value;
+            yearSelect.innerHTML = '';
+            
+            if (!modelName) {
+                yearSelect.innerHTML = '<option value="">בחר דגם תחילה</option>';
+                yearSelect.disabled = true;
+                updateClearButton(slotSuffix);
+                updateCompareButton();
+                return;
+            }
+            
+            const models = MODEL_MAP[make] || [];
+            const found = models.find(m => m.name === modelName);
+            const nowYear = new Date().getFullYear();
+            let from = nowYear - 20;
+            let to = nowYear + 1;
+            
+            if (found && Array.isArray(found.years)) {
+                from = found.years[0];
+                to = found.years[1];
+            }
+            
+            yearSelect.innerHTML = '<option value="">בחר שנתון...</option>';
+            for (let y = to; y >= from; y--) {
+                const opt = document.createElement('option');
+                opt.value = String(y);
+                opt.textContent = String(y);
+                yearSelect.appendChild(opt);
+            }
+            yearSelect.disabled = false;
+            updateClearButton(slotSuffix);
+            updateCompareButton();
+        });
+        
+        // Event: Year changed
+        yearSelect.addEventListener('change', function() {
+            updateClearButton(slotSuffix);
+            updateCompareButton();
+        });
+        
+        // Clear button functionality
+        if (clearBtn) {
+            clearBtn.addEventListener('click', function() {
+                makeSelect.value = '';
+                modelSelect.innerHTML = '<option value="">בחר יצרן תחילה</option>';
+                modelSelect.disabled = true;
+                yearSelect.innerHTML = '<option value="">בחר דגם תחילה</option>';
+                yearSelect.disabled = true;
+                // Reset engine and gear to defaults
+                const engineSelect = document.getElementById(`engine_${slotSuffix}`);
+                const gearSelect = document.getElementById(`gear_${slotSuffix}`);
+                if (engineSelect) engineSelect.value = 'בנזין';
+                if (gearSelect) gearSelect.value = 'אוטומטית';
+                updateClearButton(slotSuffix);
+                updateCompareButton();
+            });
         }
     }
     
-    // Autocomplete functionality
-    function setupAutocomplete() {
-        carInputs.forEach(input => {
-            const slot = parseInt(input.dataset.slot);
-            const dropdown = input.parentElement.querySelector('.autocomplete-dropdown');
-            
-            input.addEventListener('input', () => {
-                const query = input.value.toLowerCase().trim();
-                if (query.length < 2) {
-                    dropdown.classList.add('hidden');
-                    return;
-                }
-                
-                const matches = carsData.filter(car => 
-                    car.display.toLowerCase().includes(query) ||
-                    car.make.toLowerCase().includes(query) ||
-                    car.model.toLowerCase().includes(query)
-                ).slice(0, 10);
-                
-                if (matches.length === 0) {
-                    dropdown.classList.add('hidden');
-                    return;
-                }
-                
-                dropdown.innerHTML = matches.map((car, i) => `
-                    <div class="autocomplete-item" data-index="${i}" data-make="${car.make}" data-model="${car.model}" data-year-start="${car.year_start || ''}" data-year-end="${car.year_end || ''}">
-                        <span class="font-medium">${car.display}</span>
-                        ${car.year_start ? `<span class="text-slate-400 text-sm mr-2">(${car.year_start}-${car.year_end})</span>` : ''}
-                    </div>
-                `).join('');
-                
-                dropdown.classList.remove('hidden');
-            });
-            
-            dropdown.addEventListener('click', (e) => {
-                const item = e.target.closest('.autocomplete-item');
-                if (!item) return;
-                
-                const car = {
-                    make: item.dataset.make,
-                    model: item.dataset.model,
-                    year_start: item.dataset.yearStart ? parseInt(item.dataset.yearStart) : null,
-                    year_end: item.dataset.yearEnd ? parseInt(item.dataset.yearEnd) : null,
-                    display: `${item.dataset.make} ${item.dataset.model}`
-                };
-                
-                selectCar(slot, car);
-                dropdown.classList.add('hidden');
-                input.value = '';
-            });
-            
-            // Close dropdown on blur
-            input.addEventListener('blur', () => {
-                setTimeout(() => dropdown.classList.add('hidden'), 200);
-            });
-        });
+    function updateClearButton(slotSuffix) {
+        const makeSelect = document.getElementById(`make_${slotSuffix}`);
+        const clearBtn = document.querySelector(`.car-slot-container[data-slot="${slotSuffix}"] .clear-slot-btn`);
+        if (clearBtn && makeSelect) {
+            if (makeSelect.value) {
+                clearBtn.classList.remove('hidden');
+            } else {
+                clearBtn.classList.add('hidden');
+            }
+        }
     }
     
-    function selectCar(slot, car) {
-        selectedCars[slot] = car;
+    // ============================================================
+    // VALIDATION & COMPARE BUTTON
+    // ============================================================
+    
+    function getSelectedCar(slotSuffix) {
+        const makeSelect = document.getElementById(`make_${slotSuffix}`);
+        const modelSelect = document.getElementById(`model_${slotSuffix}`);
+        const yearSelect = document.getElementById(`year_${slotSuffix}`);
+        const engineSelect = document.getElementById(`engine_${slotSuffix}`);
+        const gearSelect = document.getElementById(`gear_${slotSuffix}`);
         
-        const slotEl = document.querySelector(`.car-slot[data-slot="${slot}"]`);
-        const inputWrapper = slotEl.querySelector('.relative');
-        const selectedEl = slotEl.querySelector('.selected-car');
+        const make = makeSelect?.value || '';
+        const model = modelSelect?.value || '';
+        const year = yearSelect?.value || '';
         
-        inputWrapper.classList.add('hidden');
-        selectedEl.classList.remove('hidden');
-        selectedEl.querySelector('.car-display').textContent = car.display;
-        selectedEl.querySelector('.car-years').textContent = car.year_start ? `${car.year_start}-${car.year_end}` : '';
+        if (!make || !model || !year) return null;
         
-        updateCompareButton();
+        return {
+            make: make,
+            model: model,
+            year: parseInt(year, 10),
+            engine_type: engineSelect?.value || 'בנזין',
+            gearbox: gearSelect?.value || 'אוטומטית'
+        };
     }
     
-    function removeCar(slot) {
-        selectedCars[slot] = null;
-        
-        const slotEl = document.querySelector(`.car-slot[data-slot="${slot}"]`);
-        const inputWrapper = slotEl.querySelector('.relative');
-        const selectedEl = slotEl.querySelector('.selected-car');
-        
-        inputWrapper.classList.remove('hidden');
-        selectedEl.classList.add('hidden');
-        slotEl.querySelector('.car-input').value = '';
-        
-        updateCompareButton();
+    function getSelectedCars() {
+        const cars = [];
+        for (let i = 1; i <= 3; i++) {
+            const car = getSelectedCar(i);
+            if (car) cars.push(car);
+        }
+        return cars;
+    }
+    
+    function hasDuplicates(cars) {
+        const keys = cars.map(c => `${c.make}|${c.model}|${c.year}|${c.engine_type}|${c.gearbox}`);
+        return new Set(keys).size !== keys.length;
     }
     
     function updateCompareButton() {
-        const count = selectedCars.filter(c => c !== null).length;
-        compareBtn.disabled = count < 2;
+        const cars = getSelectedCars();
+        const valid = cars.length >= 2 && !hasDuplicates(cars);
+        compareBtn.disabled = !valid;
     }
     
-    // Remove car buttons
-    document.querySelectorAll('.remove-car').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const slot = parseInt(e.target.closest('.car-slot').dataset.slot);
-            removeCar(slot);
-        });
-    });
+    // ============================================================
+    // COMPARISON API CALL
+    // ============================================================
     
-    // Compare action
     async function runComparison() {
-        const cars = selectedCars.filter(c => c !== null);
+        const cars = getSelectedCars();
         if (cars.length < 2) return;
+        
+        if (hasDuplicates(cars)) {
+            alert('לא ניתן להשוות רכבים זהים. אנא בחר רכבים שונים.');
+            return;
+        }
         
         // UI state
         compareBtn.querySelector('.btn-text').classList.add('hidden');
@@ -555,9 +752,13 @@
         } finally {
             compareBtn.querySelector('.btn-text').classList.remove('hidden');
             compareBtn.querySelector('.btn-loading').classList.add('hidden');
-            compareBtn.disabled = false;
+            updateCompareButton();
         }
     }
+    
+    // ============================================================
+    // RESULTS RENDERING
+    // ============================================================
     
     function renderResults(result) {
         // Render winner
@@ -569,7 +770,7 @@
                 <div class="flex items-center gap-4">
                     <div class="text-5xl">🏆</div>
                     <div>
-                        <div class="text-3xl font-bold text-white">${winner}</div>
+                        <div class="text-3xl font-bold text-white">${escapeHtml(winner)}</div>
                         <div class="text-slate-400">המנצח הכולל</div>
                     </div>
                 </div>
@@ -582,13 +783,13 @@
         const assumptionsList = document.getElementById('assumptionsList');
         const assumptions = result.assumptions || {};
         assumptionsList.innerHTML = Object.entries(assumptions).map(([key, val]) => 
-            `<li>• ${val}</li>`
+            `<li>• ${escapeHtml(val)}</li>`
         ).join('') || '<li>אין הנחות מיוחדות</li>';
         
         // Render top reasons
         const reasonsList = document.getElementById('reasonsList');
         const reasons = result.computed_result?.top_reasons || [];
-        reasonsList.innerHTML = reasons.map(r => `<li>• ${r}</li>`).join('') || '<li>אין נתונים</li>';
+        reasonsList.innerHTML = reasons.map(r => `<li>• ${escapeHtml(r)}</li>`).join('') || '<li>אין נתונים</li>';
         
         // Render categories
         const categoriesSection = document.getElementById('categoriesSection');
@@ -614,12 +815,12 @@
                 <div class="category-header" data-category="${catName}">
                     <div class="flex items-center gap-3">
                         <span class="text-lg font-bold text-white">${CATEGORY_NAMES[catName] || catName}</span>
-                        ${catWinner ? `<span class="winner-badge">${catWinner}</span>` : ''}
+                        ${catWinner ? `<span class="winner-badge">${escapeHtml(catWinner)}</span>` : ''}
                     </div>
                     <div class="flex items-center gap-4">
                         ${carIds.map(carId => `
                             <div class="text-center min-w-[80px]">
-                                <div class="text-sm text-slate-400">${carId.split(' ')[0]}</div>
+                                <div class="text-sm text-slate-400">${escapeHtml(carId.split(' ')[0])}</div>
                                 <div class="text-xl font-bold ${catScores[carId] !== null ? getScoreColor(catScores[carId]) : 'text-slate-500'}">
                                     ${catScores[carId] !== null ? catScores[carId].toFixed(0) : '-'}
                                 </div>
@@ -670,7 +871,7 @@
                     <div class="flex-1">
                         <div class="flex items-center gap-2">
                             <span class="text-slate-300">${METRIC_NAMES[metricName] || metricName}</span>
-                            ${metricWinner ? `<span class="winner-badge text-xs">${metricWinner.split(' ')[0]}</span>` : ''}
+                            ${metricWinner ? `<span class="winner-badge text-xs">${escapeHtml(metricWinner.split(' ')[0])}</span>` : ''}
                         </div>
                     </div>
                     <div class="flex items-center gap-4">
@@ -692,8 +893,8 @@
                                         <div class="sources-list">
                                             ${sources.map(s => `
                                                 <div class="source-item">
-                                                    <a href="${s.url}" target="_blank" class="source-link">${s.title || s.url}</a>
-                                                    ${s.snippet ? `<p class="text-slate-400 mt-1">${s.snippet}</p>` : ''}
+                                                    <a href="${escapeHtml(s.url)}" target="_blank" class="source-link">${escapeHtml(s.title || s.url)}</a>
+                                                    ${s.snippet ? `<p class="text-slate-400 mt-1">${escapeHtml(s.snippet)}</p>` : ''}
                                                 </div>
                                             `).join('')}
                                         </div>
@@ -705,6 +906,20 @@
                 </div>
             `;
         }).join('');
+    }
+    
+    // ============================================================
+    // UTILITY FUNCTIONS
+    // ============================================================
+    
+    function escapeHtml(value) {
+        if (value === null || value === undefined) return '';
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
     
     function formatValue(value) {
@@ -721,7 +936,8 @@
             'small': 'קטן',
             'large': 'גדול'
         };
-        return translations[value.toLowerCase()] || value;
+        const valLower = String(value).toLowerCase();
+        return translations[valLower] || value;
     }
     
     function getScoreColor(score) {
@@ -736,15 +952,25 @@
         sourcesList.classList.toggle('open');
     };
     
-    // Event listeners
+    // ============================================================
+    // EVENT LISTENERS
+    // ============================================================
+    
     compareBtn.addEventListener('click', runComparison);
     retryBtn.addEventListener('click', () => {
         errorSection.classList.add('hidden');
     });
     
-    // Initialize
-    loadCarsData();
-    setupAutocomplete();
+    // ============================================================
+    // INITIALIZE
+    // ============================================================
+    
+    // Initialize car selectors for all 3 slots
+    initCarSelector(1);
+    initCarSelector(2);
+    initCarSelector(3);
+    
+    console.log('[COMPARE] Initialized with', Object.keys(CAR_DATA).length, 'manufacturers');
 })();
 </script>
 
