@@ -498,18 +498,7 @@
     {% endif %}
 </main>
 
-<footer class="mt-16 py-10 text-center border-t border-slate-800/50 bg-dark-lighter/40 backdrop-blur-md">
-    <div class="max-w-7xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-4">
-        <div class="flex items-center gap-3 opacity-75 hover:opacity-100 transition-opacity">
-            <span class="font-bold text-white">yedaarechevAI</span>
-        </div>
-        <p class="text-slate-500 text-sm">© 2025 ידע רכב.</p>
-        <div class="flex gap-6 text-sm font-medium">
-            <a href="{{ url_for('public.privacy') }}" class="text-slate-400 hover:text-primary transition-colors">מדיניות פרטיות</a>
-            <a href="{{ url_for('public.terms') }}" class="text-slate-400 hover:text-primary transition-colors">תקנון שימוש</a>
-        </div>
-    </div>
-</footer>
+{% include "_footer.html" %}
 
 {% if user and user.is_authenticated and is_owner %}
 <script src="/static/recommendations.js"></script>
