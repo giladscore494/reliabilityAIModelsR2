@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for comparison cache parsing and timing estimate fixes.
 """

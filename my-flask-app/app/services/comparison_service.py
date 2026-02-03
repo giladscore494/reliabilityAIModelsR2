@@ -117,7 +117,7 @@ METRICS_DEFINITION = {
 # SAFE JSON CACHE PARSING
 # ============================================================
 
-def _safe_parse_json_cached(raw_value: Optional[str], field_name: str = "unknown") -> Tuple[Any, bool]:
+def _safe_parse_json_cached(raw_value: Any, field_name: str = "unknown") -> Tuple[Any, bool]:
     """
     Safely parse possibly double-encoded JSON from cached database rows.
     
@@ -126,7 +126,8 @@ def _safe_parse_json_cached(raw_value: Optional[str], field_name: str = "unknown
     that itself needs another json.loads() call.
     
     Args:
-        raw_value: The raw string value from the database
+        raw_value: The raw value from the database (string, dict, list, or None).
+                   Can be a JSON string, already-parsed dict/list (from JSONB), or None.
         field_name: Name of the field (for logging)
     
     Returns:
@@ -1031,6 +1032,8 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                     assumptions = model_output.get("assumptions", {})
                 
                 # Self-heal: if any field was double-encoded, update the DB to store normalized JSON
+                # Note: cars_selected and computed_result are required (validated above),
+                # while sources_index and model_json_raw are nullable - hence the extra null checks
                 needs_heal = cars_was_double or computed_was_double or sources_was_double or model_was_double
                 if needs_heal:
                     try:
