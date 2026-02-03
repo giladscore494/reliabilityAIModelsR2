@@ -76,10 +76,14 @@ def compare_api():
     session_id = session.get('_id') if not user_id else None
     
     # Process comparison
-    resp = comparison_service.handle_comparison_request(data, user_id, session_id)
-    if resp.status_code == 403 and getattr(resp, "json", lambda: {}).get("error") == "TERMS_NOT_ACCEPTED":
+    try:
+        resp = comparison_service.handle_comparison_request(data, user_id, session_id)
+        if resp.status_code == 403 and getattr(resp, "json", lambda: {}).get("error") == "TERMS_NOT_ACCEPTED":
+            return resp
         return resp
-    return resp
+    except Exception:
+        current_app.logger.exception("compare_api failed")
+        return api_error("server_error", "שגיאת שרת בעת השוואה", status=500)
 
 
 @bp.route('/api/compare/history', methods=['GET'])
