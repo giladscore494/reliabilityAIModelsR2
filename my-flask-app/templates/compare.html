@@ -61,6 +61,8 @@
             padding: 1rem 1.25rem;
             cursor: pointer;
             background: #1E293B;
+            flex-wrap: wrap;
+            gap: 0.75rem;
         }
         .category-header:hover {
             background: #263449;
@@ -75,15 +77,62 @@
             animation: fadeIn 0.3s ease-out;
         }
         
-        /* Metric rows */
+        /* Metric rows - responsive */
         .metric-row {
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             padding: 0.75rem 0;
             border-bottom: 1px solid #334155;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        @media (min-width: 768px) {
+            .metric-row {
+                flex-direction: row;
+                align-items: center;
+            }
         }
         .metric-row:last-child {
             border-bottom: none;
+        }
+        
+        /* Mobile card layout for car values */
+        .metric-values-container {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            width: 100%;
+        }
+        @media (min-width: 768px) {
+            .metric-values-container {
+                flex-direction: row;
+                gap: 1rem;
+                width: auto;
+            }
+        }
+        .car-value-card {
+            background: #0F172A;
+            border: 1px solid #334155;
+            border-radius: 0.5rem;
+            padding: 0.75rem;
+            flex: 1;
+        }
+        @media (min-width: 768px) {
+            .car-value-card {
+                background: transparent;
+                border: none;
+                padding: 0;
+                min-width: 80px;
+                text-align: center;
+            }
+        }
+        
+        /* Category header scores - responsive */
+        .category-scores-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem 1rem;
+            align-items: center;
         }
         
         /* Winner badge */
@@ -94,6 +143,7 @@
             font-weight: 600;
             padding: 0.2rem 0.5rem;
             border-radius: 9999px;
+            white-space: nowrap;
         }
         
         /* Sources toggle */
@@ -102,6 +152,8 @@
             color: #94A3B8;
             cursor: pointer;
             text-decoration: underline;
+            display: inline-block;
+            margin-top: 0.25rem;
         }
         .sources-toggle:hover {
             color: #CBD5E1;
@@ -133,6 +185,16 @@
         }
         .source-link:hover {
             text-decoration: underline;
+        }
+        
+        /* Metric legend */
+        .metric-legend {
+            background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(236,72,153,0.15));
+            border: 1px solid rgba(99,102,241,0.3);
+        }
+        .legend-item {
+            background: rgba(15,23,42,0.6);
+            border: 1px solid rgba(51,65,85,0.8);
         }
     </style>
 </head>
@@ -364,6 +426,88 @@
                     </div>
                 </div>
                 
+                <!-- Metric Legend (explains low/medium/high) -->
+                <div class="metric-legend rounded-2xl p-6 md:p-8 space-y-4">
+                    <h3 class="text-xl font-bold text-white flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        הסבר: נמוך / בינוני / גבוה
+                    </h3>
+                    <p class="text-slate-300 text-sm">
+                        כל פרמטר מקבל ציון מ-0 עד 100 ומתורגם לרמה (נמוך/בינוני/גבוה). המשמעות משתנה לפי סוג המדד:
+                    </p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="legend-item rounded-xl p-4">
+                            <h4 class="font-bold text-white mb-2">📉 מדדי סיכון (ככל שנמוך יותר - עדיף)</h4>
+                            <ul class="text-sm text-slate-300 space-y-1">
+                                <li><strong class="text-emerald-400">נמוך (80-100):</strong> סיכון מינימלי / עלות נמוכה</li>
+                                <li><strong class="text-yellow-400">בינוני (40-79):</strong> סיכון ממוצע / עלות בינונית</li>
+                                <li><strong class="text-red-400">גבוה (0-39):</strong> סיכון משמעותי / עלות גבוהה</li>
+                            </ul>
+                            <p class="text-xs text-slate-400 mt-2">דוגמאות: סיכון תקלות, מורכבות תחזוקה, עלות ביטוח</p>
+                        </div>
+                        <div class="legend-item rounded-xl p-4">
+                            <h4 class="font-bold text-white mb-2">📈 מדדי ביצועים (ככל שגבוה יותר - עדיף)</h4>
+                            <ul class="text-sm text-slate-300 space-y-1">
+                                <li><strong class="text-emerald-400">גבוה (80-100):</strong> ביצועים מעולים / נוחות גבוהה</li>
+                                <li><strong class="text-yellow-400">בינוני (40-79):</strong> ביצועים סבירים / נוחות בינונית</li>
+                                <li><strong class="text-red-400">נמוך (0-39):</strong> ביצועים חלשים / נוחות מוגבלת</li>
+                            </ul>
+                            <p class="text-xs text-slate-400 mt-2">דוגמאות: אמינות, נוחות נסיעה, זמינות חלפים, שימור ערך</p>
+                        </div>
+                    </div>
+                    <details class="mt-4 text-sm">
+                        <summary class="cursor-pointer text-primary hover:text-secondary transition-colors font-semibold">
+                            📋 רשימה מפורטת של כל המדדים
+                        </summary>
+                        <div class="mt-3 p-4 bg-slate-900/50 rounded-lg space-y-3 text-xs text-slate-300">
+                            <div>
+                                <strong class="text-white">אמינות וסיכונים (40% מהציון):</strong>
+                                <ul class="mr-4 mt-1 space-y-0.5">
+                                    <li>• דירוג אמינות (📈 גבוה=טוב): 0-100 ניקוד</li>
+                                    <li>• סיכון תקלה משמעותית (📉 נמוך=טוב): נמוך/בינוני/גבוה</li>
+                                    <li>• רגישות לק"מ (📉 נמוך=טוב): נמוך/בינוני/גבוה</li>
+                                    <li>• מורכבות תחזוקה (📉 נמוך=טוב): נמוך/בינוני/גבוה</li>
+                                    <li>• עלות תחזוקה צפויה (📉 נמוך=טוב): נמוך/בינוני/גבוה</li>
+                                </ul>
+                            </div>
+                            <div>
+                                <strong class="text-white">עלויות בעלות (25%):</strong>
+                                <ul class="mr-4 mt-1 space-y-0.5">
+                                    <li>• צריכת דלק בעולם האמיתי (📉 נמוך=טוב): 5-25 ליטר/100 ק"מ</li>
+                                    <li>• עלות ביטוח (📉 נמוך=טוב): נמוך/בינוני/גבוה</li>
+                                    <li>• שימור ערך (📈 גבוה=טוב): נמוך/בינוני/גבוה</li>
+                                    <li>• זמינות חלפים (📈 גבוה=טוב): נמוך/בינוני/גבוה</li>
+                                    <li>• נגישות שירות (📈 גבוה=טוב): נמוך/בינוני/גבוה</li>
+                                </ul>
+                            </div>
+                            <div>
+                                <strong class="text-white">פרקטיות ונוחות (20%):</strong>
+                                <ul class="mr-4 mt-1 space-y-0.5">
+                                    <li>• מרחב תא נוסעים (📈 גבוה=טוב): קטן/בינוני/גדול</li>
+                                    <li>• נפח תא מטען (📈 גבוה=טוב): 200-700 ליטר</li>
+                                    <li>• נוחות נסיעה (📈 גבוה=טוב): נמוך/בינוני/גבוה</li>
+                                    <li>• בידוד רעשים (📈 גבוה=טוב): נמוך/בינוני/גבוה</li>
+                                    <li>• נהיגה עירונית (📈 גבוה=טוב): נמוך/בינוני/גבוה</li>
+                                    <li>• יחס ערך-תכונות (📈 גבוה=טוב): נמוך/בינוני/גבוה</li>
+                                </ul>
+                            </div>
+                            <div>
+                                <strong class="text-white">ביצועי נהיגה (15%):</strong>
+                                <ul class="mr-4 mt-1 space-y-0.5">
+                                    <li>• האצה 0-100 קמ"ש (📉 נמוך=טוב): 5-15 שניות</li>
+                                    <li>• הספק מנוע (📈 גבוה=טוב): 80-300 כ"ס</li>
+                                    <li>• יציבות והנדלינג (📈 גבוה=טוב): נמוך/בינוני/גבוה</li>
+                                    <li>• ביצועי בלימה (📈 גבוה=טוב): נמוך/בינוני/גבוה</li>
+                                    <li>• יציבות בכביש מהיר (📈 גבוה=טוב): נמוך/בינוני/גבוה</li>
+                                </ul>
+                            </div>
+                            <p class="text-slate-400 italic mt-2">* הציונים מחושבים באופן דטרמיניסטי בקוד על בסיס נתונים שנאספו מהאינטרנט</p>
+                        </div>
+                    </details>
+                </div>
+                
                 <!-- Category Comparisons -->
                 <div id="categoriesSection" class="space-y-4">
                     <!-- Categories will be rendered here -->
@@ -420,10 +564,6 @@
         </div>
     </div>
 </div>
-
-<footer class="text-center text-slate-500 text-sm py-6 border-t border-slate-800/70">
-    © 2026 yedaarechevAI – כל הזכויות שמורות.
-</footer>
 
 <!-- Car data JSON -->
 <script type="application/json" id="car-data">
@@ -835,16 +975,16 @@
                         <span class="text-lg font-bold text-white">${CATEGORY_NAMES[catName] || catName}</span>
                         ${catWinner ? `<span class="winner-badge">${escapeHtml(catWinner)}</span>` : ''}
                     </div>
-                    <div class="flex items-center gap-4">
+                    <div class="category-scores-container">
                         ${carIds.map(carId => `
-                            <div class="text-center min-w-[80px]">
-                                <div class="text-sm text-slate-400">${escapeHtml(carId.split(' ')[0])}</div>
-                                <div class="text-xl font-bold ${catScores[carId] !== null ? getScoreColor(catScores[carId]) : 'text-slate-500'}">
+                            <div class="text-center min-w-[70px]">
+                                <div class="text-xs text-slate-400">${escapeHtml(carId.split(' ')[0])}</div>
+                                <div class="text-lg md:text-xl font-bold ${catScores[carId] !== null ? getScoreColor(catScores[carId]) : 'text-slate-500'}">
                                     ${catScores[carId] !== null ? catScores[carId].toFixed(0) : '-'}
                                 </div>
                             </div>
                         `).join('')}
-                        <svg class="expand-icon h-5 w-5 text-slate-400 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg class="expand-icon h-5 w-5 text-slate-400 transition-transform shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                         </svg>
                     </div>
@@ -886,13 +1026,13 @@
             
             return `
                 <div class="metric-row">
-                    <div class="flex-1">
-                        <div class="flex items-center gap-2">
-                            <span class="text-slate-300">${METRIC_NAMES[metricName] || metricName}</span>
+                    <div class="flex-1 w-full md:w-auto">
+                        <div class="flex items-center gap-2 mb-2 md:mb-0">
+                            <span class="text-slate-300 font-semibold">${METRIC_NAMES[metricName] || metricName}</span>
                             ${metricWinner ? `<span class="winner-badge text-xs">${escapeHtml(metricWinner.split(' ')[0])}</span>` : ''}
                         </div>
                     </div>
-                    <div class="flex items-center gap-4">
+                    <div class="metric-values-container">
                         ${carIds.map(carId => {
                             const metricData = modelOutput[carId]?.[catName]?.[metricName] || {};
                             const score = computedResult[carId]?.categories?.[catName]?.metrics?.[metricName];
@@ -900,8 +1040,9 @@
                             const sources = metricData.sources || [];
                             
                             return `
-                                <div class="text-center min-w-[80px]">
-                                    <div class="text-sm ${value !== null ? 'text-white' : 'text-slate-500'}">
+                                <div class="car-value-card">
+                                    <div class="text-xs text-slate-400 mb-1 md:hidden">${escapeHtml(carId)}</div>
+                                    <div class="text-sm font-medium ${value !== null ? 'text-white' : 'text-slate-500'}">
                                         ${formatValue(value)}
                                     </div>
                                     ${sources.length > 0 ? `
@@ -912,7 +1053,7 @@
                                             ${sources.map(s => `
                                                 <div class="source-item">
                                                     <a href="${escapeHtml(s.url)}" target="_blank" class="source-link">${escapeHtml(s.title || s.url)}</a>
-                                                    ${s.snippet ? `<p class="text-slate-400 mt-1">${escapeHtml(s.snippet)}</p>` : ''}
+                                                    ${s.snippet ? `<p class="text-slate-400 mt-1 text-xs">${escapeHtml(s.snippet)}</p>` : ''}
                                                 </div>
                                             `).join('')}
                                         </div>
@@ -1016,6 +1157,8 @@
     console.log('[COMPARE] Initialized with', Object.keys(CAR_DATA).length, 'manufacturers');
 })();
 </script>
+
+{% include "_footer.html" %}
 
 </body>
 </html>
