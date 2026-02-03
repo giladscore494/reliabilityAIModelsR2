@@ -165,11 +165,19 @@ def timing_estimate():
             current_app.logger.warning("Timing estimate query failed for %s: %s", scope_kind, e)
             return []
 
+    # Determine the correct timestamp column for ordering
+    # SearchHistory and AdvisorHistory use 'timestamp', ComparisonHistory uses 'created_at'
+    sort_col = getattr(HistoryModel, "timestamp", None)
+    if sort_col is None:
+        sort_col = getattr(HistoryModel, "created_at", None)
+    if sort_col is None:
+        sort_col = HistoryModel.id
+
     try:
         user_records = _safe_query(
             lambda: db.session.query(HistoryModel.duration_ms)
             .filter(HistoryModel.user_id == current_user.id)
-            .order_by(HistoryModel.timestamp.desc())
+            .order_by(sort_col.desc())
             .limit(TIMING_SAMPLE_LIMIT)
             .all(),
             f"{kind}_user",
@@ -180,7 +188,7 @@ def timing_estimate():
         if not stats:
             global_records = _safe_query(
                 lambda: db.session.query(HistoryModel.duration_ms)
-                .order_by(HistoryModel.timestamp.desc())
+                .order_by(sort_col.desc())
                 .limit(TIMING_SAMPLE_LIMIT)
                 .all(),
                 f"{kind}_global",

@@ -114,6 +114,59 @@ METRICS_DEFINITION = {
 
 
 # ============================================================
+# SAFE JSON CACHE PARSING
+# ============================================================
+
+def _safe_parse_json_cached(raw_value: Any, field_name: str = "unknown") -> Tuple[Any, bool]:
+    """
+    Safely parse possibly double-encoded JSON from cached database rows.
+    
+    Handles the case where old cached rows stored double-encoded JSON strings,
+    e.g., '"{\\\"a\\\": 1}"' which when parsed once returns a string '{"a": 1}'
+    that itself needs another json.loads() call.
+    
+    Args:
+        raw_value: The raw value from the database (string, dict, list, or None).
+                   Can be a JSON string, already-parsed dict/list (from JSONB), or None.
+        field_name: Name of the field (for logging)
+    
+    Returns:
+        Tuple of (parsed_value, was_double_encoded)
+        - parsed_value: The parsed dict/list, or the original value if not parseable
+        - was_double_encoded: True if double-encoding was detected and unwrapped
+    
+    Never throws; returns (None, False) for truly invalid data.
+    """
+    if raw_value is None:
+        return None, False
+    
+    if not isinstance(raw_value, str):
+        # Already parsed (e.g., JSONB column returned dict/list directly)
+        return raw_value, False
+    
+    try:
+        # First parse attempt
+        parsed = json.loads(raw_value)
+        
+        # Check if result is still a string that looks like JSON
+        if isinstance(parsed, str):
+            stripped = parsed.strip()
+            if stripped.startswith('{') or stripped.startswith('['):
+                # Attempt second parse (unwrap double-encoding)
+                try:
+                    parsed_inner = json.loads(parsed)
+                    return parsed_inner, True  # was double-encoded
+                except (json.JSONDecodeError, TypeError):
+                    # Inner string wasn't valid JSON, return outer parse
+                    return parsed, False
+        
+        return parsed, False
+    except (json.JSONDecodeError, TypeError):
+        # Could not parse at all
+        return None, False
+
+
+# ============================================================
 # PROMPT BUILDING
 # ============================================================
 
@@ -959,18 +1012,64 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
         
         if cached and cached.computed_result:
             logger.info(f"[COMPARISON] cache hit request_id={request_id} hash={request_hash}")
-            try:
+            
+            # Safely parse all cached JSON fields, handling double-encoded data
+            cars_selected, cars_was_double = _safe_parse_json_cached(cached.cars_selected, "cars_selected")
+            computed_result, computed_was_double = _safe_parse_json_cached(cached.computed_result, "computed_result")
+            sources_index, sources_was_double = _safe_parse_json_cached(cached.sources_index, "sources_index")
+            model_output, model_was_double = _safe_parse_json_cached(cached.model_json_raw, "model_json_raw")
+            
+            # Validate that required fields parsed to expected types
+            cache_valid = (
+                isinstance(cars_selected, list) and
+                isinstance(computed_result, dict)
+            )
+            
+            if cache_valid:
+                # Extract assumptions safely (only if model_output is a dict)
+                assumptions = {}
+                if isinstance(model_output, dict):
+                    assumptions = model_output.get("assumptions", {})
+                
+                # Self-heal: if any field was double-encoded, update the DB to store normalized JSON
+                # Note: cars_selected and computed_result are required (validated above),
+                # while sources_index and model_json_raw are nullable - hence the extra null checks
+                needs_heal = cars_was_double or computed_was_double or sources_was_double or model_was_double
+                if needs_heal:
+                    try:
+                        if cars_was_double:
+                            cached.cars_selected = json.dumps(cars_selected, ensure_ascii=False)
+                        if computed_was_double:
+                            cached.computed_result = json.dumps(computed_result, ensure_ascii=False)
+                        if sources_was_double and sources_index is not None:
+                            cached.sources_index = json.dumps(sources_index, ensure_ascii=False)
+                        if model_was_double and model_output is not None:
+                            cached.model_json_raw = json.dumps(model_output, ensure_ascii=False)
+                        db.session.commit()
+                        logger.info(f"[COMPARISON] self-healed double-encoded cache row id={cached.id}")
+                    except Exception as heal_err:
+                        logger.warning(f"[COMPARISON] self-heal commit failed: {heal_err}")
+                        db.session.rollback()
+                
                 return api_ok({
                     "cached": True,
                     "comparison_id": cached.id,
-                    "cars_selected": json.loads(cached.cars_selected),
-                    "model_output": json.loads(cached.model_json_raw) if cached.model_json_raw else None,
-                    "computed_result": json.loads(cached.computed_result),
-                    "sources_index": json.loads(cached.sources_index) if cached.sources_index else {},
-                    "assumptions": json.loads(cached.model_json_raw).get("assumptions", {}) if cached.model_json_raw else {},
+                    "cars_selected": cars_selected,
+                    "model_output": model_output,
+                    "computed_result": computed_result,
+                    "sources_index": sources_index if sources_index else {},
+                    "assumptions": assumptions,
                 })
-            except json.JSONDecodeError:
-                pass  # Cache corrupted, proceed with fresh call
+            else:
+                # Cache row is corrupted (cannot parse to expected types)
+                # Delete the bad row so future requests don't hit it, then proceed with fresh call
+                logger.warning(f"[COMPARISON] cache row {cached.id} corrupted, deleting and recomputing")
+                try:
+                    db.session.delete(cached)
+                    db.session.commit()
+                except Exception as del_err:
+                    logger.warning(f"[COMPARISON] failed to delete corrupted cache row: {del_err}")
+                    db.session.rollback()
     
     # Build prompt
     prompt = build_comparison_prompt(validated_cars)
