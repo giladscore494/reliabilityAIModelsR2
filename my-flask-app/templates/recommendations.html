@@ -57,14 +57,18 @@
                     בודק אמינות
                 </a>
 
+                <a href="{{ url_for('public.index') }}" class="relative px-5 py-2.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/50 transition-all hover:-translate-y-0.5">
+                    בודק אמינות
+                </a>
+
                 <a href="{{ url_for('comparison.compare_page') }}" class="relative px-5 py-2.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/50 transition-all hover:-translate-y-0.5">
-                    השוואה
+                    השוואת רכבים
                 </a>
 
                 {% if is_owner %}
                     <a href="{{ url_for('advisor.recommendations') }}"
                        class="relative px-5 py-2.5 rounded-full bg-gradient-to-r from-primary to-secondary text-white border border-transparent font-bold transition-all hover:from-primary/90 hover:to-secondary/90 hover:-translate-y-0.5">
-                        מנוע המלצות
+                        מנוע ההמלצות
                     </a>
                 {% endif %}
 
