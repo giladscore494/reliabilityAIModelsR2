@@ -1,0 +1,22 @@
+<!-- Shared footer with legal links and disclaimer -->
+<footer class="mt-auto py-8 text-center border-t border-slate-800/50 bg-dark-lighter/30 backdrop-blur-md">
+    <div class="max-w-7xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-4">
+        <div class="flex items-center gap-3 opacity-75 hover:opacity-100 transition-opacity">
+            <span class="font-bold text-white">yedaarechevAI</span>
+        </div>
+        <div class="flex flex-col md:flex-row items-center gap-2 md:gap-4">
+            <p class="text-slate-500 text-sm">© 2026 yedaarechevAI. כל הזכויות שמורות.</p>
+            <div class="flex gap-4 text-sm font-medium">
+                <a href="{{ url_for('public.terms') }}" target="_blank" rel="noopener noreferrer" class="text-slate-400 hover:text-primary transition-colors" aria-label="תנאי שימוש (נפתח בחלון חדש)">
+                    תנאי שימוש
+                </a>
+                <a href="{{ url_for('public.privacy') }}" target="_blank" rel="noopener noreferrer" class="text-slate-400 hover:text-primary transition-colors" aria-label="מדיניות פרטיות (נפתח בחלון חדש)">
+                    מדיניות פרטיות
+                </a>
+            </div>
+        </div>
+    </div>
+    <p class="mt-4 text-xs text-slate-500 max-w-2xl mx-auto px-4">
+        המידע באתר זה כללי בלבד ואינו מהווה ייעוץ מקצועי, משפטי או מכני. יש לבצע בדיקה עצמאית לפני קבלת החלטות.
+    </p>
+</footer>
