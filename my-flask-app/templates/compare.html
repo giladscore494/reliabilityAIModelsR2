@@ -928,8 +928,7 @@
      */
     function getLoadIdFromQuery() {
         const params = new URLSearchParams(window.location.search);
-        const loadId = params.get('load');
-        return loadId ? loadId : null;
+        return params.get('load');
     }
     
     /**
