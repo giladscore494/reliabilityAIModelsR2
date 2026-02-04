@@ -1239,10 +1239,10 @@ def get_comparison_history(user_id: int, limit: int = 10) -> List[Dict]:
                 "cars": cars,
                 "overall_winner": computed.get("overall_winner"),
             })
-        except Exception:
+        except (AttributeError, TypeError, ValueError) as e:
             # Log warning and skip corrupted record
             current_app.logger.warning(
-                f"Skipping corrupted comparison history record id={record.id}"
+                f"Skipping corrupted comparison history record id={record.id}: {e}"
             )
             continue
     
@@ -1290,8 +1290,8 @@ def get_comparison_detail(comparison_id: int, user_id: Optional[int]) -> Optiona
             "model_name": record.model_name,
             "prompt_version": record.prompt_version,
         }
-    except Exception:
+    except (AttributeError, TypeError, ValueError) as e:
         current_app.logger.warning(
-            f"Failed to parse comparison detail for id={comparison_id}"
+            f"Failed to parse comparison detail for id={comparison_id}: {e}"
         )
         return None

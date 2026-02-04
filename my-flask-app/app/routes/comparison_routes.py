@@ -104,6 +104,8 @@ def compare_history():
         history = comparison_service.get_comparison_history(user_id, limit=limit)
         return api_ok({"history": history})
     except Exception:
+        # Broad catch intentional: ensures JSON error response instead of HTML 500 page
+        # for any failure (database errors, unexpected exceptions, etc.)
         current_app.logger.exception(
             "compare_history failed", 
             extra={"user_id": user_id}
