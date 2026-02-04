@@ -100,8 +100,19 @@ def compare_history():
     user_id = current_user.id
     limit = min(int(request.args.get('limit', 10)), 50)
     
-    history = comparison_service.get_comparison_history(user_id, limit=limit)
-    return api_ok({"history": history})
+    try:
+        history = comparison_service.get_comparison_history(user_id, limit=limit)
+        return api_ok({"history": history})
+    except Exception:
+        current_app.logger.exception(
+            "compare_history failed", 
+            extra={"user_id": user_id}
+        )
+        return api_error(
+            "compare_history_failed", 
+            "Failed to load comparison history", 
+            status=500
+        )
 
 
 @bp.route('/api/compare/<int:comparison_id>', methods=['GET'])
