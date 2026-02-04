@@ -28,6 +28,58 @@ from google.genai import types as genai_types
 
 
 # ============================================================
+# JSON PARSING HELPERS
+# ============================================================
+
+
+def _safe_json_obj(value, default):
+    """
+    Safely decode a JSON value that may be None, already decoded, or double-encoded.
+    
+    Args:
+        value: The value to decode (may be None, str, dict, or list)
+        default: The default value to return on any error
+        
+    Returns:
+        The decoded value as dict/list, or default on any failure.
+        This function NEVER raises an exception.
+    """
+    try:
+        if value is None:
+            return default
+        
+        # Already decoded dict or list
+        if isinstance(value, (dict, list)):
+            return value
+        
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return default
+            
+            # First decode attempt
+            result = json.loads(stripped)
+            
+            # Check if result is still a string (double-encoded)
+            if isinstance(result, str):
+                try:
+                    result = json.loads(result)
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    # Second decode failed, return default
+                    return default
+            
+            # Verify final result is dict or list
+            if isinstance(result, (dict, list)):
+                return result
+            return default
+        
+        # Unexpected type
+        return default
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return default
+
+
+# ============================================================
 # CONFIGURATION
 # ============================================================
 
@@ -1172,15 +1224,26 @@ def get_comparison_history(user_id: int, limit: int = 10) -> List[Dict]:
     result = []
     for record in records:
         try:
-            cars = json.loads(record.cars_selected)
-            computed = json.loads(record.computed_result) if record.computed_result else {}
+            # Robust parsing with double-encoding support
+            cars = _safe_json_obj(record.cars_selected, default=[])
+            if not isinstance(cars, list):
+                cars = []
+            
+            computed = _safe_json_obj(record.computed_result, default={})
+            if not isinstance(computed, dict):
+                computed = {}
+            
             result.append({
                 "id": record.id,
                 "created_at": record.created_at.isoformat(),
                 "cars": cars,
                 "overall_winner": computed.get("overall_winner"),
             })
-        except json.JSONDecodeError:
+        except (AttributeError, TypeError, ValueError) as e:
+            # Log warning and skip corrupted record
+            current_app.logger.warning(
+                f"Skipping corrupted comparison history record id={record.id}: {e}"
+            )
             continue
     
     return result
@@ -1197,16 +1260,38 @@ def get_comparison_detail(comparison_id: int, user_id: Optional[int]) -> Optiona
         return None
     
     try:
+        # Robust parsing with double-encoding support
+        cars_selected = _safe_json_obj(record.cars_selected, default=[])
+        if not isinstance(cars_selected, list):
+            cars_selected = []
+        
+        computed_result = _safe_json_obj(record.computed_result, default={})
+        if not isinstance(computed_result, dict):
+            computed_result = {}
+        
+        model_output = _safe_json_obj(record.model_json_raw, default=None)
+        if model_output is not None and not isinstance(model_output, dict):
+            model_output = None
+        
+        sources_index = _safe_json_obj(record.sources_index, default={})
+        if not isinstance(sources_index, dict):
+            sources_index = {}
+        
+        assumptions = model_output.get("assumptions", {}) if model_output else {}
+        
         return {
             "id": record.id,
             "created_at": record.created_at.isoformat(),
-            "cars_selected": json.loads(record.cars_selected),
-            "model_output": json.loads(record.model_json_raw) if record.model_json_raw else None,
-            "computed_result": json.loads(record.computed_result) if record.computed_result else None,
-            "sources_index": json.loads(record.sources_index) if record.sources_index else {},
-            "assumptions": json.loads(record.model_json_raw).get("assumptions", {}) if record.model_json_raw else {},
+            "cars_selected": cars_selected,
+            "model_output": model_output,
+            "computed_result": computed_result,
+            "sources_index": sources_index,
+            "assumptions": assumptions,
             "model_name": record.model_name,
             "prompt_version": record.prompt_version,
         }
-    except json.JSONDecodeError:
+    except (AttributeError, TypeError, ValueError) as e:
+        current_app.logger.warning(
+            f"Failed to parse comparison detail for id={comparison_id}: {e}"
+        )
         return None
