@@ -918,6 +918,175 @@
         }
     }
     
+    // ============================================================
+    // HISTORY LOADING FROM QUERY PARAM
+    // ============================================================
+    
+    /**
+     * Get load ID from URL query parameter
+     * @returns {string|null} The load ID or null if not present
+     */
+    function getLoadIdFromQuery() {
+        const params = new URLSearchParams(window.location.search);
+        const loadId = params.get('load');
+        return loadId ? loadId : null;
+    }
+    
+    /**
+     * Populate car selectors from cars array (from history)
+     * @param {Array} cars - Array of car objects with make, model, year, engine_type, gearbox
+     */
+    async function populateSelectorsFromCars(cars) {
+        if (!Array.isArray(cars) || cars.length === 0) return;
+        
+        // Helper function to set select value and trigger change
+        const setSelectValue = (selectEl, value) => {
+            if (!selectEl || !value) return;
+            selectEl.value = value;
+            selectEl.dispatchEvent(new Event('change'));
+        };
+        
+        // Helper to wait for options to be populated
+        const waitForOptions = (selectEl, expectedValue, maxWait = 500) => {
+            return new Promise((resolve) => {
+                const startTime = Date.now();
+                const checkOptions = () => {
+                    const hasOption = Array.from(selectEl.options).some(opt => opt.value === expectedValue);
+                    if (hasOption || Date.now() - startTime > maxWait) {
+                        resolve(hasOption);
+                    } else {
+                        setTimeout(checkOptions, 50);
+                    }
+                };
+                checkOptions();
+            });
+        };
+        
+        for (let i = 0; i < Math.min(cars.length, 3); i++) {
+            const car = cars[i];
+            const slotSuffix = i + 1;
+            
+            const makeSelect = document.getElementById(`make_${slotSuffix}`);
+            const modelSelect = document.getElementById(`model_${slotSuffix}`);
+            const yearSelect = document.getElementById(`year_${slotSuffix}`);
+            const engineSelect = document.getElementById(`engine_${slotSuffix}`);
+            const gearSelect = document.getElementById(`gear_${slotSuffix}`);
+            
+            if (!makeSelect || !car.make) continue;
+            
+            // Set make and trigger change to populate models
+            setSelectValue(makeSelect, car.make);
+            
+            // Wait for models to be populated
+            if (car.model) {
+                await waitForOptions(modelSelect, car.model);
+                setSelectValue(modelSelect, car.model);
+            }
+            
+            // Wait for years to be populated
+            if (car.year) {
+                const yearStr = String(car.year);
+                await waitForOptions(yearSelect, yearStr);
+                setSelectValue(yearSelect, yearStr);
+            }
+            
+            // Set engine and gearbox (these have static options)
+            if (car.engine_type && engineSelect) {
+                engineSelect.value = car.engine_type;
+            }
+            if (car.gearbox && gearSelect) {
+                gearSelect.value = car.gearbox;
+            }
+            
+            // Update clear button
+            updateClearButton(slotSuffix);
+        }
+        
+        updateCompareButton();
+    }
+    
+    /**
+     * Load comparison from history by ID
+     * @param {string} loadId - The comparison ID to load
+     */
+    async function loadComparisonFromHistory(loadId) {
+        console.log('[COMPARE] Loading comparison from history, id:', loadId);
+        
+        try {
+            const response = await fetch(`/api/compare/${loadId}`, {
+                method: 'GET',
+                credentials: 'include',
+                headers: {
+                    'Accept': 'application/json'
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok || data.ok === false) {
+                // Handle error
+                const errorMsg = data.error?.message || data.message || 'השוואה לא נמצאה או אינה שייכת לחשבון שלך';
+                console.error('[COMPARE] Failed to load comparison:', errorMsg);
+                
+                // Show error in results section
+                resultsSection.classList.remove('hidden');
+                resultsSection.innerHTML = `
+                    <div class="bg-red-900/30 border border-red-700/60 rounded-2xl p-6 text-center">
+                        <div class="text-4xl mb-4">⚠️</div>
+                        <h3 class="text-xl font-bold text-white mb-2">שגיאה בטעינת ההשוואה</h3>
+                        <p class="text-red-300">${escapeHtml(errorMsg)}</p>
+                        <a href="/compare" class="inline-block mt-4 px-6 py-2 bg-primary hover:bg-primary/80 rounded-full text-white font-semibold transition-colors">
+                            התחל השוואה חדשה
+                        </a>
+                    </div>
+                `;
+                return;
+            }
+            
+            const record = data.data;
+            
+            // Build compatible result object for renderResults
+            const resultCompat = {
+                cars_selected: record.cars_selected || [],
+                computed_result: record.computed_result || {},
+                model_output: record.model_output || {},
+                sources_index: record.sources_index || {},
+                assumptions: record.assumptions || {}
+            };
+            
+            // Populate car selectors from history
+            await populateSelectorsFromCars(resultCompat.cars_selected);
+            
+            // Render results using existing function
+            comparisonResult = resultCompat;
+            renderResults(resultCompat);
+            resultsSection.classList.remove('hidden');
+            
+            // Scroll to results section
+            setTimeout(() => {
+                resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 100);
+            
+            console.log('[COMPARE] Successfully loaded comparison from history');
+            
+        } catch (err) {
+            console.error('[COMPARE] Error loading comparison from history:', err);
+            
+            // Show generic error
+            resultsSection.classList.remove('hidden');
+            resultsSection.innerHTML = `
+                <div class="bg-red-900/30 border border-red-700/60 rounded-2xl p-6 text-center">
+                    <div class="text-4xl mb-4">⚠️</div>
+                    <h3 class="text-xl font-bold text-white mb-2">שגיאה בטעינת ההשוואה</h3>
+                    <p class="text-red-300">אירעה שגיאה בטעינת ההשוואה. נסה שוב מאוחר יותר.</p>
+                    <a href="/compare" class="inline-block mt-4 px-6 py-2 bg-primary hover:bg-primary/80 rounded-full text-white font-semibold transition-colors">
+                        התחל השוואה חדשה
+                    </a>
+                </div>
+            `;
+        }
+    }
+    
     function updateClearButton(slotSuffix) {
         const makeSelect = document.getElementById(`make_${slotSuffix}`);
         const clearBtn = document.querySelector(`.car-slot-container[data-slot="${slotSuffix}"] .clear-slot-btn`);
@@ -1351,6 +1520,13 @@
     initCarSelector(3);
     
     console.log('[COMPARE] Initialized with', Object.keys(CAR_DATA).length, 'manufacturers');
+    
+    // Check for history load parameter
+    const loadId = getLoadIdFromQuery();
+    if (loadId) {
+        console.log('[COMPARE] Found load parameter:', loadId);
+        loadComparisonFromHistory(loadId);
+    }
 })();
 </script>
 
