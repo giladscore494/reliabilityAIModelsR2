@@ -333,6 +333,7 @@ def list_invoices():
     
     invoices = []
     for inv in pagination.items:
+        duration_sec = round((inv.duration_ms or 0) / 1000, 1) if inv.duration_ms else None
         invoices.append({
             "id": inv.id,
             "created_at": inv.created_at.isoformat(),
@@ -341,6 +342,8 @@ def list_invoices():
             "year": inv.year,
             "total_price_ils": inv.total_price_ils,
             "garage_type": inv.garage_type,
+            "duration_ms": inv.duration_ms,
+            "duration_sec": duration_sec,
         })
     
     return api_ok({

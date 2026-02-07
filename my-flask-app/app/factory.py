@@ -1522,8 +1522,8 @@ def create_app():
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     
     # ===== SECURITY: MAX_CONTENT_LENGTH (Phase 1D: DoS prevention) =====
-    # Limit request payload size (64 KB) to cap JSON bodies and prevent memory exhaustion attacks
-    app.config["MAX_CONTENT_LENGTH"] = 64 * 1024  # 64 KB hard cap
+    # Limit request payload size to cap JSON bodies and prevent memory exhaustion attacks
+    app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_CONTENT_LENGTH_BYTES", str(8 * 1024 * 1024)))
 
     # ===== SECURITY:  Session Cookie Configuration (Tier 1) =====
     app.config["SESSION_COOKIE_SECURE"] = bool(is_render)
@@ -1601,6 +1601,20 @@ def create_app():
             if request.is_json or request.accept_mimetypes.accept_json or request.path.startswith(('/analyze', '/advisor_api', '/search-details')):
                 return api_error("invalid_host", "Invalid host header", status=400)
             return "Invalid host header", 400
+
+    @app.before_request
+    def enforce_request_payload_limit():
+        if request.method not in ("POST", "PUT", "PATCH"):
+            return None
+        content_length = request.content_length or 0
+        path = request.path or ""
+        if path == "/api/service-prices/analyze":
+            limit = 6 * 1024 * 1024
+        else:
+            limit = 256 * 1024
+        if content_length > limit:
+            raise RequestEntityTooLarge()
+        return None
     
     # Phase 2H: Origin/Referer protection for session-auth POST endpoints (CSRF-safe without tokens)
     @app.before_request

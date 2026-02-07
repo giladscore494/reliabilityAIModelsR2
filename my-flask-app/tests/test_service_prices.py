@@ -674,6 +674,46 @@ def test_eta_endpoint_requires_login(client):
 
 
 # ============================================
+# TIMING ESTIMATE ENDPOINT
+# ============================================
+
+def test_timing_estimate_invoice_returns_stats(logged_in_client, app):
+    """GET /api/timing/estimate?kind=invoice should return computed stats."""
+    client, user_id = logged_in_client
+
+    with app.app_context():
+        inv_a = ServiceInvoice(
+            user_id=user_id,
+            make="Test",
+            model="Car",
+            year=2020,
+            parsed_json='{}',
+            report_json='{}',
+            duration_ms=30000,
+        )
+        inv_b = ServiceInvoice(
+            user_id=user_id,
+            make="Test",
+            model="Car",
+            year=2021,
+            parsed_json='{}',
+            report_json='{}',
+            duration_ms=40000,
+        )
+        db.session.add_all([inv_a, inv_b])
+        db.session.commit()
+
+    resp = client.get("/api/timing/estimate?kind=invoice")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["data"]["kind"] == "invoice"
+    assert data["data"]["sample_size"] == 2
+    assert data["data"]["source"] == "user"
+    assert data["data"]["estimate_ms"] == 35000
+
+
+# ============================================
 # HISTORY DETAIL ENDPOINT
 # ============================================
 
@@ -709,6 +749,33 @@ def test_service_prices_history_detail_not_found(logged_in_client, app):
     client, user_id = logged_in_client
     resp = client.get("/service-prices/history/99999")
     assert resp.status_code == 404
+
+
+def test_service_prices_history_list_includes_duration(logged_in_client, app):
+    """GET /api/service-prices/history should include duration fields."""
+    client, user_id = logged_in_client
+
+    with app.app_context():
+        inv = ServiceInvoice(
+            user_id=user_id,
+            make="Honda",
+            model="Civic",
+            year=2021,
+            total_price_ils=2000,
+            parsed_json='{}',
+            report_json='{}',
+            duration_ms=4321,
+        )
+        db.session.add(inv)
+        db.session.commit()
+
+    resp = client.get("/api/service-prices/history")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    invoice = data["data"]["invoices"][0]
+    assert invoice["duration_ms"] == 4321
+    assert invoice["duration_sec"] == 4.3
 
 
 # ============================================

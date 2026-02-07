@@ -228,6 +228,9 @@
         timingStartTime = null;
     }
 
+    window.showTimingBanner = showTimingBanner;
+    window.hideTimingBanner = hideTimingBanner;
+
     function getReliabilityLevel(score) {
         const numericScore = Number(score);
         if (score === null || score === undefined || Number.isNaN(numericScore)) {
