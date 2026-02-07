@@ -715,7 +715,7 @@ def build_report(
         grounding_status["verified"] = False
     grounding_verified = grounding_status.get("verified", False)
     grounding_reason = grounding_status.get("reason")
-    content_only = grounding_reason == "verified_by_content"
+    content_verified = grounding_reason == "verified_by_content"
     
     for item in canonical_items:
         code = item["canonical_code"]
@@ -751,7 +751,7 @@ def build_report(
             market_min, market_max, market_median, market_confidence, market_label = compute_market_range(samples)
             if market_min is None:
                 market_note = "אין מספיק נתונים להשוואה"
-            elif content_only and not market_note:
+            elif content_verified and not market_note:
                 market_note = "נאסף מהרשת ללא אימות אוטומטי"
         verdict = compute_item_verdict(price if price else None, market_min, market_max)
  
@@ -779,7 +779,7 @@ def build_report(
             "market_min_ils": market_min,
             "market_max_ils": market_max,
             "market_note": market_note,
-            "market_verification": "content_only" if content_only and cleaned_sources else None,
+            "market_verification": "content_only" if content_verified and cleaned_sources else None,
             "market_samples_n": len(samples),
             "market_sources": cleaned_sources,
             "market_notes": notes,
