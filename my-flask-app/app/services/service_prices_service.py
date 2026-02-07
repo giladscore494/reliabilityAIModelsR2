@@ -189,11 +189,12 @@ def parse_qty(qty: Any) -> int:
         except (TypeError, ValueError):
             return 1
     if isinstance(qty, str):
-        match = re.search(r"(\d+(?:[.,]\d+)?)", qty)
+        qty_clean = qty.replace(",", "")
+        match = re.search(r"(\d+(?:\.\d+)?)", qty_clean)
         if not match:
             return 1
         try:
-            value = float(match.group(1).replace(",", "."))
+            value = float(match.group(1))
             return max(1, int(round(value)))
         except (TypeError, ValueError):
             return 1
@@ -292,7 +293,15 @@ def canonicalize_line_items(line_items: List[Dict]) -> List[Dict]:
         
         entry = grouped[canonical_code]
         existing_qty = entry.get("qty")
-        entry["qty"] = int(existing_qty) if isinstance(existing_qty, (int, float)) else 0
+        if isinstance(existing_qty, (int, float)) and not isinstance(existing_qty, bool):
+            entry["qty"] = int(existing_qty)
+        elif isinstance(existing_qty, str):
+            try:
+                entry["qty"] = int(round(float(existing_qty)))
+            except (TypeError, ValueError):
+                entry["qty"] = 0
+        else:
+            entry["qty"] = 0
         entry["qty"] += qty
         
         if price:
@@ -579,9 +588,9 @@ def build_report(
         }
         verdict = classify_market_verdict(price if price else None, market_min, market_max)
         deviation = compute_price_deviation(price if price else None, market_min, market_max)
-        if deviation is not None:
+        if deviation is not None and price > 0:
             grounded_items += 1
-            weight = max(price, 0) * max(qty, 1)
+            weight = price * max(qty, 1)
             if weight > 0:
                 total_weight += weight
                 total_weighted_deviation += deviation * weight
@@ -698,9 +707,13 @@ def validate_vision_payload(result: Dict[str, Any]) -> None:
         if not isinstance(item, dict):
             raise ValueError("Each line item must be an object.")
         qty = item.get("qty")
+        if isinstance(qty, bool):
+            raise ValueError("Line item qty must be a number.")
         if qty is not None and not isinstance(qty, (int, float)):
             raise ValueError("Line item qty must be a number.")
         invoice_price = item.get("invoice_price_ils", item.get("price_ils"))
+        if isinstance(invoice_price, bool):
+            raise ValueError("Line item invoice_price_ils must be a number.")
         if invoice_price is not None and not isinstance(invoice_price, (int, float)):
             raise ValueError("Line item invoice_price_ils must be a number.")
 

@@ -8,6 +8,7 @@ from io import BytesIO
 
 from flask import Blueprint, request, jsonify, current_app, render_template, send_file
 from flask_login import login_required, current_user
+from json_repair import repair_json
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from app.extensions import db
@@ -112,7 +113,6 @@ def _safe_parse_report_json(raw_report):
             return json.loads(raw_report), False
         except json.JSONDecodeError:
             try:
-                from json_repair import repair_json
                 repaired = repair_json(raw_report)
                 return json.loads(repaired), True
             except Exception:
