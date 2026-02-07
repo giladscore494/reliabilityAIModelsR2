@@ -285,7 +285,7 @@ def _is_il_domain(url_text: str) -> bool:
     return host.endswith(".il") or host.endswith(".co.il") or host.endswith(".gov.il")
 
 
-def filter_israeli_sources(sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def filter_and_deduplicate_israeli_sources(sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     cleaned_sources = []
     seen_urls = set()
     for source in sources:
@@ -649,7 +649,8 @@ def build_report(
     discount_target = 0
     sources_seen = set()
     grounding_sources = []
-    grounding_status = grounding_status or {"verified": True}
+    if grounding_status is None:
+        grounding_status = {"verified": True}
     grounding_verified = grounding_status.get("verified", True)
     grounding_reason = grounding_status.get("reason")
     
@@ -668,7 +669,7 @@ def build_report(
                 samples.append(int(round(sample)))
         sources_raw = web_entry.get("sources") or []
         notes = web_entry.get("notes") or []
-        cleaned_sources = filter_israeli_sources(sources_raw)
+        cleaned_sources = filter_and_deduplicate_israeli_sources(sources_raw)
         if not grounding_verified:
             cleaned_sources = []
             samples = []
@@ -1386,7 +1387,9 @@ def handle_invoice_analysis(
 
     extracted = raw_result.get("extracted", raw_result)
     benchmarks_web = raw_result.get("benchmarks_web", [])
-    grounding_status = raw_result.get("grounding_status") or {"verified": True}
+    grounding_status = raw_result.get("grounding_status")
+    if grounding_status is None:
+        grounding_status = {"verified": True}
     if not grounding_status.get("verified", True):
         benchmarks_web = []
 

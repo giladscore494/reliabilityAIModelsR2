@@ -110,6 +110,7 @@ def check_feature_consent(user_id: int):
 def _safe_parse_report_json(raw_report):
     """Parse report JSON safely, attempting repair when needed."""
     was_repaired = False
+    # Some database drivers return JSON blobs as memoryview objects.
     if isinstance(raw_report, memoryview):
         raw_report = raw_report.tobytes()
     if isinstance(raw_report, (bytes, bytearray)):
