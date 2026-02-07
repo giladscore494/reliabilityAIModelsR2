@@ -12,6 +12,12 @@ LEGAL_IP_HASH_SALT = os.environ.get("LEGAL_IP_HASH_SALT", "").strip()
 INVOICE_FEATURE_KEY = "invoice_scanner"
 INVOICE_FEATURE_CONSENT_VERSION = os.environ.get("INVOICE_FEATURE_CONSENT_VERSION", "2026-02-07")
 
+# Feature-specific consent constants - SPLIT into TWO consents
+INVOICE_EXT_PROCESSING_KEY = "invoice_scanner_external_processing"
+INVOICE_ANON_STORAGE_KEY = "invoice_scanner_anonymized_storage"
+INVOICE_EXT_PROCESSING_VERSION = os.environ.get("INVOICE_EXT_PROCESSING_VERSION", "2026-02-07")
+INVOICE_ANON_STORAGE_VERSION = os.environ.get("INVOICE_ANON_STORAGE_VERSION", "2026-02-07")
+
 # Gemini Vision model for invoice OCR
 GEMINI_VISION_MODEL_ID = os.environ.get("GEMINI_VISION_MODEL_ID", "gemini-2.0-flash")
 

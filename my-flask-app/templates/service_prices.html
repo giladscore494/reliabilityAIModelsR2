@@ -93,12 +93,20 @@
                         
                         <div id="featureConsentSection" class="mb-6 p-4 bg-slate-800/50 rounded-lg border border-slate-700/50">
                             <h3 class="text-lg font-semibold text-white mb-3">הסכמה ייעודית לסריקת חשבוניות</h3>
-                            <label class="flex items-start gap-3 cursor-pointer group">
-                                <input type="checkbox" id="featureConsentCheckbox" class="mt-1 rounded border-slate-600 bg-slate-800 text-primary focus:ring-primary">
-                                <span class="text-slate-300 text-sm leading-relaxed">
-                                    אני מבין/ה שאני מעלה חשבונית טיפול, שהמערכת תבצע ניתוח אוטומטי, ושייתכן שהעיבוד יתבצע אצל ספק טכנולוגי חיצוני לצורך מתן השירות. אני מאשר/ת זאת.
-                                </span>
-                            </label>
+                            <div class="space-y-4">
+                                <label class="flex items-start gap-3 cursor-pointer group">
+                                    <input type="checkbox" id="extProcessingCheckbox" class="mt-1 rounded border-slate-600 bg-slate-800 text-primary focus:ring-primary">
+                                    <span class="text-slate-300 text-sm leading-relaxed">
+                                        אני מבין/ה שאני מעלה חשבונית טיפול, שהמערכת תבצע ניתוח אוטומטי, ושייתכן שהעיבוד יתבצע אצל ספק טכנולוגי חיצוני לצורך מתן השירות. אני מאשר/ת זאת.
+                                    </span>
+                                </label>
+                                <label class="flex items-start gap-3 cursor-pointer group">
+                                    <input type="checkbox" id="anonStorageCheckbox" class="mt-1 rounded border-slate-600 bg-slate-800 text-primary focus:ring-primary">
+                                    <span class="text-slate-300 text-sm leading-relaxed">
+                                        אני מסכים/ה שנשמור נתונים אנונימיים מפרטי הטיפול ומהמחירים בחשבונית (ללא פרטים מזהים) כדי לשפר את מאגר ההשוואות והמחירים ואת איכות השירות.
+                                    </span>
+                                </label>
+                            </div>
                         </div>
                         
                         <div class="flex gap-3">
@@ -179,6 +187,16 @@
                         <div id="submitLoader" class="loader hidden"></div>
                     </button>
                 </form>
+
+                <!-- Loading Banner with ETA -->
+                <div id="loadingBanner" class="hidden mt-4 p-4 bg-primary/10 border border-primary/30 rounded-2xl text-center">
+                    <div class="flex flex-col items-center gap-3">
+                        <div class="loader" style="width: 2rem; height: 2rem; border-width: 3px;"></div>
+                        <div class="text-lg font-semibold text-white">מנתח את החשבונית...</div>
+                        <div id="etaText" class="text-sm text-slate-400"></div>
+                        <div id="etaGlobalText" class="text-sm text-slate-500"></div>
+                    </div>
+                </div>
             </div>
 
             <!-- Results Section (initially hidden) -->
@@ -261,10 +279,16 @@
         let currentReport = null;
         const legalAccepted = {{ 'true' if legal_accepted else 'false' }};
         const featureAccepted = {{ 'true' if feature_accepted else 'false' }};
+        const extProcessingAccepted = {{ 'true' if ext_processing_accepted else 'false' }};
+        const anonStorageAccepted = {{ 'true' if anon_storage_accepted else 'false' }};
         const termsVersion = "{{ terms_version }}";
         const privacyVersion = "{{ privacy_version }}";
         const featureKey = "{{ feature_key }}";
         const featureVersion = "{{ feature_version }}";
+        const extProcessingKey = "{{ ext_processing_key }}";
+        const extProcessingVersion = "{{ ext_processing_version }}";
+        const anonStorageKey = "{{ anon_storage_key }}";
+        const anonStorageVersion = "{{ anon_storage_version }}";
 
         // DOM Elements
         const dropZone = document.getElementById('dropZone');
@@ -276,7 +300,8 @@
         const resultsSection = document.getElementById('resultsSection');
         const legalModal = document.getElementById('legalModal');
         const legalConfirmCheckbox = document.getElementById('legalConfirmCheckbox');
-        const featureConsentCheckbox = document.getElementById('featureConsentCheckbox');
+        const extProcessingCheckbox = document.getElementById('extProcessingCheckbox');
+        const anonStorageCheckbox = document.getElementById('anonStorageCheckbox');
         const acceptBtn = document.getElementById('acceptBtn');
 
         // Initialize
@@ -359,27 +384,32 @@
         function setupLegalModal() {
             const updateAcceptBtn = () => {
                 const termsChecked = legalConfirmCheckbox.checked || legalAccepted;
-                const featureChecked = featureConsentCheckbox.checked || featureAccepted;
-                const allChecked = termsChecked && featureChecked;
-                
+                const extChecked = extProcessingCheckbox.checked || extProcessingAccepted;
+                const anonChecked = anonStorageCheckbox.checked || anonStorageAccepted;
+                const allChecked = termsChecked && extChecked && anonChecked;
+
                 acceptBtn.disabled = !allChecked;
                 acceptBtn.classList.toggle('opacity-50', !allChecked);
                 acceptBtn.classList.toggle('cursor-not-allowed', !allChecked);
             };
-            
+
             legalConfirmCheckbox.addEventListener('change', updateAcceptBtn);
-            featureConsentCheckbox.addEventListener('change', updateAcceptBtn);
-            
-            // Pre-check if already accepted
+            extProcessingCheckbox.addEventListener('change', updateAcceptBtn);
+            anonStorageCheckbox.addEventListener('change', updateAcceptBtn);
+
             if (legalAccepted) {
                 legalConfirmCheckbox.checked = true;
                 legalConfirmCheckbox.disabled = true;
             }
-            if (featureAccepted) {
-                featureConsentCheckbox.checked = true;
-                featureConsentCheckbox.disabled = true;
+            if (extProcessingAccepted) {
+                extProcessingCheckbox.checked = true;
+                extProcessingCheckbox.disabled = true;
             }
-            
+            if (anonStorageAccepted) {
+                anonStorageCheckbox.checked = true;
+                anonStorageCheckbox.disabled = true;
+            }
+
             updateAcceptBtn();
         }
 
@@ -394,10 +424,16 @@
         async function acceptTerms() {
             try {
                 const featureConsents = [];
-                if (!featureAccepted && featureConsentCheckbox.checked) {
+                if (!extProcessingAccepted && extProcessingCheckbox.checked) {
                     featureConsents.push({
-                        feature_key: featureKey,
-                        version: featureVersion
+                        feature_key: extProcessingKey,
+                        version: extProcessingVersion
+                    });
+                }
+                if (!anonStorageAccepted && anonStorageCheckbox.checked) {
+                    featureConsents.push({
+                        feature_key: anonStorageKey,
+                        version: anonStorageVersion
                     });
                 }
                 
@@ -435,6 +471,23 @@
             submitText.textContent = 'מנתח...';
             submitLoader.classList.remove('hidden');
             resultsSection.classList.add('hidden');
+
+            // Fetch ETA
+            try {
+                const etaResp = await fetch('/api/service-prices/eta');
+                const etaData = await etaResp.json();
+                if (etaData.ok) {
+                    const eta = etaData.data;
+                    if (eta.eta_user_s) {
+                        document.getElementById('etaText').textContent = `זמן תגובה צפוי ~${eta.eta_user_s} שניות`;
+                    }
+                    if (eta.eta_global_s) {
+                        document.getElementById('etaGlobalText').textContent = `ממוצע היסטורי ~${eta.eta_global_s} שניות`;
+                    }
+                }
+            } catch (e) { /* ignore ETA fetch errors */ }
+            
+            document.getElementById('loadingBanner').classList.remove('hidden');
             
             try {
                 const formData = new FormData(uploadForm);
@@ -467,6 +520,7 @@
                 submitBtn.disabled = false;
                 submitText.textContent = 'נתח חשבונית';
                 submitLoader.classList.add('hidden');
+                document.getElementById('loadingBanner').classList.add('hidden');
             }
         }
 

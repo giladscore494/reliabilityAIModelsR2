@@ -10,6 +10,8 @@ import pytest
 from app.legal import (
     TERMS_VERSION, PRIVACY_VERSION,
     INVOICE_FEATURE_KEY, INVOICE_FEATURE_CONSENT_VERSION,
+    INVOICE_EXT_PROCESSING_KEY, INVOICE_ANON_STORAGE_KEY,
+    INVOICE_EXT_PROCESSING_VERSION, INVOICE_ANON_STORAGE_VERSION,
     has_accepted_feature, record_feature_acceptance,
 )
 from app.models import LegalAcceptance, LegalFeatureAcceptance, ServiceInvoice, User
@@ -104,7 +106,7 @@ def test_analyze_invoice_requires_feature_consent(logged_in_client, app):
     assert resp.status_code in (403, 428)
     data = resp.get_json()
     assert data.get("error", {}).get("code") == "FEATURE_CONSENT_REQUIRED"
-    assert data.get("required", {}).get("feature_key") == INVOICE_FEATURE_KEY
+    assert data.get("required", {}).get("feature_key") == INVOICE_EXT_PROCESSING_KEY
 
 
 def test_vision_not_called_without_feature_consent(logged_in_client, app):
@@ -342,7 +344,8 @@ def test_analyze_invoice_success_path(logged_in_client, app):
                 accepted_ip="1.2.3.0",
             )
         )
-        record_feature_acceptance(user_id, INVOICE_FEATURE_KEY, INVOICE_FEATURE_CONSENT_VERSION)
+        record_feature_acceptance(user_id, INVOICE_EXT_PROCESSING_KEY, INVOICE_EXT_PROCESSING_VERSION)
+        record_feature_acceptance(user_id, INVOICE_ANON_STORAGE_KEY, INVOICE_ANON_STORAGE_VERSION)
         db.session.commit()
         
         initial_count = User.query.get(user_id).service_price_checks_count or 0
@@ -358,8 +361,13 @@ def test_analyze_invoice_success_path(logged_in_client, app):
         "redaction": {"applied": True, "notes": "test"},
         "confidence": {"overall": 0.95},
     }
+
+    mock_result = {
+        "extracted": mock_extraction,
+        "benchmarks_web": [],
+    }
     
-    with patch("app.services.service_prices_service.vision_extract_invoice", return_value=mock_extraction):
+    with patch("app.services.service_prices_service.vision_extract_invoice_with_web_benchmarks", return_value=mock_result):
         image_data = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
         
         resp = client.post(

@@ -15,6 +15,8 @@ from app.models import ServiceInvoice, LegalAcceptance
 from app.legal import (
     TERMS_VERSION, PRIVACY_VERSION,
     INVOICE_FEATURE_KEY, INVOICE_FEATURE_CONSENT_VERSION,
+    INVOICE_EXT_PROCESSING_KEY, INVOICE_ANON_STORAGE_KEY,
+    INVOICE_EXT_PROCESSING_VERSION, INVOICE_ANON_STORAGE_VERSION,
     has_accepted_feature, parse_legal_confirm,
 )
 from app.quota import (
@@ -80,19 +82,26 @@ def check_legal_acceptance(user_id: int):
 
 def check_feature_consent(user_id: int):
     """
-    Check if user has accepted invoice scanner feature consent.
-    Returns None if accepted, or error response if not.
+    Check if user has accepted BOTH invoice scanner feature consents:
+    1. External processing consent
+    2. Anonymized storage consent
+    Returns None if both accepted, or error response if either is missing.
     """
-    feature_key = INVOICE_FEATURE_KEY
-    version = INVOICE_FEATURE_CONSENT_VERSION
-    
-    if not has_accepted_feature(user_id, feature_key, version):
+    # Check external processing consent
+    if not has_accepted_feature(user_id, INVOICE_EXT_PROCESSING_KEY, INVOICE_EXT_PROCESSING_VERSION):
         return _legal_gating_error(
             "FEATURE_CONSENT_REQUIRED",
-            "חובה לאשר אישור ייעודי לסריקת חשבונית לפני שימוש בפיצ'ר",
-            {"feature_key": feature_key, "version": version},
+            "חובה לאשר אישור ייעודי לעיבוד חשבונית לפני שימוש בפיצ'ר",
+            {"feature_key": INVOICE_EXT_PROCESSING_KEY, "version": INVOICE_EXT_PROCESSING_VERSION},
         )
-    
+
+    if not has_accepted_feature(user_id, INVOICE_ANON_STORAGE_KEY, INVOICE_ANON_STORAGE_VERSION):
+        return _legal_gating_error(
+            "FEATURE_CONSENT_REQUIRED",
+            "חובה לאשר אישור לשמירת נתונים אנונימיים לפני שימוש בפיצ'ר",
+            {"feature_key": INVOICE_ANON_STORAGE_KEY, "version": INVOICE_ANON_STORAGE_VERSION},
+        )
+
     return None
 
 
@@ -112,22 +121,33 @@ def service_prices_page():
         privacy_version=privacy_version,
     ).first() is not None
     
-    feature_accepted = has_accepted_feature(
+    ext_processing_accepted = has_accepted_feature(
         current_user.id,
-        INVOICE_FEATURE_KEY,
-        INVOICE_FEATURE_CONSENT_VERSION,
+        INVOICE_EXT_PROCESSING_KEY,
+        INVOICE_EXT_PROCESSING_VERSION,
     )
-    
+    anon_storage_accepted = has_accepted_feature(
+        current_user.id,
+        INVOICE_ANON_STORAGE_KEY,
+        INVOICE_ANON_STORAGE_VERSION,
+    )
+
     return render_template(
         "service_prices.html",
         user=current_user,
         is_logged_in=True,
         legal_accepted=legal_accepted,
-        feature_accepted=feature_accepted,
+        feature_accepted=ext_processing_accepted and anon_storage_accepted,
+        ext_processing_accepted=ext_processing_accepted,
+        anon_storage_accepted=anon_storage_accepted,
         terms_version=terms_version,
         privacy_version=privacy_version,
         feature_key=INVOICE_FEATURE_KEY,
         feature_version=INVOICE_FEATURE_CONSENT_VERSION,
+        ext_processing_key=INVOICE_EXT_PROCESSING_KEY,
+        ext_processing_version=INVOICE_EXT_PROCESSING_VERSION,
+        anon_storage_key=INVOICE_ANON_STORAGE_KEY,
+        anon_storage_version=INVOICE_ANON_STORAGE_VERSION,
     )
 
 
@@ -182,6 +202,11 @@ def analyze_invoice():
     if consent_error:
         log_access_decision("/api/service-prices/analyze", user_id, "rejected", "feature consent required")
         return consent_error
+    
+    # Determine if anonymized storage consent was given
+    anon_storage_consented = has_accepted_feature(
+        user_id, INVOICE_ANON_STORAGE_KEY, INVOICE_ANON_STORAGE_VERSION
+    )
     
     # ============================================
     # Now we can proceed with file handling
@@ -240,6 +265,7 @@ def analyze_invoice():
             mime_type=mime_type,
             request_id=request_id,
             overrides=overrides if overrides else None,
+            anon_storage_consented=anon_storage_consented,
         )
         
         log_access_decision("/api/service-prices/analyze", user_id, "success", f"invoice_id={invoice_id}")
@@ -360,3 +386,88 @@ def export_all_reports():
         as_attachment=True,
         download_name=f"service_price_reports_export_{datetime.utcnow().strftime('%Y%m%d')}.jsonl",
     )
+
+
+@bp.route("/api/service-prices/eta", methods=["GET"])
+@login_required
+def get_eta():
+    """Return estimated time for invoice analysis."""
+    from sqlalchemy import func
+    user_id = current_user.id
+
+    # User's rolling average (last 20)
+    user_avg = db.session.query(
+        func.avg(ServiceInvoice.duration_ms)
+    ).filter(
+        ServiceInvoice.user_id == user_id,
+        ServiceInvoice.duration_ms.isnot(None),
+    ).order_by(ServiceInvoice.created_at.desc()).limit(20).scalar()
+
+    # Global average (last 200)
+    global_avg = db.session.query(
+        func.avg(ServiceInvoice.duration_ms)
+    ).filter(
+        ServiceInvoice.duration_ms.isnot(None),
+    ).order_by(ServiceInvoice.created_at.desc()).limit(200).scalar()
+
+    eta_user_s = round(user_avg / 1000, 1) if user_avg else None
+    eta_global_s = round(global_avg / 1000, 1) if global_avg else None
+
+    return api_ok({
+        "eta_user_s": eta_user_s,
+        "eta_global_s": eta_global_s,
+    })
+
+
+@bp.route("/service-prices/history", methods=["GET"])
+@login_required
+def service_prices_history_page():
+    """Service prices history list page."""
+    return render_template(
+        "service_prices.html",
+        user=current_user,
+        is_logged_in=True,
+        legal_accepted=True,
+        feature_accepted=True,
+        ext_processing_accepted=True,
+        anon_storage_accepted=True,
+        terms_version=TERMS_VERSION,
+        privacy_version=PRIVACY_VERSION,
+        feature_key=INVOICE_FEATURE_KEY,
+        feature_version=INVOICE_FEATURE_CONSENT_VERSION,
+        ext_processing_key=INVOICE_EXT_PROCESSING_KEY,
+        ext_processing_version=INVOICE_EXT_PROCESSING_VERSION,
+        anon_storage_key=INVOICE_ANON_STORAGE_KEY,
+        anon_storage_version=INVOICE_ANON_STORAGE_VERSION,
+        show_history=True,
+    )
+
+
+@bp.route("/service-prices/history/<int:invoice_id>", methods=["GET"])
+@login_required
+def service_prices_history_detail(invoice_id: int):
+    """Service prices history detail - return report JSON."""
+    user_id = current_user.id
+
+    invoice = ServiceInvoice.query.filter_by(
+        id=invoice_id,
+        user_id=user_id,
+    ).first()
+
+    if not invoice:
+        return api_error("not_found", "דוח לא נמצא", status=404)
+
+    try:
+        report = json.loads(invoice.report_json) if isinstance(invoice.report_json, str) else invoice.report_json
+    except json.JSONDecodeError:
+        return api_error("invalid_report", "שגיאה בקריאת הדוח", status=500)
+
+    return api_ok({
+        "invoice_id": invoice.id,
+        "created_at": invoice.created_at.isoformat(),
+        "make": invoice.make,
+        "model": invoice.model,
+        "year": invoice.year,
+        "total_price_ils": invoice.total_price_ils,
+        "report": report,
+    })
