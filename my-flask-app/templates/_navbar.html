@@ -47,6 +47,11 @@
         {% endif %}
 
         {% if is_authenticated %}
+          <a href="{{ url_for('service_prices.service_prices_page') }}"
+             class="px-4 sm:px-5 py-2.5 rounded-full border transition-all {{ 'bg-gradient-to-r from-primary to-secondary text-white border-transparent font-bold shadow-lg' if active_page=='service_prices' else 'bg-slate-800/80 hover:bg-slate-700 text-white border-slate-700/50 hover:-translate-y-0.5' }}">
+            בדיקת מחירי טיפול
+          </a>
+
           <a href="{{ url_for('dashboard.dashboard') }}"
              class="px-4 sm:px-5 py-2.5 rounded-full border transition-all {{ 'bg-gradient-to-r from-primary to-secondary text-white border-transparent font-bold shadow-lg' if active_page=='dashboard' else 'bg-slate-800/80 hover:bg-slate-700 text-white border-slate-700/50 hover:-translate-y-0.5' }}">
             החיפושים שלי
@@ -117,6 +122,10 @@
         </a>
       {% endif %}
       {% if is_authenticated %}
+        <a href="{{ url_for('service_prices.service_prices_page') }}"
+           class="nav-drawer-link w-full px-4 py-3 rounded-xl border text-right transition {{ 'bg-gradient-to-r from-primary to-secondary text-white border-transparent font-bold' if active_page=='service_prices' else 'bg-slate-900/70 text-slate-100 border-slate-700 hover:bg-slate-800' }}">
+          בדיקת מחירי טיפול
+        </a>
         <a href="{{ url_for('dashboard.dashboard') }}"
            class="nav-drawer-link w-full px-4 py-3 rounded-xl border text-right transition {{ 'bg-gradient-to-r from-primary to-secondary text-white border-transparent font-bold' if active_page=='dashboard' else 'bg-slate-900/70 text-slate-100 border-slate-700 hover:bg-slate-800' }}">
           החיפושים שלי
