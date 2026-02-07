@@ -122,6 +122,7 @@ def _safe_parse_report_json(raw_report):
         return None, was_repaired
     payload = raw_report
     for _ in range(MAX_JSON_DECODE_ATTEMPTS):
+        # Each iteration peels one JSON encoding layer.
         if isinstance(payload, (dict, list)):
             return payload, was_repaired
         if not isinstance(payload, str):

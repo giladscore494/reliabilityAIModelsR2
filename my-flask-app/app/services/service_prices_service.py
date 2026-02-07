@@ -263,7 +263,7 @@ def _is_israel_context(text: Optional[str]) -> bool:
     if not text:
         return False
     lowered = text.lower()
-    if "ישראל" in text or "israel" in lowered:
+    if "ישראל" in lowered or "israel" in lowered:
         return True
     if "₪" in text or "ש\"ח" in text or "שח" in text:
         return True
@@ -548,7 +548,8 @@ def build_invoice_report_narrative(report: Dict[str, Any]) -> Dict[str, Any]:
         "החישוב בוצע לפי חוקים קבועים בקוד.",
     ]
     if missing_items:
-        methodology.append("חלק מהפריטים ללא השוואה בגלל מחסור במקורות ישראליים; הוספת מקורות מחיר בישראל תשפר את ההשוואה.")
+        methodology.append("חלק מהפריטים ללא השוואה בגלל מחסור במקורות ישראליים.")
+        methodology.append("הוספת מקורות מחיר בישראל תשפר את ההשוואה.")
     if report.get("fairness_score") is None:
         methodology.append("אין מספיק נתונים לציון כולל.")
 
