@@ -707,13 +707,17 @@ def validate_vision_payload(result: Dict[str, Any]) -> None:
         if not isinstance(item, dict):
             raise ValueError("Each line item must be an object.")
         qty = item.get("qty")
-        if qty is not None and (isinstance(qty, bool) or not isinstance(qty, (int, float))):
-            raise ValueError("Line item qty must be a numeric value (not boolean).")
+        if qty is not None:
+            if isinstance(qty, bool):
+                raise ValueError("Line item qty must be a numeric value (not boolean).")
+            if not isinstance(qty, (int, float)):
+                raise ValueError("Line item qty must be a numeric value (not boolean).")
         invoice_price = item.get("invoice_price_ils", item.get("price_ils"))
-        if invoice_price is not None and (
-            isinstance(invoice_price, bool) or not isinstance(invoice_price, (int, float))
-        ):
-            raise ValueError("Line item invoice_price_ils must be a numeric value (not boolean).")
+        if invoice_price is not None:
+            if isinstance(invoice_price, bool):
+                raise ValueError("Line item invoice_price_ils must be a numeric value (not boolean).")
+            if not isinstance(invoice_price, (int, float)):
+                raise ValueError("Line item invoice_price_ils must be a numeric value (not boolean).")
 
     benchmarks = result.get("benchmarks_web", [])
     if not isinstance(benchmarks, list):
@@ -726,8 +730,9 @@ def validate_vision_payload(result: Dict[str, Any]) -> None:
             samples = []
         if not isinstance(samples, list):
             raise ValueError("market_samples_ils must be a list.")
-        if any(isinstance(sample, bool) or not isinstance(sample, (int, float)) for sample in samples):
-            raise ValueError("market_samples_ils must contain numbers only.")
+        for sample in samples:
+            if isinstance(sample, bool) or not isinstance(sample, (int, float)):
+                raise ValueError("market_samples_ils must contain numbers only.")
         sources = benchmark.get("sources", [])
         if sources is None:
             sources = []
