@@ -15,6 +15,11 @@ import app.extensions as extensions
 from app.models import ServiceInvoice, ServiceInvoiceItem, User
 from app.legal import GEMINI_VISION_MODEL_ID
 
+# Pricing mode configuration
+SERVICE_PRICES_MODE = os.environ.get("SERVICE_PRICES_MODE", "warmup_web_first")
+MIN_INTERNAL_SAMPLES = int(os.environ.get("MIN_INTERNAL_SAMPLES", "20"))
+MIN_WEB_SAMPLES = int(os.environ.get("MIN_WEB_SAMPLES", "10"))
+
 # Canonical codes mapping - Hebrew and English keywords
 CANONICAL_MAPPINGS = {
     "oil_change": {
@@ -388,6 +393,7 @@ def build_report(
     canonical_items: List[Dict],
     total_price: Optional[int],
     samples_meta: Dict[str, Any],
+    web_samples_map: Optional[Dict[str, List[int]]] = None,
 ) -> Dict[str, Any]:
     """
     Build the final report with percentiles, labels, and analysis.
@@ -407,28 +413,48 @@ def build_report(
         sum_items += price
         total_labor += item.get("labor_ils") or 0
         total_parts += item.get("parts_ils") or 0
-        
-        # Get cohort samples
-        samples = cohort_price_samples(
-            code,
-            make=ctx.get("make"),
-            model=ctx.get("model"),
-            year=ctx.get("year"),
-            mileage=ctx.get("mileage"),
-            region=ctx.get("region"),
-            garage_type=ctx.get("garage_type"),
-        )
-        
+
+        # Determine sample source based on mode
+        samples = []
+        source = "static_range"
+
+        if SERVICE_PRICES_MODE == "warmup_web_first":
+            # In warmup: try web samples first
+            web_samples = (web_samples_map or {}).get(code, [])
+            if len(web_samples) >= MIN_WEB_SAMPLES:
+                samples = web_samples
+                source = "web_grounding"
+            # else: fall through to static range below
+        else:
+            # hybrid_internal_first: try internal first
+            internal_samples = cohort_price_samples(
+                code,
+                make=ctx.get("make"),
+                model=ctx.get("model"),
+                year=ctx.get("year"),
+                mileage=ctx.get("mileage"),
+                region=ctx.get("region"),
+                garage_type=ctx.get("garage_type"),
+            )
+            if len(internal_samples) >= MIN_INTERNAL_SAMPLES:
+                samples = internal_samples
+                source = "internal_dataset"
+            else:
+                web_samples = (web_samples_map or {}).get(code, [])
+                if len(web_samples) >= MIN_WEB_SAMPLES:
+                    samples = web_samples
+                    source = "web_grounding"
+
         cohort_n = len(samples)
         percentiles = compute_percentiles(samples)
         rank = percentile_rank(samples, price) if price else 0.5
-        
+
         # Determine label
-        if cohort_n >= 20:
+        if cohort_n >= MIN_WEB_SAMPLES:
             p50 = percentiles["p50"] or 0
             p75 = percentiles["p75"] or 0
             p90 = percentiles["p90"] or 0
-            
+
             if price <= p50:
                 label = "סביר/נמוך"
             elif price <= p75:
@@ -438,13 +464,11 @@ def build_report(
             else:
                 label = "חריג"
                 red_flags.append(f"{code}: מחיר חריג")
-            
-            # Calculate overpay estimate
+
             overpay = max(0, price - p75)
             if overpay > 0:
                 discount_target += overpay
         else:
-            # Use fallback ranges
             fb = fallback_ranges(code)
             if fb["min"] is not None and fb["max"] is not None:
                 if price <= fb["max"]:
@@ -456,7 +480,7 @@ def build_report(
             else:
                 label = "אין מספיק נתונים"
                 overpay = 0
-        
+
         per_item.append({
             "canonical_code": code,
             "raw_description": item.get("raw_description"),
@@ -468,6 +492,7 @@ def build_report(
             "percentile_rank": round(rank, 2),
             "label": label,
             "overpay_estimate_ils": overpay,
+            "source": source,
         })
     
     # Calculate labor share
@@ -540,6 +565,8 @@ def vision_extract_invoice(
     """
     Use Gemini Vision to extract structured data from invoice image.
     Requests redaction of PII in the response.
+    DEPRECATED: Use vision_extract_invoice_with_web_benchmarks for new code.
+    Kept for backward compatibility.
     """
     import base64
     from google.genai import types as genai_types
@@ -624,6 +651,276 @@ def vision_extract_invoice(
         raise
 
 
+def vision_extract_invoice_with_web_benchmarks(
+    image_bytes: bytes,
+    mime_type: str,
+    request_id: str,
+) -> Dict[str, Any]:
+    """
+    Use Gemini Vision to extract structured data from invoice image
+    AND get web-grounded benchmark samples for Israel market.
+    Single model call for both OCR + grounding (warmup mode).
+    """
+    import base64
+    from google.genai import types as genai_types
+
+    ai_client = extensions.ai_client
+    if not ai_client:
+        raise RuntimeError("AI client not initialized")
+
+    system_instruction = "You are a strict JSON extraction engine. Output must be valid JSON only."
+
+    prompt = (
+        "אתה מנתח/ת חשבונית טיפול רכב מישראל (תמונה). המשימה כפולה ובקריטיות גבוהה:\n\n"
+        "(1) חילוץ נתונים מהחשבונית (OCR) + השחרה/הסרה של פרטים מזהים (Redaction).\n"
+        "(2) בנצ'מרק מחירי שוק בישראל לכל שורת טיפול ע\"י חיפוש/grounding (מחירים ממקורות ישראליים בלבד).\n\n"
+        "כללים מחייבים:\n"
+        "- החזר/י *אך ורק* JSON תקני. אין להחזיר טקסט חופשי. אין Markdown. אין הסברים.\n"
+        "- אם אין מידע: null / [] / \"unknown\". לא לנחש.\n"
+        "- כל פרט מזהה שמופיע (שמות אנשים, טלפון, אימייל, כתובת, שם מוסך, מספר חשבונית/קבלה, מספר רישוי, VIN) חייב להיות מוחלף במחרוזת \"[REDACTED]\".\n"
+        "- בבנצ'מרק: החזר/י אך ורק מספרים (samples_ils) וקישורים (urls). אסור להעתיק טקסט מהאתרים. אין ציטוטים.\n"
+        "- הבנצ'מרק חייב להתבסס על *שוק ישראלי בלבד*:\n"
+        "  - שאילתות בעברית, עם \"ש\\\"ח\" / \"₪\" ו\"ישראל\".\n"
+        "  - אם משתמשים באנגלית, חובה לציין \"Israel\" + ILS + ₪.\n"
+        "  - הימנע/י ממחירים בשווקים זרים.\n"
+        "- תעדיפ/י מקורות מחירון/השוואה ישראליים. אם לא נמצא, החזר/י confidence נמוך.\n\n"
+        "תבניות שאילתות (להשתמש בהן, להתאים לכל שורת טיפול):\n"
+        "1) \"מחיר {service_he} {make} {model} {year} ישראל ₪ כולל עבודה וחלקים\"\n"
+        "2) \"טווח מחירים {service_he} במוסך בישראל ₪\"\n"
+        "3) \"מחיר {service_he} עבודה וחלקים ש\\\"ח מוסך {garage_type_he}\"\n"
+        "4) \"עלות {service_he} ש\\\"ח ישראל\"\n"
+        "5) (fallback) \"{service_en} price Israel ILS ₪ labor parts\"\n\n"
+        "הגדרות:\n"
+        "- garage_type_he: \"מורשה\" אם מופיע רמז למורשה/יבואן, אחרת \"פרטי\" אם נראה מוסך כללי, אחרת \"כללי\".\n"
+        "- service_he: ניסוח קצר בעברית לשירות (לדוגמה: \"החלפת שמן ופילטר\", \"רפידות בלם קדמיות\", \"כיוון פרונט\", \"בדיקת מחשב\").\n"
+        "- service_en: תרגום קצר במקרה הצורך.\n\n"
+        "פורמט JSON חובה (אל תסטה ממנו):\n"
+        "{\n"
+        "  \"extracted\": {\n"
+        "    \"car\": {\n"
+        "      \"make\": null,\n"
+        "      \"model\": null,\n"
+        "      \"year\": null,\n"
+        "      \"mileage\": null\n"
+        "    },\n"
+        "    \"invoice\": {\n"
+        "      \"date\": null,\n"
+        "      \"total_price_ils\": null,\n"
+        "      \"region\": null,\n"
+        "      \"garage_type\": \"dealer|private|unknown\"\n"
+        "    },\n"
+        "    \"line_items\": [\n"
+        "      {\n"
+        "        \"description\": null,\n"
+        "        \"price_ils\": null,\n"
+        "        \"qty\": null\n"
+        "      }\n"
+        "    ],\n"
+        "    \"redaction\": {\n"
+        "      \"applied\": true,\n"
+        "      \"notes\": null\n"
+        "    },\n"
+        "    \"confidence\": {\n"
+        "      \"overall\": 0.0\n"
+        "    }\n"
+        "  },\n"
+        "  \"benchmarks_web\": [\n"
+        "    {\n"
+        "      \"line_item_description\": null,\n"
+        "      \"suggested_service_type\": \"oil_change|filters|brake_pads_front|brake_discs_front|brake_pads_rear|battery|tires|ac_gas|spark_plugs|timing_belt|clutch|alternator|starter|suspension_arm|shock_absorber|wheel_alignment|diagnostic_scan|transmission_fluid|coolant|wipers|unknown\",\n"
+        "      \"queries\": [],\n"
+        "      \"samples_ils\": [],\n"
+        "      \"sources\": [\n"
+        "        {\"url\": null, \"date\": \"YYYY-MM-DD|unknown\"}\n"
+        "      ],\n"
+        "      \"confidence\": 0.0\n"
+        "    }\n"
+        "  ]\n"
+        "}\n\n"
+        "הנחיות איכות לבנצ'מרק:\n"
+        "- עבור כל שורת טיפול: נסה/י להחזיר לפחות 10 מחירים שונים ב-samples_ils. אם לא אפשרי, החזר/י כמה שיש.\n"
+        "- נקה/י מחירים שאינם בש\"ח או שאינם רלוונטיים (למשל חלק בלבד בלי עבודה) אם ניתן לזהות זאת.\n"
+        "- confidence לבנצ'מרק:\n"
+        "  - 0.8+ אם יש 10+ דגימות ממקורות אמינים/רלוונטיים בישראל\n"
+        "  - 0.5 אם יש 5–9 דגימות\n"
+        "  - 0.2 אם פחות מ-5 או מקורות חלשים\n\n"
+        "התחל/י עכשיו."
+    )
+
+    try:
+        config_kwargs = {
+            "response_mime_type": "application/json",
+            "temperature": 0,
+        }
+        try:
+            config = genai_types.GenerateContentConfig(**config_kwargs)
+        except Exception:
+            config = genai_types.GenerateContentConfig(
+                response_mime_type="application/json",
+            )
+
+        contents = [
+            genai_types.Part.from_text(prompt),
+            genai_types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+        ]
+
+        # Try with system_instruction if supported
+        try:
+            response = ai_client.models.generate_content(
+                model=GEMINI_VISION_MODEL_ID,
+                contents=contents,
+                config=config,
+            )
+        except Exception:
+            response = ai_client.models.generate_content(
+                model=GEMINI_VISION_MODEL_ID,
+                contents=contents,
+                config=genai_types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                ),
+            )
+
+        result_text = response.text
+
+        try:
+            result = json.loads(result_text)
+        except json.JSONDecodeError:
+            json_match = re.search(r'\{[\s\S]*\}', result_text)
+            if json_match:
+                result = json.loads(json_match.group())
+            else:
+                raise ValueError("Failed to parse model response as JSON")
+
+        # Handle both old format (flat) and new format (nested under "extracted")
+        if "extracted" in result:
+            return result
+        else:
+            # Wrap old format into new format
+            return {
+                "extracted": {
+                    "car": result.get("car", {}),
+                    "invoice": result.get("invoice", {}),
+                    "line_items": result.get("line_items", []),
+                    "redaction": result.get("redaction", {}),
+                    "confidence": result.get("confidence", {}),
+                },
+                "benchmarks_web": result.get("benchmarks_web", []),
+            }
+
+    except Exception as e:
+        current_app.logger.error(f"Vision extraction with web benchmarks failed: {e}")
+        raise
+
+
+def match_web_benchmarks_to_items(
+    benchmarks_web: List[Dict],
+    canonical_items: List[Dict],
+) -> Dict[str, List[int]]:
+    """
+    Match web benchmark entries to canonical items by fuzzy matching on description.
+    Returns dict: canonical_code -> list of sample prices.
+    Ignores model's suggested_service_type; uses deterministic canonical_code instead.
+    """
+    matched: Dict[str, List[int]] = {}
+
+    for bm in benchmarks_web:
+        bm_desc = bm.get("line_item_description") or ""
+        bm_samples = bm.get("samples_ils") or []
+        if not bm_samples:
+            continue
+
+        # Try to find matching canonical item
+        best_code = None
+        bm_normalized = normalize_text(bm_desc)
+        bm_words = [w for w in bm_normalized.split() if len(w) > 2] if bm_normalized else []
+
+        for item in canonical_items:
+            item_desc = normalize_text(item.get("raw_description") or "")
+            item_code = item.get("canonical_code", "")
+            # Check if descriptions share significant overlap
+            if bm_normalized and item_desc and (
+                bm_normalized in item_desc or item_desc in bm_normalized
+                or any(w in item_desc for w in bm_words)
+            ):
+                best_code = item_code
+                break
+
+        # Fallback: try matching by deterministic code from description
+        if not best_code:
+            code, _ = match_canonical_code(bm_desc)
+            if code:
+                best_code = code
+
+        if best_code:
+            valid_samples = [int(round(s)) for s in bm_samples if isinstance(s, (int, float)) and s > 0]
+            if valid_samples:
+                matched.setdefault(best_code, []).extend(valid_samples)
+
+    return matched
+
+
+def compute_year_bucket(year: Optional[int]) -> Optional[str]:
+    """Compute 5-year bucket string from year."""
+    if not year:
+        return None
+    bucket_start = (year // 5) * 5
+    return f"{bucket_start}-{bucket_start + 4}"
+
+
+def compute_mileage_bucket(mileage: Optional[int]) -> Optional[str]:
+    """Compute 50k bucket string from mileage."""
+    if not mileage:
+        return None
+    bucket_start = (mileage // 50000) * 50000
+    return f"{bucket_start}-{bucket_start + 50000}"
+
+
+def persist_benchmark_items(
+    canonical_items: List[Dict],
+    ctx: Dict[str, Any],
+) -> None:
+    """
+    Persist anonymized benchmark items derived ONLY from invoice-extracted data.
+    No web samples, no report_json, no PII.
+    Only called when user has given anonymized_storage consent.
+    """
+    from app.models import ServicePriceBenchmarkItem
+
+    invoice_date = ctx.get("invoice_date")
+    invoice_month = None
+    if invoice_date:
+        try:
+            if isinstance(invoice_date, str) and len(invoice_date) >= 7:
+                invoice_month = invoice_date[:7]
+        except Exception:
+            pass
+
+    year_bucket = compute_year_bucket(ctx.get("year"))
+    mileage_bucket = compute_mileage_bucket(ctx.get("mileage"))
+
+    for item in canonical_items:
+        price = item.get("price_ils")
+        if not price or price <= 0:
+            continue
+
+        benchmark = ServicePriceBenchmarkItem(
+            canonical_code=item["canonical_code"],
+            category=item.get("category"),
+            price_ils=price,
+            parts_ils=item.get("parts_ils"),
+            labor_ils=item.get("labor_ils"),
+            qty=item.get("qty"),
+            make=ctx.get("make"),
+            model=ctx.get("model"),
+            year_bucket=year_bucket,
+            mileage_bucket=mileage_bucket,
+            region=ctx.get("region"),
+            garage_type=ctx.get("garage_type"),
+            invoice_month=invoice_month,
+        )
+        db.session.add(benchmark)
+
+
 def persist_invoice(
     user_id: int,
     parsed_json: Dict,
@@ -702,6 +999,7 @@ def handle_invoice_analysis(
     mime_type: str,
     request_id: str,
     overrides: Optional[Dict] = None,
+    anon_storage_consented: bool = False,
 ) -> Tuple[Dict, int]:
     """
     Main handler for invoice analysis.
@@ -710,17 +1008,20 @@ def handle_invoice_analysis(
     import time as pytime
     
     start_time = pytime.time()
-    
-    # Extract data from image
-    raw_extracted = vision_extract_invoice(image_bytes, mime_type, request_id)
-    
+
+    # Extract data from image + web benchmarks (single call)
+    raw_result = vision_extract_invoice_with_web_benchmarks(image_bytes, mime_type, request_id)
+
+    extracted = raw_result.get("extracted", raw_result)
+    benchmarks_web = raw_result.get("benchmarks_web", [])
+
     # Sanitize extracted data
-    sanitized = deterministic_sanitize_no_pii(raw_extracted)
-    
+    sanitized = deterministic_sanitize_no_pii(extracted)
+
     # Build context from extracted data + overrides
     car_data = sanitized.get("car") or {}
     invoice_data = sanitized.get("invoice") or {}
-    
+
     ctx = {
         "make": (overrides or {}).get("make") or car_data.get("make"),
         "model": (overrides or {}).get("model") or car_data.get("model"),
@@ -731,33 +1032,33 @@ def handle_invoice_analysis(
         "invoice_date": invoice_data.get("date"),
         "total_price": invoice_data.get("total_price_ils"),
     }
-    
+
     # Canonicalize line items
     raw_items = sanitized.get("line_items") or []
     canonical_items = canonicalize_line_items(raw_items)
-    
-    # Compute samples metadata - only pass relevant context fields
-    cohort_ctx = {
-        k: v for k, v in ctx.items()
-        if k in ("make", "model", "year", "mileage", "region", "garage_type")
-    }
-    total_samples = sum(
-        len(cohort_price_samples(item["canonical_code"], **cohort_ctx))
-        for item in canonical_items
-    )
-    samples_meta = {"total_cohort_n": total_samples}
-    
+
+    # Match web benchmarks to canonical items
+    web_samples_map = match_web_benchmarks_to_items(benchmarks_web, canonical_items)
+
+    # Compute samples metadata
+    total_web_samples = sum(len(v) for v in web_samples_map.values())
+    samples_meta = {"total_cohort_n": total_web_samples}
+
     # Build report
     report = build_report(
         ctx,
         canonical_items,
         ctx.get("total_price"),
         samples_meta,
+        web_samples_map=web_samples_map,
     )
-    
+
+    # Include web benchmarks in report (for user history display only)
+    report["benchmarks_web"] = benchmarks_web
+
     duration_ms = int((pytime.time() - start_time) * 1000)
-    
-    # Persist to database
+
+    # Persist to database (full report for user history)
     invoice_id = persist_invoice(
         user_id,
         sanitized,
@@ -767,5 +1068,14 @@ def handle_invoice_analysis(
         duration_ms,
         request_id,
     )
-    
+
+    # Persist anonymized benchmark items if consent given
+    if anon_storage_consented:
+        try:
+            persist_benchmark_items(canonical_items, ctx)
+            db.session.commit()
+        except Exception as e:
+            current_app.logger.warning(f"Failed to persist benchmark items: {e}")
+            db.session.rollback()
+
     return report, invoice_id

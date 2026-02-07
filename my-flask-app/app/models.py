@@ -322,6 +322,37 @@ class ServiceInvoiceItem(db.Model):
     )
 
 
+class ServicePriceBenchmarkItem(db.Model):
+    """
+    Unique anonymized dataset derived from user-consented invoice extractions.
+    Stores ONLY minimal fields: no PII, no raw images, no report_json, no web samples.
+    Used to improve pricing benchmarks over time.
+    """
+    __tablename__ = "service_price_benchmark_item"
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    canonical_code = db.Column(db.String(64), nullable=False, index=True)
+    category = db.Column(db.String(32), nullable=True, index=True)
+    price_ils = db.Column(db.Integer, nullable=True, index=True)
+    parts_ils = db.Column(db.Integer, nullable=True)
+    labor_ils = db.Column(db.Integer, nullable=True)
+    qty = db.Column(db.Integer, nullable=True)
+
+    make = db.Column(db.String(100), nullable=True, index=True)
+    model = db.Column(db.String(100), nullable=True, index=True)
+    year_bucket = db.Column(db.String(16), nullable=True, index=True)  # e.g. "2020-2024"
+    mileage_bucket = db.Column(db.String(16), nullable=True, index=True)  # e.g. "50000-100000"
+    region = db.Column(db.String(64), nullable=True, index=True)
+    garage_type = db.Column(db.String(16), nullable=True, index=True)
+    invoice_month = db.Column(db.String(7), nullable=True, index=True)  # e.g. "2026-01"
+
+    __table_args__ = (
+        db.Index("ix_benchmark_code_make_model", "canonical_code", "make", "model"),
+    )
+
+
 class LegalFeatureAcceptance(db.Model):
     """
     Feature-specific legal acceptance records.

@@ -10,6 +10,8 @@ import pytest
 from app.legal import (
     TERMS_VERSION, PRIVACY_VERSION,
     INVOICE_FEATURE_KEY, INVOICE_FEATURE_CONSENT_VERSION,
+    INVOICE_EXT_PROCESSING_KEY, INVOICE_ANON_STORAGE_KEY,
+    INVOICE_EXT_PROCESSING_VERSION, INVOICE_ANON_STORAGE_VERSION,
     has_accepted_feature, record_feature_acceptance,
 )
 from app.models import LegalAcceptance, LegalFeatureAcceptance, ServiceInvoice, User
@@ -104,7 +106,7 @@ def test_analyze_invoice_requires_feature_consent(logged_in_client, app):
     assert resp.status_code in (403, 428)
     data = resp.get_json()
     assert data.get("error", {}).get("code") == "FEATURE_CONSENT_REQUIRED"
-    assert data.get("required", {}).get("feature_key") == INVOICE_FEATURE_KEY
+    assert data.get("required", {}).get("feature_key") == INVOICE_EXT_PROCESSING_KEY
 
 
 def test_vision_not_called_without_feature_consent(logged_in_client, app):
@@ -342,7 +344,8 @@ def test_analyze_invoice_success_path(logged_in_client, app):
                 accepted_ip="1.2.3.0",
             )
         )
-        record_feature_acceptance(user_id, INVOICE_FEATURE_KEY, INVOICE_FEATURE_CONSENT_VERSION)
+        record_feature_acceptance(user_id, INVOICE_EXT_PROCESSING_KEY, INVOICE_EXT_PROCESSING_VERSION)
+        record_feature_acceptance(user_id, INVOICE_ANON_STORAGE_KEY, INVOICE_ANON_STORAGE_VERSION)
         db.session.commit()
         
         initial_count = User.query.get(user_id).service_price_checks_count or 0
@@ -358,8 +361,13 @@ def test_analyze_invoice_success_path(logged_in_client, app):
         "redaction": {"applied": True, "notes": "test"},
         "confidence": {"overall": 0.95},
     }
+
+    mock_result = {
+        "extracted": mock_extraction,
+        "benchmarks_web": [],
+    }
     
-    with patch("app.services.service_prices_service.vision_extract_invoice", return_value=mock_extraction):
+    with patch("app.services.service_prices_service.vision_extract_invoice_with_web_benchmarks", return_value=mock_result):
         image_data = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
         
         resp = client.post(
@@ -438,3 +446,280 @@ def test_download_report_not_found_for_other_user(logged_in_client, app):
     
     resp = client.get(f"/api/service-prices/download/{invoice_id}")
     assert resp.status_code == 404
+
+
+# ============================================
+# CONSENT GATING FOR ALL 4 REQUIREMENTS
+# ============================================
+
+def test_analyze_requires_all_four_consents(logged_in_client, app):
+    """Ensure model not called when any of the 4 consents is missing."""
+    client, user_id = logged_in_client
+
+    image_data = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+    # 1. No consents at all -> LEGAL_ACCEPTANCE_REQUIRED
+    resp = client.post(
+        "/api/service-prices/analyze",
+        data={"invoice_image": (image_data, "test.png", "image/png")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code in (403, 428)
+    assert resp.get_json()["error"]["code"] == "LEGAL_ACCEPTANCE_REQUIRED"
+
+    # 2. Legal only, no feature consents -> FEATURE_CONSENT_REQUIRED
+    with app.app_context():
+        db.session.add(LegalAcceptance(
+            user_id=user_id, terms_version=TERMS_VERSION,
+            privacy_version=PRIVACY_VERSION,
+            accepted_at=datetime.utcnow(), accepted_ip="1.2.3.0",
+        ))
+        db.session.commit()
+
+    image_data = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+    resp = client.post(
+        "/api/service-prices/analyze",
+        data={"invoice_image": (image_data, "test.png", "image/png")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code in (403, 428)
+    assert resp.get_json()["error"]["code"] == "FEATURE_CONSENT_REQUIRED"
+    assert resp.get_json()["required"]["feature_key"] == INVOICE_EXT_PROCESSING_KEY
+
+    # 3. Legal + ext_processing but no anon_storage -> FEATURE_CONSENT_REQUIRED
+    with app.app_context():
+        record_feature_acceptance(user_id, INVOICE_EXT_PROCESSING_KEY, INVOICE_EXT_PROCESSING_VERSION)
+
+    image_data = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+    resp = client.post(
+        "/api/service-prices/analyze",
+        data={"invoice_image": (image_data, "test.png", "image/png")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code in (403, 428)
+    assert resp.get_json()["error"]["code"] == "FEATURE_CONSENT_REQUIRED"
+    assert resp.get_json()["required"]["feature_key"] == INVOICE_ANON_STORAGE_KEY
+
+
+# ============================================
+# WARMUP MODE: SINGLE MODEL CALL
+# ============================================
+
+def test_warmup_mode_calls_generate_content_once(logged_in_client, app):
+    """In warmup mode, generate_content should be called exactly ONCE per analyze."""
+    client, user_id = logged_in_client
+
+    with app.app_context():
+        db.session.add(LegalAcceptance(
+            user_id=user_id, terms_version=TERMS_VERSION,
+            privacy_version=PRIVACY_VERSION,
+            accepted_at=datetime.utcnow(), accepted_ip="1.2.3.0",
+        ))
+        record_feature_acceptance(user_id, INVOICE_EXT_PROCESSING_KEY, INVOICE_EXT_PROCESSING_VERSION)
+        record_feature_acceptance(user_id, INVOICE_ANON_STORAGE_KEY, INVOICE_ANON_STORAGE_VERSION)
+        db.session.commit()
+
+    mock_result = {
+        "extracted": {
+            "car": {"make": "Toyota", "model": "Corolla", "year": 2020, "mileage": 80000},
+            "invoice": {"date": "2026-01-15", "total_price_ils": 1500, "region": "center", "garage_type": "dealer"},
+            "line_items": [
+                {"description": "החלפת שמן", "price_ils": 400, "qty": 1},
+            ],
+            "redaction": {"applied": True, "notes": "test"},
+            "confidence": {"overall": 0.9},
+        },
+        "benchmarks_web": [
+            {
+                "line_item_description": "החלפת שמן",
+                "suggested_service_type": "oil_change",
+                "queries": ["מחיר החלפת שמן"],
+                "samples_ils": [300, 350, 400, 450, 500, 550, 600, 350, 380, 420],
+                "sources": [{"url": "https://example.com", "date": "2026-01-01"}],
+                "confidence": 0.8,
+            }
+        ],
+    }
+
+    with patch("app.services.service_prices_service.vision_extract_invoice_with_web_benchmarks", return_value=mock_result) as mock_fn:
+        image_data = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+        resp = client.post(
+            "/api/service-prices/analyze",
+            data={"invoice_image": (image_data, "test.png", "image/png")},
+            content_type="multipart/form-data",
+        )
+
+        assert resp.status_code == 200
+        # vision_extract_invoice_with_web_benchmarks called exactly once
+        mock_fn.assert_called_once()
+
+
+# ============================================
+# BENCHMARK ITEM NEVER STORES WEB DATA
+# ============================================
+
+def test_benchmark_item_never_stores_web_data(logged_in_client, app):
+    """ServicePriceBenchmarkItem should only contain invoice-derived data, never web samples."""
+    from app.models import ServicePriceBenchmarkItem
+
+    client, user_id = logged_in_client
+
+    with app.app_context():
+        db.session.add(LegalAcceptance(
+            user_id=user_id, terms_version=TERMS_VERSION,
+            privacy_version=PRIVACY_VERSION,
+            accepted_at=datetime.utcnow(), accepted_ip="1.2.3.0",
+        ))
+        record_feature_acceptance(user_id, INVOICE_EXT_PROCESSING_KEY, INVOICE_EXT_PROCESSING_VERSION)
+        record_feature_acceptance(user_id, INVOICE_ANON_STORAGE_KEY, INVOICE_ANON_STORAGE_VERSION)
+        db.session.commit()
+
+    mock_result = {
+        "extracted": {
+            "car": {"make": "Toyota", "model": "Corolla", "year": 2020, "mileage": 80000},
+            "invoice": {"date": "2026-01-15", "total_price_ils": 1500, "region": "center", "garage_type": "dealer"},
+            "line_items": [
+                {"description": "החלפת שמן", "price_ils": 400, "qty": 1},
+            ],
+            "redaction": {"applied": True, "notes": "test"},
+            "confidence": {"overall": 0.9},
+        },
+        "benchmarks_web": [
+            {
+                "line_item_description": "החלפת שמן",
+                "suggested_service_type": "oil_change",
+                "queries": ["מחיר החלפת שמן"],
+                "samples_ils": [300, 350, 400],
+                "sources": [{"url": "https://example.com", "date": "2026-01-01"}],
+                "confidence": 0.5,
+            }
+        ],
+    }
+
+    with patch("app.services.service_prices_service.vision_extract_invoice_with_web_benchmarks", return_value=mock_result):
+        image_data = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+        resp = client.post(
+            "/api/service-prices/analyze",
+            data={"invoice_image": (image_data, "test.png", "image/png")},
+            content_type="multipart/form-data",
+        )
+
+    assert resp.status_code == 200
+
+    with app.app_context():
+        benchmarks = ServicePriceBenchmarkItem.query.all()
+        for bm in benchmarks:
+            # Verify only invoice-derived fields, no web data
+            assert bm.canonical_code is not None
+            assert bm.price_ils is not None
+            assert bm.price_ils > 0
+            # Benchmark should store invoice price (400), not web samples (300, 350, 400)
+            # It should be exactly the extracted invoice item price
+            assert bm.price_ils == 400
+            assert bm.make == "Toyota"
+            assert bm.model == "Corolla"
+
+
+# ============================================
+# ETA ENDPOINT
+# ============================================
+
+def test_eta_endpoint_returns_safe_values(logged_in_client, app):
+    """GET /api/service-prices/eta should return safe values even with no data."""
+    client, user_id = logged_in_client
+
+    resp = client.get("/api/service-prices/eta")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert "eta_user_s" in data["data"]
+    assert "eta_global_s" in data["data"]
+    # With no invoices, should be None
+    assert data["data"]["eta_user_s"] is None
+    assert data["data"]["eta_global_s"] is None
+
+
+def test_eta_endpoint_with_data(logged_in_client, app):
+    """GET /api/service-prices/eta should return computed averages when data exists."""
+    client, user_id = logged_in_client
+
+    with app.app_context():
+        for i in range(3):
+            inv = ServiceInvoice(
+                user_id=user_id,
+                make="Test",
+                model="Car",
+                year=2020,
+                parsed_json='{}',
+                report_json='{}',
+                duration_ms=3000 + i * 1000,
+            )
+            db.session.add(inv)
+        db.session.commit()
+
+    resp = client.get("/api/service-prices/eta")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["data"]["eta_user_s"] is not None
+    assert data["data"]["eta_global_s"] is not None
+    assert data["data"]["eta_user_s"] > 0
+    assert data["data"]["eta_global_s"] > 0
+
+
+def test_eta_endpoint_requires_login(client):
+    """GET /api/service-prices/eta without login should redirect."""
+    resp = client.get("/api/service-prices/eta")
+    assert resp.status_code in (302, 401)
+
+
+# ============================================
+# HISTORY DETAIL ENDPOINT
+# ============================================
+
+def test_service_prices_history_detail(logged_in_client, app):
+    """GET /service-prices/history/<id> should return invoice detail."""
+    client, user_id = logged_in_client
+
+    with app.app_context():
+        inv = ServiceInvoice(
+            user_id=user_id,
+            make="Honda",
+            model="Civic",
+            year=2021,
+            total_price_ils=2000,
+            parsed_json='{}',
+            report_json='{"fairness_score": 80, "items": []}',
+        )
+        db.session.add(inv)
+        db.session.commit()
+        invoice_id = inv.id
+
+    resp = client.get(f"/service-prices/history/{invoice_id}")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["data"]["invoice_id"] == invoice_id
+    assert data["data"]["make"] == "Honda"
+    assert data["data"]["report"]["fairness_score"] == 80
+
+
+def test_service_prices_history_detail_not_found(logged_in_client, app):
+    """GET /service-prices/history/<id> for nonexistent invoice returns 404."""
+    client, user_id = logged_in_client
+    resp = client.get("/service-prices/history/99999")
+    assert resp.status_code == 404
+
+
+# ============================================
+# DASHBOARD INCLUDES SERVICE PRICES HISTORY
+# ============================================
+
+def test_dashboard_shows_service_prices_tab(logged_in_client, app):
+    """Dashboard page should include service prices history tab."""
+    client, user_id = logged_in_client
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    html = resp.data.decode("utf-8")
+    assert "בדיקת מחירי טיפול" in html
+    assert "tab-service_prices" in html

@@ -153,6 +153,10 @@
             <span class="whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50">
                 היסטוריית המלצות (בקרוב · {{ advisor_count or 0 }} שאלונים)
             </span>
+            <button type="button" onclick="showTab('service_prices')" id="tab-service_prices"
+                    class="tab-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50 cursor-pointer transition-colors hover:bg-slate-800 hover:text-slate-300">
+                בדיקת מחירי טיפול
+            </button>
         </div>
     </div>
 
@@ -229,6 +233,13 @@
     <div id="tab-content-comparisons" class="relative z-10 hidden">
         <div id="comparisons-list" class="grid gap-4">
             <div class="text-center py-8 text-slate-400">טוען היסטוריית השוואות...</div>
+        </div>
+    </div>
+
+    <!-- Service Prices History Tab -->
+    <div id="tab-content-service_prices" class="relative z-10 hidden">
+        <div id="service-prices-list" class="grid gap-4">
+            <div class="text-center py-8 text-slate-400">טוען היסטוריית בדיקות מחירים...</div>
         </div>
     </div>
 
@@ -797,13 +808,54 @@
         // Show/hide content
         document.getElementById('tab-content-reliability').classList.toggle('hidden', tabName !== 'reliability');
         document.getElementById('tab-content-comparisons').classList.toggle('hidden', tabName !== 'comparisons');
+        document.getElementById('tab-content-service_prices').classList.toggle('hidden', tabName !== 'service_prices');
         
         // Load comparisons if switching to that tab for the first time
         if (tabName === 'comparisons' && !comparisonsLoaded) {
             loadComparisonsHistory();
         }
+        // Load service prices history if switching to that tab
+        if (tabName === 'service_prices') {
+            loadServicePricesHistory();
+        }
     }
     
+    async function loadServicePricesHistory() {
+        const container = document.getElementById('service-prices-list');
+        try {
+            const response = await fetch('/api/service-prices/history?per_page=20', {
+                headers: { 'Accept': 'application/json' },
+                credentials: 'same-origin'
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) {
+                container.innerHTML = `<div class="text-center py-8 text-red-400">שגיאה בטעינת היסטוריית בדיקות מחירים</div>`;
+                return;
+            }
+            const invoices = data.data.invoices || [];
+            if (invoices.length === 0) {
+                container.innerHTML = '<div class="text-center py-8 text-slate-400">אין בדיקות מחירים קודמות</div>';
+                return;
+            }
+            container.innerHTML = invoices.map(inv => `
+                <div class="bg-dark-lighter/80 border border-slate-700/60 rounded-xl p-4 shadow-lg">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <h3 class="text-lg font-bold text-white">${escapeHtml(inv.make || '')} ${escapeHtml(inv.model || '')} ${escapeHtml(String(inv.year || ''))}</h3>
+                            <div class="text-sm text-slate-400 mt-1">
+                                ${new Date(inv.created_at).toLocaleDateString('he-IL')} ·
+                                ${inv.total_price_ils ? '₪' + inv.total_price_ils.toLocaleString() : 'לא צוין סכום'}
+                            </div>
+                        </div>
+                        <a href="/api/service-prices/download/${inv.id}" class="text-primary hover:underline text-sm">הורד דוח</a>
+                    </div>
+                </div>
+            `).join('');
+        } catch (err) {
+            container.innerHTML = '<div class="text-center py-8 text-red-400">שגיאה בטעינת היסטוריית בדיקות מחירים</div>';
+        }
+    }
+
     async function loadComparisonsHistory() {
         const container = document.getElementById('comparisons-list');
         try {
