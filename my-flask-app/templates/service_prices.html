@@ -229,12 +229,17 @@
                 <div class="bg-dark-lighter/60 backdrop-blur-xl border border-slate-700/50 p-6 md:p-8 rounded-3xl shadow-2xl">
                     <div class="flex items-center justify-between mb-6">
                         <h2 class="text-2xl font-bold text-white">תוצאות הניתוח</h2>
-                        <button id="downloadBtn" class="px-4 py-2 rounded-full bg-slate-700 hover:bg-slate-600 text-white font-medium flex items-center gap-2 transition">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                            </svg>
-                            הורד דוח
-                        </button>
+                        <div class="flex items-center gap-2">
+                            <button id="downloadBtn" class="px-4 py-2 rounded-full bg-slate-700 hover:bg-slate-600 text-white font-medium flex items-center gap-2 transition">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                </svg>
+                                הורד דוח
+                            </button>
+                            <button id="downloadJsonBtn" class="px-3 py-2 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium transition">
+                                הורד JSON
+                            </button>
+                        </div>
                     </div>
 
                     <!-- Fairness Score -->
@@ -622,7 +627,8 @@
             document.getElementById('disclaimerText').textContent = report.disclaimer;
             
             // Setup download button
-            document.getElementById('downloadBtn').onclick = () => downloadReport();
+            document.getElementById('downloadBtn').onclick = () => openReport();
+            document.getElementById('downloadJsonBtn').onclick = () => downloadReport();
         }
 
         function getLabelClass(label) {
@@ -630,6 +636,11 @@
             if (label.includes('יקר')) return 'label-expensive';
             if (label.includes('חריג')) return 'label-extreme';
             return 'label-fair';
+        }
+
+        async function openReport() {
+            if (!currentInvoiceId) return;
+            window.open(`/service-prices/report/${currentInvoiceId}`, '_blank', 'noopener');
         }
 
         async function downloadReport() {
@@ -645,22 +656,26 @@
                 const data = await resp.json();
                 
                 if (data.ok && data.data.invoices.length > 0) {
-                    historyList.innerHTML = data.data.invoices.map(inv => `
-                        <div class="bg-slate-800/50 rounded-xl p-4 flex items-center justify-between">
-                            <div>
-                                <div class="font-medium text-white">
-                                    ${inv.make || ''} ${inv.model || ''} ${inv.year || ''}
+                        historyList.innerHTML = data.data.invoices.map(inv => `
+                            <div class="bg-slate-800/50 rounded-xl p-4 flex items-center justify-between">
+                                <div>
+                                    <div class="font-medium text-white">
+                                        ${inv.make || ''} ${inv.model || ''} ${inv.year || ''}
+                                    </div>
+                                    <div class="text-sm text-slate-400">
+                                        ${new Date(inv.created_at).toLocaleDateString('he-IL')} · 
+                                        ${inv.total_price_ils ? '₪' + inv.total_price_ils.toLocaleString() : 'לא צוין סכום'}
+                                        ${inv.duration_sec ? ` · זמן עיבוד: ${inv.duration_sec}s` : ''}
+                                    </div>
                                 </div>
-                                <div class="text-sm text-slate-400">
-                                    ${new Date(inv.created_at).toLocaleDateString('he-IL')} · 
-                                    ${inv.total_price_ils ? '₪' + inv.total_price_ils.toLocaleString() : 'לא צוין סכום'}
-                                    ${inv.duration_sec ? ` · זמן עיבוד: ${inv.duration_sec}s` : ''}
+                                <div class="flex items-center gap-3 text-sm">
+                                    <a href="/service-prices/report/${inv.id}" target="_blank" rel="noopener"
+                                       class="text-primary hover:underline">הורד דוח</a>
+                                    <a href="/api/service-prices/download/${inv.id}" 
+                                       class="text-slate-300 hover:underline">JSON</a>
                                 </div>
                             </div>
-                            <a href="/api/service-prices/download/${inv.id}" 
-                               class="text-primary hover:underline text-sm">הורד דוח</a>
-                        </div>
-                    `).join('');
+                        `).join('');
                 } else {
                     historyList.innerHTML = '<p class="text-slate-400 text-center py-8">אין בדיקות קודמות</p>';
                 }

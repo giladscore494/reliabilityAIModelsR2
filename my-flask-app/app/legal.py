@@ -19,7 +19,7 @@ INVOICE_EXT_PROCESSING_VERSION = os.environ.get("INVOICE_EXT_PROCESSING_VERSION"
 INVOICE_ANON_STORAGE_VERSION = os.environ.get("INVOICE_ANON_STORAGE_VERSION", "2026-02-07")
 
 # Gemini Vision model for invoice OCR
-GEMINI_VISION_MODEL_ID = os.environ.get("GEMINI_VISION_MODEL_ID", "gemini-2.0-flash")
+GEMINI_VISION_MODEL_ID = os.environ.get("GEMINI_VISION_MODEL_ID", "gemini-3-flash-preview")
 
 
 def normalize_legal_ip(raw_ip: str) -> str:

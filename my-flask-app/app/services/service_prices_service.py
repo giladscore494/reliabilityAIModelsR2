@@ -173,6 +173,29 @@ def parse_price(price_str: Any) -> Optional[int]:
         return None
 
 
+def parse_qty(qty: Any) -> int:
+    """
+    Parse a quantity into a safe integer.
+    Defaults to 1 when missing or unparseable.
+    """
+    if qty is None:
+        return 1
+    if isinstance(qty, (int, float)):
+        try:
+            return max(1, int(round(qty)))
+        except (TypeError, ValueError):
+            return 1
+    if isinstance(qty, str):
+        match = re.search(r"(\d+(?:\.\d+)?)", qty)
+        if not match:
+            return 1
+        try:
+            return max(1, int(round(float(match.group(1)))))
+        except (TypeError, ValueError):
+            return 1
+    return 1
+
+
 def is_labor_line(description: str) -> bool:
     """Check if a line item is labor (not parts)."""
     normalized = normalize_text(description)
@@ -241,7 +264,7 @@ def canonicalize_line_items(line_items: List[Dict]) -> List[Dict]:
     for item in line_items:
         description = item.get("description", "") or ""
         price = parse_price(item.get("price_ils") or item.get("price"))
-        qty = item.get("qty") or 1
+        qty = parse_qty(item.get("qty"))
         
         canonical_code, category = match_canonical_code(description)
         if not canonical_code:
@@ -673,17 +696,18 @@ def vision_extract_invoice_with_web_benchmarks(
     prompt = (
         "אתה מנתח/ת חשבונית טיפול רכב מישראל (תמונה). המשימה כפולה ובקריטיות גבוהה:\n\n"
         "(1) חילוץ נתונים מהחשבונית (OCR) + השחרה/הסרה של פרטים מזהים (Redaction).\n"
-        "(2) בנצ'מרק מחירי שוק בישראל לכל שורת טיפול ע\"י חיפוש/grounding (מחירים ממקורות ישראליים בלבד).\n\n"
+        "(2) בנצ׳מרק מחירי שוק בישראל לכל שורת טיפול ע\"י חיפוש/grounding (מחירים ממקורות ישראליים בלבד).\n\n"
         "כללים מחייבים:\n"
         "- החזר/י *אך ורק* JSON תקני. אין להחזיר טקסט חופשי. אין Markdown. אין הסברים.\n"
         "- אם אין מידע: null / [] / \"unknown\". לא לנחש.\n"
+        "- חובה להשתמש בכלי google_search לכל חיפוש בנצ'מרק. לכל שורת טיפול חייב להתבצע חיפוש.\n"
         "- כל פרט מזהה שמופיע (שמות אנשים, טלפון, אימייל, כתובת, שם מוסך, מספר חשבונית/קבלה, מספר רישוי, VIN) חייב להיות מוחלף במחרוזת \"[REDACTED]\".\n"
-        "- בבנצ'מרק: החזר/י אך ורק מספרים (samples_ils) וקישורים (urls). אסור להעתיק טקסט מהאתרים. אין ציטוטים.\n"
-        "- הבנצ'מרק חייב להתבסס על *שוק ישראלי בלבד*:\n"
-        "  - שאילתות בעברית, עם \"ש\\\"ח\" / \"₪\" ו\"ישראל\".\n"
+        "- בבנצ׳מרק: החזר/י אך ורק מספרים (samples_ils) וטווח מחיר (price_range_ils) וקישורים (sources). אסור להעתיק טקסט מהאתרים. אין ציטוטים.\n"
+        "- הבנצ׳מרק חייב להתבסס על *שוק מוסכים ישראלי בלבד*:\n"
+        "  - כל שאילתה חייבת לכלול עברית + \"ישראל\" + \"₪\".\n"
         "  - אם משתמשים באנגלית, חובה לציין \"Israel\" + ILS + ₪.\n"
         "  - הימנע/י ממחירים בשווקים זרים.\n"
-        "- תעדיפ/י מקורות מחירון/השוואה ישראליים. אם לא נמצא, החזר/י confidence נמוך.\n\n"
+        "- אם לא נמצאו מקורות ישראליים רלוונטיים: החזר/י price_range_ils=null, confidence נמוך, והסבר/י ב-notes.\n\n"
         "תבניות שאילתות (להשתמש בהן, להתאים לכל שורת טיפול):\n"
         "1) \"מחיר {service_he} {make} {model} {year} ישראל ₪ כולל עבודה וחלקים\"\n"
         "2) \"טווח מחירים {service_he} במוסך בישראל ₪\"\n"
@@ -728,19 +752,23 @@ def vision_extract_invoice_with_web_benchmarks(
         "    {\n"
         "      \"line_item_description\": null,\n"
         "      \"suggested_service_type\": \"oil_change|filters|brake_pads_front|brake_discs_front|brake_pads_rear|battery|tires|ac_gas|spark_plugs|timing_belt|clutch|alternator|starter|suspension_arm|shock_absorber|wheel_alignment|diagnostic_scan|transmission_fluid|coolant|wipers|unknown\",\n"
-        "      \"queries\": [],\n"
+        "      \"search_queries\": [],\n"
         "      \"samples_ils\": [],\n"
+        "      \"price_range_ils\": {\"min\": null, \"max\": null},\n"
         "      \"sources\": [\n"
-        "        {\"url\": null, \"date\": \"YYYY-MM-DD|unknown\"}\n"
+        "        {\"url\": null, \"title\": null, \"date_retrieved_utc\": \"YYYY-MM-DD\", \"locality_hint\": null}\n"
         "      ],\n"
-        "      \"confidence\": 0.0\n"
+        "      \"confidence\": 0.0,\n"
+        "      \"notes\": null\n"
         "    }\n"
         "  ]\n"
         "}\n\n"
-        "הנחיות איכות לבנצ'מרק:\n"
+        "הנחיות איכות לבנצ׳מרק:\n"
         "- עבור כל שורת טיפול: נסה/י להחזיר לפחות 10 מחירים שונים ב-samples_ils. אם לא אפשרי, החזר/י כמה שיש.\n"
         "- נקה/י מחירים שאינם בש\"ח או שאינם רלוונטיים (למשל חלק בלבד בלי עבודה) אם ניתן לזהות זאת.\n"
-        "- confidence לבנצ'מרק:\n"
+        "- עבור כל רשומת בנצ׳מרק: רשום/י את כל השאילתות שבוצעו בפועל ב-search_queries.\n"
+        "- sources: נסה/י לכלול לפחות 2 מקורות כאשר אפשר, עם url + title + date_retrieved_utc + locality_hint.\n"
+        "- confidence לבנצ׳מרק:\n"
         "  - 0.8+ אם יש 10+ דגימות ממקורות אמינים/רלוונטיים בישראל\n"
         "  - 0.5 אם יש 5–9 דגימות\n"
         "  - 0.2 אם פחות מ-5 או מקורות חלשים\n\n"
@@ -748,16 +776,30 @@ def vision_extract_invoice_with_web_benchmarks(
     )
 
     try:
+        try:
+            grounding_tool = genai_types.Tool(google_search=genai_types.GoogleSearch())
+        except Exception as exc:
+            current_app.logger.error("Failed to initialize Google Search grounding tool.", exc_info=True)
+            raise RuntimeError("Google Search grounding unavailable for invoice benchmarks.") from exc
         config_kwargs = {
             "response_mime_type": "application/json",
             "temperature": 0,
+            "tools": [grounding_tool],
         }
         try:
             config = genai_types.GenerateContentConfig(**config_kwargs)
         except Exception:
-            config = genai_types.GenerateContentConfig(
-                response_mime_type="application/json",
-            )
+            try:
+                config = genai_types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0,
+                    tools=[grounding_tool],
+                )
+            except Exception:
+                config = genai_types.GenerateContentConfig(
+                    temperature=0,
+                    tools=[grounding_tool],
+                )
 
         contents = [
             genai_types.Part.from_text(prompt),
@@ -772,15 +814,26 @@ def vision_extract_invoice_with_web_benchmarks(
                 config=config,
             )
         except Exception:
+            try:
+                fallback_config = genai_types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0,
+                    tools=[grounding_tool],
+                )
+            except Exception:
+                fallback_config = genai_types.GenerateContentConfig(
+                    temperature=0,
+                    tools=[grounding_tool],
+                )
             response = ai_client.models.generate_content(
                 model=GEMINI_VISION_MODEL_ID,
                 contents=contents,
-                config=genai_types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                ),
+                config=fallback_config,
             )
 
-        result_text = response.text
+        result_text = response.text or ""
+        if not result_text.strip():
+            raise ValueError("Empty model response for invoice extraction.")
 
         try:
             result = json.loads(result_text)
@@ -789,7 +842,20 @@ def vision_extract_invoice_with_web_benchmarks(
             if json_match:
                 result = json.loads(json_match.group())
             else:
-                raise ValueError("Failed to parse model response as JSON")
+                raise ValueError("Failed to parse model response as JSON for invoice extraction.")
+
+        try:
+            candidates = getattr(response, "candidates", None)
+            if candidates:
+                grounding_meta = getattr(candidates[0], "grounding_metadata", None) or getattr(
+                    candidates[0], "groundingMetadata", None
+                )
+                if grounding_meta:
+                    current_app.logger.info(
+                        "Invoice grounding metadata present (request_id=%s).", request_id
+                    )
+        except Exception:
+            pass
 
         # Handle both old format (flat) and new format (nested under "extracted")
         if "extracted" in result:
