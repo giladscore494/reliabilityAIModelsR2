@@ -179,9 +179,9 @@ def parse_qty(qty: Any) -> int:
     Parse a quantity into a safe integer.
     Defaults to 1 when missing or unparseable.
     """
-    if isinstance(qty, bool):
-        return 1
     if qty is None:
+        return 1
+    if isinstance(qty, bool):
         return 1
     if isinstance(qty, (int, float)):
         try:
@@ -291,7 +291,8 @@ def canonicalize_line_items(line_items: List[Dict]) -> List[Dict]:
             }
         
         entry = grouped[canonical_code]
-        entry["qty"] = int(entry.get("qty") or 0)
+        existing_qty = entry.get("qty")
+        entry["qty"] = int(existing_qty) if isinstance(existing_qty, (int, float)) else 0
         entry["qty"] += qty
         
         if price:
