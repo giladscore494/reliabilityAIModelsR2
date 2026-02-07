@@ -306,6 +306,23 @@ def filter_and_deduplicate_israeli_sources(sources: List[Dict[str, Any]]) -> Lis
     return cleaned_sources
 
 
+def extract_grounding_metadata(candidate: Any) -> Tuple[Optional[Any], Optional[Any]]:
+    grounding_meta = getattr(candidate, "grounding_metadata", None) or getattr(
+        candidate, "groundingMetadata", None
+    )
+    if not grounding_meta:
+        return None, None
+    if isinstance(grounding_meta, dict):
+        grounding_chunks = grounding_meta.get("grounding_chunks") or grounding_meta.get("groundingChunks")
+        citations = grounding_meta.get("citations")
+    else:
+        grounding_chunks = getattr(grounding_meta, "grounding_chunks", None) or getattr(
+            grounding_meta, "groundingChunks", None
+        )
+        citations = getattr(grounding_meta, "citations", None)
+    return grounding_chunks, citations
+
+
 def canonicalize_line_items(line_items: List[Dict]) -> List[Dict]:
     """
     Convert raw line items to canonical items with normalized data.
@@ -456,7 +473,7 @@ def classify_market_verdict(
     market_min: Optional[int],
     market_max: Optional[int],
 ) -> str:
-    """Backward-compatible wrapper for compute_item_verdict."""
+    """Backward-compatible wrapper for compute_item_verdict (deprecated)."""
     return compute_item_verdict(invoice_price, market_min, market_max)
 
 
@@ -1114,21 +1131,8 @@ def vision_extract_invoice_with_web_benchmarks(
         try:
             candidates = getattr(response, "candidates", None)
             if candidates:
-                grounding_meta = getattr(candidates[0], "grounding_metadata", None) or getattr(
-                    candidates[0], "groundingMetadata", None
-                )
-                grounding_chunks = None
-                citations = None
-                if grounding_meta is not None:
-                    if isinstance(grounding_meta, dict):
-                        grounding_chunks = grounding_meta.get("grounding_chunks") or grounding_meta.get("groundingChunks")
-                        citations = grounding_meta.get("citations")
-                    else:
-                        grounding_chunks = getattr(grounding_meta, "grounding_chunks", None) or getattr(
-                            grounding_meta, "groundingChunks", None
-                        )
-                        citations = getattr(grounding_meta, "citations", None)
-                if grounding_meta and (grounding_chunks or citations):
+                grounding_chunks, citations = extract_grounding_metadata(candidates[0])
+                if grounding_chunks or citations:
                     grounding_status = {"verified": True}
         except Exception:
             grounding_status = {"verified": False, "reason": "כשל באימות מקורות grounding."}
