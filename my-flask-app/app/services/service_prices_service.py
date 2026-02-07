@@ -832,6 +832,7 @@ def match_web_benchmarks_to_items(
         # Try to find matching canonical item
         best_code = None
         bm_normalized = normalize_text(bm_desc)
+        bm_words = [w for w in bm_normalized.split() if len(w) > 2] if bm_normalized else []
 
         for item in canonical_items:
             item_desc = normalize_text(item.get("raw_description") or "")
@@ -839,7 +840,7 @@ def match_web_benchmarks_to_items(
             # Check if descriptions share significant overlap
             if bm_normalized and item_desc and (
                 bm_normalized in item_desc or item_desc in bm_normalized
-                or any(w in item_desc for w in bm_normalized.split() if len(w) > 2)
+                or any(w in item_desc for w in bm_words)
             ):
                 best_code = item_code
                 break
