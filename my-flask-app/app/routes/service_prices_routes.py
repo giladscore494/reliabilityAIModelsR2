@@ -38,6 +38,7 @@ bp = Blueprint("service_prices", __name__)
 # Allowed MIME types for invoice images
 ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/jpg"}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+MAX_JSON_DECODE_ATTEMPTS = 3
 
 
 def _legal_gating_error(code: str, message: str, required: dict, status: int = 428):
@@ -120,7 +121,7 @@ def _safe_parse_report_json(raw_report):
     if not isinstance(raw_report, str):
         return None, was_repaired
     payload = raw_report
-    for _ in range(3):
+    for _ in range(MAX_JSON_DECODE_ATTEMPTS):
         if isinstance(payload, (dict, list)):
             return payload, was_repaired
         if not isinstance(payload, str):

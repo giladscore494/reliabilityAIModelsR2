@@ -19,6 +19,7 @@ from app.legal import GEMINI_VISION_MODEL_ID
 SERVICE_PRICES_MODE = os.environ.get("SERVICE_PRICES_MODE", "warmup_web_first")
 MIN_INTERNAL_SAMPLES = int(os.environ.get("MIN_INTERNAL_SAMPLES", "20"))
 MIN_WEB_SAMPLES = int(os.environ.get("MIN_WEB_SAMPLES", "10"))
+MIN_MARKET_SAMPLES = int(os.environ.get("MIN_MARKET_SAMPLES", "3"))
 MIN_GROUNDED_ITEMS = int(os.environ.get("MIN_GROUNDED_ITEMS", "2"))
 
 # Canonical codes mapping - Hebrew and English keywords
@@ -404,7 +405,7 @@ def compute_market_range(
     Compute market range (min/max/median) from grounded samples.
     Returns (min, max, median, confidence, label).
     """
-    if len(samples) < 3:
+    if len(samples) < MIN_MARKET_SAMPLES:
         return None, None, None, None, "אין מספיק נתונים להשוואה"
     sorted_samples = sorted(samples)
     percentiles = compute_percentiles(sorted_samples)
@@ -1087,7 +1088,7 @@ def vision_extract_invoice_with_web_benchmarks(
         if not result_text.strip():
             raise ValueError("Empty model response for invoice extraction.")
 
-        grounding_status = {"verified": False, "reason": "לא התקבלו מטא-נתוני grounding מאומתים."}
+        grounding_status = {"verified": False, "reason": "לא התקבלו מטא-נתונים מאומתים של grounding."}
         try:
             candidates = getattr(response, "candidates", None)
             if candidates:
