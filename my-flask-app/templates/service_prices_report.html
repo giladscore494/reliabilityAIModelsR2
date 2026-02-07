@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>דוח בדיקת מחירי טיפול</title>
+    <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --ink: #0f172a;
+            --muted: #475569;
+            --border: #e2e8f0;
+            --accent: #2563eb;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: #f8fafc;
+            color: var(--ink);
+            font-family: "Heebo", Arial, sans-serif;
+        }
+        .page {
+            max-width: 900px;
+            margin: 24px auto;
+            background: #fff;
+            padding: 32px 36px;
+            border: 1px solid var(--border);
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+        }
+        .toolbar {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            margin: 24px auto 0;
+            max-width: 900px;
+            padding: 0 36px;
+        }
+        .btn {
+            border: 1px solid var(--border);
+            background: var(--accent);
+            color: #fff;
+            padding: 10px 18px;
+            border-radius: 999px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        h1 { margin: 0 0 8px; font-size: 28px; }
+        h2 { margin: 24px 0 12px; font-size: 18px; }
+        .meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+            color: var(--muted);
+            font-size: 14px;
+        }
+        .totals {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin-top: 16px;
+        }
+        .card {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px;
+            background: #f8fafc;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        th, td {
+            border-bottom: 1px solid var(--border);
+            padding: 8px 6px;
+            text-align: right;
+            vertical-align: top;
+        }
+        th { color: var(--muted); font-weight: 600; }
+        .list {
+            padding: 0 18px;
+            margin: 8px 0 0;
+            color: var(--muted);
+        }
+        .disclaimer {
+            margin-top: 24px;
+            font-size: 12px;
+            color: var(--muted);
+            border-top: 1px dashed var(--border);
+            padding-top: 12px;
+        }
+        @media print {
+            body { background: #fff; }
+            .toolbar { display: none; }
+            .page {
+                margin: 0;
+                border: none;
+                box-shadow: none;
+                max-width: none;
+            }
+        }
+        @page {
+            size: A4;
+            margin: 16mm;
+        }
+    </style>
+</head>
+<body>
+    {% macro currency(value) -%}
+        {{ "₪{:,.0f}".format(value) if value is not none else "-" }}
+    {%- endmacro %}
+    <div class="toolbar">
+        <button class="btn" onclick="window.print()">הדפס/שמור כ-PDF</button>
+    </div>
+    <div id="reportContainer" class="page">
+        {% set meta = report.get('meta', {}) %}
+        {% set car = meta.get('car', {}) %}
+        {% set totals = report.get('totals', {}) %}
+        {% set created_at_value = meta.get('created_at') or invoice.created_at.isoformat() %}
+        <header>
+            <h1>דוח בדיקת מחירי טיפול</h1>
+            <div class="meta">
+                <div>נוצר בתאריך: {{ created_at_value | replace('T', ' ') }}</div>
+                <div>רכב: {{ car.get('make') or '-' }} {{ car.get('model') or '' }} {{ car.get('year') or '' }}</div>
+                <div>אזור: {{ meta.get('region') or '-' }}</div>
+                <div>סוג מוסך: {{ meta.get('garage_type') or '-' }}</div>
+            </div>
+        </header>
+
+        <section>
+            <h2>סיכום</h2>
+            <div class="totals">
+                <div class="card">
+                    <div>סה"כ חשבונית</div>
+                    <strong>{{ currency(totals.get('total_price_ils')) }}</strong>
+                </div>
+                <div class="card">
+                    <div>עבודה</div>
+                    <strong>{{ currency(totals.get('labor_ils')) }}</strong>
+                </div>
+                <div class="card">
+                    <div>חלקים</div>
+                    <strong>{{ currency(totals.get('parts_ils')) }}</strong>
+                </div>
+                <div class="card">
+                    <div>פער סכום (%)</div>
+                    <strong>{{ totals.get('discrepancy_pct') if totals.get('discrepancy_pct') is not none else '-' }}</strong>
+                </div>
+                <div class="card">
+                    <div>ציון הוגנות</div>
+                    <strong>{{ report.get('fairness_score') if report.get('fairness_score') is not none else '-' }}</strong>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>פירוט פריטים</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>תיאור</th>
+                        <th>קוד</th>
+                        <th>מחיר</th>
+                        <th>הערכה</th>
+                        <th>P50</th>
+                        <th>P75</th>
+                        <th>P90</th>
+                        <th>מקור</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in report.get('items', []) %}
+                    <tr>
+                        <td>{{ item.get('raw_description') or '-' }}</td>
+                        <td>{{ item.get('canonical_code') or '-' }}</td>
+                        <td>{{ currency(item.get('price_ils')) }}</td>
+                        <td>{{ item.get('label') or '-' }}</td>
+                        <td>{{ currency(item.get('p50')) }}</td>
+                        <td>{{ currency(item.get('p75')) }}</td>
+                        <td>{{ currency(item.get('p90')) }}</td>
+                        <td>{{ item.get('source') or '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+
+        <section>
+            <h2>נקודות לתשומת לב</h2>
+            {% if report.get('red_flags') %}
+                <ul class="list">
+                    {% for flag in report.get('red_flags', []) %}
+                        <li>{{ flag }}</li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p class="list">לא נמצאו חריגות.</p>
+            {% endif %}
+        </section>
+
+        <section>
+            <h2>תסריט משא ומתן</h2>
+            {% if report.get('negotiation_script') %}
+                <ul class="list">
+                    {% for line in report.get('negotiation_script', []) %}
+                        <li>{{ line }}</li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p class="list">אין המלצות נוספות.</p>
+            {% endif %}
+        </section>
+
+        <div class="disclaimer">
+            {{ report.get('disclaimer') or '' }}
+        </div>
+    </div>
+</body>
+</html>

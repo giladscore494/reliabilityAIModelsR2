@@ -304,7 +304,7 @@ def download_report(invoice_id: int):
     try:
         report = json.loads(invoice.report_json) if isinstance(invoice.report_json, str) else invoice.report_json
     except json.JSONDecodeError:
-        return api_error("invalid_report", "שגיאה בקריאת הדוח", status=500)
+        return api_error("invalid_report", "שגיאה בפענוח נתוני הדוח - פורמט JSON לא תקין", status=500)
     
     # Create downloadable file
     report_bytes = json.dumps(report, ensure_ascii=False, indent=2).encode("utf-8")
@@ -316,6 +316,32 @@ def download_report(invoice_id: int):
         mimetype="application/json",
         as_attachment=True,
         download_name=f"service_price_report_{invoice_id}.json",
+    )
+
+
+@bp.route("/service-prices/report/<int:invoice_id>", methods=["GET"])
+@login_required
+def service_prices_report(invoice_id: int):
+    """Render a printable HTML report."""
+    user_id = current_user.id
+
+    invoice = ServiceInvoice.query.filter_by(
+        id=invoice_id,
+        user_id=user_id,
+    ).first()
+
+    if not invoice:
+        return api_error("not_found", "דוח לא נמצא", status=404)
+
+    try:
+        report = json.loads(invoice.report_json) if isinstance(invoice.report_json, str) else invoice.report_json
+    except json.JSONDecodeError:
+        return api_error("invalid_report", "שגיאה בפענוח נתוני הדוח - פורמט JSON לא תקין", status=500)
+
+    return render_template(
+        "service_prices_report.html",
+        invoice=invoice,
+        report=report,
     )
 
 
