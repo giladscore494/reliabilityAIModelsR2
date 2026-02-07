@@ -5,6 +5,7 @@ import json
 import os
 import re
 import unicodedata
+from urllib.parse import urlparse
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -190,7 +191,7 @@ def parse_qty(qty: Any) -> int:
         except (TypeError, ValueError):
             return 1
     if isinstance(qty, str):
-        qty_clean = qty.replace(",", "").replace("×", "x")
+        qty_clean = qty.replace(",", "")
         match = re.search(r"(\d+(?:\.\d+)?)", qty_clean)
         if not match:
             return 1
@@ -272,6 +273,17 @@ def _is_israel_context(text: Optional[str]) -> bool:
     return False
 
 
+def _is_il_domain(url_text: str) -> bool:
+    if not url_text:
+        return False
+    try:
+        parsed = urlparse(url_text)
+        host = (parsed.hostname or "").lower()
+    except Exception:
+        return False
+    return host.endswith(".il") or host.endswith(".co.il") or host.endswith(".gov.il")
+
+
 def filter_israeli_sources(sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     cleaned_sources = []
     seen_urls = set()
@@ -284,8 +296,7 @@ def filter_israeli_sources(sources: List[Dict[str, Any]]) -> List[Dict[str, Any]
             continue
         url_text = str(url) if url else ""
         title_text = str(title) if title else ""
-        url_lower = url_text.lower()
-        is_il_domain = ".il" in url_lower or "co.il" in url_lower or "gov.il" in url_lower
+        is_il_domain = _is_il_domain(url_text)
         if not (is_il_domain or _is_israel_context(url_text) or _is_israel_context(title_text)):
             continue
         if url_text and url_text in seen_urls:
@@ -649,7 +660,10 @@ def build_report(
         total_parts += item.get("parts_ils") or 0
  
         web_entry = (web_samples_map or {}).get(code, {})
-        samples = [int(round(s)) for s in (web_entry.get("samples") or []) if isinstance(s, (int, float)) and s > 0]
+        samples = []
+        for sample in web_entry.get("samples") or []:
+            if isinstance(sample, (int, float)) and sample > 0:
+                samples.append(int(round(sample)))
         sources_raw = web_entry.get("sources") or []
         notes = web_entry.get("notes") or []
         cleaned_sources = filter_israeli_sources(sources_raw)

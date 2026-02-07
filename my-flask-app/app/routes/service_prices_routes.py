@@ -128,12 +128,16 @@ def _safe_parse_report_json(raw_report):
             break
         try:
             payload = json.loads(payload)
+            if isinstance(payload, (dict, list)):
+                return payload, was_repaired
             continue
         except json.JSONDecodeError:
             try:
                 repaired = repair_json(payload)
                 was_repaired = True
                 payload = json.loads(repaired)
+                if isinstance(payload, (dict, list)):
+                    return payload, was_repaired
                 continue
             except Exception:
                 break
