@@ -708,12 +708,12 @@ def validate_vision_payload(result: Dict[str, Any]) -> None:
             raise ValueError("Each line item must be an object.")
         qty = item.get("qty")
         if qty is not None and (isinstance(qty, bool) or not isinstance(qty, (int, float))):
-            raise ValueError("Line item qty must be a number.")
+            raise ValueError("Line item qty must be a numeric value (not boolean).")
         invoice_price = item.get("invoice_price_ils", item.get("price_ils"))
         if invoice_price is not None and (
             isinstance(invoice_price, bool) or not isinstance(invoice_price, (int, float))
         ):
-            raise ValueError("Line item invoice_price_ils must be a number.")
+            raise ValueError("Line item invoice_price_ils must be a numeric value (not boolean).")
 
     benchmarks = result.get("benchmarks_web", [])
     if not isinstance(benchmarks, list):

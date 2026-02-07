@@ -11,6 +11,7 @@ def test_parse_qty_handles_strings_and_none():
     assert parse_qty("2.0") == 2
     assert parse_qty(None) == 1
     assert parse_qty(True) == 1
+    assert parse_qty(False) == 1
 
 
 def test_canonicalize_line_items_parses_qty_strings():
