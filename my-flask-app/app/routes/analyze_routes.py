@@ -21,7 +21,8 @@ bp = Blueprint('analyze', __name__)
 # - analyze: Standard reliability analysis (~15s)
 # - advisor: Car recommendation engine (~12s)
 # - compare: Multi-car comparison with web grounding (~70s) - longer due to fetching multiple car metrics from web sources
-DEFAULT_ESTIMATE_MS = {"analyze": 15000, "advisor": 12000, "compare": 70000}
+# - invoice: Invoice analysis (~35s) includes OCR + pricing benchmarks, so it runs longer than standard analysis.
+DEFAULT_ESTIMATE_MS = {"analyze": 15000, "advisor": 12000, "compare": 70000, "invoice": 35000}
 TIMING_SAMPLE_LIMIT = 50
 
 
@@ -93,21 +94,23 @@ def analyze_car():
 def timing_estimate():
     """
     Returns estimated timing for an endpoint.
-    Supports both 'kind' (analyze|advisor|compare) and 'endpoint' (analyze) parameters for backward compatibility.
+    Supports both 'kind' (analyze|advisor|compare|invoice) and 'endpoint' (analyze) parameters for backward compatibility.
     Filters out null/zero/negative durations and never fails even if history is missing.
     """
     # Support both 'kind' and 'endpoint' parameters
     raw_kind = request.args.get('kind') or request.args.get('endpoint') or 'analyze'
     kind = raw_kind.lower()
     
-    if kind not in ['analyze', 'advisor', 'compare']:
-        return api_error('INVALID_KIND', 'Only "analyze", "advisor" and "compare" are supported', status=400)
+    if kind not in ['analyze', 'advisor', 'compare', 'invoice']:
+        return api_error('INVALID_KIND', 'Only "analyze", "advisor", "compare" and "invoice" are supported', status=400)
 
     # Choose the right table based on kind
     if kind == 'analyze':
         from app.models import SearchHistory as HistoryModel
     elif kind == 'advisor':
         from app.models import AdvisorHistory as HistoryModel
+    elif kind == 'invoice':
+        from app.models import ServiceInvoice as HistoryModel
     else:  # compare
         from app.models import ComparisonHistory as HistoryModel
 

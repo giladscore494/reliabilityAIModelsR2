@@ -110,6 +110,10 @@ QUOTA_RESERVATION_TTL_SECONDS = int(os.environ.get("QUOTA_RESERVATION_TTL_SECOND
 MAX_ACTIVE_RESERVATIONS = 1
 AI_EXECUTOR_WORKERS = int(os.environ.get("AI_EXECUTOR_WORKERS", "4"))
 AI_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=AI_EXECUTOR_WORKERS)
+MAX_CONTENT_LENGTH_DEFAULT = 8 * 1024 * 1024
+SERVICE_PRICES_ANALYZE_LIMIT_BYTES = 6 * 1024 * 1024
+DEFAULT_API_PAYLOAD_LIMIT_BYTES = 256 * 1024
+SERVICE_PRICES_ANALYZE_PATH = "/api/service-prices/analyze"
 atexit.register(lambda: AI_EXECUTOR.shutdown(wait=True))
 import app.quota as quota_module
 quota_module.USER_DAILY_LIMIT = USER_DAILY_LIMIT
@@ -1522,8 +1526,15 @@ def create_app():
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     
     # ===== SECURITY: MAX_CONTENT_LENGTH (Phase 1D: DoS prevention) =====
-    # Limit request payload size (64 KB) to cap JSON bodies and prevent memory exhaustion attacks
-    app.config["MAX_CONTENT_LENGTH"] = 64 * 1024  # 64 KB hard cap
+    # Global cap for uploads; route-specific guards enforce tighter limits per endpoint.
+    raw_max_content_length = os.getenv("MAX_CONTENT_LENGTH_BYTES")
+    try:
+        max_content_length = int(raw_max_content_length) if raw_max_content_length else MAX_CONTENT_LENGTH_DEFAULT
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("Invalid MAX_CONTENT_LENGTH_BYTES; must be an integer") from exc
+    app.config["MAX_CONTENT_LENGTH"] = max_content_length
+    app.config["SERVICE_PRICES_ANALYZE_LIMIT_BYTES"] = SERVICE_PRICES_ANALYZE_LIMIT_BYTES
+    app.config["DEFAULT_API_PAYLOAD_LIMIT_BYTES"] = DEFAULT_API_PAYLOAD_LIMIT_BYTES
 
     # ===== SECURITY:  Session Cookie Configuration (Tier 1) =====
     app.config["SESSION_COOKIE_SECURE"] = bool(is_render)
@@ -1601,6 +1612,26 @@ def create_app():
             if request.is_json or request.accept_mimetypes.accept_json or request.path.startswith(('/analyze', '/advisor_api', '/search-details')):
                 return api_error("invalid_host", "Invalid host header", status=400)
             return "Invalid host header", 400
+
+    @app.before_request
+    def enforce_route_specific_payload_limits():
+        if request.method not in ("POST", "PUT", "PATCH"):
+            return None
+        if request.content_length is None:
+            if (request.headers.get("Transfer-Encoding") or "").lower() == "chunked" or request.content_type:
+                raise RequestEntityTooLarge()
+            content_length = 0
+        else:
+            content_length = request.content_length
+        path = request.path or ""
+        if path == SERVICE_PRICES_ANALYZE_PATH:
+            limit = SERVICE_PRICES_ANALYZE_LIMIT_BYTES
+        else:
+            limit = DEFAULT_API_PAYLOAD_LIMIT_BYTES
+            # Tight guard for all other write routes to preserve DoS safety.
+        if content_length > limit:
+            raise RequestEntityTooLarge()
+        return None
     
     # Phase 2H: Origin/Referer protection for session-auth POST endpoints (CSRF-safe without tokens)
     @app.before_request
