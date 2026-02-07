@@ -38,6 +38,7 @@ bp = Blueprint("service_prices", __name__)
 # Allowed MIME types for invoice images
 ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/jpg"}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+MAX_JSON_DECODE_ATTEMPTS = 3  # Handles up to triple-encoded report_json payloads.
 
 
 def _legal_gating_error(code: str, message: str, required: dict, status: int = 428):
@@ -108,16 +109,43 @@ def check_feature_consent(user_id: int):
 
 def _safe_parse_report_json(raw_report):
     """Parse report JSON safely, attempting repair when needed."""
-    if isinstance(raw_report, str):
+    was_repaired = False
+    # Some database drivers return JSON blobs as memoryview objects.
+    if isinstance(raw_report, memoryview):
+        raw_report = raw_report.tobytes()
+    if isinstance(raw_report, (bytes, bytearray)):
+        raw_report = raw_report.decode("utf-8", errors="replace")
+    if isinstance(raw_report, (dict, list)):
+        return raw_report, was_repaired
+    if raw_report is None:
+        return None, was_repaired
+    if not isinstance(raw_report, str):
+        return None, was_repaired
+    payload = raw_report
+    for _ in range(MAX_JSON_DECODE_ATTEMPTS):
+        # Each iteration peels one JSON encoding layer.
+        if isinstance(payload, (dict, list)):
+            return payload, was_repaired
+        if not isinstance(payload, str):
+            break
         try:
-            return json.loads(raw_report), False
+            payload = json.loads(payload)
+            if isinstance(payload, (dict, list)):
+                return payload, was_repaired
+            continue
         except json.JSONDecodeError:
             try:
-                repaired = repair_json(raw_report)
-                return json.loads(repaired), True
+                repaired = repair_json(payload)
+                was_repaired = True
+                payload = json.loads(repaired)
+                if isinstance(payload, (dict, list)):
+                    return payload, was_repaired
+                continue
             except Exception:
-                return None, False
-    return raw_report, False
+                break
+    if isinstance(payload, (dict, list)):
+        return payload, was_repaired
+    return None, was_repaired
 
 
 @bp.route("/service-prices", methods=["GET"])
@@ -359,7 +387,11 @@ def service_prices_report(invoice_id: int):
 
     report, _ = _safe_parse_report_json(invoice.report_json)
     if report is None:
-        return api_error("invalid_report", "שגיאה בפענוח נתוני הדוח - פורמט JSON לא תקין", status=500)
+        return render_template(
+            "service_prices_report.html",
+            invoices=[],
+            error_message="שגיאה בפענוח נתוני הדוח - פורמט JSON לא תקין",
+        )
 
     return render_template(
         "service_prices_report.html",
@@ -380,7 +412,11 @@ def service_prices_report_all():
     report_entries = []
     for invoice in invoices:
         report, _ = _safe_parse_report_json(invoice.report_json)
-        report_entries.append({"invoice": invoice, "report": report or {}})
+        report_entries.append({
+            "invoice": invoice,
+            "report": report or {},
+            "error": report is None,
+        })
 
     return render_template(
         "service_prices_report.html",
@@ -441,13 +477,15 @@ def export_all_reports():
     lines = []
     for inv in invoices:
         try:
-            report = json.loads(inv.report_json) if isinstance(inv.report_json, str) else inv.report_json
+            report, _ = _safe_parse_report_json(inv.report_json)
+            if report is None:
+                continue
             lines.append(json.dumps({
                 "id": inv.id,
                 "created_at": inv.created_at.isoformat(),
                 "report": report,
             }, ensure_ascii=False))
-        except json.JSONDecodeError:
+        except Exception:
             continue
     
     content = "\n".join(lines).encode("utf-8")
@@ -538,8 +576,10 @@ def service_prices_history_detail(invoice_id: int):
         return api_error("not_found", "דוח לא נמצא", status=404)
 
     try:
-        report = json.loads(invoice.report_json) if isinstance(invoice.report_json, str) else invoice.report_json
-    except json.JSONDecodeError:
+        report, _ = _safe_parse_report_json(invoice.report_json)
+        if report is None:
+            raise ValueError("Invalid report")
+    except Exception:
         return api_error("invalid_report", "שגיאה בקריאת הדוח", status=500)
 
     return api_ok({
