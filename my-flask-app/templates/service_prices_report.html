@@ -48,7 +48,7 @@
         h2 { margin: 24px 0 12px; font-size: 18px; }
         .meta {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
             gap: 12px;
             color: var(--muted);
             font-size: 14px;
@@ -68,7 +68,7 @@
         table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 14px;
+            font-size: 13px;
         }
         th, td {
             border-bottom: 1px solid var(--border);
@@ -88,6 +88,9 @@
             color: var(--muted);
             border-top: 1px dashed var(--border);
             padding-top: 12px;
+        }
+        .page-break {
+            page-break-after: always;
         }
         @media print {
             body { background: #fff; }
@@ -110,110 +113,135 @@
         {{ "₪{:,.0f}".format(value) if value is not none else "-" }}
     {%- endmacro %}
     <div class="toolbar">
-        <button class="btn" onclick="window.print()">הדפס/שמור כ-PDF</button>
+        <button class="btn" onclick="window.print()">שמור כ-PDF</button>
     </div>
-    <div id="reportContainer" class="page">
-        {% set meta = report.get('meta', {}) %}
-        {% set car = meta.get('car', {}) %}
-        {% set totals = report.get('totals', {}) %}
-        {% set created_at_value = meta.get('created_at') or invoice.created_at.isoformat() %}
-        <header>
-            <h1>דוח בדיקת מחירי טיפול</h1>
-            <div class="meta">
-                <div>נוצר בתאריך: {{ created_at_value | replace('T', ' ') }}</div>
-                <div>רכב: {{ car.get('make') or '-' }} {{ car.get('model') or '' }} {{ car.get('year') or '' }}</div>
-                <div>אזור: {{ meta.get('region') or '-' }}</div>
-                <div>סוג מוסך: {{ meta.get('garage_type') or '-' }}</div>
+    {% if invoices %}
+        {% for entry in invoices %}
+            {% set invoice = entry.invoice %}
+            {% set report = entry.report or {} %}
+            {% set meta = report.get('meta', {}) %}
+            {% set car = meta.get('car', {}) %}
+            {% set totals = report.get('totals', {}) %}
+            {% set created_at_value = meta.get('created_at') or invoice.created_at.isoformat() %}
+            <div class="page">
+                <header>
+                    <h1>דוח בדיקת מחירי טיפול/תיקון</h1>
+                    <div class="meta">
+                        <div>נוצר בתאריך: {{ created_at_value | replace('T', ' ') }}</div>
+                        <div>רכב: {{ car.get('make') or '-' }} {{ car.get('model') or '' }} {{ car.get('year') or '' }}</div>
+                        <div>אזור: {{ meta.get('region') or '-' }}</div>
+                        <div>סוג מוסך: {{ meta.get('garage_type') or '-' }}</div>
+                    </div>
+                </header>
+
+                <section>
+                    <h2>סיכום חשבונית</h2>
+                    <div class="totals">
+                        <div class="card">
+                            <div>סה"כ חשבונית</div>
+                            <strong>{{ currency(totals.get('total_price_ils')) }}</strong>
+                        </div>
+                        <div class="card">
+                            <div>עבודה</div>
+                            <strong>{{ currency(totals.get('labor_ils')) }}</strong>
+                        </div>
+                        <div class="card">
+                            <div>חלקים</div>
+                            <strong>{{ currency(totals.get('parts_ils')) }}</strong>
+                        </div>
+                        <div class="card">
+                            <div>מספר פריטים</div>
+                            <strong>{{ report.get('items', []) | length }}</strong>
+                        </div>
+                    </div>
+                </section>
+
+                <section>
+                    <h2>פירוט פריטים</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>תיאור</th>
+                                <th>מחיר חשבונית</th>
+                                <th>טווח שוק (₪)</th>
+                                <th>מחיר שוק רגיל (בערך האמצע)</th>
+                                <th>מחיר שוק גבוה אבל עדיין נפוץ</th>
+                                <th>מחיר גבוה מאוד (קצה עליון)</th>
+                                <th>הערכה</th>
+                                <th>הערות</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in report.get('items', []) %}
+                            <tr>
+                                <td>{{ item.get('raw_description') or item.get('canonical_code') or '-' }}</td>
+                                <td>{{ currency(item.get('price_ils')) }}</td>
+                                <td>
+                                    {% if item.get('market_min_ils') is not none and item.get('market_max_ils') is not none %}
+                                        {{ currency(item.get('market_min_ils')) }}–{{ currency(item.get('market_max_ils')) }}
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                                <td>{{ currency(item.get('p50')) }}</td>
+                                <td>{{ currency(item.get('p75')) }}</td>
+                                <td>{{ currency(item.get('p90')) }}</td>
+                                <td>{{ item.get('verdict') or '-' }}</td>
+                                <td>{{ item.get('market_note') or '' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </section>
+
+                <section>
+                    <h2>הסבר מנומק על החשבונית</h2>
+                    {% set narrative = report.get('narrative', {}) %}
+                    <p class="list">{{ narrative.get('summary') or 'אין מידע נוסף.' }}</p>
+                    {% if narrative.get('items') %}
+                        <ul class="list">
+                            {% for line in narrative.get('items', []) %}
+                                <li>{{ line }}</li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+                    {% if narrative.get('methodology') %}
+                        <ul class="list">
+                            {% for line in narrative.get('methodology', []) %}
+                                <li>{{ line }}</li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+                </section>
+
+                <section>
+                    <h2>מקורות/הצלבת מחירים</h2>
+                    {% if report.get('grounding_sources') %}
+                        <ul class="list">
+                            {% for source in report.get('grounding_sources', []) %}
+                                <li>
+                                    <a href="{{ source.get('url') }}" target="_blank" rel="noopener">{{ source.get('title') or source.get('url') }}</a>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="list">לא נמצאו מקורות ישראליים זמינים להצגה.</p>
+                    {% endif %}
+                </section>
+
+                <div class="disclaimer">
+                    {{ report.get('disclaimer') or '' }}
+                </div>
             </div>
-        </header>
-
-        <section>
-            <h2>סיכום</h2>
-            <div class="totals">
-                <div class="card">
-                    <div>סה"כ חשבונית</div>
-                    <strong>{{ currency(totals.get('total_price_ils')) }}</strong>
-                </div>
-                <div class="card">
-                    <div>עבודה</div>
-                    <strong>{{ currency(totals.get('labor_ils')) }}</strong>
-                </div>
-                <div class="card">
-                    <div>חלקים</div>
-                    <strong>{{ currency(totals.get('parts_ils')) }}</strong>
-                </div>
-                <div class="card">
-                    <div>פער סכום (%)</div>
-                    <strong>{{ totals.get('discrepancy_pct') if totals.get('discrepancy_pct') is not none else '-' }}</strong>
-                </div>
-                <div class="card">
-                    <div>ציון הוגנות</div>
-                    <strong>{{ report.get('fairness_score') if report.get('fairness_score') is not none else '-' }}</strong>
-                </div>
-            </div>
-        </section>
-
-        <section>
-            <h2>פירוט פריטים</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>תיאור</th>
-                        <th>קוד</th>
-                        <th>מחיר</th>
-                        <th>הערכה</th>
-                        <th>P50</th>
-                        <th>P75</th>
-                        <th>P90</th>
-                        <th>מקור</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in report.get('items', []) %}
-                    <tr>
-                        <td>{{ item.get('raw_description') or '-' }}</td>
-                        <td>{{ item.get('canonical_code') or '-' }}</td>
-                        <td>{{ currency(item.get('price_ils')) }}</td>
-                        <td>{{ item.get('label') or '-' }}</td>
-                        <td>{{ currency(item.get('p50')) }}</td>
-                        <td>{{ currency(item.get('p75')) }}</td>
-                        <td>{{ currency(item.get('p90')) }}</td>
-                        <td>{{ item.get('source') or '-' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </section>
-
-        <section>
-            <h2>נקודות לתשומת לב</h2>
-            {% if report.get('red_flags') %}
-                <ul class="list">
-                    {% for flag in report.get('red_flags', []) %}
-                        <li>{{ flag }}</li>
-                    {% endfor %}
-                </ul>
-            {% else %}
-                <p class="list">לא נמצאו חריגות.</p>
+            {% if not loop.last %}
+                <div class="page-break"></div>
             {% endif %}
-        </section>
-
-        <section>
-            <h2>תסריט משא ומתן</h2>
-            {% if report.get('negotiation_script') %}
-                <ul class="list">
-                    {% for line in report.get('negotiation_script', []) %}
-                        <li>{{ line }}</li>
-                    {% endfor %}
-                </ul>
-            {% else %}
-                <p class="list">אין המלצות נוספות.</p>
-            {% endif %}
-        </section>
-
-        <div class="disclaimer">
-            {{ report.get('disclaimer') or '' }}
+        {% endfor %}
+    {% else %}
+        <div class="page">
+            <h1>דוח בדיקת מחירי טיפול/תיקון</h1>
+            <p class="list">לא נמצאו דוחות להצגה.</p>
         </div>
-    </div>
+    {% endif %}
 </body>
 </html>

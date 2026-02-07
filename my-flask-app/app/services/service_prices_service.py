@@ -19,6 +19,7 @@ from app.legal import GEMINI_VISION_MODEL_ID
 SERVICE_PRICES_MODE = os.environ.get("SERVICE_PRICES_MODE", "warmup_web_first")
 MIN_INTERNAL_SAMPLES = int(os.environ.get("MIN_INTERNAL_SAMPLES", "20"))
 MIN_WEB_SAMPLES = int(os.environ.get("MIN_WEB_SAMPLES", "10"))
+MIN_GROUNDED_ITEMS = int(os.environ.get("MIN_GROUNDED_ITEMS", "2"))
 
 # Canonical codes mapping - Hebrew and English keywords
 CANONICAL_MAPPINGS = {
@@ -178,6 +179,8 @@ def parse_qty(qty: Any) -> int:
     Parse a quantity into a safe integer.
     Defaults to 1 when missing or unparseable.
     """
+    if isinstance(qty, bool):
+        return 1
     if qty is None:
         return 1
     if isinstance(qty, (int, float)):
@@ -186,11 +189,12 @@ def parse_qty(qty: Any) -> int:
         except (TypeError, ValueError):
             return 1
     if isinstance(qty, str):
-        match = re.search(r"(\d+(?:\.\d+)?)", qty)
+        match = re.search(r"(\d+(?:[.,]\d+)?)", qty)
         if not match:
             return 1
         try:
-            return max(1, int(round(float(match.group(1)))))
+            value = float(match.group(1).replace(",", "."))
+            return max(1, int(round(value)))
         except (TypeError, ValueError):
             return 1
     return 1
@@ -263,7 +267,7 @@ def canonicalize_line_items(line_items: List[Dict]) -> List[Dict]:
     
     for item in line_items:
         description = item.get("description", "") or ""
-        price = parse_price(item.get("price_ils") or item.get("price"))
+        price = parse_price(item.get("price_ils") or item.get("invoice_price_ils") or item.get("price"))
         qty = parse_qty(item.get("qty"))
         
         canonical_code, category = match_canonical_code(description)
@@ -287,6 +291,7 @@ def canonicalize_line_items(line_items: List[Dict]) -> List[Dict]:
             }
         
         entry = grouped[canonical_code]
+        entry["qty"] = int(entry.get("qty") or 0)
         entry["qty"] += qty
         
         if price:
@@ -341,6 +346,107 @@ def percentile_rank(prices: List[int], value: int) -> float:
     
     count_le = sum(1 for p in prices if p <= value)
     return count_le / len(prices)
+
+
+def compute_market_range(samples: List[int]) -> Tuple[Optional[int], Optional[int], Optional[str]]:
+    """
+    Compute market range (min/max) from grounded samples.
+    Returns (min, max, note) where note explains missing data.
+    """
+    if len(samples) >= MIN_WEB_SAMPLES:
+        return min(samples), max(samples), None
+    if samples:
+        return None, None, "אין מספיק מקורות ישראליים להשוואה"
+    return None, None, "אין מספיק נתונים להשוואה"
+
+
+def classify_market_verdict(
+    invoice_price: Optional[int],
+    market_min: Optional[int],
+    market_max: Optional[int],
+) -> str:
+    """
+    Classify invoice price vs. market range deterministically.
+    """
+    if invoice_price is None or market_min is None or market_max is None:
+        return "אין מספיק נתונים להשוואה"
+    low_threshold = market_min * 0.9
+    high_threshold = market_max * 1.1
+    if invoice_price < low_threshold:
+        return "נמוך מהשוק"
+    if invoice_price <= high_threshold:
+        return "תואם שוק"
+    return "גבוה מהשוק"
+
+
+def compute_price_deviation(
+    invoice_price: Optional[int],
+    market_min: Optional[int],
+    market_max: Optional[int],
+) -> Optional[float]:
+    """
+    Compute deviation from market range for weighting fairness score.
+    """
+    if invoice_price is None or market_min is None or market_max is None:
+        return None
+    low_threshold = market_min * 0.9
+    high_threshold = market_max * 1.1
+    if invoice_price < low_threshold:
+        return (low_threshold - invoice_price) / low_threshold
+    if invoice_price > high_threshold:
+        return (invoice_price - high_threshold) / high_threshold
+    return 0.0
+
+
+def build_invoice_report_narrative(report: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Build a deterministic narrative for the invoice report.
+    """
+    def format_ils(value: Optional[int]) -> str:
+        return f"₪{value:,.0f}" if value is not None else "-"
+
+    totals = report.get("totals", {})
+    items = report.get("items", [])
+    items_sorted = sorted(items, key=lambda x: x.get("price_ils") or 0, reverse=True)
+
+    total_price = totals.get("total_price_ils")
+    labor_ils = totals.get("labor_ils")
+    parts_ils = totals.get("parts_ils")
+
+    summary = (
+        f"בדקנו {len(items)} פריטים בחשבונית. "
+        f"סה\"כ החשבונית {format_ils(total_price)}, "
+        f"מתוכם עבודה {format_ils(labor_ils)} וחלקים {format_ils(parts_ils)}."
+    )
+
+    item_lines = []
+    for item in items_sorted:
+        desc = item.get("raw_description") or item.get("canonical_code") or "פריט"
+        invoice_price = item.get("price_ils")
+        market_min = item.get("market_min_ils")
+        market_max = item.get("market_max_ils")
+        verdict = item.get("verdict") or item.get("label") or "אין מספיק נתונים להשוואה"
+        if market_min is not None and market_max is not None:
+            range_text = f"טווח שוק {format_ils(market_min)}–{format_ils(market_max)}"
+        else:
+            range_text = "אין מספיק נתוני שוק ישראליים"
+        item_lines.append(
+            f"{desc}: מחיר חשבונית {format_ils(invoice_price)} מול {range_text} → {verdict}"
+        )
+
+    methodology = [
+        "מחירי השוק נאספו ממקורות ישראליים ברשת (עם קישורים).",
+        "לא ניחשנו מחירים: אם לא נמצאו מספיק מקורות — מוצג 'אין מספיק נתונים'.",
+        "הציון/דגלים חושבו אוטומטית לפי חוקים קבועים בקוד (לא לפי החלטת המודל).",
+    ]
+    if report.get("fairness_score") is None:
+        methodology.append("אין מספיק נתוני שוק ישראליים כדי לקבוע ציון כולל.")
+
+    return {
+        "summary": summary,
+        "items": item_lines,
+        "methodology": methodology,
+    }
 
 
 def cohort_price_samples(
@@ -416,10 +522,10 @@ def build_report(
     canonical_items: List[Dict],
     total_price: Optional[int],
     samples_meta: Dict[str, Any],
-    web_samples_map: Optional[Dict[str, List[int]]] = None,
+    web_samples_map: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """
-    Build the final report with percentiles, labels, and analysis.
+    Build the final report with grounded ranges, labels, and analysis.
     """
     now = datetime.utcnow()
     
@@ -429,93 +535,83 @@ def build_report(
     total_labor = 0
     total_parts = 0
     discount_target = 0
+    total_weighted_deviation = 0.0
+    total_weight = 0.0
+    grounded_items = 0
+    sources_seen = set()
+    grounding_sources = []
     
     for item in canonical_items:
         code = item["canonical_code"]
         price = item.get("price_ils") or 0
+        qty = item.get("qty") or 1
         sum_items += price
         total_labor += item.get("labor_ils") or 0
         total_parts += item.get("parts_ils") or 0
-
-        # Determine sample source based on mode
-        samples = []
-        source = "static_range"
-
-        if SERVICE_PRICES_MODE == "warmup_web_first":
-            # In warmup: try web samples first
-            web_samples = (web_samples_map or {}).get(code, [])
-            if len(web_samples) >= MIN_WEB_SAMPLES:
-                samples = web_samples
-                source = "web_grounding"
-            # else: fall through to static range below
+ 
+        web_entry = (web_samples_map or {}).get(code, {})
+        samples = web_entry.get("samples") or []
+        sources_raw = web_entry.get("sources") or []
+        notes = web_entry.get("notes") or []
+        cleaned_sources = []
+        for source in sources_raw:
+            if isinstance(source, dict):
+                url = source.get("url")
+                title = source.get("title")
+                if url:
+                    cleaned_sources.append({"url": url, "title": title})
+                    if url not in sources_seen:
+                        sources_seen.add(url)
+                        grounding_sources.append({"url": url, "title": title})
+        sources_raw = cleaned_sources
+ 
+        market_min = market_max = None
+        market_note = None
+        if not sources_raw:
+            market_note = "אין מספיק מקורות ישראליים להשוואה"
         else:
-            # hybrid_internal_first: try internal first
-            internal_samples = cohort_price_samples(
-                code,
-                make=ctx.get("make"),
-                model=ctx.get("model"),
-                year=ctx.get("year"),
-                mileage=ctx.get("mileage"),
-                region=ctx.get("region"),
-                garage_type=ctx.get("garage_type"),
-            )
-            if len(internal_samples) >= MIN_INTERNAL_SAMPLES:
-                samples = internal_samples
-                source = "internal_dataset"
-            else:
-                web_samples = (web_samples_map or {}).get(code, [])
-                if len(web_samples) >= MIN_WEB_SAMPLES:
-                    samples = web_samples
-                    source = "web_grounding"
-
-        cohort_n = len(samples)
-        percentiles = compute_percentiles(samples)
-        rank = percentile_rank(samples, price) if price else 0.5
-
-        # Determine label
-        if cohort_n >= MIN_WEB_SAMPLES:
-            p50 = percentiles["p50"] or 0
-            p75 = percentiles["p75"] or 0
-            p90 = percentiles["p90"] or 0
-
-            if price <= p50:
-                label = "סביר/נמוך"
-            elif price <= p75:
-                label = "סביר"
-            elif price <= p90:
-                label = "יקר"
-            else:
-                label = "חריג"
-                red_flags.append(f"{code}: מחיר חריג")
-
-            overpay = max(0, price - p75)
+            market_min, market_max, market_note = compute_market_range(samples)
+        percentiles = compute_percentiles(samples) if len(samples) >= MIN_WEB_SAMPLES else {
+            "p50": None,
+            "p75": None,
+            "p90": None,
+        }
+        verdict = classify_market_verdict(price if price else None, market_min, market_max)
+        deviation = compute_price_deviation(price if price else None, market_min, market_max)
+        if deviation is not None:
+            grounded_items += 1
+            weight = max(price, 0) * max(qty, 1)
+            if weight > 0:
+                total_weight += weight
+                total_weighted_deviation += deviation * weight
+ 
+        if verdict == "גבוה מהשוק":
+            red_flags.append(f"{code}: מחיר גבוה מהשוק")
+ 
+        overpay = 0
+        if market_max is not None and price:
+            overpay = max(0, int(round(price - market_max * 1.1)))
             if overpay > 0:
                 discount_target += overpay
-        else:
-            fb = fallback_ranges(code)
-            if fb["min"] is not None and fb["max"] is not None:
-                if price <= fb["max"]:
-                    label = "סביר (טווח כללי)"
-                else:
-                    label = "יקר (טווח כללי)"
-                    red_flags.append(f"{code}: מעל טווח כללי")
-                overpay = max(0, price - fb["max"])
-            else:
-                label = "אין מספיק נתונים"
-                overpay = 0
 
         per_item.append({
             "canonical_code": code,
             "raw_description": item.get("raw_description"),
             "price_ils": price,
-            "cohort_n": cohort_n,
+            "cohort_n": len(samples),
             "p50": percentiles.get("p50"),
             "p75": percentiles.get("p75"),
             "p90": percentiles.get("p90"),
-            "percentile_rank": round(rank, 2),
-            "label": label,
+            "label": verdict,
+            "verdict": verdict,
             "overpay_estimate_ils": overpay,
-            "source": source,
+            "source": "web_grounding" if market_min is not None else "no_grounding",
+            "market_min_ils": market_min,
+            "market_max_ils": market_max,
+            "market_note": market_note,
+            "market_samples_n": len(samples),
+            "market_sources": sources_raw,
+            "market_notes": notes,
         })
     
     # Calculate labor share
@@ -531,14 +627,13 @@ def build_report(
             red_flags.append(f"פער של {discrepancy_pct:.1f}% בין הסכום הכולל לסכום הפריטים")
     
     # Fairness score
-    total_cohort_n = samples_meta.get("total_cohort_n", 0)
-    if total_cohort_n >= 20:
-        avg_rank = sum(i.get("percentile_rank", 0.5) for i in per_item) / len(per_item) if per_item else 0.5
-        fairness_score = max(0, min(100, int(100 - avg_rank * 100)))
+    if grounded_items >= MIN_GROUNDED_ITEMS and total_weight > 0:
+        avg_deviation = total_weighted_deviation / total_weight
+        fairness_score = max(0, int(round(100 - min(1, avg_deviation) * 100)))
         fairness_note = None
     else:
-        fairness_score = 60
-        fairness_note = "insufficient cohort"
+        fairness_score = None
+        fairness_note = "אין מספיק נתוני שוק ישראליים כדי לקבוע ציון כולל"
     
     # Build negotiation script
     negotiation_lines = []
@@ -547,7 +642,7 @@ def build_report(
         for item in per_item:
             if item.get("overpay_estimate_ils", 0) > 0:
                 negotiation_lines.append(
-                    f"  - {item['canonical_code']}: מחיר גבוה ב-₪{item['overpay_estimate_ils']:,} מאחוזון 75"
+                    f"  - {item['canonical_code']}: מחיר גבוה ב-₪{item['overpay_estimate_ils']:,} מעל גבול השוק"
                 )
     
     return {
@@ -576,8 +671,67 @@ def build_report(
         "fairness_score": fairness_score,
         "fairness_note": fairness_note,
         "negotiation_script": negotiation_lines,
+        "grounding_sources": grounding_sources,
         "disclaimer": "מידע כללי, לא אבחון/התחייבות מחיר",
     }
+
+    report["narrative"] = build_invoice_report_narrative(report)
+    return report
+
+
+def validate_vision_payload(result: Dict[str, Any]) -> None:
+    """
+    Validate vision payload types and required shapes for deterministic processing.
+    """
+    if not isinstance(result, dict):
+        raise ValueError("Vision payload must be a JSON object.")
+
+    extracted = result.get("extracted", result)
+    if not isinstance(extracted, dict):
+        raise ValueError("Vision payload 'extracted' must be an object.")
+
+    line_items = extracted.get("line_items") or []
+    if not isinstance(line_items, list):
+        raise ValueError("Vision payload 'line_items' must be a list.")
+    for item in line_items:
+        if not isinstance(item, dict):
+            raise ValueError("Each line item must be an object.")
+        qty = item.get("qty")
+        if qty is not None and not isinstance(qty, (int, float)):
+            raise ValueError("Line item qty must be a number.")
+        invoice_price = item.get("invoice_price_ils", item.get("price_ils"))
+        if invoice_price is not None and not isinstance(invoice_price, (int, float)):
+            raise ValueError("Line item invoice_price_ils must be a number.")
+
+    benchmarks = result.get("benchmarks_web", [])
+    if not isinstance(benchmarks, list):
+        raise ValueError("benchmarks_web must be a list.")
+    for benchmark in benchmarks:
+        if not isinstance(benchmark, dict):
+            raise ValueError("Each benchmark entry must be an object.")
+        samples = benchmark.get("market_samples_ils", benchmark.get("samples_ils", []))
+        if samples is None:
+            samples = []
+        if not isinstance(samples, list):
+            raise ValueError("market_samples_ils must be a list.")
+        if any(not isinstance(sample, (int, float)) for sample in samples):
+            raise ValueError("market_samples_ils must contain numbers only.")
+        sources = benchmark.get("sources", [])
+        if sources is None:
+            sources = []
+        if not isinstance(sources, list):
+            raise ValueError("sources must be a list.")
+        for source in sources:
+            if not isinstance(source, dict):
+                raise ValueError("Each source must be an object.")
+            if "url" not in source or "title" not in source:
+                raise ValueError("Each source must include url and title fields.")
+            url = source.get("url")
+            title = source.get("title")
+            if url is not None and not isinstance(url, str):
+                raise ValueError("Source url must be a string.")
+            if title is not None and not isinstance(title, str):
+                raise ValueError("Source title must be a string.")
 
 
 def vision_extract_invoice(
@@ -701,8 +855,11 @@ def vision_extract_invoice_with_web_benchmarks(
         "- החזר/י *אך ורק* JSON תקני. אין להחזיר טקסט חופשי. אין Markdown. אין הסברים.\n"
         "- אם אין מידע: null / [] / \"unknown\". לא לנחש.\n"
         "- חובה להשתמש בכלי google_search לכל חיפוש בנצ'מרק. לכל שורת טיפול חייב להתבצע חיפוש.\n"
+        "- אסור להשתמש בזיכרון/הערכה כללית למחירים. כל מחיר חייב להגיע ממקור ישראלי עם URL.\n"
+        "- אין להחזיר ציונים, הערכות או סיכומים; רק נתונים גולמיים (מחירים, דגימות, מקורות).\n"
+        "- טיפוסים קשיחים: qty מספר (לא מחרוזת), invoice_price_ils מספר, market_samples_ils מערך מספרים, sources מערך של אובייקטים {url,title}.\n"
         "- כל פרט מזהה שמופיע (שמות אנשים, טלפון, אימייל, כתובת, שם מוסך, מספר חשבונית/קבלה, מספר רישוי, VIN) חייב להיות מוחלף במחרוזת \"[REDACTED]\".\n"
-        "- בבנצ׳מרק: החזר/י אך ורק מספרים (samples_ils) וטווח מחיר (price_range_ils) וקישורים (sources). אסור להעתיק טקסט מהאתרים. אין ציטוטים.\n"
+        "- בבנצ׳מרק: החזר/י אך ורק מספרים (market_samples_ils) וטווח מחיר (price_range_ils) וקישורים (sources). אסור להעתיק טקסט מהאתרים. אין ציטוטים.\n"
         "- הבנצ׳מרק חייב להתבסס על *שוק מוסכים ישראלי בלבד*:\n"
         "  - כל שאילתה חייבת לכלול עברית + \"ישראל\" + \"₪\".\n"
         "  - אם משתמשים באנגלית, חובה לציין \"Israel\" + ILS + ₪.\n"
@@ -736,7 +893,7 @@ def vision_extract_invoice_with_web_benchmarks(
         "    \"line_items\": [\n"
         "      {\n"
         "        \"description\": null,\n"
-        "        \"price_ils\": null,\n"
+        "        \"invoice_price_ils\": null,\n"
         "        \"qty\": null\n"
         "      }\n"
         "    ],\n"
@@ -753,10 +910,10 @@ def vision_extract_invoice_with_web_benchmarks(
         "      \"line_item_description\": null,\n"
         "      \"suggested_service_type\": \"oil_change|filters|brake_pads_front|brake_discs_front|brake_pads_rear|battery|tires|ac_gas|spark_plugs|timing_belt|clutch|alternator|starter|suspension_arm|shock_absorber|wheel_alignment|diagnostic_scan|transmission_fluid|coolant|wipers|unknown\",\n"
         "      \"search_queries\": [],\n"
-        "      \"samples_ils\": [],\n"
+        "      \"market_samples_ils\": [],\n"
         "      \"price_range_ils\": {\"min\": null, \"max\": null},\n"
         "      \"sources\": [\n"
-        "        {\"url\": null, \"title\": null, \"date_retrieved_utc\": \"YYYY-MM-DD\", \"locality_hint\": null}\n"
+        "        {\"url\": null, \"title\": null}\n"
         "      ],\n"
         "      \"confidence\": 0.0,\n"
         "      \"notes\": null\n"
@@ -764,7 +921,7 @@ def vision_extract_invoice_with_web_benchmarks(
         "  ]\n"
         "}\n\n"
         "הנחיות איכות לבנצ׳מרק:\n"
-        "- עבור כל שורת טיפול: נסה/י להחזיר לפחות 10 מחירים שונים ב-samples_ils. אם לא אפשרי, החזר/י כמה שיש.\n"
+        "- עבור כל שורת טיפול: נסה/י להחזיר לפחות 10 מחירים שונים ב-market_samples_ils. אם לא אפשרי, החזר/י כמה שיש.\n"
         "- נקה/י מחירים שאינם בש\"ח או שאינם רלוונטיים (למשל חלק בלבד בלי עבודה) אם ניתן לזהות זאת.\n"
         "- עבור כל רשומת בנצ׳מרק: רשום/י את כל השאילתות שבוצעו בפועל ב-search_queries.\n"
         "- sources: נסה/י לכלול לפחות 2 מקורות כאשר אפשר, עם url + title + date_retrieved_utc + locality_hint.\n"
@@ -859,19 +1016,29 @@ def vision_extract_invoice_with_web_benchmarks(
 
         # Handle both old format (flat) and new format (nested under "extracted")
         if "extracted" in result:
+            try:
+                validate_vision_payload(result)
+            except Exception:
+                current_app.logger.exception("Invalid vision payload for invoice extraction.")
+                raise
             return result
-        else:
-            # Wrap old format into new format
-            return {
-                "extracted": {
-                    "car": result.get("car", {}),
-                    "invoice": result.get("invoice", {}),
-                    "line_items": result.get("line_items", []),
-                    "redaction": result.get("redaction", {}),
-                    "confidence": result.get("confidence", {}),
-                },
-                "benchmarks_web": result.get("benchmarks_web", []),
-            }
+        # Wrap old format into new format
+        wrapped_result = {
+            "extracted": {
+                "car": result.get("car", {}),
+                "invoice": result.get("invoice", {}),
+                "line_items": result.get("line_items", []),
+                "redaction": result.get("redaction", {}),
+                "confidence": result.get("confidence", {}),
+            },
+            "benchmarks_web": result.get("benchmarks_web", []),
+        }
+        try:
+            validate_vision_payload(wrapped_result)
+        except Exception:
+            current_app.logger.exception("Invalid wrapped vision payload for invoice extraction.")
+            raise
+        return wrapped_result
 
     except Exception as e:
         current_app.logger.error(f"Vision extraction with web benchmarks failed: {e}")
@@ -881,17 +1048,17 @@ def vision_extract_invoice_with_web_benchmarks(
 def match_web_benchmarks_to_items(
     benchmarks_web: List[Dict],
     canonical_items: List[Dict],
-) -> Dict[str, List[int]]:
+) -> Dict[str, Dict[str, Any]]:
     """
     Match web benchmark entries to canonical items by fuzzy matching on description.
-    Returns dict: canonical_code -> list of sample prices.
+    Returns dict: canonical_code -> samples/sources/notes.
     Ignores model's suggested_service_type; uses deterministic canonical_code instead.
     """
-    matched: Dict[str, List[int]] = {}
+    matched: Dict[str, Dict[str, Any]] = {}
 
     for bm in benchmarks_web:
         bm_desc = bm.get("line_item_description") or ""
-        bm_samples = bm.get("samples_ils") or []
+        bm_samples = bm.get("market_samples_ils") or bm.get("samples_ils") or []
         if not bm_samples:
             continue
 
@@ -919,8 +1086,18 @@ def match_web_benchmarks_to_items(
 
         if best_code:
             valid_samples = [int(round(s)) for s in bm_samples if isinstance(s, (int, float)) and s > 0]
+            sources = bm.get("sources") or []
+            notes = bm.get("notes") or bm.get("note") or []
+            entry = matched.setdefault(best_code, {"samples": [], "sources": [], "notes": []})
             if valid_samples:
-                matched.setdefault(best_code, []).extend(valid_samples)
+                entry["samples"].extend(valid_samples)
+            if sources:
+                entry["sources"].extend(sources)
+            if notes:
+                if isinstance(notes, list):
+                    entry["notes"].extend(notes)
+                else:
+                    entry["notes"].append(notes)
 
     return matched
 
@@ -1107,7 +1284,7 @@ def handle_invoice_analysis(
     web_samples_map = match_web_benchmarks_to_items(benchmarks_web, canonical_items)
 
     # Compute samples metadata
-    total_web_samples = sum(len(v) for v in web_samples_map.values())
+    total_web_samples = sum(len(v.get("samples", [])) for v in web_samples_map.values())
     samples_meta = {"total_cohort_n": total_web_samples}
 
     # Build report

@@ -234,10 +234,10 @@
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                 </svg>
-                                הורד דוח
+                                פתח דוח (PDF)
                             </button>
                             <button id="downloadJsonBtn" class="px-3 py-2 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium transition">
-                                הורד JSON
+                                הורד JSON (טכני)
                             </button>
                         </div>
                     </div>
@@ -265,9 +265,9 @@
                                 <tr>
                                     <th class="text-right py-3 px-2">פריט</th>
                                     <th class="text-right py-3 px-2">מחיר</th>
-                                    <th class="text-right py-3 px-2">P50</th>
-                                    <th class="text-right py-3 px-2">P75</th>
-                                    <th class="text-right py-3 px-2">P90</th>
+                                    <th class="text-right py-3 px-2">מחיר שוק רגיל (בערך האמצע)</th>
+                                    <th class="text-right py-3 px-2">מחיר שוק גבוה אבל עדיין נפוץ</th>
+                                    <th class="text-right py-3 px-2">מחיר גבוה מאוד (קצה עליון)</th>
                                     <th class="text-right py-3 px-2">הערכה</th>
                                 </tr>
                             </thead>
@@ -557,11 +557,17 @@
             // Fairness Score
             const scoreValue = document.getElementById('scoreValue');
             const fairnessNote = document.getElementById('fairnessNote');
-            scoreValue.textContent = report.fairness_score;
-            scoreValue.className = 'text-6xl font-black mb-2 ' + 
-                (report.fairness_score >= 70 ? 'text-success' : 
-                 report.fairness_score >= 50 ? 'text-warning' : 'text-danger');
-            fairnessNote.textContent = report.fairness_note || '';
+            if (report.fairness_score === null || report.fairness_score === undefined) {
+                scoreValue.textContent = '--';
+                scoreValue.className = 'text-6xl font-black mb-2 text-slate-400';
+                fairnessNote.textContent = report.fairness_note || 'אין מספיק נתוני שוק ישראליים כדי לקבוע ציון כולל';
+            } else {
+                scoreValue.textContent = report.fairness_score;
+                scoreValue.className = 'text-6xl font-black mb-2 ' +
+                    (report.fairness_score >= 70 ? 'text-success' :
+                     report.fairness_score >= 50 ? 'text-warning' : 'text-danger');
+                fairnessNote.textContent = report.fairness_note || '';
+            }
             
             // Totals
             const totalsGrid = document.getElementById('totalsGrid');
@@ -632,8 +638,8 @@
         }
 
         function getLabelClass(label) {
-            if (label.includes('נמוך') || label.includes('סביר')) return 'label-good';
-            if (label.includes('יקר')) return 'label-expensive';
+            if (label.includes('נמוך') || label.includes('תואם')) return 'label-good';
+            if (label.includes('גבוה')) return 'label-expensive';
             if (label.includes('חריג')) return 'label-extreme';
             return 'label-fair';
         }
@@ -670,9 +676,9 @@
                                 </div>
                                 <div class="flex items-center gap-3 text-sm">
                                     <a href="/service-prices/report/${inv.id}" target="_blank" rel="noopener"
-                                       class="text-primary hover:underline">הורד דוח</a>
-                                    <a href="/api/service-prices/download/${inv.id}" 
-                                       class="text-slate-300 hover:underline">JSON</a>
+                                       class="text-primary hover:underline">דוח (PDF)</a>
+                                    <a href="/api/service-prices/download/${inv.id}"
+                                       class="text-slate-300 hover:underline">JSON (טכני)</a>
                                 </div>
                             </div>
                         `).join('');
