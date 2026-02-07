@@ -263,7 +263,7 @@ def _is_israel_context(text: Optional[str]) -> bool:
     if not text:
         return False
     lowered = text.lower()
-    if "ישראל" in lowered or "israel" in lowered:
+    if "ישראל" in text or "israel" in lowered:
         return True
     if "₪" in text or "ש\"ח" in text or "שח" in text:
         return True
@@ -418,8 +418,15 @@ def compute_market_range(
     if len(samples) < MIN_MARKET_SAMPLES:
         return None, None, None, None, "אין מספיק נתונים להשוואה"
     sorted_samples = sorted(samples)
-    percentiles = compute_percentiles(sorted_samples)
-    median = percentiles.get("p50")
+    n = len(sorted_samples)
+    if n == 1:
+        median = sorted_samples[0]
+    else:
+        pos = 0.5 * (n - 1)
+        lower = int(pos)
+        upper = min(lower + 1, n - 1)
+        frac = pos - lower
+        median = int(round(sorted_samples[lower] + frac * (sorted_samples[upper] - sorted_samples[lower])))
     confidence = "high" if len(samples) >= MIN_HIGH_CONFIDENCE_SAMPLES else "low"
     label = "השוואה מבוססת" if confidence == "high" else "השוואה חלקית (מעט דגימות)"
     return sorted_samples[0], sorted_samples[-1], median, confidence, label

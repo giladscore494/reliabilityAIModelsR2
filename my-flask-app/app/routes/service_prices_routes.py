@@ -38,7 +38,7 @@ bp = Blueprint("service_prices", __name__)
 # Allowed MIME types for invoice images
 ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/jpg"}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
-MAX_JSON_DECODE_ATTEMPTS = 3  # Handles double/triple-encoded report_json payloads.
+MAX_JSON_DECODE_ATTEMPTS = 3  # Handles up to triple-encoded report_json payloads.
 
 
 def _legal_gating_error(code: str, message: str, required: dict, status: int = 428):
