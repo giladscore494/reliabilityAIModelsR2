@@ -108,16 +108,37 @@ def check_feature_consent(user_id: int):
 
 def _safe_parse_report_json(raw_report):
     """Parse report JSON safely, attempting repair when needed."""
-    if isinstance(raw_report, str):
+    was_repaired = False
+    if isinstance(raw_report, memoryview):
+        raw_report = raw_report.tobytes()
+    if isinstance(raw_report, (bytes, bytearray)):
+        raw_report = raw_report.decode("utf-8", errors="replace")
+    if isinstance(raw_report, (dict, list)):
+        return raw_report, was_repaired
+    if raw_report is None:
+        return None, was_repaired
+    if not isinstance(raw_report, str):
+        return None, was_repaired
+    payload = raw_report
+    for _ in range(3):
+        if isinstance(payload, (dict, list)):
+            return payload, was_repaired
+        if not isinstance(payload, str):
+            break
         try:
-            return json.loads(raw_report), False
+            payload = json.loads(payload)
+            continue
         except json.JSONDecodeError:
             try:
-                repaired = repair_json(raw_report)
-                return json.loads(repaired), True
+                repaired = repair_json(payload)
+                was_repaired = True
+                payload = json.loads(repaired)
+                continue
             except Exception:
-                return None, False
-    return raw_report, False
+                break
+    if isinstance(payload, (dict, list)):
+        return payload, was_repaired
+    return None, was_repaired
 
 
 @bp.route("/service-prices", methods=["GET"])
@@ -359,7 +380,11 @@ def service_prices_report(invoice_id: int):
 
     report, _ = _safe_parse_report_json(invoice.report_json)
     if report is None:
-        return api_error("invalid_report", "שגיאה בפענוח נתוני הדוח - פורמט JSON לא תקין", status=500)
+        return render_template(
+            "service_prices_report.html",
+            invoices=[],
+            error_message="שגיאה בפענוח נתוני הדוח - פורמט JSON לא תקין",
+        )
 
     return render_template(
         "service_prices_report.html",
@@ -380,7 +405,11 @@ def service_prices_report_all():
     report_entries = []
     for invoice in invoices:
         report, _ = _safe_parse_report_json(invoice.report_json)
-        report_entries.append({"invoice": invoice, "report": report or {}})
+        report_entries.append({
+            "invoice": invoice,
+            "report": report or {},
+            "error": report is None,
+        })
 
     return render_template(
         "service_prices_report.html",
@@ -441,13 +470,15 @@ def export_all_reports():
     lines = []
     for inv in invoices:
         try:
-            report = json.loads(inv.report_json) if isinstance(inv.report_json, str) else inv.report_json
+            report, _ = _safe_parse_report_json(inv.report_json)
+            if report is None:
+                continue
             lines.append(json.dumps({
                 "id": inv.id,
                 "created_at": inv.created_at.isoformat(),
                 "report": report,
             }, ensure_ascii=False))
-        except json.JSONDecodeError:
+        except Exception:
             continue
     
     content = "\n".join(lines).encode("utf-8")
@@ -538,8 +569,10 @@ def service_prices_history_detail(invoice_id: int):
         return api_error("not_found", "דוח לא נמצא", status=404)
 
     try:
-        report = json.loads(invoice.report_json) if isinstance(invoice.report_json, str) else invoice.report_json
-    except json.JSONDecodeError:
+        report, _ = _safe_parse_report_json(invoice.report_json)
+        if report is None:
+            raise ValueError("Invalid report")
+    except Exception:
         return api_error("invalid_report", "שגיאה בקריאת הדוח", status=500)
 
     return api_ok({

@@ -115,7 +115,12 @@
     <div class="toolbar">
         <button class="btn" onclick="window.print()">שמור כ-PDF</button>
     </div>
-    {% if invoices %}
+    {% if error_message %}
+        <div class="page">
+            <h1>דוח בדיקת חשבונית מוסך</h1>
+            <p class="list">{{ error_message }}</p>
+        </div>
+    {% elif invoices %}
         {% for entry in invoices %}
             {% set invoice = entry.invoice %}
             {% set report = entry.report or {} %}
@@ -125,13 +130,16 @@
             {% set created_at_value = meta.get('created_at') or invoice.created_at.isoformat() %}
             <div class="page">
                 <header>
-                    <h1>דוח בדיקת מחירי טיפול/תיקון</h1>
+                    <h1>דוח בדיקת חשבונית מוסך</h1>
                     <div class="meta">
                         <div>נוצר בתאריך: {{ created_at_value | replace('T', ' ') }}</div>
                         <div>רכב: {{ car.get('make') or '-' }} {{ car.get('model') or '' }} {{ car.get('year') or '' }}</div>
                         <div>אזור: {{ meta.get('region') or '-' }}</div>
                         <div>סוג מוסך: {{ meta.get('garage_type') or '-' }}</div>
                     </div>
+                    {% if entry.error %}
+                        <p class="list">שגיאה בפענוח הדוח. ייתכן שקובץ הדוח פגום.</p>
+                    {% endif %}
                 </header>
 
                 <section>
@@ -162,11 +170,11 @@
                         <thead>
                             <tr>
                                 <th>תיאור</th>
+                                <th>כמות</th>
                                 <th>מחיר חשבונית</th>
                                 <th>טווח שוק (₪)</th>
-                                <th>מחיר שוק רגיל (בערך האמצע)</th>
-                                <th>מחיר שוק גבוה אבל עדיין נפוץ</th>
-                                <th>מחיר גבוה מאוד (קצה עליון)</th>
+                                <th>מחיר טיפוסי</th>
+                                <th>השוואה</th>
                                 <th>הערכה</th>
                                 <th>הערות</th>
                             </tr>
@@ -175,6 +183,7 @@
                             {% for item in report.get('items', []) %}
                             <tr>
                                 <td>{{ item.get('raw_description') or item.get('canonical_code') or '-' }}</td>
+                                <td>{{ item.get('qty') or 1 }}</td>
                                 <td>{{ currency(item.get('price_ils')) }}</td>
                                 <td>
                                     {% if item.get('market_min_ils') is not none and item.get('market_max_ils') is not none %}
@@ -183,9 +192,8 @@
                                         -
                                     {% endif %}
                                 </td>
-                                <td>{{ currency(item.get('p50')) }}</td>
-                                <td>{{ currency(item.get('p75')) }}</td>
-                                <td>{{ currency(item.get('p90')) }}</td>
+                                <td>{{ currency(item.get('market_median_ils')) }}</td>
+                                <td>{{ item.get('market_label') or 'אין מספיק נתונים להשוואה' }}</td>
                                 <td>{{ item.get('verdict') or '-' }}</td>
                                 <td>{{ item.get('market_note') or '' }}</td>
                             </tr>
@@ -239,7 +247,7 @@
         {% endfor %}
     {% else %}
         <div class="page">
-            <h1>דוח בדיקת מחירי טיפול/תיקון</h1>
+            <h1>דוח בדיקת חשבונית מוסך</h1>
             <p class="list">לא נמצאו דוחות להצגה.</p>
         </div>
     {% endif %}

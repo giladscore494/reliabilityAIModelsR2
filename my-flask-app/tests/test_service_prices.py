@@ -2,6 +2,7 @@
 """Tests for Service Price Check feature."""
 
 from datetime import datetime
+import json
 from io import BytesIO
 from unittest.mock import patch, MagicMock
 
@@ -404,13 +405,14 @@ def test_download_report_works(logged_in_client, app):
     
     # Create a mock invoice
     with app.app_context():
+        double_encoded_report = json.dumps(json.dumps({"fairness_score": 75}))
         invoice = ServiceInvoice(
             user_id=user_id,
             make="Test",
             model="Car",
             year=2020,
             parsed_json='{"test": true}',
-            report_json='{"fairness_score": 75}',
+            report_json=double_encoded_report,
         )
         db.session.add(invoice)
         db.session.commit()
@@ -419,7 +421,10 @@ def test_download_report_works(logged_in_client, app):
     resp = client.get(f"/api/service-prices/download/{invoice_id}")
     assert resp.status_code == 200
     assert resp.content_type == "application/json"
-    assert b"fairness_score" in resp.data
+    assert resp.data.startswith(b"{")
+    parsed = json.loads(resp.data.decode("utf-8"))
+    assert isinstance(parsed, dict)
+    assert parsed.get("fairness_score") == 75
 
 
 def test_download_report_returns_200_for_valid_invoice(logged_in_client, app):
@@ -441,6 +446,28 @@ def test_download_report_returns_200_for_valid_invoice(logged_in_client, app):
 
     resp = client.get(f"/api/service-prices/download/{invoice_id}")
     assert resp.status_code == 200
+
+
+def test_service_prices_report_returns_200(logged_in_client, app):
+    """GET /service-prices/report/<id> should return 200 for a valid invoice."""
+    client, user_id = logged_in_client
+
+    with app.app_context():
+        invoice = ServiceInvoice(
+            user_id=user_id,
+            make="Valid",
+            model="Invoice",
+            year=2022,
+            parsed_json='{"test": true}',
+            report_json=json.dumps({"totals": {"total_price_ils": 1200}}),
+        )
+        db.session.add(invoice)
+        db.session.commit()
+        invoice_id = invoice.id
+
+    resp = client.get(f"/service-prices/report/{invoice_id}")
+    assert resp.status_code == 200
+    assert "דוח בדיקת חשבונית מוסך" in resp.data.decode("utf-8")
 
 
 def test_download_report_not_found_for_other_user(logged_in_client, app):

@@ -264,10 +264,10 @@
                             <thead class="text-slate-400 border-b border-slate-700">
                                 <tr>
                                     <th class="text-right py-3 px-2">פריט</th>
-                                    <th class="text-right py-3 px-2">מחיר</th>
-                                    <th class="text-right py-3 px-2">מחיר שוק רגיל (בערך האמצע)</th>
-                                    <th class="text-right py-3 px-2">מחיר שוק גבוה אבל עדיין נפוץ</th>
-                                    <th class="text-right py-3 px-2">מחיר גבוה מאוד (קצה עליון)</th>
+                                    <th class="text-right py-3 px-2">מחיר חשבונית</th>
+                                    <th class="text-right py-3 px-2">טווח שוק</th>
+                                    <th class="text-right py-3 px-2">מחיר טיפוסי</th>
+                                    <th class="text-right py-3 px-2">השוואה</th>
                                     <th class="text-right py-3 px-2">הערכה</th>
                                 </tr>
                             </thead>
@@ -560,7 +560,7 @@
             if (report.fairness_score === null || report.fairness_score === undefined) {
                 scoreValue.textContent = '--';
                 scoreValue.className = 'text-6xl font-black mb-2 text-slate-400';
-                fairnessNote.textContent = report.fairness_note || 'אין מספיק נתוני שוק ישראליים כדי לקבוע ציון כולל';
+                fairnessNote.textContent = report.fairness_note || 'אין מספיק נתונים לציון כולל';
             } else {
                 scoreValue.textContent = report.fairness_score;
                 scoreValue.className = 'text-6xl font-black mb-2 ' +
@@ -604,6 +604,12 @@
             const itemsTableBody = document.getElementById('itemsTableBody');
             itemsTableBody.innerHTML = report.items.map(item => {
                 const labelClass = getLabelClass(item.label);
+                const marketRange = (item.market_min_ils !== null && item.market_min_ils !== undefined &&
+                    item.market_max_ils !== null && item.market_max_ils !== undefined)
+                    ? `₪${item.market_min_ils.toLocaleString()}–₪${item.market_max_ils.toLocaleString()}`
+                    : '-';
+                const marketMedian = item.market_median_ils ? `₪${item.market_median_ils.toLocaleString()}` : '-';
+                const marketLabel = item.market_label || 'אין מספיק נתונים להשוואה';
                 return `
                     <tr>
                         <td class="py-3 px-2">
@@ -611,9 +617,9 @@
                             <div class="text-xs text-slate-500 truncate max-w-xs">${item.raw_description || ''}</div>
                         </td>
                         <td class="py-3 px-2 font-semibold">₪${(item.price_ils || 0).toLocaleString()}</td>
-                        <td class="py-3 px-2 text-slate-400">${item.p50 ? '₪' + item.p50.toLocaleString() : '-'}</td>
-                        <td class="py-3 px-2 text-slate-400">${item.p75 ? '₪' + item.p75.toLocaleString() : '-'}</td>
-                        <td class="py-3 px-2 text-slate-400">${item.p90 ? '₪' + item.p90.toLocaleString() : '-'}</td>
+                        <td class="py-3 px-2 text-slate-400">${marketRange}</td>
+                        <td class="py-3 px-2 text-slate-400">${marketMedian}</td>
+                        <td class="py-3 px-2 text-slate-400">${marketLabel}</td>
                         <td class="py-3 px-2 ${labelClass}">${item.label}</td>
                     </tr>
                 `;
