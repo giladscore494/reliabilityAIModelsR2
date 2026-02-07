@@ -841,7 +841,7 @@
                 <div class="bg-dark-lighter/80 border border-slate-700/60 rounded-xl p-4 shadow-lg">
                     <div class="flex justify-between items-start">
                         <div>
-                            <h3 class="text-lg font-bold text-white">${escapeHtml(inv.make || '')} ${escapeHtml(inv.model || '')} ${inv.year || ''}</h3>
+                            <h3 class="text-lg font-bold text-white">${escapeHtml(inv.make || '')} ${escapeHtml(inv.model || '')} ${escapeHtml(String(inv.year || ''))}</h3>
                             <div class="text-sm text-slate-400 mt-1">
                                 ${new Date(inv.created_at).toLocaleDateString('he-IL')} ·
                                 ${inv.total_price_ils ? '₪' + inv.total_price_ils.toLocaleString() : 'לא צוין סכום'}

@@ -851,7 +851,7 @@ def match_web_benchmarks_to_items(
                 best_code = code
 
         if best_code:
-            valid_samples = [int(s) for s in bm_samples if isinstance(s, (int, float)) and s > 0]
+            valid_samples = [int(round(s)) for s in bm_samples if isinstance(s, (int, float)) and s > 0]
             if valid_samples:
                 matched.setdefault(best_code, []).extend(valid_samples)
 

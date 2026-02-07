@@ -396,19 +396,23 @@ def get_eta():
     user_id = current_user.id
 
     # User's rolling average (last 20)
-    user_avg = db.session.query(
-        func.avg(ServiceInvoice.duration_ms)
+    user_subq = db.session.query(
+        ServiceInvoice.duration_ms
     ).filter(
         ServiceInvoice.user_id == user_id,
         ServiceInvoice.duration_ms.isnot(None),
-    ).order_by(ServiceInvoice.created_at.desc()).limit(20).scalar()
+    ).order_by(ServiceInvoice.created_at.desc()).limit(20).subquery()
+
+    user_avg = db.session.query(func.avg(user_subq.c.duration_ms)).scalar()
 
     # Global average (last 200)
-    global_avg = db.session.query(
-        func.avg(ServiceInvoice.duration_ms)
+    global_subq = db.session.query(
+        ServiceInvoice.duration_ms
     ).filter(
         ServiceInvoice.duration_ms.isnot(None),
-    ).order_by(ServiceInvoice.created_at.desc()).limit(200).scalar()
+    ).order_by(ServiceInvoice.created_at.desc()).limit(200).subquery()
+
+    global_avg = db.session.query(func.avg(global_subq.c.duration_ms)).scalar()
 
     eta_user_s = round(user_avg / 1000, 1) if user_avg else None
     eta_global_s = round(global_avg / 1000, 1) if global_avg else None

@@ -478,10 +478,10 @@
                 const etaData = await etaResp.json();
                 if (etaData.ok) {
                     const eta = etaData.data;
-                    if (eta.eta_user_s) {
+                    if (eta.eta_user_s && typeof eta.eta_user_s === 'number') {
                         document.getElementById('etaText').textContent = `זמן תגובה צפוי ~${eta.eta_user_s} שניות`;
                     }
-                    if (eta.eta_global_s) {
+                    if (eta.eta_global_s && typeof eta.eta_global_s === 'number') {
                         document.getElementById('etaGlobalText').textContent = `ממוצע היסטורי ~${eta.eta_global_s} שניות`;
                     }
                 }
