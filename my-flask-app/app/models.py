@@ -43,6 +43,7 @@ class User(db.Model, UserMixin):
     google_id = db.Column(db.String(200), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     name = db.Column(db.String(100))
+    service_price_checks_count = db.Column(db.Integer, nullable=False, default=0)
 
     searches = relationship(
         "SearchHistory",
@@ -76,6 +77,18 @@ class User(db.Model, UserMixin):
     )
     comparison_histories = relationship(
         "ComparisonHistory",
+        cascade="all, delete-orphan",
+        backref="user",
+        lazy=True,
+    )
+    service_invoices = relationship(
+        "ServiceInvoice",
+        cascade="all, delete-orphan",
+        backref="user",
+        lazy=True,
+    )
+    feature_acceptances = relationship(
+        "LegalFeatureAcceptance",
         cascade="all, delete-orphan",
         backref="user",
         lazy=True,
@@ -244,3 +257,84 @@ class ComparisonHistory(db.Model):
                 raise ValueError(f"Invalid JSON in {key}: {e}")
             return value
         raise ValueError(f"Invalid type for {key}: expected dict, list, or JSON string")
+
+
+class ServiceInvoice(db.Model):
+    """
+    Stores service invoice data (redacted/structured only, no raw images).
+    Used for Service Price Check feature.
+    """
+    __tablename__ = "service_invoice"
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    make = db.Column(db.String(100), nullable=True, index=True)
+    model = db.Column(db.String(100), nullable=True, index=True)
+    year = db.Column(db.Integer, nullable=True, index=True)
+    mileage = db.Column(db.Integer, nullable=True, index=True)
+    region = db.Column(db.String(64), nullable=True, index=True)  # coarse region only
+    garage_type = db.Column(db.String(16), nullable=True, index=True)  # dealer/private/unknown
+    invoice_date = db.Column(db.Date, nullable=True, index=True)
+
+    total_price_ils = db.Column(db.Integer, nullable=True)
+    currency = db.Column(db.String(8), nullable=False, default="ILS")
+
+    parsed_json = db.Column(JSONEncodedText, nullable=False)  # sanitized + redacted OCR structure
+    report_json = db.Column(JSONEncodedText, nullable=False)  # final computed report for download
+    duration_ms = db.Column(db.Integer, nullable=True)
+    request_id = db.Column(db.String(64), nullable=True)
+
+    items = relationship(
+        "ServiceInvoiceItem",
+        cascade="all, delete-orphan",
+        backref="invoice",
+        lazy=True,
+    )
+
+    __table_args__ = (
+        db.Index("ix_service_invoice_cohort", "make", "model", "year", "region", "garage_type"),
+    )
+
+
+class ServiceInvoiceItem(db.Model):
+    """
+    Canonicalized line items from a service invoice.
+    """
+    __tablename__ = "service_invoice_item"
+
+    id = db.Column(db.Integer, primary_key=True)
+    invoice_id = db.Column(db.Integer, db.ForeignKey("service_invoice.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    canonical_code = db.Column(db.String(64), nullable=False, index=True)  # e.g. oil_change, brake_pads_front
+    category = db.Column(db.String(32), nullable=True, index=True)  # brakes/engine/etc
+    raw_description = db.Column(db.String(512), nullable=True)
+
+    price_ils = db.Column(db.Integer, nullable=True, index=True)
+    labor_ils = db.Column(db.Integer, nullable=True)
+    parts_ils = db.Column(db.Integer, nullable=True)
+    qty = db.Column(db.Integer, nullable=True)
+    confidence = db.Column(db.Float, nullable=True)
+
+    __table_args__ = (
+        db.Index("ix_service_invoice_item_code_price", "canonical_code", "price_ils"),
+    )
+
+
+class LegalFeatureAcceptance(db.Model):
+    """
+    Feature-specific legal acceptance records.
+    Scalable approach: one table for all feature consents (e.g., invoice_scanner).
+    """
+    __tablename__ = "legal_feature_acceptance"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
+    feature_key = db.Column(db.String(64), nullable=False, index=True)  # e.g. "invoice_scanner"
+    version = db.Column(db.String(32), nullable=False)  # e.g. "2026-02-07"
+    accepted_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "feature_key", "version", name="uq_feature_acceptance"),
+    )

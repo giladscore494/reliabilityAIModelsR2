@@ -115,7 +115,57 @@
         העוגיות נמחקות אוטומטית עם סגירת הדפדפן או התנתקות מהשירות.
       </p>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">8. יצירת קשר</h3>
+      <!-- Service Price Check Section -->
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">8. סריקת חשבוניות מוסך ובדיקת מחירי טיפול</h3>
+      
+      <h4 class="text-xl font-semibold text-slate-200 mt-6 mb-3">8.1 איזה מידע נאסף</h4>
+      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-4">
+        <li>קובץ תמונה של החשבונית (נשמר זמנית לצורך עיבוד בלבד; לא נשמר כקובץ גולמי במסד הנתונים).</li>
+        <li>מידע שחולץ מהחשבונית לאחר השחרה (למשל: סוג טיפול, מחירי שורות, סכום כולל, ק״מ אם מופיע, תאריך אם מופיע).</li>
+        <li>מטא-דאטה תפעולי (למשל מזהה בקשה, זמני עיבוד) לצורכי אבטחה/תחקור תקלות.</li>
+        <li>פרטי חשבון המשתמש והיסטוריית שימוש בפיצ'ר (למשל מונה בדיקות).</li>
+      </ul>
+
+      <h4 class="text-xl font-semibold text-slate-200 mt-6 mb-3">8.2 מטרות עיבוד</h4>
+      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-4">
+        <li>מתן השירות והפקת דוח למשתמש.</li>
+        <li>יצירת השוואות סטטיסטיות (אחוזונים) ושיפור איכות המערכת.</li>
+        <li>אבטחת מידע, מניעת הונאה/שימוש לרעה, ושמירה על תקינות השירות.</li>
+      </ul>
+
+      <h4 class="text-xl font-semibold text-slate-200 mt-6 mb-3">8.3 הפחתת מידע והסרת מזהים</h4>
+      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-4">
+        <li>אנו מבצעים השחרה/הסרה אוטומטית של פרטים מזהים (כגון שם/טלפון/מס' חשבונית/שם מוסך/לוחית רישוי) לפני שמירת נתונים.</li>
+        <li>איננו שומרים את תמונת החשבונית הגולמית במסד הנתונים.</li>
+      </ul>
+
+      <h4 class="text-xl font-semibold text-slate-200 mt-6 mb-3">8.4 העברת מידע לספקים מחוץ לישראל</h4>
+      <p class="text-slate-300 mb-4">
+        ניתוח החשבונית עשוי להתבצע באמצעות ספקים מחוץ לישראל. העברה זו תתבצע בהתאם לדין החל בישראל ולהסדרים/התחייבויות רלוונטיות.
+      </p>
+
+      <h4 class="text-xl font-semibold text-slate-200 mt-6 mb-3">8.5 אבטחת מידע</h4>
+      <p class="text-slate-300 mb-4">
+        אנו מפעילים אמצעי אבטחה ארגוניים וטכניים בהתאם לדרישות הדין והנחיות רלוונטיות (לרבות בקרות גישה, לוגים, הגבלת הרשאות, ושמירת עותקי גיבוי לפי צורך).
+      </p>
+
+      <h4 class="text-xl font-semibold text-slate-200 mt-6 mb-3">8.6 תקופת שמירה (Retention)</h4>
+      <p class="text-slate-300 mb-4">
+        דוחות ונתונים שחולצו נשמרים כדי לאפשר למשתמש גישה להיסטוריה ולשפר את המערכת. ניתן לבקש מחיקה/ייצוא בהתאם לדין ולמדיניות המחיקה שלנו.
+      </p>
+
+      <h4 class="text-xl font-semibold text-slate-200 mt-6 mb-3">8.7 זכויות משתמש</h4>
+      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-4">
+        <li>ייתכן שלמשתמש קיימת זכות לעיין במידע שנשמר עליו במאגר ולבקש תיקון מידע, בהתאם לדין.</li>
+        <li>לפניות בנושא פרטיות: <a href="mailto:{{ contact_email }}" class="text-primary hover:underline">{{ contact_email }}</a>.</li>
+      </ul>
+
+      <h4 class="text-xl font-semibold text-slate-200 mt-6 mb-3">8.8 הסכמה ייעודית לפיצ'ר</h4>
+      <p class="text-slate-300 mb-6">
+        לפני שימוש בפיצ'ר סריקת חשבוניות תידרש הסכמה ייעודית לעיבוד המסמך, לרבות באמצעות ספקים טכנולוגיים לצורך מתן השירות.
+      </p>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">9. יצירת קשר</h3>
       <p class="text-slate-300 leading-relaxed">
         לפניות משפטיות, בקשות מחיקה, או שאלות בנושא פרטיות, ניתן ליצור קשר בכתובת
         <a href="mailto:{{ contact_email }}" class="text-primary hover:underline">{{ contact_email }}</a>.

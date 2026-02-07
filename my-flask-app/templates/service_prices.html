@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>בדיקת מחירי טיפול – yedaarechevAI</title>
+
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+
+    <style>
+        :root { --bg-dark: #0F172A; --text-light: #E2E8F0; --primary: #6366F1; --secondary:#EC4899; }
+        body {
+            font-family: 'Heebo', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-light);
+            margin: 0;
+            overflow-x: hidden;
+        }
+        .fade-in { animation: fadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards; opacity: 0; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .loader { border: 3px solid rgba(255,255,255,0.2); border-top-color: var(--primary); border-radius: 50%; width: 1.5rem; height: 1.5rem; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .drop-zone {
+            border: 2px dashed rgba(99,102,241,0.5);
+            transition: all 0.3s ease;
+        }
+        .drop-zone:hover, .drop-zone.drag-over {
+            border-color: var(--primary);
+            background: rgba(99,102,241,0.1);
+        }
+        
+        .label-good { color: #10B981; }
+        .label-fair { color: #F59E0B; }
+        .label-expensive { color: #EF4444; }
+        .label-extreme { color: #DC2626; font-weight: bold; }
+    </style>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#6366F1', secondary: '#EC4899',
+                        dark: '#0F172A', 'dark-lighter': '#1E293B',
+                        success: '#10B981', warning: '#F59E0B', danger: '#EF4444',
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-dark text-slate-200 min-h-screen flex flex-col antialiased">
+
+    {% set active_page = 'service_prices' %}
+    {% include '_navbar.html' %}
+
+    <main class="flex-grow container mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12">
+        <div class="max-w-4xl mx-auto">
+            <!-- Header -->
+            <div class="text-center mb-8 fade-in">
+                <h1 class="text-4xl md:text-5xl font-extrabold text-white mb-4">
+                    בדיקת מחירי טיפול
+                </h1>
+                <p class="text-xl text-slate-400">
+                    העלה חשבונית טיפול ובדוק האם המחירים הוגנים לפי נתוני השוק
+                </p>
+            </div>
+
+            <!-- Legal Modal -->
+            <div id="legalModal" class="fixed inset-0 z-50 hidden">
+                <div class="absolute inset-0 bg-black/70" onclick="closeLegalModal()"></div>
+                <div class="absolute inset-0 flex items-center justify-center p-4">
+                    <div class="bg-dark-lighter rounded-2xl p-6 md:p-8 max-w-lg w-full max-h-[90vh] overflow-y-auto border border-slate-700/50 shadow-2xl">
+                        <h2 class="text-2xl font-bold text-white mb-4">אישור תנאים</h2>
+                        
+                        <div id="termsSection" class="mb-6">
+                            <p class="text-slate-300 mb-4">
+                                לפני שימוש בשירות זה, יש לאשר את 
+                                <a href="{{ url_for('public.terms') }}" target="_blank" class="text-primary hover:underline">תנאי השימוש</a>
+                                ואת 
+                                <a href="{{ url_for('public.privacy') }}" target="_blank" class="text-primary hover:underline">מדיניות הפרטיות</a>.
+                            </p>
+                            <label class="flex items-start gap-3 cursor-pointer group">
+                                <input type="checkbox" id="legalConfirmCheckbox" class="mt-1 rounded border-slate-600 bg-slate-800 text-primary focus:ring-primary">
+                                <span class="text-slate-300 text-sm">
+                                    קראתי והסכמתי לתנאי השימוש ולמדיניות הפרטיות
+                                </span>
+                            </label>
+                        </div>
+                        
+                        <div id="featureConsentSection" class="mb-6 p-4 bg-slate-800/50 rounded-lg border border-slate-700/50">
+                            <h3 class="text-lg font-semibold text-white mb-3">הסכמה ייעודית לסריקת חשבוניות</h3>
+                            <label class="flex items-start gap-3 cursor-pointer group">
+                                <input type="checkbox" id="featureConsentCheckbox" class="mt-1 rounded border-slate-600 bg-slate-800 text-primary focus:ring-primary">
+                                <span class="text-slate-300 text-sm leading-relaxed">
+                                    אני מבין/ה שאני מעלה חשבונית טיפול, שהמערכת תבצע ניתוח אוטומטי, ושייתכן שהעיבוד יתבצע אצל ספק טכנולוגי חיצוני לצורך מתן השירות. אני מאשר/ת זאת.
+                                </span>
+                            </label>
+                        </div>
+                        
+                        <div class="flex gap-3">
+                            <button id="acceptBtn" onclick="acceptTerms()" disabled
+                                    class="flex-1 px-6 py-3 rounded-full font-bold bg-gradient-to-r from-primary to-secondary text-white opacity-50 cursor-not-allowed transition">
+                                אשר והמשך
+                            </button>
+                            <button onclick="closeLegalModal()"
+                                    class="px-6 py-3 rounded-full font-medium bg-slate-700 hover:bg-slate-600 text-white transition">
+                                ביטול
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Upload Form -->
+            <div class="bg-dark-lighter/60 backdrop-blur-xl border border-slate-700/50 p-6 md:p-8 rounded-3xl shadow-2xl fade-in" style="animation-delay: 100ms;">
+                <form id="uploadForm" enctype="multipart/form-data">
+                    <!-- Drop Zone -->
+                    <div id="dropZone" class="drop-zone rounded-2xl p-8 text-center cursor-pointer mb-6">
+                        <div id="dropZoneContent">
+                            <svg class="mx-auto h-16 w-16 text-slate-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                            </svg>
+                            <p class="text-lg text-slate-300 mb-2">גרור חשבונית לכאן או לחץ לבחירה</p>
+                            <p class="text-sm text-slate-500">JPG, PNG עד 5MB</p>
+                        </div>
+                        <input type="file" id="invoiceInput" name="invoice_image" accept="image/jpeg,image/png,image/jpg" class="hidden">
+                    </div>
+
+                    <!-- Optional Context Fields -->
+                    <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-1">יצרן (אופציונלי)</label>
+                            <input type="text" name="make" placeholder="לדוגמה: טויוטה"
+                                   class="w-full px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-500 focus:ring-primary focus:border-primary">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-1">דגם (אופציונלי)</label>
+                            <input type="text" name="model" placeholder="לדוגמה: קורולה"
+                                   class="w-full px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-500 focus:ring-primary focus:border-primary">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-1">שנתון (אופציונלי)</label>
+                            <input type="number" name="year" placeholder="2022" min="1990" max="2030"
+                                   class="w-full px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-500 focus:ring-primary focus:border-primary">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-1">קילומטראז' (אופציונלי)</label>
+                            <input type="number" name="mileage" placeholder="80000"
+                                   class="w-full px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white placeholder-slate-500 focus:ring-primary focus:border-primary">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-1">אזור (אופציונלי)</label>
+                            <select name="region" class="w-full px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white focus:ring-primary focus:border-primary">
+                                <option value="">בחר אזור</option>
+                                <option value="center">מרכז</option>
+                                <option value="north">צפון</option>
+                                <option value="south">דרום</option>
+                                <option value="jerusalem">ירושלים</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-1">סוג מוסך (אופציונלי)</label>
+                            <select name="garage_type" class="w-full px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white focus:ring-primary focus:border-primary">
+                                <option value="">בחר סוג</option>
+                                <option value="dealer">מוסך מורשה</option>
+                                <option value="private">מוסך עצמאי</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <button type="submit" id="submitBtn" disabled
+                            class="w-full px-6 py-4 rounded-full font-bold text-lg bg-gradient-to-r from-primary to-secondary text-white shadow-lg hover:shadow-primary/40 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3">
+                        <span id="submitText">בחר קובץ לניתוח</span>
+                        <div id="submitLoader" class="loader hidden"></div>
+                    </button>
+                </form>
+            </div>
+
+            <!-- Results Section (initially hidden) -->
+            <div id="resultsSection" class="hidden mt-8 fade-in">
+                <div class="bg-dark-lighter/60 backdrop-blur-xl border border-slate-700/50 p-6 md:p-8 rounded-3xl shadow-2xl">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-2xl font-bold text-white">תוצאות הניתוח</h2>
+                        <button id="downloadBtn" class="px-4 py-2 rounded-full bg-slate-700 hover:bg-slate-600 text-white font-medium flex items-center gap-2 transition">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            הורד דוח
+                        </button>
+                    </div>
+
+                    <!-- Fairness Score -->
+                    <div id="fairnessScore" class="text-center p-6 bg-slate-800/50 rounded-2xl mb-6">
+                        <div class="text-6xl font-black mb-2" id="scoreValue">--</div>
+                        <div class="text-slate-400">ציון הוגנות</div>
+                        <div id="fairnessNote" class="text-sm text-slate-500 mt-1"></div>
+                    </div>
+
+                    <!-- Totals -->
+                    <div id="totalsGrid" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6"></div>
+
+                    <!-- Red Flags -->
+                    <div id="redFlagsSection" class="hidden mb-6 p-4 bg-danger/10 border border-danger/30 rounded-xl">
+                        <h3 class="text-lg font-semibold text-danger mb-2">⚠️ נקודות לתשומת לב</h3>
+                        <ul id="redFlagsList" class="text-slate-300 space-y-1"></ul>
+                    </div>
+
+                    <!-- Items Table -->
+                    <div class="overflow-x-auto mb-6">
+                        <table class="w-full text-sm">
+                            <thead class="text-slate-400 border-b border-slate-700">
+                                <tr>
+                                    <th class="text-right py-3 px-2">פריט</th>
+                                    <th class="text-right py-3 px-2">מחיר</th>
+                                    <th class="text-right py-3 px-2">P50</th>
+                                    <th class="text-right py-3 px-2">P75</th>
+                                    <th class="text-right py-3 px-2">P90</th>
+                                    <th class="text-right py-3 px-2">הערכה</th>
+                                </tr>
+                            </thead>
+                            <tbody id="itemsTableBody" class="divide-y divide-slate-700/50"></tbody>
+                        </table>
+                    </div>
+
+                    <!-- Negotiation Script -->
+                    <div id="negotiationSection" class="hidden p-4 bg-primary/10 border border-primary/30 rounded-xl">
+                        <h3 class="text-lg font-semibold text-primary mb-2">💡 טיפים למשא ומתן</h3>
+                        <ul id="negotiationList" class="text-slate-300 space-y-1"></ul>
+                    </div>
+
+                    <!-- Disclaimer -->
+                    <div class="mt-6 text-center text-sm text-slate-500">
+                        <p id="disclaimerText"></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- History Section -->
+            <div class="mt-8 fade-in" style="animation-delay: 200ms;">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-bold text-white">הבדיקות שלי</h2>
+                    <button id="exportAllBtn" class="text-sm text-primary hover:underline">ייצוא כל הבדיקות</button>
+                </div>
+                <div id="historyList" class="space-y-3">
+                    <p class="text-slate-400 text-center py-8">טוען היסטוריה...</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    {% include "_footer.html" %}
+
+    <script>
+        // State
+        let currentInvoiceId = null;
+        let currentReport = null;
+        const legalAccepted = {{ 'true' if legal_accepted else 'false' }};
+        const featureAccepted = {{ 'true' if feature_accepted else 'false' }};
+        const termsVersion = "{{ terms_version }}";
+        const privacyVersion = "{{ privacy_version }}";
+        const featureKey = "{{ feature_key }}";
+        const featureVersion = "{{ feature_version }}";
+
+        // DOM Elements
+        const dropZone = document.getElementById('dropZone');
+        const invoiceInput = document.getElementById('invoiceInput');
+        const uploadForm = document.getElementById('uploadForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const submitText = document.getElementById('submitText');
+        const submitLoader = document.getElementById('submitLoader');
+        const resultsSection = document.getElementById('resultsSection');
+        const legalModal = document.getElementById('legalModal');
+        const legalConfirmCheckbox = document.getElementById('legalConfirmCheckbox');
+        const featureConsentCheckbox = document.getElementById('featureConsentCheckbox');
+        const acceptBtn = document.getElementById('acceptBtn');
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            setupDropZone();
+            setupForm();
+            setupLegalModal();
+            loadHistory();
+        });
+
+        function setupDropZone() {
+            dropZone.addEventListener('click', () => invoiceInput.click());
+            
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('drag-over');
+            });
+            
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove('drag-over');
+            });
+            
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('drag-over');
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    invoiceInput.files = files;
+                    handleFileSelect();
+                }
+            });
+            
+            invoiceInput.addEventListener('change', handleFileSelect);
+        }
+
+        function handleFileSelect() {
+            const file = invoiceInput.files[0];
+            if (file) {
+                // Validate file type
+                if (!['image/jpeg', 'image/png', 'image/jpg'].includes(file.type)) {
+                    alert('יש להעלות קובץ JPG או PNG בלבד');
+                    invoiceInput.value = '';
+                    return;
+                }
+                // Validate file size (5MB)
+                if (file.size > 5 * 1024 * 1024) {
+                    alert('הקובץ גדול מדי. מקסימום 5MB.');
+                    invoiceInput.value = '';
+                    return;
+                }
+                
+                // Update UI
+                document.getElementById('dropZoneContent').innerHTML = `
+                    <svg class="mx-auto h-12 w-12 text-success mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <p class="text-lg text-success font-semibold">${file.name}</p>
+                    <p class="text-sm text-slate-400">${(file.size / 1024).toFixed(1)} KB</p>
+                `;
+                
+                submitBtn.disabled = false;
+                submitText.textContent = 'נתח חשבונית';
+            }
+        }
+
+        function setupForm() {
+            uploadForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                // Check legal requirements first
+                if (!legalAccepted || !featureAccepted) {
+                    openLegalModal();
+                    return;
+                }
+                
+                await analyzeInvoice();
+            });
+        }
+
+        function setupLegalModal() {
+            const updateAcceptBtn = () => {
+                const termsChecked = legalConfirmCheckbox.checked || legalAccepted;
+                const featureChecked = featureConsentCheckbox.checked || featureAccepted;
+                const allChecked = termsChecked && featureChecked;
+                
+                acceptBtn.disabled = !allChecked;
+                acceptBtn.classList.toggle('opacity-50', !allChecked);
+                acceptBtn.classList.toggle('cursor-not-allowed', !allChecked);
+            };
+            
+            legalConfirmCheckbox.addEventListener('change', updateAcceptBtn);
+            featureConsentCheckbox.addEventListener('change', updateAcceptBtn);
+            
+            // Pre-check if already accepted
+            if (legalAccepted) {
+                legalConfirmCheckbox.checked = true;
+                legalConfirmCheckbox.disabled = true;
+            }
+            if (featureAccepted) {
+                featureConsentCheckbox.checked = true;
+                featureConsentCheckbox.disabled = true;
+            }
+            
+            updateAcceptBtn();
+        }
+
+        function openLegalModal() {
+            legalModal.classList.remove('hidden');
+        }
+
+        function closeLegalModal() {
+            legalModal.classList.add('hidden');
+        }
+
+        async function acceptTerms() {
+            try {
+                const featureConsents = [];
+                if (!featureAccepted && featureConsentCheckbox.checked) {
+                    featureConsents.push({
+                        feature_key: featureKey,
+                        version: featureVersion
+                    });
+                }
+                
+                const resp = await fetch('/api/legal/accept', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        legal_confirm: true,
+                        terms_version: termsVersion,
+                        privacy_version: privacyVersion,
+                        feature_consents: featureConsents
+                    })
+                });
+                
+                const data = await resp.json();
+                if (data.ok) {
+                    closeLegalModal();
+                    // Update state and proceed
+                    await analyzeInvoice();
+                } else {
+                    alert(data.message || 'שגיאה באישור התנאים');
+                }
+            } catch (err) {
+                console.error('Accept terms error:', err);
+                alert('שגיאה באישור התנאים');
+            }
+        }
+
+        async function analyzeInvoice() {
+            const file = invoiceInput.files[0];
+            if (!file) return;
+            
+            // Show loading
+            submitBtn.disabled = true;
+            submitText.textContent = 'מנתח...';
+            submitLoader.classList.remove('hidden');
+            resultsSection.classList.add('hidden');
+            
+            try {
+                const formData = new FormData(uploadForm);
+                
+                const resp = await fetch('/api/service-prices/analyze', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await resp.json();
+                
+                if (data.ok) {
+                    currentInvoiceId = data.data.invoice_id;
+                    currentReport = data.data.report;
+                    displayResults(currentReport);
+                    loadHistory(); // Refresh history
+                } else {
+                    // Check for legal errors
+                    const errorCode = data.error?.code || data.error;
+                    if (errorCode === 'LEGAL_ACCEPTANCE_REQUIRED' || errorCode === 'FEATURE_CONSENT_REQUIRED') {
+                        openLegalModal();
+                    } else {
+                        alert(data.error?.message || data.message || 'שגיאה בניתוח החשבונית');
+                    }
+                }
+            } catch (err) {
+                console.error('Analysis error:', err);
+                alert('שגיאה בניתוח החשבונית');
+            } finally {
+                submitBtn.disabled = false;
+                submitText.textContent = 'נתח חשבונית';
+                submitLoader.classList.add('hidden');
+            }
+        }
+
+        function displayResults(report) {
+            resultsSection.classList.remove('hidden');
+            
+            // Fairness Score
+            const scoreValue = document.getElementById('scoreValue');
+            const fairnessNote = document.getElementById('fairnessNote');
+            scoreValue.textContent = report.fairness_score;
+            scoreValue.className = 'text-6xl font-black mb-2 ' + 
+                (report.fairness_score >= 70 ? 'text-success' : 
+                 report.fairness_score >= 50 ? 'text-warning' : 'text-danger');
+            fairnessNote.textContent = report.fairness_note || '';
+            
+            // Totals
+            const totalsGrid = document.getElementById('totalsGrid');
+            totalsGrid.innerHTML = `
+                <div class="bg-slate-800/50 rounded-xl p-4 text-center">
+                    <div class="text-2xl font-bold text-white">₪${(report.totals.total_price_ils || 0).toLocaleString()}</div>
+                    <div class="text-slate-400 text-sm">סה"כ חשבונית</div>
+                </div>
+                <div class="bg-slate-800/50 rounded-xl p-4 text-center">
+                    <div class="text-2xl font-bold text-white">₪${(report.totals.sum_items_ils || 0).toLocaleString()}</div>
+                    <div class="text-slate-400 text-sm">סה"כ פריטים</div>
+                </div>
+                <div class="bg-slate-800/50 rounded-xl p-4 text-center">
+                    <div class="text-2xl font-bold text-white">${(report.totals.labor_share * 100).toFixed(0)}%</div>
+                    <div class="text-slate-400 text-sm">חלק עבודה</div>
+                </div>
+                <div class="bg-slate-800/50 rounded-xl p-4 text-center">
+                    <div class="text-2xl font-bold text-white">${report.items.length}</div>
+                    <div class="text-slate-400 text-sm">פריטים</div>
+                </div>
+            `;
+            
+            // Red Flags
+            const redFlagsSection = document.getElementById('redFlagsSection');
+            const redFlagsList = document.getElementById('redFlagsList');
+            if (report.red_flags && report.red_flags.length > 0) {
+                redFlagsSection.classList.remove('hidden');
+                redFlagsList.innerHTML = report.red_flags.map(flag => `<li>• ${flag}</li>`).join('');
+            } else {
+                redFlagsSection.classList.add('hidden');
+            }
+            
+            // Items Table
+            const itemsTableBody = document.getElementById('itemsTableBody');
+            itemsTableBody.innerHTML = report.items.map(item => {
+                const labelClass = getLabelClass(item.label);
+                return `
+                    <tr>
+                        <td class="py-3 px-2">
+                            <div class="font-medium text-white">${item.canonical_code}</div>
+                            <div class="text-xs text-slate-500 truncate max-w-xs">${item.raw_description || ''}</div>
+                        </td>
+                        <td class="py-3 px-2 font-semibold">₪${(item.price_ils || 0).toLocaleString()}</td>
+                        <td class="py-3 px-2 text-slate-400">${item.p50 ? '₪' + item.p50.toLocaleString() : '-'}</td>
+                        <td class="py-3 px-2 text-slate-400">${item.p75 ? '₪' + item.p75.toLocaleString() : '-'}</td>
+                        <td class="py-3 px-2 text-slate-400">${item.p90 ? '₪' + item.p90.toLocaleString() : '-'}</td>
+                        <td class="py-3 px-2 ${labelClass}">${item.label}</td>
+                    </tr>
+                `;
+            }).join('');
+            
+            // Negotiation Script
+            const negotiationSection = document.getElementById('negotiationSection');
+            const negotiationList = document.getElementById('negotiationList');
+            if (report.negotiation_script && report.negotiation_script.length > 0) {
+                negotiationSection.classList.remove('hidden');
+                negotiationList.innerHTML = report.negotiation_script.map(line => `<li>${line}</li>`).join('');
+            } else {
+                negotiationSection.classList.add('hidden');
+            }
+            
+            // Disclaimer
+            document.getElementById('disclaimerText').textContent = report.disclaimer;
+            
+            // Setup download button
+            document.getElementById('downloadBtn').onclick = () => downloadReport();
+        }
+
+        function getLabelClass(label) {
+            if (label.includes('נמוך') || label.includes('סביר')) return 'label-good';
+            if (label.includes('יקר')) return 'label-expensive';
+            if (label.includes('חריג')) return 'label-extreme';
+            return 'label-fair';
+        }
+
+        async function downloadReport() {
+            if (!currentInvoiceId) return;
+            window.location.href = `/api/service-prices/download/${currentInvoiceId}`;
+        }
+
+        async function loadHistory() {
+            const historyList = document.getElementById('historyList');
+            
+            try {
+                const resp = await fetch('/api/service-prices/history');
+                const data = await resp.json();
+                
+                if (data.ok && data.data.invoices.length > 0) {
+                    historyList.innerHTML = data.data.invoices.map(inv => `
+                        <div class="bg-slate-800/50 rounded-xl p-4 flex items-center justify-between">
+                            <div>
+                                <div class="font-medium text-white">
+                                    ${inv.make || ''} ${inv.model || ''} ${inv.year || ''}
+                                </div>
+                                <div class="text-sm text-slate-400">
+                                    ${new Date(inv.created_at).toLocaleDateString('he-IL')} · 
+                                    ${inv.total_price_ils ? '₪' + inv.total_price_ils.toLocaleString() : 'לא צוין סכום'}
+                                </div>
+                            </div>
+                            <a href="/api/service-prices/download/${inv.id}" 
+                               class="text-primary hover:underline text-sm">הורד דוח</a>
+                        </div>
+                    `).join('');
+                } else {
+                    historyList.innerHTML = '<p class="text-slate-400 text-center py-8">אין בדיקות קודמות</p>';
+                }
+            } catch (err) {
+                console.error('Load history error:', err);
+                historyList.innerHTML = '<p class="text-slate-400 text-center py-8">שגיאה בטעינת היסטוריה</p>';
+            }
+        }
+
+        document.getElementById('exportAllBtn').addEventListener('click', () => {
+            window.location.href = '/api/service-prices/export';
+        });
+    </script>
+</body>
+</html>
