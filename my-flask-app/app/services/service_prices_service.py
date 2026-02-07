@@ -269,8 +269,6 @@ def _is_israel_context(text: Optional[str]) -> bool:
         return True
     if "ils" in lowered or "nis" in lowered:
         return True
-    if re.search(r"[\u0590-\u05FF]", text):
-        return True
     return False
 
 
