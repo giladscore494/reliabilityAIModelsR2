@@ -23,6 +23,9 @@ MIN_WEB_SAMPLES = int(os.environ.get("MIN_WEB_SAMPLES", "10"))
 MIN_MARKET_SAMPLES = int(os.environ.get("MIN_MARKET_SAMPLES", "3"))
 MIN_HIGH_CONFIDENCE_SAMPLES = int(os.environ.get("MIN_HIGH_CONFIDENCE_SAMPLES", "10"))
 MIN_GROUNDED_ITEMS = int(os.environ.get("MIN_GROUNDED_ITEMS", "2"))
+WEB_GROUNDING_MAX_ITEMS = int(os.environ.get("WEB_GROUNDING_MAX_ITEMS", "5"))
+WEB_GROUNDING_MAX_SOURCES = int(os.environ.get("WEB_GROUNDING_MAX_SOURCES", "5"))
+WEB_GROUNDING_TIMEOUT_SEC = int(os.environ.get("WEB_GROUNDING_TIMEOUT_SEC", "25"))
 
 # Canonical codes mapping - Hebrew and English keywords
 CANONICAL_MAPPINGS = {
@@ -304,6 +307,41 @@ def filter_and_deduplicate_israeli_sources(sources: List[Dict[str, Any]]) -> Lis
             seen_urls.add(url_text)
         cleaned_sources.append({"url": url, "title": title})
     return cleaned_sources
+
+
+def _extract_range_samples(range_data: Any) -> List[int]:
+    if not isinstance(range_data, dict):
+        return []
+    min_val = range_data.get("min")
+    max_val = range_data.get("max")
+    median_val = range_data.get("median")
+    if median_val is None and isinstance(min_val, (int, float)) and isinstance(max_val, (int, float)):
+        median_val = (min_val + max_val) / 2
+    values = []
+    for value in (min_val, median_val, max_val):
+        if isinstance(value, (int, float)) and value > 0:
+            values.append(int(round(value)))
+    return values
+
+
+def extract_benchmark_samples(benchmark: Dict[str, Any]) -> List[int]:
+    samples = benchmark.get("market_samples_ils") or benchmark.get("samples_ils") or []
+    valid_samples = [int(round(s)) for s in samples if isinstance(s, (int, float)) and s > 0]
+    if len(valid_samples) < MIN_MARKET_SAMPLES:
+        range_samples = _extract_range_samples(benchmark.get("price_range_ils"))
+        for value in range_samples:
+            if value not in valid_samples:
+                valid_samples.append(value)
+    return valid_samples
+
+
+def benchmark_has_usable_content(benchmark: Dict[str, Any]) -> bool:
+    sources_raw = benchmark.get("sources") or []
+    cleaned_sources = filter_and_deduplicate_israeli_sources(sources_raw if isinstance(sources_raw, list) else [])
+    if not cleaned_sources:
+        return False
+    samples = extract_benchmark_samples(benchmark)
+    return len(samples) >= MIN_MARKET_SAMPLES
 
 
 def extract_grounding_metadata(candidate: Any) -> Tuple[Optional[Any], Optional[Any]]:
@@ -672,9 +710,12 @@ def build_report(
     sources_seen = set()
     grounding_sources = []
     if grounding_status is None:
-        grounding_status = {"verified": True}
-    grounding_verified = grounding_status.get("verified", True)
+        grounding_status = {"verified": False, "reason": "missing_grounding_metadata"}
+    if "verified" not in grounding_status:
+        grounding_status["verified"] = False
+    grounding_verified = grounding_status.get("verified", False)
     grounding_reason = grounding_status.get("reason")
+    content_verified = grounding_reason == "verified_by_content"
     
     for item in canonical_items:
         code = item["canonical_code"]
@@ -692,9 +733,6 @@ def build_report(
         sources_raw = web_entry.get("sources") or []
         notes = web_entry.get("notes") or []
         cleaned_sources = filter_and_deduplicate_israeli_sources(sources_raw)
-        if not grounding_verified:
-            cleaned_sources = []
-            samples = []
         for source in cleaned_sources:
             url = source.get("url")
             title = source.get("title")
@@ -706,15 +744,15 @@ def build_report(
         market_confidence = None
         market_label = None
         market_note = None
-        if not grounding_verified:
-            market_note = grounding_reason or "נתוני השוק לא אומתו באמצעות מקורות ישראליים."
-        elif not cleaned_sources:
-            market_note = "אין מספיק מקורות ישראליים להשוואה"
+        if not cleaned_sources:
+            market_note = "אין מספיק נתונים להשוואה"
             samples = []
         else:
             market_min, market_max, market_median, market_confidence, market_label = compute_market_range(samples)
             if market_min is None:
                 market_note = "אין מספיק נתונים להשוואה"
+            elif content_verified and not market_note:
+                market_note = "נאסף מהרשת ללא אימות אוטומטי"
         verdict = compute_item_verdict(price if price else None, market_min, market_max)
  
         if verdict == "גבוה מהשוק":
@@ -741,6 +779,7 @@ def build_report(
             "market_min_ils": market_min,
             "market_max_ils": market_max,
             "market_note": market_note,
+            "market_verification": "content_only" if content_verified and cleaned_sources else None,
             "market_samples_n": len(samples),
             "market_sources": cleaned_sources,
             "market_notes": notes,
@@ -1184,6 +1223,109 @@ def vision_extract_invoice_with_web_benchmarks(
         raise
 
 
+def fetch_text_web_benchmarks(
+    canonical_items: List[Dict[str, Any]],
+    request_id: str,
+) -> List[Dict[str, Any]]:
+    import concurrent.futures
+    from google.genai import types as genai_types
+    from json_repair import repair_json
+
+    if not canonical_items:
+        return []
+    ai_client = extensions.ai_client
+    if not ai_client:
+        current_app.logger.warning("AI client not initialized for text web grounding (request_id=%s).", request_id)
+        return []
+
+    results: List[Dict[str, Any]] = []
+    search_tool = genai_types.Tool(google_search=genai_types.GoogleSearch())
+    config = genai_types.GenerateContentConfig(
+        temperature=0,
+        tools=[search_tool],
+        response_mime_type="application/json",
+    )
+
+    for item in canonical_items[:WEB_GROUNDING_MAX_ITEMS]:
+        description = item.get("raw_description") or item.get("canonical_code") or ""
+        if not description:
+            continue
+        prompt = f"""
+מצא מקורות ישראליים למחיר השירות הבא והחזר JSON בלבד.
+החזר מבנה:
+{{
+  "line_item_description": "{description}",
+  "market_samples_ils": [120, 140, 160],
+  "price_range_ils": {{"min": 120, "max": 160, "median": 140}},
+  "sources": [{{"url": "https://example.co.il", "title": "כותרת מקור"}}],
+  "notes": ["הערות אופציונליות"]
+}}
+דרישות:
+- מקורות ישראליים בלבד (.il או הקשר ישראלי).
+- מספרים בלבד (ILS) וללא ציטוט טקסט מהמקור.
+- החזר כמה דגימות מספריות שאפשר.
+- אין להחזיר מידע מזהה אישי.
+""".strip()
+
+        def _invoke():
+            return ai_client.models.generate_content(
+                model=GEMINI_VISION_MODEL_ID,
+                contents=prompt,
+                config=config,
+            )
+
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_invoke)
+                response = future.result(timeout=WEB_GROUNDING_TIMEOUT_SEC)
+        except concurrent.futures.TimeoutError:
+            current_app.logger.warning(
+                "Text web grounding timeout (request_id=%s).", request_id
+            )
+            continue
+        except Exception:
+            current_app.logger.exception(
+                "Text web grounding failed (request_id=%s).", request_id
+            )
+            continue
+
+        text = (getattr(response, "text", "") or "").strip()
+        if not text:
+            continue
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            try:
+                parsed = json.loads(repair_json(text))
+            except Exception:
+                continue
+
+        benchmark = None
+        if isinstance(parsed, dict):
+            if isinstance(parsed.get("benchmarks_web"), list) and parsed.get("benchmarks_web"):
+                benchmark = parsed["benchmarks_web"][0]
+            else:
+                benchmark = parsed
+        elif isinstance(parsed, list) and parsed:
+            if isinstance(parsed[0], dict):
+                benchmark = parsed[0]
+
+        if not isinstance(benchmark, dict):
+            continue
+
+        sources = benchmark.get("sources") or []
+        if isinstance(sources, list):
+            sources = [s for s in sources if isinstance(s, dict)][:WEB_GROUNDING_MAX_SOURCES]
+        else:
+            sources = []
+
+        benchmark["line_item_description"] = benchmark.get("line_item_description") or description
+        benchmark["sources"] = sources
+        results.append(benchmark)
+
+    return results
+
+
 def match_web_benchmarks_to_items(
     benchmarks_web: List[Dict],
     canonical_items: List[Dict],
@@ -1197,7 +1339,7 @@ def match_web_benchmarks_to_items(
 
     for bm in benchmarks_web:
         bm_desc = bm.get("line_item_description") or ""
-        bm_samples = bm.get("market_samples_ils") or bm.get("samples_ils") or []
+        bm_samples = extract_benchmark_samples(bm)
         if not bm_samples:
             continue
 
@@ -1398,9 +1540,40 @@ def handle_invoice_analysis(
     benchmarks_web = raw_result.get("benchmarks_web", [])
     grounding_status = raw_result.get("grounding_status")
     if grounding_status is None:
-        grounding_status = {"verified": True}
-    if not grounding_status.get("verified", True):
+        grounding_status = {"verified": False, "reason": "missing_grounding_metadata"}
+    if "verified" not in grounding_status:
+        grounding_status["verified"] = False
+    if not isinstance(benchmarks_web, list):
         benchmarks_web = []
+
+    current_app.logger.info(
+        "Invoice raw benchmarks_web=%s grounding_status=%s request_id=%s",
+        len(benchmarks_web),
+        grounding_status,
+        request_id,
+    )
+    if benchmarks_web:
+        first_benchmark = benchmarks_web[0] if isinstance(benchmarks_web[0], dict) else {}
+        sources_count = len(first_benchmark.get("sources") or []) if isinstance(first_benchmark, dict) else 0
+        samples_count = len(extract_benchmark_samples(first_benchmark)) if isinstance(first_benchmark, dict) else 0
+        current_app.logger.info(
+            "Invoice benchmark keys=%s sources_n=%s samples_n=%s request_id=%s",
+            list(first_benchmark.keys()) if isinstance(first_benchmark, dict) else [],
+            sources_count,
+            samples_count,
+            request_id,
+        )
+
+    if not benchmarks_web:
+        try:
+            fallback_extracted = vision_extract_invoice(image_bytes, mime_type, request_id)
+            if isinstance(fallback_extracted, dict):
+                extracted = fallback_extracted
+        except Exception:
+            current_app.logger.warning(
+                "Fallback vision extraction failed (request_id=%s).", request_id,
+                exc_info=True,
+            )
 
     # Sanitize extracted data
     sanitized = deterministic_sanitize_no_pii(extracted)
@@ -1423,6 +1596,24 @@ def handle_invoice_analysis(
     # Canonicalize line items
     raw_items = sanitized.get("line_items") or []
     canonical_items = canonicalize_line_items(raw_items)
+
+    if not benchmarks_web:
+        benchmarks_web = fetch_text_web_benchmarks(canonical_items, request_id)
+        if benchmarks_web:
+            current_app.logger.info(
+                "Fallback web benchmarks created=%s request_id=%s",
+                len(benchmarks_web),
+                request_id,
+            )
+        else:
+            current_app.logger.warning(
+                "No usable web benchmarks found (request_id=%s).", request_id
+            )
+
+    if not grounding_status.get("verified", False) and any(
+        benchmark_has_usable_content(bm) for bm in benchmarks_web
+    ):
+        grounding_status = {"verified": True, "reason": "verified_by_content"}
 
     # Match web benchmarks to canonical items
     web_samples_map = match_web_benchmarks_to_items(benchmarks_web, canonical_items)

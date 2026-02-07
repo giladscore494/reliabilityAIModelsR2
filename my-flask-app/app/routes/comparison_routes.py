@@ -7,6 +7,8 @@ from flask_login import current_user, login_required
 
 from car_models_dict import israeli_car_market_full_compilation
 from app.quota import check_and_increment_ip_rate_limit, get_client_ip, log_access_decision, PER_IP_PER_MIN_LIMIT
+from app.legal import TERMS_VERSION, PRIVACY_VERSION
+from app.models import LegalAcceptance
 from app.utils.http_helpers import api_error, api_ok, is_owner_user, get_request_id
 from app.services import comparison_service
 
@@ -18,12 +20,24 @@ bp = Blueprint('comparison', __name__)
 def compare_page():
     """Render the car comparison page."""
     user_email = getattr(current_user, "email", "") if current_user.is_authenticated else ""
+    terms_version = current_app.config.get("TERMS_VERSION", TERMS_VERSION)
+    privacy_version = current_app.config.get("PRIVACY_VERSION", PRIVACY_VERSION)
+    legal_accepted = LegalAcceptance.query.filter_by(
+        user_id=current_user.id,
+        terms_version=terms_version,
+        privacy_version=privacy_version,
+    ).first() is not None
     return render_template(
         'compare.html',
         user=current_user,
         user_email=user_email,
         is_owner=is_owner_user(),
         car_models_data=israeli_car_market_full_compilation,
+        legal_accepted=legal_accepted,
+        accepted_terms=legal_accepted,
+        accepted_privacy=legal_accepted,
+        terms_version=terms_version,
+        privacy_version=privacy_version,
     )
 
 
