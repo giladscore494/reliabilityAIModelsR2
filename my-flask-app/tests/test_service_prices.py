@@ -602,6 +602,107 @@ def test_warmup_mode_calls_generate_content_once(logged_in_client, app):
         mock_fn.assert_called_once()
 
 
+def test_unverified_grounding_preserves_usable_benchmarks(logged_in_client, app):
+    """When grounding metadata is missing but benchmarks are usable, keep sources and samples."""
+    client, user_id = logged_in_client
+
+    with app.app_context():
+        db.session.add(LegalAcceptance(
+            user_id=user_id, terms_version=TERMS_VERSION,
+            privacy_version=PRIVACY_VERSION,
+            accepted_at=datetime.utcnow(), accepted_ip="1.2.3.0",
+        ))
+        record_feature_acceptance(user_id, INVOICE_EXT_PROCESSING_KEY, INVOICE_EXT_PROCESSING_VERSION)
+        record_feature_acceptance(user_id, INVOICE_ANON_STORAGE_KEY, INVOICE_ANON_STORAGE_VERSION)
+        db.session.commit()
+
+    mock_result = {
+        "extracted": {
+            "car": {"make": "Toyota", "model": "Corolla", "year": 2020, "mileage": 80000},
+            "invoice": {"date": "2026-01-15", "total_price_ils": 1500, "region": "center", "garage_type": "dealer"},
+            "line_items": [
+                {"description": "החלפת שמן", "price_ils": 400, "qty": 1},
+            ],
+            "redaction": {"applied": True, "notes": "test"},
+            "confidence": {"overall": 0.9},
+        },
+        "benchmarks_web": [
+            {
+                "line_item_description": "החלפת שמן",
+                "market_samples_ils": [300, 350, 400, 450],
+                "price_range_ils": {"min": 300, "max": 450, "median": 375},
+                "sources": [{"url": "https://example.co.il/prices", "title": "מחיר החלפת שמן"}],
+                "notes": ["מקורות"],
+            }
+        ],
+        "grounding_status": {"verified": False, "reason": "missing_grounding_metadata"},
+    }
+
+    with patch("app.services.service_prices_service.vision_extract_invoice_with_web_benchmarks", return_value=mock_result):
+        image_data = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+        resp = client.post(
+            "/api/service-prices/analyze",
+            data={"invoice_image": (image_data, "test.png", "image/png")},
+            content_type="multipart/form-data",
+        )
+
+    assert resp.status_code == 200
+    report = resp.get_json()["data"]["report"]
+    item = report["items"][0]
+    assert report["grounding_status"]["verified"] is True
+    assert report["grounding_status"]["reason"] == "verified_by_content"
+    assert item["market_sources"]
+    assert item["market_samples_n"] >= 3
+    assert item["market_note"] != "אין מספיק נתונים להשוואה"
+
+
+def test_empty_benchmarks_still_returns_no_market_data(logged_in_client, app):
+    """If benchmarks remain empty, report should keep no market data."""
+    client, user_id = logged_in_client
+
+    with app.app_context():
+        db.session.add(LegalAcceptance(
+            user_id=user_id, terms_version=TERMS_VERSION,
+            privacy_version=PRIVACY_VERSION,
+            accepted_at=datetime.utcnow(), accepted_ip="1.2.3.0",
+        ))
+        record_feature_acceptance(user_id, INVOICE_EXT_PROCESSING_KEY, INVOICE_EXT_PROCESSING_VERSION)
+        record_feature_acceptance(user_id, INVOICE_ANON_STORAGE_KEY, INVOICE_ANON_STORAGE_VERSION)
+        db.session.commit()
+
+    mock_result = {
+        "extracted": {
+            "car": {"make": "Toyota", "model": "Corolla", "year": 2020, "mileage": 80000},
+            "invoice": {"date": "2026-01-15", "total_price_ils": 1500, "region": "center", "garage_type": "dealer"},
+            "line_items": [
+                {"description": "החלפת שמן", "price_ils": 400, "qty": 1},
+            ],
+            "redaction": {"applied": True, "notes": "test"},
+            "confidence": {"overall": 0.9},
+        },
+        "benchmarks_web": [],
+        "grounding_status": {"verified": False, "reason": "missing_grounding_metadata"},
+    }
+
+    with patch("app.services.service_prices_service.vision_extract_invoice_with_web_benchmarks", return_value=mock_result), \
+        patch("app.services.service_prices_service.vision_extract_invoice", return_value=mock_result["extracted"]), \
+        patch("app.services.service_prices_service.fetch_text_web_benchmarks", return_value=[]) as mock_fetch:
+        image_data = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+        resp = client.post(
+            "/api/service-prices/analyze",
+            data={"invoice_image": (image_data, "test.png", "image/png")},
+            content_type="multipart/form-data",
+        )
+        mock_fetch.assert_called_once()
+
+    assert resp.status_code == 200
+    report = resp.get_json()["data"]["report"]
+    item = report["items"][0]
+    assert item["market_sources"] == []
+    assert item["market_samples_n"] == 0
+    assert item["market_note"] == "אין מספיק נתונים להשוואה"
+
+
 # ============================================
 # BENCHMARK ITEM NEVER STORES WEB DATA
 # ============================================

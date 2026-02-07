@@ -118,7 +118,7 @@
                                 <a href="{{ url_for('public.privacy') }}" target="_blank" class="text-primary hover:underline">מדיניות הפרטיות</a>.
                             </p>
                             <label class="flex items-start gap-3 cursor-pointer group">
-                                <input type="checkbox" id="legalConfirmCheckbox" class="mt-1 rounded border-slate-600 bg-slate-800 text-primary focus:ring-primary">
+                                <input type="checkbox" id="legalConfirmCheckbox" class="mt-1 rounded border-slate-600 bg-slate-800 text-primary focus:ring-primary" {% if legal_accepted %}checked disabled{% endif %}>
                                 <span class="text-slate-300 text-sm">
                                     קראתי והסכמתי לתנאי השימוש ולמדיניות הפרטיות
                                 </span>
@@ -129,13 +129,13 @@
                             <h3 class="text-lg font-semibold text-white mb-3">הסכמה ייעודית לסריקת חשבוניות</h3>
                             <div class="space-y-4">
                                 <label class="flex items-start gap-3 cursor-pointer group">
-                                    <input type="checkbox" id="extProcessingCheckbox" class="mt-1 rounded border-slate-600 bg-slate-800 text-primary focus:ring-primary">
+                                    <input type="checkbox" id="extProcessingCheckbox" class="mt-1 rounded border-slate-600 bg-slate-800 text-primary focus:ring-primary" {% if ext_processing_accepted %}checked disabled{% endif %}>
                                     <span class="text-slate-300 text-sm leading-relaxed">
                                         אני מבין/ה שאני מעלה חשבונית טיפול, שהמערכת תבצע ניתוח אוטומטי, ושייתכן שהעיבוד יתבצע אצל ספק טכנולוגי חיצוני לצורך מתן השירות. אני מאשר/ת זאת.
                                     </span>
                                 </label>
                                 <label class="flex items-start gap-3 cursor-pointer group">
-                                    <input type="checkbox" id="anonStorageCheckbox" class="mt-1 rounded border-slate-600 bg-slate-800 text-primary focus:ring-primary">
+                                    <input type="checkbox" id="anonStorageCheckbox" class="mt-1 rounded border-slate-600 bg-slate-800 text-primary focus:ring-primary" {% if anon_storage_accepted %}checked disabled{% endif %}>
                                     <span class="text-slate-300 text-sm leading-relaxed">
                                         אני מסכים/ה שנשמור נתונים אנונימיים מפרטי הטיפול ומהמחירים בחשבונית (ללא פרטים מזהים) כדי לשפר את מאגר ההשוואות והמחירים ואת איכות השירות.
                                     </span>
@@ -308,10 +308,10 @@
         // State
         let currentInvoiceId = null;
         let currentReport = null;
-        const legalAccepted = {{ 'true' if legal_accepted else 'false' }};
-        const featureAccepted = {{ 'true' if feature_accepted else 'false' }};
-        const extProcessingAccepted = {{ 'true' if ext_processing_accepted else 'false' }};
-        const anonStorageAccepted = {{ 'true' if anon_storage_accepted else 'false' }};
+        let legalAccepted = {{ 'true' if legal_accepted else 'false' }};
+        let featureAccepted = {{ 'true' if feature_accepted else 'false' }};
+        let extProcessingAccepted = {{ 'true' if ext_processing_accepted else 'false' }};
+        let anonStorageAccepted = {{ 'true' if anon_storage_accepted else 'false' }};
         const termsVersion = "{{ terms_version }}";
         const privacyVersion = "{{ privacy_version }}";
         const featureKey = "{{ feature_key }}";
@@ -484,6 +484,20 @@
                 
                 const data = await resp.json();
                 if (data.ok) {
+                    legalAccepted = true;
+                    if (legalConfirmCheckbox) {
+                        legalConfirmCheckbox.checked = true;
+                        legalConfirmCheckbox.disabled = true;
+                    }
+                    if (extProcessingCheckbox && extProcessingCheckbox.checked) {
+                        extProcessingAccepted = true;
+                        extProcessingCheckbox.disabled = true;
+                    }
+                    if (anonStorageCheckbox && anonStorageCheckbox.checked) {
+                        anonStorageAccepted = true;
+                        anonStorageCheckbox.disabled = true;
+                    }
+                    featureAccepted = extProcessingAccepted && anonStorageAccepted;
                     closeLegalModal();
                     // Update state and proceed
                     await analyzeInvoice();
