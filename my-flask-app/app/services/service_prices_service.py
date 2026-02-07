@@ -21,6 +21,7 @@ SERVICE_PRICES_MODE = os.environ.get("SERVICE_PRICES_MODE", "warmup_web_first")
 MIN_INTERNAL_SAMPLES = int(os.environ.get("MIN_INTERNAL_SAMPLES", "20"))
 MIN_WEB_SAMPLES = int(os.environ.get("MIN_WEB_SAMPLES", "10"))
 MIN_MARKET_SAMPLES = int(os.environ.get("MIN_MARKET_SAMPLES", "3"))
+MIN_HIGH_CONFIDENCE_SAMPLES = int(os.environ.get("MIN_HIGH_CONFIDENCE_SAMPLES", "10"))
 MIN_GROUNDED_ITEMS = int(os.environ.get("MIN_GROUNDED_ITEMS", "2"))
 
 # Canonical codes mapping - Hebrew and English keywords
@@ -421,7 +422,7 @@ def compute_market_range(
     sorted_samples = sorted(samples)
     percentiles = compute_percentiles(sorted_samples)
     median = percentiles.get("p50")
-    confidence = "high" if len(samples) >= 10 else "low"
+    confidence = "high" if len(samples) >= MIN_HIGH_CONFIDENCE_SAMPLES else "low"
     label = "השוואה מבוססת" if confidence == "high" else "השוואה חלקית (מעט דגימות)"
     return sorted_samples[0], sorted_samples[-1], median, confidence, label
 
@@ -543,7 +544,7 @@ def build_invoice_report_narrative(report: Dict[str, Any]) -> Dict[str, Any]:
 
     methodology = [
         "מחירי השוק נאספו ממקורות ישראליים ברשת עם קישורים.",
-        "לא ניחשנו מחירים; כשאין מספיק מקורות מוצג שאין מספיק נתונים.",
+        "לא ניחשנו מחירים. כשאין מספיק מקורות מוצג שאין מספיק נתונים.",
         "החישוב בוצע לפי חוקים קבועים בקוד.",
     ]
     if missing_items:
