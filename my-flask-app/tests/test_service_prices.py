@@ -422,6 +422,27 @@ def test_download_report_works(logged_in_client, app):
     assert b"fairness_score" in resp.data
 
 
+def test_download_report_returns_200_for_valid_invoice(logged_in_client, app):
+    """Download endpoint should return 200 for a valid invoice report."""
+    client, user_id = logged_in_client
+
+    with app.app_context():
+        invoice = ServiceInvoice(
+            user_id=user_id,
+            make="Valid",
+            model="Invoice",
+            year=2022,
+            parsed_json='{"test": true}',
+            report_json='{"totals": {"total_price_ils": 1200}}',
+        )
+        db.session.add(invoice)
+        db.session.commit()
+        invoice_id = invoice.id
+
+    resp = client.get(f"/api/service-prices/download/{invoice_id}")
+    assert resp.status_code == 200
+
+
 def test_download_report_not_found_for_other_user(logged_in_client, app):
     """GET /api/service-prices/download/<id> should return 404 for another user's invoice."""
     client, user_id = logged_in_client

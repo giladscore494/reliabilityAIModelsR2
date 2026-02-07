@@ -8,6 +8,7 @@ from io import BytesIO
 
 from flask import Blueprint, request, jsonify, current_app, render_template, send_file
 from flask_login import login_required, current_user
+from json_repair import repair_json
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from app.extensions import db
@@ -103,6 +104,20 @@ def check_feature_consent(user_id: int):
         )
 
     return None
+
+
+def _safe_parse_report_json(raw_report):
+    """Parse report JSON safely, attempting repair when needed."""
+    if isinstance(raw_report, str):
+        try:
+            return json.loads(raw_report), False
+        except json.JSONDecodeError:
+            try:
+                repaired = repair_json(raw_report)
+                return json.loads(repaired), True
+            except Exception:
+                return None, False
+    return raw_report, False
 
 
 @bp.route("/service-prices", methods=["GET"])
@@ -290,33 +305,42 @@ def analyze_invoice():
 @login_required
 def download_report(invoice_id: int):
     """Download a report as JSON file."""
-    user_id = current_user.id
-    
-    invoice = ServiceInvoice.query.filter_by(
-        id=invoice_id,
-        user_id=user_id,
-    ).first()
-    
-    if not invoice:
-        return api_error("not_found", "דוח לא נמצא", status=404)
-    
-    # Parse report JSON
     try:
-        report = json.loads(invoice.report_json) if isinstance(invoice.report_json, str) else invoice.report_json
-    except json.JSONDecodeError:
-        return api_error("invalid_report", "שגיאה בפענוח נתוני הדוח - פורמט JSON לא תקין", status=500)
-    
-    # Create downloadable file
-    report_bytes = json.dumps(report, ensure_ascii=False, indent=2).encode("utf-8")
-    buffer = BytesIO(report_bytes)
-    buffer.seek(0)
-    
-    return send_file(
-        buffer,
-        mimetype="application/json",
-        as_attachment=True,
-        download_name=f"service_price_report_{invoice_id}.json",
-    )
+        user_id = current_user.id
+
+        invoice = ServiceInvoice.query.filter_by(
+            id=invoice_id,
+            user_id=user_id,
+        ).first()
+
+        if not invoice:
+            return api_error("not_found", "דוח לא נמצא", status=404)
+
+        report, _ = _safe_parse_report_json(invoice.report_json)
+        if report is None:
+            raw_text = invoice.report_json if isinstance(invoice.report_json, str) else json.dumps(invoice.report_json)
+            buffer = BytesIO(raw_text.encode("utf-8", errors="replace"))
+            buffer.seek(0)
+            return send_file(
+                buffer,
+                mimetype="text/plain",
+                as_attachment=True,
+                download_name=f"service_price_report_{invoice_id}.txt",
+            )
+
+        report_bytes = json.dumps(report, ensure_ascii=False, indent=2).encode("utf-8")
+        buffer = BytesIO(report_bytes)
+        buffer.seek(0)
+
+        return send_file(
+            buffer,
+            mimetype="application/json",
+            as_attachment=True,
+            download_name=f"service_price_report_{invoice_id}.json",
+        )
+    except Exception:
+        current_app.logger.exception("Failed to download service price report.")
+        return api_error("download_failed", "שגיאה בהורדת הדוח", status=500)
 
 
 @bp.route("/service-prices/report/<int:invoice_id>", methods=["GET"])
@@ -333,15 +357,34 @@ def service_prices_report(invoice_id: int):
     if not invoice:
         return api_error("not_found", "דוח לא נמצא", status=404)
 
-    try:
-        report = json.loads(invoice.report_json) if isinstance(invoice.report_json, str) else invoice.report_json
-    except json.JSONDecodeError:
+    report, _ = _safe_parse_report_json(invoice.report_json)
+    if report is None:
         return api_error("invalid_report", "שגיאה בפענוח נתוני הדוח - פורמט JSON לא תקין", status=500)
 
     return render_template(
         "service_prices_report.html",
-        invoice=invoice,
-        report=report,
+        invoices=[{"invoice": invoice, "report": report}],
+    )
+
+
+@bp.route("/service-prices/report/all", methods=["GET"])
+@login_required
+def service_prices_report_all():
+    """Render all user's printable HTML reports."""
+    user_id = current_user.id
+
+    invoices = ServiceInvoice.query.filter_by(
+        user_id=user_id,
+    ).order_by(ServiceInvoice.created_at.desc()).all()
+
+    report_entries = []
+    for invoice in invoices:
+        report, _ = _safe_parse_report_json(invoice.report_json)
+        report_entries.append({"invoice": invoice, "report": report or {}})
+
+    return render_template(
+        "service_prices_report.html",
+        invoices=report_entries,
     )
 
 
