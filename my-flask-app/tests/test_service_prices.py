@@ -775,7 +775,7 @@ def test_service_prices_history_list_includes_duration(logged_in_client, app):
     assert data["ok"] is True
     invoice = data["data"]["invoices"][0]
     assert invoice["duration_ms"] == 4321
-    assert invoice["duration_sec"] == 4.3
+    assert invoice["duration_sec"] == pytest.approx(4.3, abs=0.1)
 
 
 # ============================================

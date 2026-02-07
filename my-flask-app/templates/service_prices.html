@@ -315,6 +315,9 @@
         const extProcessingVersion = "{{ ext_processing_version }}";
         const anonStorageKey = "{{ anon_storage_key }}";
         const anonStorageVersion = "{{ anon_storage_version }}";
+        const maxFileMb = {{ max_file_mb }};
+        const requestLimitMb = {{ request_limit_mb }};
+        const maxAllowedMb = Math.min(maxFileMb, requestLimitMb);
 
         // DOM Elements
         const dropZone = document.getElementById('dropZone');
@@ -508,13 +511,13 @@
                     method: 'POST',
                     body: formData
                 });
-                
-                const data = await resp.json();
 
                 if (resp.status === 413) {
-                    alert('הקובץ/הבקשה גדולים מדי. נסה תמונה קטנה יותר (עד 5MB) או צילום/חיתוך.');
+                    alert(`הקובץ/הבקשה גדולים מדי. נסה תמונה קטנה יותר (עד ${maxAllowedMb}MB לקובץ בודד) או צילום/חיתוך.`);
                     return;
                 }
+
+                const data = await resp.json();
                 
                 if (data.ok) {
                     currentInvoiceId = data.data.invoice_id;

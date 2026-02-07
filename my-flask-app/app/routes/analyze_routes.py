@@ -21,7 +21,7 @@ bp = Blueprint('analyze', __name__)
 # - analyze: Standard reliability analysis (~15s)
 # - advisor: Car recommendation engine (~12s)
 # - compare: Multi-car comparison with web grounding (~70s) - longer due to fetching multiple car metrics from web sources
-# - invoice: Invoice analysis (~35s)
+# - invoice: Invoice analysis (~35s) includes OCR + pricing benchmarks, so it runs longer than standard analysis.
 DEFAULT_ESTIMATE_MS = {"analyze": 15000, "advisor": 12000, "compare": 70000, "invoice": 35000}
 TIMING_SAMPLE_LIMIT = 50
 

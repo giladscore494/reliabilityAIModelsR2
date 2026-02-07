@@ -148,6 +148,8 @@ def service_prices_page():
         ext_processing_version=INVOICE_EXT_PROCESSING_VERSION,
         anon_storage_key=INVOICE_ANON_STORAGE_KEY,
         anon_storage_version=INVOICE_ANON_STORAGE_VERSION,
+        max_file_mb=MAX_FILE_SIZE // (1024 * 1024),
+        request_limit_mb=round(current_app.config.get("SERVICE_PRICES_ANALYZE_LIMIT_BYTES", 6 * 1024 * 1024) / (1024 * 1024)),
     )
 
 
@@ -333,7 +335,7 @@ def list_invoices():
     
     invoices = []
     for inv in pagination.items:
-        duration_sec = round((inv.duration_ms or 0) / 1000, 1) if inv.duration_ms else None
+        duration_sec = round(inv.duration_ms / 1000, 1) if inv.duration_ms else None
         invoices.append({
             "id": inv.id,
             "created_at": inv.created_at.isoformat(),
@@ -447,6 +449,8 @@ def service_prices_history_page():
         anon_storage_key=INVOICE_ANON_STORAGE_KEY,
         anon_storage_version=INVOICE_ANON_STORAGE_VERSION,
         show_history=True,
+        max_file_mb=MAX_FILE_SIZE // (1024 * 1024),
+        request_limit_mb=round(current_app.config.get("SERVICE_PRICES_ANALYZE_LIMIT_BYTES", 6 * 1024 * 1024) / (1024 * 1024)),
     )
 
 
