@@ -93,6 +93,12 @@ class User(db.Model, UserMixin):
         backref="user",
         lazy=True,
     )
+    leasing_histories = relationship(
+        "LeasingAdvisorHistory",
+        cascade="all, delete-orphan",
+        backref="user",
+        lazy=True,
+    )
 
 
 class DailyQuotaUsage(db.Model):
@@ -368,4 +374,30 @@ class LegalFeatureAcceptance(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint("user_id", "feature_key", "version", name="uq_feature_acceptance"),
+    )
+
+
+class LeasingAdvisorHistory(db.Model):
+    """
+    Stores leasing advisor results.
+    - frame_input_json: BIK frame inputs (powertrain, price, etc.)
+    - candidates_json: filtered candidate list snapshot
+    - prefs_json: user questionnaire preferences
+    - gemini_response_json: full AI response
+    - request_id: correlation ID
+    """
+    __tablename__ = "leasing_advisor_history"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    frame_input_json = db.Column(JSONEncodedText, nullable=False)
+    candidates_json = db.Column(JSONEncodedText, nullable=False)
+    prefs_json = db.Column(JSONEncodedText, nullable=False)
+    gemini_response_json = db.Column(JSONEncodedText, nullable=False)
+    request_id = db.Column(db.String(64), nullable=True)
+    duration_ms = db.Column(db.Integer, nullable=True)
+
+    __table_args__ = (
+        db.Index("ix_leasing_history_user_created", "user_id", desc("created_at")),
     )
