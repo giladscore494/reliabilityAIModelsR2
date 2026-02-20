@@ -25,6 +25,7 @@ from app.utils.prompt_defense import (
 )
 import app.extensions as extensions
 from google.genai import types as genai_types
+from app.utils.sanitization import sanitize_comparison_narrative
 
 
 # ============================================================
@@ -1380,8 +1381,9 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     # Generate narrative explanations (2nd LLM call, no grounding)
     narrative = None
     try:
-        narrative = generate_narrative(cars_selected_slots, computed_result)
-        if narrative:
+        raw_narrative = generate_narrative(cars_selected_slots, computed_result)
+        if raw_narrative:
+            narrative = sanitize_comparison_narrative(raw_narrative)
             logger.info(f"[COMPARISON] narrative generated request_id={request_id}")
     except Exception as e:
         logger.warning(f"[COMPARISON] narrative generation failed: {e}")
