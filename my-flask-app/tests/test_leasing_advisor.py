@@ -296,9 +296,9 @@ class TestLeasingLegalGating:
         assert resp.status_code == 200
         html = resp.data.decode("utf-8")
         assert 'id="legalBanner"' in html
-        legal_checkbox_tag = html.split('id="legalConfirmCheckbox"')[1].split(">")[0]
-        assert "checked" in legal_checkbox_tag
-        assert "disabled" in legal_checkbox_tag
+        legal_checkbox_tag = html.split('id="leasingLegalConfirm"')[1].split(">")[0]
+        assert "checked" not in legal_checkbox_tag
+        assert "disabled" not in legal_checkbox_tag
 
 
 # ── Quota Enforcement Tests ───────────────────────────────────────────

@@ -84,7 +84,7 @@ def test_delete_account_removes_legal_acceptance(logged_in_client, app):
         assert LegalAcceptance.query.filter_by(user_id=user_id).count() == 0
 
 
-def test_compare_page_shows_checked_legal_boxes(logged_in_client, app):
+def test_compare_page_shows_submit_legal_checkbox(logged_in_client, app):
     client, user_id = logged_in_client
     with app.app_context():
         db.session.add(
@@ -101,9 +101,10 @@ def test_compare_page_shows_checked_legal_boxes(logged_in_client, app):
     resp = client.get("/compare")
     assert resp.status_code == 200
     html = resp.data.decode("utf-8")
-    assert 'id="legalConfirm"' in html
-    assert 'id="legalConfirm" class=' in html
-    assert 'id="legalConfirm"' in html and "checked" in html.split('id="legalConfirm"')[1].split(">")[0]
+    assert 'id="compareLegalConfirm"' in html
+    legal_checkbox_tag = html.split('id="compareLegalConfirm"')[1].split(">")[0]
+    assert "checked" not in legal_checkbox_tag
+    assert "disabled" not in legal_checkbox_tag
 
 
 def test_compare_page_requires_reacceptance_on_version_change(logged_in_client, app):
@@ -125,5 +126,5 @@ def test_compare_page_requires_reacceptance_on_version_change(logged_in_client, 
     resp = client.get("/compare")
     assert resp.status_code == 200
     html = resp.data.decode("utf-8")
-    assert 'id="legalConfirm"' in html
-    assert "checked" not in html.split('id="legalConfirm"')[1].split(">")[0]
+    assert 'id="compareLegalConfirm"' in html
+    assert "checked" not in html.split('id="compareLegalConfirm"')[1].split(">")[0]

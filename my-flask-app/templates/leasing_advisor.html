@@ -67,13 +67,16 @@
         </div>
     </div>
 
-    {% set banner_id = 'legalBanner' %}
-    {% set checkbox_id = 'legalConfirmCheckbox' %}
-    {% set status_id = 'legalStatusText' %}
-    {% set accept_button_id = 'acceptLegalBtn' %}
-    {% set error_id = 'legalError' %}
-    {% set show_accept_button = true %}
-    {% include '_legal_consent_banner.html' %}
+    <div id="legalBanner"
+         class="mb-6 p-4 rounded-xl border text-sm bg-emerald-500/10 border-emerald-500/30 text-emerald-200"
+         data-terms-version="{{ terms_version }}"
+         data-privacy-version="{{ privacy_version }}"
+         data-legal-accepted="{{ 'true' if legal_accepted else 'false' }}">
+        <div id="legalStatusText" class="flex items-center gap-2">
+            <span>{{ '✅' if legal_accepted else '⚠️' }}</span>
+            <span>{{ 'Legal consent accepted ✅' if legal_accepted else 'Please confirm Terms & Privacy to submit your request.' }}</span>
+        </div>
+    </div>
 
     <h1 class="text-2xl sm:text-3xl font-black mb-6 bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary">
         יועץ ליסינג
@@ -286,12 +289,12 @@
             </div>
         </div>
 
-        <button id="recommendBtn" class="mt-5 w-full py-3 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-bold hover:opacity-90 transition flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed" {% if not legal_accepted %}disabled{% endif %}>
+        {% set checkbox_id = 'leasingLegalConfirm' %}
+        {% set error_id = 'leasingLegalError' %}
+        {% include "_legal_submit_consent.html" %}
+        <button id="recommendBtn" class="mt-5 w-full py-3 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-bold hover:opacity-90 transition flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed">
             🤖 קבל המלצת AI
         </button>
-        {% if not legal_accepted %}
-        <p class="text-xs text-warning mt-2 text-center">יש לאשר תנאי שימוש לפני הפעלת AI</p>
-        {% endif %}
         <div id="recommendLoading" class="hidden mt-3 flex items-center justify-center gap-2 text-slate-400">
             <div class="loader"></div> <span>ממליץ...</span>
         </div>

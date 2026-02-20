@@ -302,10 +302,13 @@
                     בחר עד 3 רכבים להשוואה מקיפה על בסיס נתונים מאומתים מהאינטרנט
                 </p>
             </header>
-            {% set banner_id = 'compareLegalBanner' %}
-            {% set checkbox_id = 'compareLegalStatusCheckbox' %}
-            {% set status_id = 'compareLegalStatusText' %}
-            {% include '_legal_consent_banner.html' %}
+            <div id="compareLegalBanner"
+                 class="p-4 rounded-xl border text-sm bg-emerald-500/10 border-emerald-500/30 text-emerald-200">
+                <div id="compareLegalStatusText" class="flex items-center gap-2">
+                    <span>{{ '✅' if legal_accepted else '⚠️' }}</span>
+                    <span>{{ 'Legal consent accepted ✅' if legal_accepted else 'Please confirm Terms & Privacy to submit your request.' }}</span>
+                </div>
+            </div>
 
             <!-- Car Selection -->
             <div id="carSelectionSection" class="bg-dark-lighter/70 border border-slate-700/70 rounded-2xl p-6 md:p-8">
@@ -463,6 +466,9 @@
                     </div>
                 </div>
                 
+                {% set checkbox_id = 'compareLegalConfirm' %}
+                {% set error_id = 'compareLegalError' %}
+                {% include "_legal_submit_consent.html" %}
                 <div class="flex justify-center mt-6">
                     <button id="compareBtn" type="button"
                             class="px-8 py-3 bg-gradient-to-r from-primary to-secondary text-white font-bold rounded-full hover:from-primary/90 hover:to-secondary/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
@@ -642,38 +648,6 @@
     {% endif %}
 </main>
 
-<!-- Legal Acceptance Modal -->
-<div id="legalModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-    <div class="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl max-w-xl w-full mx-4 p-6 space-y-6">
-        <div class="flex items-center justify-between">
-            <h3 class="text-2xl font-bold text-white">אישור תנאי שימוש ופרטיות</h3>
-            <button id="legalCancelBtn" class="text-slate-400 hover:text-white transition-colors">✕</button>
-        </div>
-        <p class="text-slate-300 text-sm leading-relaxed">
-            כדי להשתמש במנוע השוואת הרכבים, יש לאשר את תנאי השימוש ומדיניות הפרטיות.
-        </p>
-        <div class="space-y-3">
-            <label class="flex items-start gap-3 p-3 rounded-xl bg-slate-800/40 border border-slate-700/60 cursor-pointer">
-                <input type="checkbox" id="legalConfirm" class="mt-1 w-5 h-5 rounded border-2 border-slate-600 text-primary focus:ring-offset-0 focus:ring-primary bg-slate-900/50" {% if legal_accepted %}checked disabled{% endif %}>
-                <span class="text-sm text-slate-200">
-                    אני מאשר/ת שאני מעל גיל 18, קראתי והסכמתי
-                    <a href="{{ url_for('public.terms') }}" target="_blank" class="text-primary font-semibold hover:underline">לתנאי השימוש</a>
-                    ול
-                    <a href="{{ url_for('public.privacy') }}" target="_blank" class="text-primary font-semibold hover:underline">מדיניות הפרטיות</a>
-                </span>
-            </label>
-            <p id="legalModalError" class="hidden text-sm text-red-400 bg-red-900/30 border border-red-700/60 p-3 rounded-lg">
-                יש לסמן את תיבת האישור לפני המשך.
-            </p>
-        </div>
-        <div class="flex justify-end gap-3">
-            <button id="legalAcceptBtn" class="px-5 py-2 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-semibold disabled:opacity-50">
-                מאשר/ת וממשיך/ה
-            </button>
-        </div>
-    </div>
-</div>
-
 <!-- Car data JSON -->
 <script type="application/json" id="car-data">
     {{ car_models_data | tojson | safe }}
@@ -758,26 +732,25 @@
     const privacyVersion = "{{ privacy_version }}";
     window.legalAccepted = legalAccepted;
 
-    const legalConfirmCheckbox = document.getElementById('legalConfirm');
-    const legalStatusBannerCheckbox = document.getElementById('compareLegalStatusCheckbox');
+    const legalConfirmCheckbox = document.getElementById('compareLegalConfirm');
+    const legalConfirmError = document.getElementById('compareLegalError');
     const legalStatusBannerText = document.getElementById('compareLegalStatusText');
 
-    function syncLegalCheckboxState() {
-        if (window.legalAccepted) {
-            if (legalConfirmCheckbox) {
-                legalConfirmCheckbox.checked = true;
-                legalConfirmCheckbox.disabled = true;
-            }
-            if (legalStatusBannerCheckbox) {
-                legalStatusBannerCheckbox.checked = true;
-                legalStatusBannerCheckbox.disabled = true;
-            }
-            if (legalStatusBannerText) {
-                legalStatusBannerText.textContent = 'Legal consent accepted ✅';
-            }
-        }
+    function showCompareLegalError(message) {
+        if (!legalConfirmError) return;
+        if (message) legalConfirmError.textContent = message;
+        legalConfirmError.classList.remove('hidden');
     }
-    syncLegalCheckboxState();
+
+    function requireCompareLegalConfirm() {
+        if (!legalConfirmCheckbox || !legalConfirmError) return { ok: true };
+        if (!legalConfirmCheckbox.checked) {
+            showCompareLegalError('Please check the consent box before continuing.');
+            return { ok: false };
+        }
+        legalConfirmError.classList.add('hidden');
+        return { ok: true };
+    }
     
     // Category names in Hebrew
     const CATEGORY_NAMES = {
@@ -1320,8 +1293,6 @@
     
     async function ensureLegalAcceptance() {
         if (window.legalAccepted) return true;
-        const consentChecked = (legalConfirmCheckbox && legalConfirmCheckbox.checked) || (legalStatusBannerCheckbox && legalStatusBannerCheckbox.checked);
-        if (!consentChecked) return false;
         const res = await fetch('/api/legal/accept', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1335,23 +1306,19 @@
         const data = await res.json();
         if (res.ok && data.ok) {
             window.legalAccepted = true;
-            syncLegalCheckboxState();
+            if (legalStatusBannerText) {
+                legalStatusBannerText.innerHTML = '<span>✅</span><span>Legal consent accepted</span>';
+            }
             return true;
         }
         return false;
     }
     
-    function openLegalModal() {
-        document.getElementById('legalModal').classList.remove('hidden');
-    }
-    
-    function closeLegalModal() {
-        document.getElementById('legalModal').classList.add('hidden');
-    }
-    
     async function runComparison() {
         const cars = getSelectedCars();
         if (cars.length < 2) return;
+        const legalConfirm = requireCompareLegalConfirm();
+        if (!legalConfirm.ok) return;
         
         if (hasDuplicates(cars)) {
             alert('לא ניתן להשוות רכבים זהים. אנא בחר רכבים שונים.');
@@ -1368,11 +1335,9 @@
         
         try {
             if (!window.legalAccepted) {
-                const acceptedViaBanner = legalStatusBannerCheckbox && legalStatusBannerCheckbox.checked
-                    ? await ensureLegalAcceptance()
-                    : false;
+                const acceptedViaBanner = await ensureLegalAcceptance();
                 if (!acceptedViaBanner) {
-                    openLegalModal();
+                    showCompareLegalError('Please accept Terms & Privacy first.');
                     return;
                 }
             }
@@ -1420,7 +1385,7 @@
                 };
                 
                 if (errorCode === 'TERMS_NOT_ACCEPTED' || data.error === 'TERMS_NOT_ACCEPTED') {
-                    openLegalModal();
+                    showCompareLegalError('Please accept Terms & Privacy first.');
                     throw createCompareError('נדרש לאשר תנאי שימוש ומדיניות פרטיות', requestId);
                 }
                 if (errorCode === 'limit_reached' || data.error === 'limit_reached') {
@@ -1747,29 +1712,6 @@
     
     compareBtn.addEventListener('click', runComparison);
     
-    // Legal modal handlers
-    document.getElementById('legalAcceptBtn')?.addEventListener('click', async () => {
-        const legalConfirm = document.getElementById('legalConfirm');
-        const error = document.getElementById('legalModalError');
-        error.classList.add('hidden');
-        
-        if (!legalConfirm.checked) {
-            error.classList.remove('hidden');
-            return;
-        }
-        
-        const ok = await ensureLegalAcceptance();
-        if (ok) {
-            closeLegalModal();
-            runComparison();
-        } else {
-            error.classList.remove('hidden');
-        }
-    });
-    
-    document.getElementById('legalCancelBtn')?.addEventListener('click', () => {
-        closeLegalModal();
-    });
     retryBtn.addEventListener('click', () => {
         errorSection.classList.add('hidden');
     });
