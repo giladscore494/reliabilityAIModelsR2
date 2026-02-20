@@ -261,6 +261,66 @@
         return el ? el.value : fallback;
     }
 
+    function setCheckboxGroup(name, values) {
+        const set = new Set((Array.isArray(values) ? values : []).map(String));
+        form.querySelectorAll(`input[name="${name}"]`).forEach((el) => {
+            el.checked = set.has(el.value);
+        });
+    }
+
+    function setRadioGroup(name, value) {
+        if (value === undefined || value === null) return;
+        const radio = form.querySelector(`input[name="${name}"][value="${String(value)}"]`);
+        if (radio) radio.checked = true;
+    }
+
+    function applyHistoryProfile(profile) {
+        if (!profile || typeof profile !== 'object') return;
+        const fuelMap = { gasoline: 'בנזין', diesel: 'דיזל', hybrid: 'היברידי', electric: 'חשמלי', ev: 'חשמלי' };
+        const gearMap = { automatic: 'אוטומטית', manual: 'ידנית' };
+        const getVal = (key, fallback = '') => (profile[key] ?? fallback);
+
+        if (Array.isArray(profile.budget_nis) && profile.budget_nis.length >= 2) {
+            form.budget_min.value = profile.budget_nis[0];
+            form.budget_max.value = profile.budget_nis[1];
+        }
+        if (Array.isArray(profile.years) && profile.years.length >= 2) {
+            form.year_min.value = profile.years[0];
+            form.year_max.value = profile.years[1];
+        }
+        setCheckboxGroup('fuels_he', (profile.fuel || []).map((f) => fuelMap[String(f).toLowerCase()] || String(f)));
+        setCheckboxGroup('gears_he', (profile.gear || []).map((g) => gearMap[String(g).toLowerCase()] || String(g)));
+        setRadioGroup('turbo_choice_he', profile.turbo_required === true ? 'כן' : profile.turbo_required === false ? 'לא' : 'לא משנה');
+
+        form.main_use.value = getVal('main_use', form.main_use.value);
+        form.annual_km.value = getVal('annual_km', form.annual_km.value);
+        form.driver_age.value = getVal('driver_age', form.driver_age.value);
+        form.license_years.value = getVal('license_years', form.license_years.value);
+        form.driver_gender.value = getVal('driver_gender', form.driver_gender.value);
+        form.body_style.value = getVal('body_style', form.body_style.value);
+        form.driving_style.value = getVal('driving_style', form.driving_style.value);
+        form.seats_choice.value = getVal('seats', form.seats_choice.value);
+        form.family_size.value = getVal('family_size', form.family_size.value);
+        form.cargo_need.value = getVal('cargo_need', form.cargo_need.value);
+        form.insurance_history.value = getVal('insurance_history', form.insurance_history.value);
+        form.violations.value = getVal('violations', form.violations.value);
+        form.trim_level.value = getVal('trim_level', form.trim_level.value);
+        form.excluded_colors.value = Array.isArray(profile.excluded_colors) ? profile.excluded_colors.join(', ') : getVal('excluded_colors', '');
+        form.fuel_price.value = getVal('fuel_price_nis_per_liter', form.fuel_price.value);
+        form.electricity_price.value = getVal('electricity_price_nis_per_kwh', form.electricity_price.value);
+        setRadioGroup('safety_required_radio', getVal('safety_required', 'כן'));
+        setRadioGroup('consider_supply', profile.consider_market_supply === false ? 'לא' : 'כן');
+
+        const weights = profile.weights || {};
+        if (typeof weights === 'object') {
+            document.getElementById('w_reliability').value = weights.reliability ?? document.getElementById('w_reliability').value;
+            document.getElementById('w_resale').value = weights.resale ?? document.getElementById('w_resale').value;
+            document.getElementById('w_fuel').value = weights.fuel ?? document.getElementById('w_fuel').value;
+            document.getElementById('w_performance').value = weights.performance ?? document.getElementById('w_performance').value;
+            document.getElementById('w_comfort').value = weights.comfort ?? document.getElementById('w_comfort').value;
+        }
+    }
+
     function buildPayload() {
         const fuels_he = getCheckedValues('fuels_he');
         const gears_he = getCheckedValues('gears_he');
@@ -948,4 +1008,9 @@
     }
 
     form.addEventListener('submit', handleSubmit);
+
+    if (window.advisorHistoryProfile && window.advisorHistoryResult) {
+        applyHistoryProfile(window.advisorHistoryProfile);
+        renderResults(window.advisorHistoryResult);
+    }
 })();

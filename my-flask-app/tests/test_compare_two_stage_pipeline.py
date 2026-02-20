@@ -4,7 +4,7 @@ from datetime import datetime
 
 from app.services import comparison_service
 from app.quota import compute_quota_window, resolve_app_timezone
-from app.models import DailyQuotaUsage
+from app.models import DailyQuotaUsage, ComparisonHistory
 from main import db
 
 
@@ -149,11 +149,50 @@ def test_compare_owner_bypasses_quota(app, logged_in_client, monkeypatch):
         db.session.add(DailyQuotaUsage(user_id=user_id, day=day_key, count=5, updated_at=datetime.utcnow()))
         db.session.commit()
 
-    def fake_handle(_data, _uid, _sid):
+    def fake_handle(_data, _uid, _sid, owner_bypass=False):
         from app.utils.http_helpers import api_ok
         return api_ok({"computed_result": {"overall_winner": "car_1"}, "cars_selected": {}, "narrative": None})
 
     monkeypatch.setattr(comparison_service, "handle_comparison_request", fake_handle)
+
+    resp = client.post(
+        "/api/compare",
+        json={
+            "cars": [
+                {"make": "Toyota", "model": "Corolla", "year": 2020},
+                {"make": "Honda", "model": "Civic", "year": 2020},
+            ],
+            "legal_confirm": True,
+        },
+        headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+    )
+    assert resp.status_code == 200
+
+
+def test_compare_owner_bypasses_internal_history_gate(app, logged_in_client, monkeypatch):
+    client, user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+    app.config["OWNER_EMAILS"] = {"tester@example.com"}
+
+    with app.app_context():
+        for _ in range(3):
+            db.session.add(
+                ComparisonHistory(
+                    user_id=user_id,
+                    session_id=None,
+                    cars_selected='[{"make":"Toyota","model":"Corolla","year":2020},{"make":"Honda","model":"Civic","year":2020}]',
+                    model_json_raw='{}',
+                    computed_result='{}',
+                    sources_index='{}',
+                )
+            )
+        db.session.commit()
+
+    def fake_stage_a(_prompt, timeout_sec=comparison_service.AI_CALL_TIMEOUT_SEC):
+        return _grounded_output_fixture(), None
+
+    monkeypatch.setattr(comparison_service, "call_gemini_comparison", fake_stage_a)
+    monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", lambda _prompt, timeout_sec=60: (None, "CALL_TIMEOUT"))
 
     resp = client.post(
         "/api/compare",

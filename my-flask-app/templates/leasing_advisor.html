@@ -90,13 +90,33 @@
         <button id="helpBtn" class="text-base text-slate-400 hover:text-white mr-2" title="עזרה">❓</button>
     </h1>
 
-    <div id="leasingTimingBanner" class="hidden mb-6 rounded-2xl border border-primary/40 bg-dark-lighter/95 p-4">
-        <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-full bg-gradient-to-r from-primary to-secondary flex items-center justify-center text-white font-black">⏱</div>
-            <div class="text-sm text-slate-300">
-                <div id="leasingAvgTime">זמן ממוצע: —</div>
-                <div id="leasingCurrentTime">זמן ריצה: <span id="leasingElapsedTime">0.0s</span></div>
-                <div id="leasingTimingStatus" class="text-slate-400">ממתין להפעלה</div>
+    <div id="leasingTimingBanner" class="hidden fixed top-24 left-1/2 transform -translate-x-1/2 z-50 bg-dark-lighter/95 backdrop-blur-xl border-2 border-primary/50 rounded-2xl shadow-2xl p-6">
+        <div class="flex flex-col items-center gap-4">
+            <div class="relative w-32 h-32">
+                <svg class="w-32 h-32 transform -rotate-90" viewBox="0 0 120 120">
+                    <circle cx="60" cy="60" r="54" fill="none" stroke="#1e293b" stroke-width="8"></circle>
+                    <circle id="leasingProgressRing" cx="60" cy="60" r="54" fill="none" stroke="url(#leasingRainbowGradient)" stroke-width="8"
+                            stroke-linecap="round" stroke-dasharray="339.292" stroke-dashoffset="339.292"
+                            style="transition: stroke-dashoffset 0.3s ease, stroke 0.5s ease;"></circle>
+                    <defs>
+                        <linearGradient id="leasingRainbowGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:rgb(255,0,0);stop-opacity:1" />
+                            <stop offset="16.67%" style="stop-color:rgb(255,165,0);stop-opacity:1" />
+                            <stop offset="33.33%" style="stop-color:rgb(255,255,0);stop-opacity:1" />
+                            <stop offset="50%" style="stop-color:rgb(0,255,0);stop-opacity:1" />
+                            <stop offset="66.67%" style="stop-color:rgb(0,127,255);stop-opacity:1" />
+                            <stop offset="83.33%" style="stop-color:rgb(139,0,255);stop-opacity:1" />
+                            <stop offset="100%" style="stop-color:rgb(255,0,0);stop-opacity:1" />
+                        </linearGradient>
+                    </defs>
+                </svg>
+                <div class="absolute inset-0 flex items-center justify-center">
+                    <span id="leasingElapsedTime" class="text-3xl font-black text-white">0</span>
+                </div>
+            </div>
+            <div class="text-center">
+                <div id="leasingEtaText" class="text-sm text-slate-300 font-medium"></div>
+                <div id="leasingTimingStatus" class="text-xs text-slate-400 mt-1">מעבד...</div>
             </div>
         </div>
     </div>

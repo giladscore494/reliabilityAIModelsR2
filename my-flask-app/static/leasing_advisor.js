@@ -17,9 +17,10 @@
   let currentFrame = {};
   let lastResult = null;
   let legalAccepted = !$("#legalBanner");
-  let timingEstimateMs = 0;
   let timingStart = null;
   let timingInterval = null;
+  const RING_CIRCUMFERENCE = 339.292; // 2 * Math.PI * 54
+  const DEFAULT_TIMING_ESTIMATE_MS = 15000;
 
   // ── Explainer modal ─────────────────────────────────────
   const explainerModal = $("#explainerModal");
@@ -48,46 +49,76 @@
   });
 
   // ── Legal acceptance ────────────────────────────────────
+  function revealLegalBanner(errorMessage) {
+    var banner = $("#legalBanner");
+    var legalError = $("#legalError");
+    if (banner) banner.classList.remove("hidden");
+    if (legalError) {
+      if (errorMessage) legalError.textContent = errorMessage;
+      legalError.classList.remove("hidden");
+    }
+    legalAccepted = false;
+  }
+
+  function markLegalAccepted() {
+    var banner = $("#legalBanner");
+    if (banner) banner.remove();
+    var btn = $("#recommendBtn");
+    if (btn) btn.disabled = false;
+    legalAccepted = true;
+  }
+
+  function ensureLegalAcceptance() {
+    if (legalAccepted) {
+      return Promise.resolve(true);
+    }
+    var legalCheckbox = $("#legalConfirmCheckbox");
+    var legalError = $("#legalError");
+    if (!legalCheckbox || !legalCheckbox.checked) {
+      if (legalError) legalError.classList.remove("hidden");
+      return Promise.resolve(false);
+    }
+    if (legalError) legalError.classList.add("hidden");
+    var legalBanner = $("#legalBanner");
+    return fetch("/api/legal/accept", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        legal_confirm: true,
+        terms_version: legalBanner ? legalBanner.dataset.termsVersion : undefined,
+        privacy_version: legalBanner ? legalBanner.dataset.privacyVersion : undefined,
+      }),
+    })
+      .then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
+      .then(function (res) {
+        if (res.ok && res.data && res.data.ok) {
+          markLegalAccepted();
+          return true;
+        }
+        var msg = (res.data && ((res.data.error && res.data.error.message) || res.data.message)) || "יש לאשר תנאי שימוש ומדיניות פרטיות לפני המשך.";
+        revealLegalBanner(msg);
+        return false;
+      })
+      .catch(function () {
+        revealLegalBanner("שגיאת רשת בעת אישור תנאי שימוש.");
+        return false;
+      });
+  }
+
   if ($("#acceptLegalBtn")) {
     $("#acceptLegalBtn").addEventListener("click", function () {
-      var legalCheckbox = $("#legalConfirmCheckbox");
-      var legalError = $("#legalError");
-      if (!legalCheckbox || !legalCheckbox.checked) {
-        if (legalError) legalError.classList.remove("hidden");
-        return;
-      }
-      if (legalError) legalError.classList.add("hidden");
-      var legalBanner = $("#legalBanner");
-      fetch("/api/legal/accept", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          legal_confirm: true,
-          terms_version: legalBanner ? legalBanner.dataset.termsVersion : undefined,
-          privacy_version: legalBanner ? legalBanner.dataset.privacyVersion : undefined,
-        }),
-      })
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          if (data.ok) {
-            var banner = $("#legalBanner");
-            if (banner) banner.remove();
-            var btn = $("#recommendBtn");
-            if (btn) { btn.disabled = false; }
-            var warn = $("p.text-warning");
-            if (warn) warn.remove();
-            legalAccepted = true;
-          }
-        })
-        .catch(function () {});
+      ensureLegalAcceptance();
     });
   }
 
   // ── Timing banner ────────────────────────────────────────
   var leasingTimingBanner = $("#leasingTimingBanner");
-  var leasingAvgTime = $("#leasingAvgTime");
   var leasingElapsedTime = $("#leasingElapsedTime");
+  var leasingEtaText = $("#leasingEtaText");
   var leasingTimingStatus = $("#leasingTimingStatus");
+  var leasingProgressRing = $("#leasingProgressRing");
+  let timingEstimateMs = DEFAULT_TIMING_ESTIMATE_MS;
 
   function fetchTimingEstimate() {
     fetch("/api/timing/estimate?kind=advisor")
@@ -95,12 +126,18 @@
       .then(function (data) {
         var payload = data.data || data;
         var p75 = Number(payload.p75_ms || 0);
-        var avgSec = p75 > 0 ? (p75 / 1000).toFixed(1) + "s" : "—";
-        timingEstimateMs = p75 > 0 ? p75 : 0;
-        if (leasingAvgTime) leasingAvgTime.textContent = "זמן ממוצע: " + avgSec;
+        var count = Number(payload.sample_size || 0);
+        timingEstimateMs = p75 > 0 ? p75 : DEFAULT_TIMING_ESTIMATE_MS;
+        if (leasingEtaText) {
+          var secs = Math.ceil(timingEstimateMs / 1000);
+          leasingEtaText.textContent = count > 0
+            ? "זמן משוער: ~" + secs + " שניות (מבוסס על " + count + " שאלונים)"
+            : "זמן משוער: ~" + secs + " שניות";
+        }
       })
       .catch(function () {
-        if (leasingAvgTime) leasingAvgTime.textContent = "זמן ממוצע: לא זמין";
+        timingEstimateMs = DEFAULT_TIMING_ESTIMATE_MS;
+        if (leasingEtaText) leasingEtaText.textContent = "זמן משוער: ~15 שניות";
       });
   }
 
@@ -112,7 +149,14 @@
     if (leasingTimingStatus) leasingTimingStatus.textContent = "מעבד...";
     timingInterval = setInterval(function () {
       var elapsedMs = performance.now() - timingStart;
-      if (leasingElapsedTime) leasingElapsedTime.textContent = (elapsedMs / 1000).toFixed(1) + "s";
+      if (leasingElapsedTime) leasingElapsedTime.textContent = String(Math.floor(elapsedMs / 1000));
+      var progress = Math.min(1, elapsedMs / (timingEstimateMs || DEFAULT_TIMING_ESTIMATE_MS));
+      var offset = RING_CIRCUMFERENCE * (1 - progress);
+      if (leasingProgressRing) {
+        leasingProgressRing.style.strokeDashoffset = offset;
+        var hue = (elapsedMs / (timingEstimateMs || DEFAULT_TIMING_ESTIMATE_MS)) * 360;
+        leasingProgressRing.style.stroke = "hsl(" + (hue % 360) + ", 80%, 60%)";
+      }
     }, 100);
   }
 
@@ -123,11 +167,24 @@
     }
     if (!leasingTimingBanner || !timingStart) return;
     var elapsedMs = performance.now() - timingStart;
-    if (leasingElapsedTime) leasingElapsedTime.textContent = (elapsedMs / 1000).toFixed(1) + "s";
+    if (leasingElapsedTime) leasingElapsedTime.textContent = String(Math.floor(elapsedMs / 1000));
     if (showFinal && leasingTimingStatus) {
-      leasingTimingStatus.textContent = "הסתיים תוך " + Math.round(elapsedMs) + "ms";
+      leasingTimingStatus.textContent = "הסתיים תוך " + Math.floor(elapsedMs / 1000) + " שניות";
+      setTimeout(function () {
+        leasingTimingBanner.classList.add("hidden");
+        leasingTimingStatus.textContent = "מעבד...";
+        if (leasingProgressRing) {
+          leasingProgressRing.style.strokeDashoffset = RING_CIRCUMFERENCE;
+          leasingProgressRing.style.stroke = "url(#leasingRainbowGradient)";
+        }
+      }, 1500);
     } else if (leasingTimingStatus) {
-      leasingTimingStatus.textContent = "ממתין להפעלה";
+      leasingTimingStatus.textContent = "מעבד...";
+      leasingTimingBanner.classList.add("hidden");
+      if (leasingProgressRing) {
+        leasingProgressRing.style.strokeDashoffset = RING_CIRCUMFERENCE;
+        leasingProgressRing.style.stroke = "url(#leasingRainbowGradient)";
+      }
     }
     timingStart = null;
   }
@@ -283,56 +340,66 @@
   if (recommendBtn) {
     recommendBtn.addEventListener("click", function () {
       if (recommendBtn.disabled) return;
-      if (!legalAccepted) {
-        showRecommendError("יש לאשר תנאי שימוש ומדיניות פרטיות לפני שליחת בקשה.");
-        return;
-      }
-      recommendError.classList.add("hidden");
-      recommendLoading.classList.remove("hidden");
-      recommendBtn.disabled = true;
-      startTimer();
+      ensureLegalAcceptance().then(function (accepted) {
+        if (!accepted) {
+          showRecommendError("יש לאשר תנאי שימוש ומדיניות פרטיות לפני שליחת בקשה.");
+          return;
+        }
+        recommendError.classList.add("hidden");
+        recommendLoading.classList.remove("hidden");
+        recommendBtn.disabled = true;
+        startTimer();
 
-      var prefs = {};
-      $$(".q-input").forEach(function (el) {
-        prefs[el.name] = el.value;
-      });
-      if (fuelToggle && fuelToggle.checked) {
-        prefs.fuel_relevant = true;
-      }
-
-      fetch("/api/leasing/recommend", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          candidates: currentCandidates,
-          prefs: prefs,
-          frame: currentFrame,
-          legal_confirm: legalAccepted === true,
-        }),
-      })
-        .then(function (resp) {
-          return resp.json().then(function (data) {
-            if (!resp.ok || data.error) {
-              var errorMsg = data.message || data.error || "שגיאה";
-              if (data.error && typeof data.error === "object") {
-                errorMsg = data.error.message || data.error.code || "שגיאה";
-              }
-              showRecommendError(errorMsg);
-              return;
-            }
-            var payload = data.data || data;
-            lastResult = payload.result || payload;
-            showResults(lastResult);
-          });
-        })
-        .catch(function (err) {
-          showRecommendError("שגיאת רשת: " + (err.message || ""));
-        })
-        .finally(function () {
-          recommendLoading.classList.add("hidden");
-          recommendBtn.disabled = !legalAccepted;
-          stopTimer(true);
+        var prefs = {};
+        $$(".q-input").forEach(function (el) {
+          prefs[el.name] = el.value;
         });
+        if (fuelToggle && fuelToggle.checked) {
+          prefs.fuel_relevant = true;
+        }
+
+        fetch("/api/leasing/recommend", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            candidates: currentCandidates,
+            prefs: prefs,
+            frame: currentFrame,
+            legal_confirm: true,
+          }),
+        })
+          .then(function (resp) {
+            return resp.json().then(function (data) {
+              if (!resp.ok || data.error) {
+                var errorMsg = data.message || data.error || "שגיאה";
+                var errorCode = "";
+                if (data.error && typeof data.error === "object") {
+                  errorMsg = data.error.message || data.error.code || "שגיאה";
+                  errorCode = data.error.code || "";
+                } else if (typeof data.error === "string") {
+                  errorCode = data.error;
+                }
+                if (errorCode === "TERMS_NOT_ACCEPTED" || errorCode === "TERMS_VERSION_MISMATCH") {
+                  revealLegalBanner(errorMsg);
+                }
+                showRecommendError(errorMsg);
+                return;
+              }
+              var payload = data.data || data;
+              lastResult = payload.result || payload;
+              showResults(lastResult);
+            });
+          })
+          .catch(function (err) {
+            showRecommendError("שגיאת רשת: " + (err.message || ""));
+          })
+          .finally(function () {
+            recommendLoading.classList.add("hidden");
+            recommendBtn.disabled = !legalAccepted;
+            stopTimer(true);
+          });
+      });
     });
   }
 
