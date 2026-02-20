@@ -20,8 +20,9 @@ from app.quota import (
 )
 from app.utils.http_helpers import api_ok, api_error, get_request_id, is_owner_user
 from app.services import leasing_advisor_service as leasing_svc
+from app.services.history_service import fetch_leasing_history, build_leasing_data, safe_json_obj
 from app.legal import TERMS_VERSION, PRIVACY_VERSION, parse_legal_confirm
-from app.models import LegalAcceptance
+from app.models import LegalAcceptance, LeasingAdvisorHistory
 
 bp = Blueprint("leasing", __name__)
 
@@ -263,4 +264,44 @@ def leasing_recommend():
         "history_id": history_id,
         "duration_ms": duration_ms,
         "request_id": request_id,
+    })
+
+
+@bp.route("/api/leasing/history", methods=["GET"])
+@login_required
+def leasing_history():
+    """Return leasing advisor history summaries for the current user."""
+    try:
+        limit = int(request.args.get("limit", 20))
+    except (TypeError, ValueError):
+        limit = 20
+    limit = min(max(limit, 1), 50)
+
+    entries, err = fetch_leasing_history(current_user.id)
+    if err:
+        return api_error("leasing_history_failed", err, status=500)
+
+    return api_ok({"history": build_leasing_data(entries)[:limit]})
+
+
+@bp.route("/api/leasing/<int:history_id>", methods=["GET"])
+@login_required
+def leasing_history_detail(history_id):
+    """Return a specific leasing advisor history record owned by the current user."""
+    item = LeasingAdvisorHistory.query.filter_by(
+        id=history_id,
+        user_id=current_user.id,
+    ).first()
+    if not item:
+        return api_error("not_found", "יועץ ליסינג לא נמצא", status=404)
+
+    return api_ok({
+        "id": item.id,
+        "created_at": item.created_at.isoformat() if item.created_at else None,
+        "duration_ms": item.duration_ms,
+        "request_id": item.request_id,
+        "frame_input_json": safe_json_obj(item.frame_input_json, default={}),
+        "candidates_json": safe_json_obj(item.candidates_json, default=[]),
+        "prefs_json": safe_json_obj(item.prefs_json, default={}),
+        "gemini_response_json": safe_json_obj(item.gemini_response_json, default={}),
     })

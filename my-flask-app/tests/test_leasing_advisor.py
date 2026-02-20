@@ -8,7 +8,7 @@ from datetime import datetime
 import pytest
 
 from app.legal import TERMS_VERSION, PRIVACY_VERSION
-from app.models import LegalAcceptance, LeasingAdvisorHistory, DailyQuotaUsage
+from app.models import LegalAcceptance, LeasingAdvisorHistory, DailyQuotaUsage, User
 from app.services.leasing_advisor_service import (
     calc_bik_2026,
     invert_list_price_from_bik,
@@ -279,6 +279,26 @@ class TestLeasingLegalGating:
         client, _ = logged_in_client
         resp = client.get("/leasing")
         assert resp.status_code == 200
+        assert 'id="legalBanner"' in resp.data.decode("utf-8")
+
+    def test_leasing_page_shows_accepted_legal_state(self, logged_in_client, app):
+        client, user_id = logged_in_client
+        with app.app_context():
+            db.session.add(LegalAcceptance(
+                user_id=user_id,
+                terms_version=TERMS_VERSION,
+                privacy_version=PRIVACY_VERSION,
+                accepted_at=datetime.utcnow(),
+                accepted_ip="1.2.3.0",
+            ))
+            db.session.commit()
+        resp = client.get("/leasing")
+        assert resp.status_code == 200
+        html = resp.data.decode("utf-8")
+        assert 'id="legalBanner"' in html
+        legal_checkbox_tag = html.split('id="legalConfirmCheckbox"')[1].split(">")[0]
+        assert "checked" in legal_checkbox_tag
+        assert "disabled" in legal_checkbox_tag
 
 
 # ── Quota Enforcement Tests ───────────────────────────────────────────
@@ -492,3 +512,63 @@ class TestMigrationSanity:
                         "candidates_json", "prefs_json", "gemini_response_json",
                         "request_id", "duration_ms"}
             assert expected.issubset(cols)
+
+
+class TestLeasingHistoryApi:
+    def test_history_returns_summaries(self, logged_in_client, app):
+        client, user_id = logged_in_client
+        with app.app_context():
+            db.session.add(LeasingAdvisorHistory(
+                user_id=user_id,
+                frame_input_json='{"max_bik": 3500, "source": "catalog"}',
+                candidates_json='[{"make":"Toyota","model":"Corolla"}]',
+                prefs_json='{"driving_type":"city"}',
+                gemini_response_json='{"top3":[{"make":"Toyota","model":"Corolla"}]}',
+                request_id="req-lh-1",
+                duration_ms=1234,
+            ))
+            db.session.commit()
+        resp = client.get("/api/leasing/history?limit=20")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["ok"] is True
+        assert len(data["data"]["history"]) == 1
+        assert data["data"]["history"][0]["top_recommendation"] == "Toyota Corolla"
+
+    def test_history_detail_requires_record_ownership(self, logged_in_client, app):
+        client, user_id = logged_in_client
+        with app.app_context():
+            other = User(google_id="leasing-other", email="other@example.com", name="Other")
+            db.session.add(other)
+            db.session.flush()
+            own_row = LeasingAdvisorHistory(
+                user_id=user_id,
+                frame_input_json='{"max_bik": 3000}',
+                candidates_json='[{"make":"Kia","model":"Niro"}]',
+                prefs_json='{"driving_type":"mixed"}',
+                gemini_response_json='{"top3":[{"make":"Kia","model":"Niro"}]}',
+                request_id="req-own",
+                duration_ms=2100,
+            )
+            other_row = LeasingAdvisorHistory(
+                user_id=other.id,
+                frame_input_json='{"max_bik": 1000}',
+                candidates_json='[]',
+                prefs_json='{}',
+                gemini_response_json='{}',
+                request_id="req-other",
+                duration_ms=500,
+            )
+            db.session.add(own_row)
+            db.session.add(other_row)
+            db.session.commit()
+            own_id = own_row.id
+            other_id = other_row.id
+
+        own_resp = client.get(f"/api/leasing/{own_id}")
+        assert own_resp.status_code == 200
+        own_data = own_resp.get_json()
+        assert own_data["data"]["gemini_response_json"]["top3"][0]["model"] == "Niro"
+
+        denied = client.get(f"/api/leasing/{other_id}")
+        assert denied.status_code == 404

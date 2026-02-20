@@ -282,29 +282,9 @@
 
     <!-- Leasing Advisor History Tab -->
     <div id="tab-content-leasing" class="relative z-10 hidden">
-        {% if leasing_history and leasing_history|length > 0 %}
-        <div class="grid gap-4">
-            {% for lh in leasing_history %}
-            <article class="bg-dark-lighter/80 border border-slate-700/60 rounded-xl p-4 shadow-lg">
-                <div class="flex justify-between items-start">
-                    <div>
-                        <h3 class="text-lg font-bold text-white">{{ lh.top_recommendation or 'יועץ ליסינג' }}</h3>
-                        <p class="text-sm text-slate-400 mt-1">{{ lh.frame_summary }}</p>
-                    </div>
-                    <span class="text-xs text-slate-500">{{ lh.created_at }}</span>
-                </div>
-                {% if lh.duration_ms %}
-                <span class="text-xs text-slate-500 mt-2 block">⏱️ {{ lh.duration_ms }}ms</span>
-                {% endif %}
-            </article>
-            {% endfor %}
+        <div id="leasing-list" class="grid gap-4">
+            <div class="text-center py-8 text-slate-400">טוען היסטוריית יועץ ליסינג...</div>
         </div>
-        {% else %}
-        <div class="text-center py-12">
-            <p class="text-slate-400 text-lg">עדיין אין היסטוריית יועץ ליסינג</p>
-            <a href="/leasing" class="mt-4 inline-block px-6 py-2 rounded-xl bg-primary/20 text-primary font-bold hover:bg-primary/30 transition">התחל שימוש ביועץ ליסינג</a>
-        </div>
-        {% endif %}
     </div>
 
     <!-- Delete Account Section -->
@@ -854,6 +834,7 @@
     
     let currentTab = 'reliability';
     let comparisonsLoaded = false;
+    let leasingLoaded = false;
     
     function showTab(tabName) {
         currentTab = tabName;
@@ -879,6 +860,9 @@
         // Load comparisons if switching to that tab for the first time
         if (tabName === 'comparisons' && !comparisonsLoaded) {
             loadComparisonsHistory();
+        }
+        if (tabName === 'leasing' && !leasingLoaded) {
+            loadLeasingHistory();
         }
         // Load service prices history if switching to that tab
         if (tabName === 'service_prices') {
@@ -984,6 +968,53 @@
         } catch (err) {
             console.error('[DASHBOARD] Failed to load comparisons:', err);
             container.innerHTML = '<div class="text-center py-8 text-red-400">שגיאה בטעינת היסטוריית השוואות</div>';
+        }
+    }
+
+    async function loadLeasingHistory() {
+        const container = document.getElementById('leasing-list');
+        try {
+            const response = await fetch('/api/leasing/history?limit=20', {
+                headers: { 'Accept': 'application/json' },
+                credentials: 'same-origin'
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) {
+                container.innerHTML = `<div class="text-center py-8 text-red-400">${escapeHtml(data.error?.message || data.message || 'שגיאה בטעינת היסטוריית יועץ ליסינג')}</div>`;
+                return;
+            }
+            const history = data.data?.history || [];
+            leasingLoaded = true;
+            if (history.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-12 bg-dark-lighter/40 rounded-2xl border border-slate-800">
+                        <p class="text-slate-400 mb-4">עדיין אין היסטוריית יועץ ליסינג</p>
+                        <a href="/leasing" class="px-6 py-2 rounded-full bg-primary text-white font-bold text-sm">
+                            התחל שימוש ביועץ ליסינג
+                        </a>
+                    </div>
+                `;
+                return;
+            }
+            container.innerHTML = history.map(item => `
+                <article class="bg-dark-lighter/80 border border-slate-700/60 rounded-xl p-4 shadow-lg">
+                    <div class="flex justify-between items-start gap-3">
+                        <div>
+                            <h3 class="text-lg font-bold text-white">${escapeHtml(item.top_recommendation || 'יועץ ליסינג')}</h3>
+                            <p class="text-sm text-slate-400 mt-1">${escapeHtml(item.frame_summary || '')}</p>
+                            ${item.duration_ms ? `<span class="text-xs text-slate-500 mt-2 block">⏱️ ${item.duration_ms}ms</span>` : ''}
+                        </div>
+                        <div class="text-left">
+                            <span class="text-xs text-slate-500 block">${escapeHtml(item.created_at || '')}</span>
+                            <a href="/leasing?load=${item.id}" aria-label="צפה בפרטים עבור ${escapeHtml(item.top_recommendation || 'רשומת ליסינג')}" class="inline-block mt-2 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg text-white transition-colors">
+                                צפה בפרטים
+                            </a>
+                        </div>
+                    </div>
+                </article>
+            `).join('');
+        } catch (err) {
+            container.innerHTML = '<div class="text-center py-8 text-red-400">שגיאה בטעינת היסטוריית יועץ ליסינג</div>';
         }
     }
 
