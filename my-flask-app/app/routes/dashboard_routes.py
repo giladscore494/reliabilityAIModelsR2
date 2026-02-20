@@ -19,6 +19,7 @@ def dashboard():
     user_searches, advisor_entries, search_error, advisor_error = history_service.fetch_dashboard_history(current_user.id)
     history_error = search_error or advisor_error
     searches_data = history_service.build_searches_data(user_searches)
+    advisor_data = history_service.build_advisor_data(advisor_entries)
     advisor_count = len(advisor_entries)
 
     leasing_entries, leasing_error = history_service.fetch_leasing_history(current_user.id)
@@ -29,6 +30,7 @@ def dashboard():
     return render_template(
         'dashboard.html',
         searches=searches_data,
+        advisor_history=advisor_data,
         advisor_count=advisor_count,
         leasing_history=leasing_data,
         user=current_user,

@@ -650,21 +650,16 @@
         </p>
         <div class="space-y-3">
             <label class="flex items-start gap-3 p-3 rounded-xl bg-slate-800/40 border border-slate-700/60 cursor-pointer">
-                <input type="checkbox" id="legalTerms" class="mt-1 w-5 h-5 rounded border-2 border-slate-600 text-primary focus:ring-offset-0 focus:ring-primary bg-slate-900/50" {% if accepted_terms %}checked disabled{% endif %}>
+                <input type="checkbox" id="legalConfirm" class="mt-1 w-5 h-5 rounded border-2 border-slate-600 text-primary focus:ring-offset-0 focus:ring-primary bg-slate-900/50" {% if legal_accepted %}checked disabled{% endif %}>
                 <span class="text-sm text-slate-200">
-                    אני מאשר/ת כי קראתי והסכמתי
+                    אני מאשר/ת שאני מעל גיל 18, קראתי והסכמתי
                     <a href="{{ url_for('public.terms') }}" target="_blank" class="text-primary font-semibold hover:underline">לתנאי השימוש</a>
-                </span>
-            </label>
-            <label class="flex items-start gap-3 p-3 rounded-xl bg-slate-800/40 border border-slate-700/60 cursor-pointer">
-                <input type="checkbox" id="legalPrivacy" class="mt-1 w-5 h-5 rounded border-2 border-slate-600 text-primary focus:ring-offset-0 focus:ring-primary bg-slate-900/50" {% if accepted_privacy %}checked disabled{% endif %}>
-                <span class="text-sm text-slate-200">
-                    אני מאשר/ת כי קראתי והסכמתי
-                    <a href="{{ url_for('public.privacy') }}" target="_blank" class="text-primary font-semibold hover:underline">למדיניות הפרטיות</a>
+                    ול
+                    <a href="{{ url_for('public.privacy') }}" target="_blank" class="text-primary font-semibold hover:underline">מדיניות הפרטיות</a>
                 </span>
             </label>
             <p id="legalModalError" class="hidden text-sm text-red-400 bg-red-900/30 border border-red-700/60 p-3 rounded-lg">
-                יש לאשר את שני הסעיפים לפני המשך.
+                יש לסמן את תיבת האישור לפני המשך.
             </p>
         </div>
         <div class="flex justify-end gap-3">
@@ -759,16 +754,13 @@
     const privacyVersion = "{{ privacy_version }}";
     window.legalAccepted = legalAccepted;
 
-    const legalTermsCheckbox = document.getElementById('legalTerms');
-    const legalPrivacyCheckbox = document.getElementById('legalPrivacy');
+    const legalConfirmCheckbox = document.getElementById('legalConfirm');
 
     function syncLegalCheckboxState() {
-        if (!legalTermsCheckbox || !legalPrivacyCheckbox) return;
+        if (!legalConfirmCheckbox) return;
         if (window.legalAccepted) {
-            legalTermsCheckbox.checked = true;
-            legalPrivacyCheckbox.checked = true;
-            legalTermsCheckbox.disabled = true;
-            legalPrivacyCheckbox.disabled = true;
+            legalConfirmCheckbox.checked = true;
+            legalConfirmCheckbox.disabled = true;
         }
     }
     syncLegalCheckboxState();
@@ -1736,12 +1728,11 @@
     
     // Legal modal handlers
     document.getElementById('legalAcceptBtn')?.addEventListener('click', async () => {
-        const terms = document.getElementById('legalTerms');
-        const privacy = document.getElementById('legalPrivacy');
+        const legalConfirm = document.getElementById('legalConfirm');
         const error = document.getElementById('legalModalError');
         error.classList.add('hidden');
         
-        if (!terms.checked || !privacy.checked) {
+        if (!legalConfirm.checked) {
             error.classList.remove('hidden');
             return;
         }

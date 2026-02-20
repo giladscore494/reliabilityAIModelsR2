@@ -1374,7 +1374,7 @@ def build_sources_index(model_output: Dict) -> Dict:
 # MAIN HANDLER
 # ============================================================
 
-def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Optional[str]) -> Any:
+def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Optional[str], owner_bypass: bool = False) -> Any:
     """
     Handle a car comparison request.
     Returns Flask response.
@@ -1391,7 +1391,7 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     cars_selected_slots = map_cars_to_slots(validated_cars)
     
     # Enforce per-user daily limit before any AI calls
-    if user_id:
+    if user_id and not owner_bypass:
         now = datetime.utcnow()
         day_start = datetime(now.year, now.month, now.day)
         day_end = day_start + timedelta(days=1)

@@ -140,6 +140,29 @@ def build_searches_data(user_searches: List[SearchHistory]) -> list:
     return searches_data
 
 
+def build_advisor_data(advisor_entries: List[AdvisorHistory]) -> list:
+    """Build advisor history items for dashboard list rendering."""
+    data = []
+    for entry in advisor_entries:
+        parsed_result = safe_json_obj(entry.result_json, default={})
+        if not isinstance(parsed_result, dict):
+            parsed_result = {}
+        cars = parsed_result.get("recommended_cars") if isinstance(parsed_result.get("recommended_cars"), list) else []
+        first = cars[0] if cars else {}
+        top_recommendation = ""
+        if isinstance(first, dict):
+            brand = (first.get("brand") or "").strip()
+            model = (first.get("model") or "").strip()
+            top_recommendation = f"{brand} {model}".strip()
+        data.append({
+            "id": entry.id,
+            "timestamp": entry.timestamp.strftime("%d/%m/%Y %H:%M"),
+            "top_recommendation": top_recommendation,
+            "duration_ms": getattr(entry, "duration_ms", None),
+        })
+    return data
+
+
 def search_details_response(search_id: int, user_id: int):
     try:
         s = SearchHistory.query.filter_by(id=search_id, user_id=user_id).first()

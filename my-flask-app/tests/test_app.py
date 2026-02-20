@@ -3,7 +3,7 @@ from datetime import datetime
 from urllib.parse import urlparse
 
 import main
-from app.models import LeasingAdvisorHistory
+from app.models import LeasingAdvisorHistory, AdvisorHistory
 from main import (
     DailyQuotaUsage,
     IpRateLimit,
@@ -285,6 +285,45 @@ def test_dashboard_handles_double_encoded_leasing_json(app, logged_in_client):
     client.post("/api/legal/accept", json={"legal_confirm": True})
     resp = client.get("/dashboard")
     assert resp.status_code == 200
+
+
+def test_dashboard_shows_clickable_advisor_history(app, logged_in_client):
+    client, user_id = logged_in_client
+    with app.app_context():
+        db.session.add(
+            AdvisorHistory(
+                user_id=user_id,
+                profile_json='{"budget_nis":[20000,120000]}',
+                result_json='{"recommended_cars":[{"brand":"Toyota","model":"Corolla"}]}',
+            )
+        )
+        db.session.commit()
+
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    html = resp.data.decode("utf-8")
+    assert "פתח שאלון" in html
+    assert "/recommendations/history/" in html
+
+
+def test_recommendations_history_route_prefills_data(app, logged_in_client):
+    client, user_id = logged_in_client
+    app.config["OWNER_EMAILS"] = {"tester@example.com"}
+    with app.app_context():
+        row = AdvisorHistory(
+            user_id=user_id,
+            profile_json='{"budget_nis":[20000,120000],"years":[2015,2024]}',
+            result_json='{"recommended_cars":[{"brand":"Toyota","model":"Corolla"}]}',
+        )
+        db.session.add(row)
+        db.session.commit()
+        history_id = row.id
+
+    resp = client.get(f"/recommendations/history/{history_id}")
+    assert resp.status_code == 200
+    html = resp.data.decode("utf-8")
+    assert "window.advisorHistoryProfile" in html
+    assert "window.advisorHistoryResult" in html
 
 
 def test_pending_rollback_cleared_between_requests(app, logged_in_client):

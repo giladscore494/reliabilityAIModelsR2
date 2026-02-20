@@ -101,12 +101,9 @@ def test_compare_page_shows_checked_legal_boxes(logged_in_client, app):
     resp = client.get("/compare")
     assert resp.status_code == 200
     html = resp.data.decode("utf-8")
-    assert 'id="legalTerms"' in html
-    assert 'id="legalPrivacy"' in html
-    assert 'id="legalTerms" class=' in html
-    assert 'id="legalPrivacy" class=' in html
-    assert 'id="legalTerms"' in html and "checked" in html.split('id="legalTerms"')[1].split(">")[0]
-    assert 'id="legalPrivacy"' in html and "checked" in html.split('id="legalPrivacy"')[1].split(">")[0]
+    assert 'id="legalConfirm"' in html
+    assert 'id="legalConfirm" class=' in html
+    assert 'id="legalConfirm"' in html and "checked" in html.split('id="legalConfirm"')[1].split(">")[0]
 
 
 def test_compare_page_requires_reacceptance_on_version_change(logged_in_client, app):
@@ -128,7 +125,5 @@ def test_compare_page_requires_reacceptance_on_version_change(logged_in_client, 
     resp = client.get("/compare")
     assert resp.status_code == 200
     html = resp.data.decode("utf-8")
-    assert 'id="legalTerms"' in html
-    assert 'id="legalPrivacy"' in html
-    assert "checked" not in html.split('id="legalTerms"')[1].split(">")[0]
-    assert "checked" not in html.split('id="legalPrivacy"')[1].split(">")[0]
+    assert 'id="legalConfirm"' in html
+    assert "checked" not in html.split('id="legalConfirm"')[1].split(">")[0]

@@ -3,12 +3,15 @@
 
 from datetime import datetime
 
+import json
+
 from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app
 from flask_login import login_required, current_user
 
 from app.quota import check_and_increment_ip_rate_limit, get_client_ip, log_access_decision, PER_IP_PER_MIN_LIMIT
 from app.utils.http_helpers import api_error, is_owner_user
 from app.utils.validation import validate_analyze_request, ValidationError
+from app.models import AdvisorHistory
 from app.services import advisor_service
 
 bp = Blueprint('advisor', __name__)
@@ -27,6 +30,38 @@ def recommendations():
         user=current_user,
         user_email=user_email,
         is_owner=is_owner_user(),
+        advisor_history_profile=None,
+        advisor_history_result=None,
+    )
+
+
+@bp.route('/recommendations/history/<int:history_id>')
+@login_required
+def recommendations_history(history_id):
+    advisor_owner_only = current_app.config.get('ADVISOR_OWNER_ONLY', False)
+    if advisor_owner_only and not is_owner_user():
+        flash("גישה למנוע ההמלצות זמינה לבעלי המערכת בלבד.", "error")
+        return redirect(url_for('dashboard.dashboard'))
+    record = AdvisorHistory.query.filter_by(id=history_id, user_id=current_user.id).first()
+    if not record:
+        flash("השאלון המבוקש לא נמצא.", "error")
+        return redirect(url_for('dashboard.dashboard'))
+    try:
+        profile = json.loads(record.profile_json) if record.profile_json else {}
+    except Exception:
+        profile = {}
+    try:
+        result = json.loads(record.result_json) if record.result_json else {}
+    except Exception:
+        result = {}
+    user_email = getattr(current_user, "email", "") if current_user.is_authenticated else ""
+    return render_template(
+        'recommendations.html',
+        user=current_user,
+        user_email=user_email,
+        is_owner=is_owner_user(),
+        advisor_history_profile=profile,
+        advisor_history_result=result,
     )
 
 

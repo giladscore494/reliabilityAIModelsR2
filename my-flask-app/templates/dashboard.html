@@ -150,9 +150,10 @@
                     class="tab-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50 cursor-pointer transition-colors hover:bg-slate-800 hover:text-slate-300">
                 השוואות
             </button>
-            <span class="whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50">
-                היסטוריית המלצות (בקרוב · {{ advisor_count or 0 }} שאלונים)
-            </span>
+            <button type="button" onclick="showTab('advisor')" id="tab-advisor"
+                    class="tab-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50 cursor-pointer transition-colors hover:bg-slate-800 hover:text-slate-300">
+                היסטוריית המלצות ({{ advisor_count or 0 }})
+            </button>
             <button type="button" onclick="showTab('leasing')" id="tab-leasing"
                     class="tab-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50 cursor-pointer transition-colors hover:bg-slate-800 hover:text-slate-300">
                 יועץ ליסינג ({{ leasing_history|default([])|length }})
@@ -238,6 +239,38 @@
         <div id="comparisons-list" class="grid gap-4">
             <div class="text-center py-8 text-slate-400">טוען היסטוריית השוואות...</div>
         </div>
+    </div>
+
+    <!-- Advisor History Tab -->
+    <div id="tab-content-advisor" class="relative z-10 hidden">
+        {% if advisor_history and advisor_history|length > 0 %}
+            <div class="grid gap-4">
+                {% for item in advisor_history %}
+                    <article class="bg-dark-lighter/80 border border-slate-700/60 rounded-xl p-4 shadow-lg">
+                        <div class="flex justify-between items-start gap-3">
+                            <div>
+                                <h3 class="text-lg font-bold text-white">{{ item.top_recommendation or 'שאלון המלצות' }}</h3>
+                                <div class="text-[11px] text-slate-400 mt-1">{{ item.timestamp }}</div>
+                                {% if item.duration_ms %}
+                                    <span class="text-xs text-slate-500 mt-2 block">⏱️ {{ item.duration_ms }}ms</span>
+                                {% endif %}
+                            </div>
+                            <a href="/recommendations/history/{{ item.id }}"
+                               class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg text-white transition-colors whitespace-nowrap">
+                                פתח שאלון
+                            </a>
+                        </div>
+                    </article>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="text-center py-12 bg-dark-lighter/40 rounded-2xl border border-slate-800">
+                <p class="text-slate-400 mb-4">אין היסטוריית המלצות עדיין.</p>
+                <a href="/recommendations" class="px-6 py-2 rounded-full bg-primary text-white font-bold text-sm">
+                    הפעל מנוע המלצות
+                </a>
+            </div>
+        {% endif %}
     </div>
 
     <!-- Service Prices History Tab -->
@@ -839,6 +872,7 @@
         // Show/hide content
         document.getElementById('tab-content-reliability').classList.toggle('hidden', tabName !== 'reliability');
         document.getElementById('tab-content-comparisons').classList.toggle('hidden', tabName !== 'comparisons');
+        document.getElementById('tab-content-advisor').classList.toggle('hidden', tabName !== 'advisor');
         document.getElementById('tab-content-service_prices').classList.toggle('hidden', tabName !== 'service_prices');
         document.getElementById('tab-content-leasing').classList.toggle('hidden', tabName !== 'leasing');
         

@@ -124,7 +124,7 @@ def compare_api():
 
     # Process comparison
     try:
-        resp = comparison_service.handle_comparison_request(data, user_id, session_id)
+        resp = comparison_service.handle_comparison_request(data, user_id, session_id, owner_bypass=owner_bypass)
         if reservation_id:
             if resp.status_code < 400:
                 finalize_quota_reservation(reservation_id, user_id, day_key)
