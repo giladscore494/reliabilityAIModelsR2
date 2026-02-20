@@ -48,6 +48,7 @@ _BANNER_MAP = {
 }
 
 _EVIDENCE_FACTOR = {"strong": 1.0, "medium": 0.7, "weak": 0.4}
+_MAX_SIGNALS = 50  # cap to prevent abuse
 
 
 def _safe_float(val: Any, lo: float = 0.0, hi: float = 1.0, default: float = 0.0) -> float:
@@ -229,9 +230,6 @@ def compute_reliability_score_and_banner(
         "banner_he": banner,
         "confidence_0_1": confidence,
     }
-
-
-_MAX_SIGNALS = 50  # cap to prevent abuse
 
 
 def handle_analyze_request(
@@ -433,7 +431,8 @@ def handle_analyze_request(
             adjusted_score = 0
         adjusted_score = max(0, min(100, adjusted_score))
         ai_output["base_score_calculated"] = adjusted_score
-        ai_output["estimated_reliability"] = _banner_from_score(adjusted_score) if det["banner_he"] != "לא ידוע" else "לא ידוע"
+        has_valid_risk_data = det["banner_he"] != "לא ידוע"
+        ai_output["estimated_reliability"] = _banner_from_score(adjusted_score) if has_valid_risk_data else "לא ידוע"
 
         # Sync reliability_report
         if isinstance(ai_output.get("reliability_report"), dict):
