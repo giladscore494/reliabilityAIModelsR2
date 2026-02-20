@@ -1310,10 +1310,16 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                         db.session.rollback()
                 
                 # Reconstruct slots from cached list; guard against corrupted non-list data
+                if isinstance(cars_selected, list):
+                    cached_slots = map_cars_to_slots(cars_selected)
+                else:
+                    logger.warning(f"[COMPARISON] cars_selected not a list in cache row {cached.id}, using as-is")
+                    cached_slots = cars_selected if isinstance(cars_selected, dict) else {}
+
                 return api_ok({
                     "cached": True,
                     "comparison_id": cached.id,
-                    "cars_selected": map_cars_to_slots(cars_selected) if isinstance(cars_selected, list) else cars_selected,
+                    "cars_selected": cached_slots,
                     "cars_selected_list": cars_selected if isinstance(cars_selected, list) else [],
                     "model_output": model_output,
                     "computed_result": computed_result,
