@@ -111,7 +111,7 @@ def map_cars_to_slots(validated_cars: List[Dict]) -> Dict[str, Dict]:
 # ============================================================
 
 COMPARISON_PROMPT_VERSION = "v1"
-COMPARISON_MODEL_ID = os.environ.get("GEMINI_COMPARISON_MODEL_ID", "gemini-3-flash-preview")
+COMPARISON_MODEL_ID = "gemini-3-flash-preview"
 AI_CALL_TIMEOUT_SEC = int(os.environ.get("AI_CALL_TIMEOUT_SEC", "170"))
 TIE_THRESHOLD = 3  # Score delta below this = "tie" (צמוד)
 
@@ -249,6 +249,11 @@ def _safe_parse_json_cached(raw_value: Any, field_name: str = "unknown") -> Tupl
 # ============================================================
 # PROMPT BUILDING
 # ============================================================
+
+def build_compare_grounding_prompt(cars: List[Dict[str, str]], region: str = "IL", language: str = "he/en") -> str:
+    """Build Stage A grounded prompt (sources + factual metrics)."""
+    return f"{build_comparison_prompt(cars)}\n\nGrounding scope: region={region}, language={language}."
+
 
 def build_comparison_prompt(cars: List[Dict[str, str]]) -> str:
     """Build the comparison prompt for Gemini with strict JSON output."""
@@ -474,6 +479,48 @@ RULES:
 4. Do NOT compare cars or state winners - only provide raw data.
 5. Return ONLY valid JSON. No markdown, no explanations.
 """.strip()
+
+
+def build_compare_writer_prompt(cars_selected_slots: Dict, computed_result: Dict, grounded_output: Dict) -> str:
+    """Build Stage B non-grounded writer prompt for final narrative/schema packaging."""
+    slot_keys = list(cars_selected_slots.keys())
+    car_explanations_template = ", ".join(f'"{k}": "string (1-2 sentences)"' for k in slot_keys)
+    grounding_summary = {
+        "assumptions": grounded_output.get("assumptions", {}) if isinstance(grounded_output, dict) else {},
+        "search_queries_used": grounded_output.get("search_queries_used", []) if isinstance(grounded_output, dict) else [],
+    }
+    return f"""You are a car comparison response writer.
+Use ONLY the provided server-calculated results. Do not recalculate any scores/ranks.
+Do not add new facts, URLs, or citations.
+Return ONLY valid JSON.
+
+SERVER_COMPUTED_RESULTS (authoritative):
+{json.dumps(computed_result, ensure_ascii=False, indent=2)}
+
+SELECTED_CARS:
+{json.dumps(cars_selected_slots, ensure_ascii=False, indent=2)}
+
+GROUNDED_CONTEXT_SUMMARY:
+{json.dumps(grounding_summary, ensure_ascii=False, indent=2)}
+
+Return this exact structure:
+{{
+  "computed_result": "copy the exact SERVER_COMPUTED_RESULTS object provided above",
+  "narrative": {{
+    "overall_summary": "string (2-4 sentences in Hebrew)",
+    "category_explanations": [
+      {{
+        "category_key": "reliability_risk|ownership_cost|practicality_comfort|driving_performance",
+        "title_he": "string",
+        "winner": "car_1|car_2|car_3|tie",
+        "explanations": {{ {car_explanations_template} }},
+        "why_it_scored_that_way": ["string", "string"]
+      }}
+    ],
+    "disclaimers_he": ["string", "string"]
+  }}
+}}
+"""
 
 
 # ============================================================
@@ -733,6 +780,43 @@ def compute_comparison_results(model_output: Dict) -> Dict:
 # AI CALL FUNCTION
 # ============================================================
 
+def _safe_ai_response_snippet(exc: Exception, max_len: int = 280) -> str:
+    """Extract a short, safe response snippet from provider exceptions."""
+    response = getattr(exc, "response", None)
+    if response is None:
+        return ""
+    text = ""
+    try:
+        text = getattr(response, "text", "") or ""
+        if not text:
+            content = getattr(response, "content", b"")
+            if isinstance(content, bytes):
+                text = content.decode("utf-8", errors="ignore")
+            elif content is not None:
+                text = str(content)
+    except Exception:
+        text = ""
+    text = " ".join(str(text).split())
+    return text[:max_len]
+
+
+def _log_ai_client_error(feature: str, exc: Exception) -> None:
+    """Log enriched client error details (status/message/snippet) for diagnosis."""
+    status_code = (
+        getattr(exc, "status_code", None)
+        or getattr(exc, "code", None)
+        or getattr(getattr(exc, "response", None), "status_code", None)
+    )
+    current_app.logger.error(
+        "[AI] feature=%s client_error status_code=%s error_type=%s message=%s response_snippet=%s",
+        feature,
+        status_code,
+        type(exc).__name__,
+        str(exc),
+        _safe_ai_response_snippet(exc),
+    )
+
+
 def call_gemini_comparison(prompt: str, timeout_sec: int = AI_CALL_TIMEOUT_SEC) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Call Gemini 3 Flash with web grounding for comparison data.
@@ -780,6 +864,7 @@ def call_gemini_comparison(prompt: str, timeout_sec: int = AI_CALL_TIMEOUT_SEC) 
             future.cancel()
             return None, "CALL_TIMEOUT"
         except Exception as e:
+            _log_ai_client_error("comparison_stage_a", e)
             return None, f"CALL_FAILED:{type(e).__name__}"
         
         if resp is None:
@@ -808,6 +893,59 @@ def call_gemini_comparison(prompt: str, timeout_sec: int = AI_CALL_TIMEOUT_SEC) 
             COMPARISON_MODEL_ID,
             duration_ms,
         )
+
+
+def call_gemini_compare_writer(prompt: str, timeout_sec: int = 60) -> Tuple[Optional[Dict], Optional[str]]:
+    """Call Gemini Stage B writer WITHOUT grounding tools."""
+    import concurrent.futures
+    from app.factory import AI_EXECUTOR
+
+    if extensions.ai_client is None:
+        return None, "CLIENT_NOT_INITIALIZED"
+
+    config = genai_types.GenerateContentConfig(
+        temperature=0.3,
+        top_p=0.9,
+        top_k=40,
+        response_mime_type="application/json",
+    )
+
+    def _invoke():
+        return extensions.ai_client.models.generate_content(
+            model=COMPARISON_MODEL_ID,
+            contents=prompt,
+            config=config,
+        )
+
+    try:
+        future = AI_EXECUTOR.submit(_invoke)
+        resp = future.result(timeout=timeout_sec)
+    except concurrent.futures.TimeoutError:
+        future.cancel()
+        return None, "CALL_TIMEOUT"
+    except Exception as e:
+        _log_ai_client_error("comparison_stage_b", e)
+        return None, f"CALL_FAILED:{type(e).__name__}"
+
+    text = (getattr(resp, "text", "") or "").strip()
+    if not text:
+        return None, "EMPTY_RESPONSE"
+
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return parsed, None
+    except json.JSONDecodeError:
+        try:
+            from json_repair import repair_json
+            repaired = repair_json(text)
+            parsed = json.loads(repaired)
+            if isinstance(parsed, dict):
+                return parsed, None
+        except Exception:
+            pass
+
+    return None, "MODEL_JSON_INVALID"
 
 
 def generate_narrative(cars_selected_slots: Dict, computed_result: Dict, timeout_sec: int = 60) -> Optional[Dict]:
@@ -1194,6 +1332,20 @@ def validate_grounding(model_output: Dict) -> Tuple[bool, str]:
     return True, ""
 
 
+def enforce_authoritative_numbers(server_computed: Dict, stage_b_output: Optional[Dict], request_id: str) -> Dict:
+    """
+    Server deterministic scoring is authoritative.
+    Stage B may echo computed_result, but any drift is ignored and logged.
+    """
+    if isinstance(stage_b_output, dict) and isinstance(stage_b_output.get("computed_result"), dict):
+        if stage_b_output.get("computed_result") != server_computed:
+            current_app.logger.warning(
+                "[COMPARISON] stage_b attempted numeric/schema drift request_id=%s",
+                request_id,
+            )
+    return dict(server_computed)
+
+
 # ============================================================
 # SOURCES INDEX BUILDER
 # ============================================================
@@ -1338,10 +1490,10 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                     logger.warning(f"[COMPARISON] failed to delete corrupted cache row: {del_err}")
                     db.session.rollback()
     
-    # Build prompt
-    prompt = build_comparison_prompt(validated_cars)
-    
-    # Call Gemini
+    # Stage A: grounded extraction prompt
+    prompt = build_compare_grounding_prompt(validated_cars)
+
+    # Stage A: grounded Gemini call
     start_time = pytime.perf_counter()
     model_output, error = call_gemini_comparison(prompt)
     duration_ms = int((pytime.perf_counter() - start_time) * 1000)
@@ -1378,22 +1530,26 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
             status=502
         )
     
-    # Compute scores deterministically
-    computed_result = compute_comparison_results(model_output)
+    # Compute scores deterministically (server-side source of truth)
+    server_computed_result = compute_comparison_results(model_output)
     
     # Build sources index
     sources_index = build_sources_index(model_output)
     
-    # Generate narrative explanations (2nd LLM call, no grounding)
+    # Stage B: non-grounded writer call (full schema + narrative around server results)
+    writer_prompt = build_compare_writer_prompt(cars_selected_slots, server_computed_result, model_output)
+    stage_b_output, stage_b_error = call_gemini_compare_writer(writer_prompt)
     narrative = None
-    try:
-        raw_narrative = generate_narrative(cars_selected_slots, computed_result)
+    if stage_b_error:
+        logger.warning(f"[COMPARISON] stage_b call failed request_id={request_id} error={stage_b_error}")
+    elif isinstance(stage_b_output, dict):
+        raw_narrative = stage_b_output.get("narrative")
         if raw_narrative:
             narrative = sanitize_comparison_narrative(raw_narrative)
             logger.info(f"[COMPARISON] narrative generated request_id={request_id}")
-    except Exception as e:
-        logger.warning(f"[COMPARISON] narrative generation failed: {e}")
-    
+
+    computed_result = enforce_authoritative_numbers(server_computed_result, stage_b_output, request_id)
+
     # Include narrative in computed_result for storage
     stored_computed = dict(computed_result)
     if narrative:
