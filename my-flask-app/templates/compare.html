@@ -302,6 +302,10 @@
                     בחר עד 3 רכבים להשוואה מקיפה על בסיס נתונים מאומתים מהאינטרנט
                 </p>
             </header>
+            {% set banner_id = 'compareLegalBanner' %}
+            {% set checkbox_id = 'compareLegalStatusCheckbox' %}
+            {% set status_id = 'compareLegalStatusText' %}
+            {% include '_legal_consent_banner.html' %}
 
             <!-- Car Selection -->
             <div id="carSelectionSection" class="bg-dark-lighter/70 border border-slate-700/70 rounded-2xl p-6 md:p-8">
@@ -755,12 +759,22 @@
     window.legalAccepted = legalAccepted;
 
     const legalConfirmCheckbox = document.getElementById('legalConfirm');
+    const legalStatusBannerCheckbox = document.getElementById('compareLegalStatusCheckbox');
+    const legalStatusBannerText = document.getElementById('compareLegalStatusText');
 
     function syncLegalCheckboxState() {
-        if (!legalConfirmCheckbox) return;
         if (window.legalAccepted) {
-            legalConfirmCheckbox.checked = true;
-            legalConfirmCheckbox.disabled = true;
+            if (legalConfirmCheckbox) {
+                legalConfirmCheckbox.checked = true;
+                legalConfirmCheckbox.disabled = true;
+            }
+            if (legalStatusBannerCheckbox) {
+                legalStatusBannerCheckbox.checked = true;
+                legalStatusBannerCheckbox.disabled = true;
+            }
+            if (legalStatusBannerText) {
+                legalStatusBannerText.textContent = 'Legal consent accepted ✅';
+            }
         }
     }
     syncLegalCheckboxState();
@@ -1306,6 +1320,8 @@
     
     async function ensureLegalAcceptance() {
         if (window.legalAccepted) return true;
+        const consentChecked = (legalConfirmCheckbox && legalConfirmCheckbox.checked) || (legalStatusBannerCheckbox && legalStatusBannerCheckbox.checked);
+        if (!consentChecked) return false;
         const res = await fetch('/api/legal/accept', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1352,8 +1368,13 @@
         
         try {
             if (!window.legalAccepted) {
-                openLegalModal();
-                return;
+                const acceptedViaBanner = legalStatusBannerCheckbox && legalStatusBannerCheckbox.checked
+                    ? await ensureLegalAcceptance()
+                    : false;
+                if (!acceptedViaBanner) {
+                    openLegalModal();
+                    return;
+                }
             }
             
             // Start timing banner before API call

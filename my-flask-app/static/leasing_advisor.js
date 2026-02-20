@@ -16,7 +16,8 @@
   let currentCandidates = [];
   let currentFrame = {};
   let lastResult = null;
-  let legalAccepted = !$("#legalBanner");
+  const legalBannerEl = $("#legalBanner");
+  let legalAccepted = legalBannerEl ? legalBannerEl.dataset.legalAccepted === "true" : false;
   let timingStart = null;
   let timingInterval = null;
   const RING_CIRCUMFERENCE = 339.292; // 2 * Math.PI * 54
@@ -60,12 +61,31 @@
     legalAccepted = false;
   }
 
-  function markLegalAccepted() {
+  function syncLegalBannerState() {
     var banner = $("#legalBanner");
-    if (banner) banner.remove();
+    var legalCheckbox = $("#legalConfirmCheckbox");
+    var legalStatus = $("#legalStatusText");
+    var acceptBtn = $("#acceptLegalBtn");
+    var legalError = $("#legalError");
+    if (banner) banner.dataset.legalAccepted = legalAccepted ? "true" : "false";
+    if (legalCheckbox) {
+      legalCheckbox.checked = !!legalAccepted;
+      legalCheckbox.disabled = !!legalAccepted;
+    }
+    if (legalStatus) {
+      legalStatus.textContent = legalAccepted
+        ? "Legal consent accepted ✅"
+        : "You must accept Terms & Privacy before running AI.";
+    }
+    if (acceptBtn) acceptBtn.classList.toggle("hidden", !!legalAccepted);
+    if (legalError) legalError.classList.add("hidden");
+  }
+
+  function markLegalAccepted() {
     var btn = $("#recommendBtn");
     if (btn) btn.disabled = false;
     legalAccepted = true;
+    syncLegalBannerState();
   }
 
   function ensureLegalAcceptance() {
@@ -111,6 +131,7 @@
       ensureLegalAcceptance();
     });
   }
+  syncLegalBannerState();
 
   // ── Timing banner ────────────────────────────────────────
   var leasingTimingBanner = $("#leasingTimingBanner");
@@ -190,6 +211,71 @@
   }
 
   fetchTimingEstimate();
+
+  function applyPrefs(prefs) {
+    if (!prefs || typeof prefs !== "object") return;
+    $$(".q-input").forEach(function (el) {
+      if (!Object.prototype.hasOwnProperty.call(prefs, el.name)) return;
+      var value = prefs[el.name];
+      if (value === null || typeof value === "undefined") return;
+      el.value = String(value);
+    });
+    if (fuelToggle && fuelSection) {
+      fuelToggle.checked = !!prefs.fuel_relevant;
+      fuelSection.classList.toggle("hidden", !fuelToggle.checked);
+    }
+  }
+
+  function showLoadedBadge(historyId) {
+    var badge = $("#leasingLoadedBadge");
+    if (!badge) return;
+    badge.classList.remove("hidden");
+    badge.textContent = "Loaded from history #" + historyId;
+  }
+
+  function hideLoadedBadge() {
+    var badge = $("#leasingLoadedBadge");
+    if (badge) badge.classList.add("hidden");
+  }
+
+  function loadHistoryFromQuery() {
+    var params = new URLSearchParams(window.location.search);
+    var loadId = params.get("load");
+    if (!loadId) return;
+    fetch("/api/leasing/" + encodeURIComponent(loadId), {
+      method: "GET",
+      headers: { "Accept": "application/json" },
+      credentials: "include",
+    })
+      .then(function (resp) {
+        return resp.json().then(function (data) {
+          return { ok: resp.ok, data: data };
+        });
+      })
+      .then(function (res) {
+        if (!res.ok || !res.data || !res.data.ok) {
+          var msg = (res.data && res.data.error && res.data.error.message) || "לא הצלחנו לטעון את היסטוריית יועץ הליסינג.";
+          showRecommendError(msg);
+          return;
+        }
+        var record = res.data.data || {};
+        currentFrame = record.frame_input_json || {};
+        currentCandidates = Array.isArray(record.candidates_json) ? record.candidates_json : [];
+        applyPrefs(record.prefs_json || {});
+        if (currentCandidates.length > 0) {
+          showCandidates();
+        }
+        lastResult = record.gemini_response_json || {};
+        if (lastResult && Object.keys(lastResult).length > 0) {
+          showResults(lastResult);
+          showLoadedBadge(loadId);
+        }
+      })
+      .catch(function () {
+        showRecommendError("שגיאת רשת בטעינת היסטוריה.");
+      });
+  }
+  loadHistoryFromQuery();
 
   // ── Mode toggle ─────────────────────────────────────────
   var modeUpload = $("#modeUpload");
@@ -388,6 +474,7 @@
               }
               var payload = data.data || data;
               lastResult = payload.result || payload;
+              hideLoadedBadge();
               showResults(lastResult);
             });
           })
@@ -477,6 +564,7 @@
       currentCandidates = [];
       currentFrame = {};
       lastResult = null;
+      hideLoadedBadge();
       $("#step2").classList.add("hidden");
       $("#step3").classList.add("hidden");
       window.scrollTo({ top: 0, behavior: "smooth" });

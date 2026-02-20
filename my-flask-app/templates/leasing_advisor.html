@@ -67,23 +67,13 @@
         </div>
     </div>
 
-    <!-- Legal banner (if not accepted) -->
-    {% if not legal_accepted %}
-    <div id="legalBanner" class="mb-6 p-4 rounded-xl bg-warning/10 border border-warning/30 text-warning text-sm space-y-3" data-terms-version="{{ terms_version }}" data-privacy-version="{{ privacy_version }}">
-        <div class="flex items-center gap-2">
-            <span>⚠️</span>
-            <span>נדרש אישור חוקי לפני הפעלת המלצת AI.</span>
-        </div>
-        <label class="flex items-start gap-2 text-slate-200 cursor-pointer">
-            <input type="checkbox" id="legalConfirmCheckbox" class="mt-1 rounded border-slate-600 bg-slate-800 text-primary">
-            <span>I confirm I read and agree to the <a href="{{ url_for('public.terms') }}" target="_blank" class="underline text-warning">Terms of Use</a> and <a href="{{ url_for('public.privacy') }}" target="_blank" class="underline text-warning">Privacy Policy</a></span>
-        </label>
-        <div class="flex items-center gap-3">
-            <button id="acceptLegalBtn" class="px-4 py-1 rounded-lg bg-warning text-dark font-bold text-xs hover:bg-warning/80 transition">אשר עכשיו</button>
-            <span id="legalError" class="hidden text-xs text-danger">יש לסמן את תיבת האישור לפני המשך.</span>
-        </div>
-    </div>
-    {% endif %}
+    {% set banner_id = 'legalBanner' %}
+    {% set checkbox_id = 'legalConfirmCheckbox' %}
+    {% set status_id = 'legalStatusText' %}
+    {% set accept_button_id = 'acceptLegalBtn' %}
+    {% set error_id = 'legalError' %}
+    {% set show_accept_button = true %}
+    {% include '_legal_consent_banner.html' %}
 
     <h1 class="text-2xl sm:text-3xl font-black mb-6 bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary">
         יועץ ליסינג
@@ -310,7 +300,10 @@
 
     <!-- Step 3: Results -->
     <section id="step3" class="hidden bg-dark-lighter rounded-2xl border border-slate-700 p-6 mb-6 fade-in">
-        <h2 class="text-lg font-bold mb-4">שלב 3: ההמלצות שלך</h2>
+        <div class="flex items-center justify-between gap-2 mb-4">
+            <h2 class="text-lg font-bold">שלב 3: ההמלצות שלך</h2>
+            <span id="leasingLoadedBadge" class="hidden text-xs px-2 py-1 rounded-full bg-primary/20 text-primary">Loaded from history</span>
+        </div>
 
         <!-- Top 3 cards -->
         <div id="top3Cards" class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6"></div>
