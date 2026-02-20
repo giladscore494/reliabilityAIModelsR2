@@ -297,7 +297,8 @@ class TestCompareDetailAPI:
         assert data["ok"] is True
         # Should correctly decode double-encoded values
         assert data["data"]["computed_result"]["overall_winner"] == "car_a"
-        assert data["data"]["cars_selected"] == [{"make": "Toyota", "model": "Corolla"}]
+        assert data["data"]["cars_selected"] == {"car_1": {"make": "Toyota", "model": "Corolla", "display_name": "Toyota Corolla"}}
+        assert data["data"]["cars_selected_list"] == [{"make": "Toyota", "model": "Corolla"}]
 
     def test_detail_not_found(self, logged_in_client):
         """Non-existent comparison returns 404 JSON response."""
