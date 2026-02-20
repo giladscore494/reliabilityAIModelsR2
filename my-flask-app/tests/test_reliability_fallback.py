@@ -49,7 +49,7 @@ def test_estimated_reliability_derives_from_base_score(logged_in_client, monkeyp
             {
                 "ok": True,
                 "base_score_calculated": 62,
-                # missing estimated_reliability
+                # missing estimated_reliability AND risk_signals
                 "reliability_report": {},
             },
             None,
@@ -58,7 +58,8 @@ def test_estimated_reliability_derives_from_base_score(logged_in_client, monkeyp
     monkeypatch.setattr(main, "call_gemini_grounded_once", fake_ai)
     resp = client.post("/analyze", json=_base_payload(), headers={"Origin": "http://localhost"})
     data = resp.get_json()["data"]
-    assert data["estimated_reliability"] == "בינוני"
+    # Without risk_signals the deterministic scorer returns "לא ידוע"
+    assert data["estimated_reliability"] == "לא ידוע"
 
 
 def test_numeric_removed_but_estimated_stays(logged_in_client, monkeypatch):
@@ -70,7 +71,7 @@ def test_numeric_removed_but_estimated_stays(logged_in_client, monkeypatch):
                 "ok": True,
                 "base_score_calculated": 40,
                 "reliability_score": 3,
-                # missing estimated_reliability
+                # missing estimated_reliability AND risk_signals
                 "reliability_report": {},
             },
             None,
@@ -79,9 +80,11 @@ def test_numeric_removed_but_estimated_stays(logged_in_client, monkeypatch):
     monkeypatch.setattr(main, "call_gemini_grounded_once", fake_ai)
     resp = client.post("/analyze", json=_base_payload(), headers={"Origin": "http://localhost"})
     data = resp.get_json()["data"]
-    assert "base_score_calculated" not in data
+    # base_score_calculated is now preserved (deterministic value)
+    assert "base_score_calculated" in data
     assert "reliability_score" not in data
-    assert data["estimated_reliability"] == "נמוך"
+    # Without risk_signals the deterministic scorer returns "לא ידוע"
+    assert data["estimated_reliability"] == "לא ידוע"
 
 
 def test_search_details_returns_estimated_without_numeric(logged_in_client, monkeypatch, app):

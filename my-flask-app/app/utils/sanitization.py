@@ -94,6 +94,93 @@ def _sanitize_score_breakdown(value: Any) -> Dict[str, int]:
     return out
 
 
+# --- risk_signals sanitization helpers ---
+
+_SYSTEM_ALLOWED = {"engine", "transmission", "electrical", "cooling", "brakes", "suspension", "other"}
+_SEVERITY_RS_ALLOWED = {"low", "medium", "high"}
+_FREQ_ALLOWED = {"rare", "sometimes", "common"}
+_EVIDENCE_ALLOWED = {"weak", "medium", "strong"}
+_TRANS_TYPE_ALLOWED = {"automatic", "manual", "cvt", "dct", "other", "unknown"}
+_MCP_LEVEL_ALLOWED = {"low", "medium", "high", "unknown"}
+_SQ_ALLOWED = {"low", "medium", "high"}
+
+
+def _clamp_float(value: Any, lo: float = 0.0, hi: float = 1.0, default: float = 0.0) -> float:
+    try:
+        if isinstance(value, bool):
+            return default
+        f = float(value)
+    except Exception:
+        return default
+    return max(lo, min(hi, round(f, 4)))
+
+
+def _normalize_enum(value: Any, allowed: set, default: str) -> str:
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in allowed:
+            return v
+    return default
+
+
+def _sanitize_risk_signals(value: Any) -> Dict[str, Any]:
+    """Sanitize risk_signals dict with strict schema enforcement."""
+    src = _coerce_dict(value)
+    out: Dict[str, Any] = {}
+
+    # vehicle_resolution
+    vr = _coerce_dict(src.get("vehicle_resolution"))
+    out["vehicle_resolution"] = {
+        "generation": _escape(vr.get("generation") or ""),
+        "engine_family": _escape(vr.get("engine_family") or ""),
+        "transmission_type": _normalize_enum(vr.get("transmission_type"), _TRANS_TYPE_ALLOWED, "unknown"),
+        "confidence": _clamp_float(vr.get("confidence")),
+    }
+
+    # recalls
+    rc = _coerce_dict(src.get("recalls"))
+    rc_count = _clamp_int(rc.get("count"), lo=0, hi=1000, default=0)
+    rc_high = _clamp_int(rc.get("high_severity_count"), lo=0, hi=1000, default=0)
+    out["recalls"] = {
+        "count": rc_count,
+        "high_severity_count": min(rc_high, rc_count) if rc_count > 0 else rc_high,
+        "notes": _escape(rc.get("notes") or ""),
+    }
+
+    # systemic_issue_signals
+    raw_signals = _coerce_list(src.get("systemic_issue_signals"))[:_MAX_LIST]
+    signals_out = []
+    for item in raw_signals:
+        if not isinstance(item, dict):
+            continue
+        signals_out.append({
+            "system": _normalize_enum(item.get("system"), _SYSTEM_ALLOWED, "other"),
+            "severity": _normalize_enum(item.get("severity"), _SEVERITY_RS_ALLOWED, "medium"),
+            "repeat_frequency": _normalize_enum(item.get("repeat_frequency"), _FREQ_ALLOWED, "rare"),
+            "typical_timing": _escape(item.get("typical_timing") or ""),
+            "evidence_strength": _normalize_enum(item.get("evidence_strength"), _EVIDENCE_ALLOWED, "medium"),
+        })
+    out["systemic_issue_signals"] = signals_out
+
+    # maintenance_cost_pressure
+    mcp = _coerce_dict(src.get("maintenance_cost_pressure"))
+    out["maintenance_cost_pressure"] = {
+        "level": _normalize_enum(mcp.get("level"), _MCP_LEVEL_ALLOWED, "unknown"),
+        "drivers": [_escape(d) for d in _coerce_list(mcp.get("drivers"))[:_MAX_LIST]],
+        "evidence_strength": _normalize_enum(mcp.get("evidence_strength"), _EVIDENCE_ALLOWED, "medium"),
+    }
+
+    # confidence_meta
+    cm = _coerce_dict(src.get("confidence_meta"))
+    out["confidence_meta"] = {
+        "data_completeness": _clamp_float(cm.get("data_completeness")),
+        "source_quality": _normalize_enum(cm.get("source_quality"), _SQ_ALLOWED, "medium"),
+        "notes": _escape(cm.get("notes") or ""),
+    }
+
+    return out
+
+
 
 
 def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
@@ -190,6 +277,9 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
 
     if "estimated_reliability" in src:
         out["estimated_reliability"] = _escape(src.get("estimated_reliability"))
+
+    if "risk_signals" in src:
+        out["risk_signals"] = _sanitize_risk_signals(src.get("risk_signals"))
 
     # Log dropped keys (only key names, no PII)
     dropped_keys = set(src.keys()) - set(out.keys())
