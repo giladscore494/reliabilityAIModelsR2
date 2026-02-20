@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <title>yedaarechevAI – יועץ ליסינג</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#6366F1',
+                        secondary: '#EC4899',
+                        dark: '#0F172A',
+                        'dark-lighter': '#1E293B',
+                        success: '#10B981',
+                        warning: '#F59E0B',
+                        danger: '#EF4444',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Heebo', system-ui, -apple-system, sans-serif;
+            background-color: #0F172A;
+            color: #E2E8F0;
+            margin: 0;
+            overflow-x: hidden;
+        }
+        .fade-in { animation: fadeIn 0.4s ease-out forwards; opacity: 0; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .loader { border: 3px solid rgba(255,255,255,0.2); border-top-color: #6366F1; border-radius: 50%; width: 1.5rem; height: 1.5rem; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="dark min-h-screen flex flex-col">
+
+{% include '_navbar.html' %}
+
+<main class="flex-1 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+
+    <!-- Explainer Modal -->
+    <div id="explainerModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 hidden">
+        <div class="bg-dark-lighter rounded-2xl border border-slate-700 p-6 sm:p-8 max-w-lg w-full mx-4 relative">
+            <button id="closeExplainer" class="absolute top-3 left-3 text-slate-400 hover:text-white text-xl">&times;</button>
+            <h2 class="text-xl font-bold text-white mb-4">🚗 יועץ ליסינג חכם</h2>
+            <p class="text-slate-300 mb-3">הכלי עוזר לך לבחור רכב ליסינג אופטימלי לפי שווי שימוש (BIK) והעדפותיך האישיות.</p>
+            <div class="space-y-3 text-sm text-slate-300">
+                <div class="bg-slate-800 rounded-xl p-3">
+                    <span class="font-bold text-success">🟢 הדרך הקלה:</span>
+                    העלה קובץ רשימת רכבי חברה (CSV/XLSX) → שאלון קצר → דירוג AI
+                </div>
+                <div class="bg-slate-800 rounded-xl p-3">
+                    <span class="font-bold text-primary">🔵 מאפס:</span>
+                    הזן שווי שימוש חודשי או מחיר מחירון → בחירת מועמדים מהקטלוג → שאלון → דירוג AI
+                </div>
+            </div>
+            <button id="closeExplainerBtn" class="mt-5 w-full py-2 rounded-xl bg-primary hover:bg-primary/80 text-white font-bold transition">הבנתי, בוא נתחיל</button>
+        </div>
+    </div>
+
+    <!-- Legal banner (if not accepted) -->
+    {% if not legal_accepted %}
+    <div id="legalBanner" class="mb-6 p-4 rounded-xl bg-warning/10 border border-warning/30 text-warning text-sm flex items-center gap-3">
+        <span>⚠️</span>
+        <span>כדי להשתמש בכלי AI, יש לאשר את <a href="/terms" class="underline">תנאי השימוש</a> ו<a href="/privacy" class="underline">מדיניות הפרטיות</a> תחילה.</span>
+        <button id="acceptLegalBtn" class="mr-auto px-4 py-1 rounded-lg bg-warning text-dark font-bold text-xs hover:bg-warning/80 transition">אשר עכשיו</button>
+    </div>
+    {% endif %}
+
+    <h1 class="text-2xl sm:text-3xl font-black mb-6 bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary">
+        יועץ ליסינג
+        <button id="helpBtn" class="text-base text-slate-400 hover:text-white mr-2" title="עזרה">❓</button>
+    </h1>
+
+    <!-- Step 1: Input -->
+    <section id="step1" class="bg-dark-lighter rounded-2xl border border-slate-700 p-6 mb-6">
+        <h2 class="text-lg font-bold mb-4">שלב 1: הגדרת מסגרת</h2>
+
+        <!-- Mode toggle -->
+        <div class="flex gap-3 mb-5">
+            <button id="modeUpload" class="flex-1 py-2 rounded-xl border border-primary text-primary font-bold hover:bg-primary/10 transition mode-btn active-mode">📁 העלאת קובץ</button>
+            <button id="modeManual" class="flex-1 py-2 rounded-xl border border-slate-600 text-slate-300 font-bold hover:bg-slate-800 transition mode-btn">✏️ הזנה ידנית</button>
+        </div>
+
+        <!-- Upload section -->
+        <div id="uploadSection">
+            <label class="block text-sm text-slate-400 mb-2">קובץ רשימת רכבי חברה (CSV / XLSX, עד 5MB)</label>
+            <input type="file" id="fileInput" accept=".csv,.xlsx" class="block w-full text-sm text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-primary/20 file:text-primary file:font-semibold hover:file:bg-primary/30">
+        </div>
+
+        <!-- Manual section -->
+        <div id="manualSection" class="hidden space-y-4">
+            <div>
+                <label class="block text-sm text-slate-400 mb-1">שווי שימוש חודשי מקסימלי (₪)</label>
+                <input type="number" id="maxBik" min="0" max="50000" step="100" placeholder="לדוג׳: 3000" class="w-full px-4 py-2 rounded-xl bg-slate-800 border border-slate-600 text-white">
+            </div>
+            <div class="text-center text-slate-500 text-sm">או</div>
+            <div>
+                <label class="block text-sm text-slate-400 mb-1">מחיר מחירון (₪)</label>
+                <input type="number" id="listPrice" min="10000" max="2000000" step="1000" placeholder="לדוג׳: 180000" class="w-full px-4 py-2 rounded-xl bg-slate-800 border border-slate-600 text-white">
+            </div>
+        </div>
+
+        <!-- Common filters -->
+        <div class="grid grid-cols-2 gap-4 mt-5">
+            <div>
+                <label class="block text-sm text-slate-400 mb-1">הנעה</label>
+                <select id="powertrain" class="w-full px-4 py-2 rounded-xl bg-slate-800 border border-slate-600 text-white">
+                    <option value="unknown">הכל</option>
+                    <option value="ev">חשמלי</option>
+                    <option value="phev">היברידי נטען</option>
+                    <option value="hybrid">היברידי</option>
+                    <option value="ice">בנזין/דיזל</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm text-slate-400 mb-1">סוג מרכב</label>
+                <select id="bodyType" class="w-full px-4 py-2 rounded-xl bg-slate-800 border border-slate-600 text-white">
+                    <option value="">הכל</option>
+                    <option value="suv">SUV</option>
+                    <option value="sedan">סדאן</option>
+                    <option value="hatchback">האצ׳בק</option>
+                </select>
+            </div>
+        </div>
+
+        <button id="computeFrameBtn" class="mt-5 w-full py-3 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-bold hover:opacity-90 transition flex items-center justify-center gap-2">
+            חשב מסגרת והצג מועמדים
+        </button>
+        <div id="frameLoading" class="hidden mt-3 flex items-center justify-center gap-2 text-slate-400">
+            <div class="loader"></div> <span>מחשב...</span>
+        </div>
+        <div id="frameError" class="hidden mt-3 p-3 rounded-xl bg-danger/10 border border-danger/30 text-danger text-sm"></div>
+    </section>
+
+    <!-- Step 2: Candidates + Questionnaire -->
+    <section id="step2" class="hidden bg-dark-lighter rounded-2xl border border-slate-700 p-6 mb-6 fade-in">
+        <h2 class="text-lg font-bold mb-4">שלב 2: מועמדים + שאלון</h2>
+
+        <div id="candidatesSummary" class="mb-4 p-3 rounded-xl bg-slate-800 text-slate-300 text-sm"></div>
+
+        <div id="candidatesTable" class="overflow-x-auto mb-6">
+            <table class="w-full text-sm text-right">
+                <thead class="text-slate-400 border-b border-slate-700">
+                    <tr><th class="py-2 px-2">יצרן</th><th class="py-2 px-2">דגם</th><th class="py-2 px-2">מחיר</th><th class="py-2 px-2">BIK ₪</th><th class="py-2 px-2">הנעה</th></tr>
+                </thead>
+                <tbody id="candidatesTbody"></tbody>
+            </table>
+        </div>
+
+        <!-- Questionnaire -->
+        <h3 class="font-bold mb-3 text-white">שאלון העדפות</h3>
+        <div class="space-y-3" id="questionnaireForm">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">סוג נהיגה</label>
+                    <select name="driving_type" class="q-input w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-white text-sm">
+                        <option value="mixed">משולב</option><option value="city">עיר</option><option value="highway">כביש מהיר</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">ק״מ יומי</label>
+                    <select name="daily_km" class="q-input w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-white text-sm">
+                        <option value="0-20">0-20</option><option value="20-60" selected>20-60</option><option value="60+">60+</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">נוסעים טיפוסיים</label>
+                    <select name="passengers" class="q-input w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-white text-sm">
+                        <option value="1">1</option><option value="2" selected>2</option><option value="3-5">3-5</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">חשיבות תא מטען</label>
+                    <select name="trunk_importance" class="q-input w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-white text-sm">
+                        <option value="low">נמוכה</option><option value="med" selected>בינונית</option><option value="high">גבוהה</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">קלות חניה בעיר</label>
+                    <select name="parking_ease" class="q-input w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-white text-sm">
+                        <option value="low">נמוכה</option><option value="med" selected>בינונית</option><option value="high">גבוהה</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">נוחות ושקט נסיעה</label>
+                    <select name="comfort" class="q-input w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-white text-sm">
+                        <option value="low">נמוכה</option><option value="med" selected>בינונית</option><option value="high">גבוהה</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">בטיחות / ADAS</label>
+                    <select name="safety" class="q-input w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-white text-sm">
+                        <option value="low">נמוכה</option><option value="med">בינונית</option><option value="high" selected>גבוהה</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">טכנולוגיה (CarPlay/מצלמות)</label>
+                    <select name="tech" class="q-input w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-white text-sm">
+                        <option value="low">נמוכה</option><option value="med" selected>בינונית</option><option value="high">גבוהה</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">יוקרה / אימג׳</label>
+                    <select name="prestige" class="q-input w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-white text-sm">
+                        <option value="low" selected>נמוכה</option><option value="med">בינונית</option><option value="high">גבוהה</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">העדפת גובה (סדאן/SUV)</label>
+                    <select name="body_height" class="q-input w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-white text-sm">
+                        <option value="low">נמוך (סדאן)</option><option value="med" selected>בינוני</option><option value="high">גבוה (SUV)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">זמינות טעינה</label>
+                    <select name="charging" class="q-input w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-white text-sm">
+                        <option value="home">בבית</option><option value="work">בעבודה</option><option value="none" selected>אין</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">רגישות לשווי שימוש</label>
+                    <select name="bik_sensitivity" class="q-input w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-white text-sm">
+                        <option value="must_reduce">חייב להפחית</option><option value="neutral" selected>ניטרלי</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">רגישות לתקלות/אמינות</label>
+                    <select name="reliability_sensitivity" class="q-input w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-white text-sm">
+                        <option value="low">נמוכה</option><option value="med" selected>בינונית</option><option value="high">גבוהה</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Optional fuel/maintenance toggle -->
+            <div class="mt-3">
+                <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                    <input type="checkbox" id="fuelToggle" class="rounded border-slate-600 bg-slate-800 text-primary">
+                    דלק/אחזקה רלוונטיים לי
+                </label>
+                <div id="fuelSection" class="hidden mt-2">
+                    <label class="block text-xs text-slate-400 mb-1">רגישות לעלויות דלק/אחזקה</label>
+                    <select name="cost_sensitivity" class="q-input w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-white text-sm">
+                        <option value="low">נמוכה</option><option value="med" selected>בינונית</option><option value="high">גבוהה</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <button id="recommendBtn" class="mt-5 w-full py-3 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-bold hover:opacity-90 transition flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed" {% if not legal_accepted %}disabled{% endif %}>
+            🤖 קבל המלצת AI
+        </button>
+        {% if not legal_accepted %}
+        <p class="text-xs text-warning mt-2 text-center">יש לאשר תנאי שימוש לפני הפעלת AI</p>
+        {% endif %}
+        <div id="recommendLoading" class="hidden mt-3 flex items-center justify-center gap-2 text-slate-400">
+            <div class="loader"></div> <span>ממליץ...</span>
+        </div>
+        <div id="recommendError" class="hidden mt-3 p-3 rounded-xl bg-danger/10 border border-danger/30 text-danger text-sm"></div>
+    </section>
+
+    <!-- Step 3: Results -->
+    <section id="step3" class="hidden bg-dark-lighter rounded-2xl border border-slate-700 p-6 mb-6 fade-in">
+        <h2 class="text-lg font-bold mb-4">שלב 3: ההמלצות שלך</h2>
+
+        <!-- Top 3 cards -->
+        <div id="top3Cards" class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6"></div>
+
+        <!-- Full ranking table -->
+        <div id="fullRanking" class="overflow-x-auto mb-4">
+            <table class="w-full text-sm text-right">
+                <thead class="text-slate-400 border-b border-slate-700">
+                    <tr><th class="py-2 px-2">#</th><th class="py-2 px-2">יצרן</th><th class="py-2 px-2">דגם</th><th class="py-2 px-2">ציון</th></tr>
+                </thead>
+                <tbody id="rankingTbody"></tbody>
+            </table>
+        </div>
+
+        <!-- Warnings -->
+        <div id="warningsDiv" class="hidden p-3 rounded-xl bg-warning/10 border border-warning/30 text-warning text-sm mb-4"></div>
+
+        <div class="flex gap-3">
+            <button id="copyJsonBtn" class="flex-1 py-2 rounded-xl border border-slate-600 text-slate-300 hover:bg-slate-800 transition font-bold text-sm">📋 העתק JSON</button>
+            <button id="newSearchBtn" class="flex-1 py-2 rounded-xl border border-primary text-primary hover:bg-primary/10 transition font-bold text-sm">🔄 חיפוש חדש</button>
+        </div>
+    </section>
+
+</main>
+
+{% include '_footer.html' %}
+
+<script src="{{ url_for('static', filename='leasing_advisor.js') }}" defer></script>
+</body>
+</html>

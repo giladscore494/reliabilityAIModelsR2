@@ -8,7 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from flask import current_app
 
 from app.extensions import db
-from app.models import SearchHistory, AdvisorHistory
+from app.models import SearchHistory, AdvisorHistory, LeasingAdvisorHistory
 from app.utils.http_helpers import api_ok, api_error, get_request_id
 from app.utils.sanitization import sanitize_analyze_response
 
@@ -45,6 +45,50 @@ def fetch_dashboard_history(user_id: int) -> Tuple[list, list, Optional[str], Op
         advisor_entries = []
 
     return user_searches, advisor_entries, search_error, advisor_error
+
+
+def fetch_leasing_history(user_id: int) -> Tuple[list, Optional[str]]:
+    """Fetch leasing advisor history for dashboard."""
+    logger = current_app.logger
+    try:
+        entries = LeasingAdvisorHistory.query.filter_by(
+            user_id=user_id
+        ).order_by(LeasingAdvisorHistory.created_at.desc()).limit(50).all()
+        return entries, None
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            logger.exception("[DASH] leasing rollback failed request_id=%s", get_request_id())
+        logger.exception("[DASH] leasing DB query failed request_id=%s", get_request_id())
+        return [], "לא הצלחנו לטעון את היסטוריית יועץ הליסינג כעת."
+
+
+def build_leasing_data(entries: list) -> list:
+    """Build leasing history summary for dashboard display."""
+    result = []
+    for e in entries:
+        try:
+            frame = json.loads(e.frame_input_json) if isinstance(e.frame_input_json, str) else (e.frame_input_json or {})
+        except Exception:
+            frame = {}
+        try:
+            response = json.loads(e.gemini_response_json) if isinstance(e.gemini_response_json, str) else (e.gemini_response_json or {})
+        except Exception:
+            response = {}
+        top_rec = ""
+        top3 = response.get("top3", [])
+        if top3:
+            first = top3[0]
+            top_rec = f"{first.get('make', '')} {first.get('model', '')}"
+        result.append({
+            "id": e.id,
+            "created_at": e.created_at.strftime("%d/%m/%Y %H:%M"),
+            "frame_summary": f"BIK: {frame.get('max_bik', '—')} | {frame.get('source', '')}",
+            "top_recommendation": top_rec.strip(),
+            "duration_ms": e.duration_ms,
+        })
+    return result
 
 
 def build_searches_data(user_searches: List[SearchHistory]) -> list:

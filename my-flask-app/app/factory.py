@@ -78,6 +78,7 @@ from app.models import (
     QuotaReservation,
     IpRateLimit,
     LegalAcceptance,
+    LeasingAdvisorHistory,
 )
 from app.legal import CONTACT_EMAIL, TERMS_VERSION, PRIVACY_VERSION, parse_legal_confirm
 from app.quota import (
@@ -1516,11 +1517,24 @@ def create_app():
 
     @app.context_processor
     def inject_template_globals():
+        legal_accepted = False
+        if current_user.is_authenticated:
+            try:
+                tv = app.config.get("TERMS_VERSION", TERMS_VERSION)
+                pv = app.config.get("PRIVACY_VERSION", PRIVACY_VERSION)
+                legal_accepted = LegalAcceptance.query.filter_by(
+                    user_id=current_user.id,
+                    terms_version=tv,
+                    privacy_version=pv,
+                ).first() is not None
+            except Exception:
+                legal_accepted = False
         return {
             "is_logged_in": current_user.is_authenticated,
             "current_user": current_user,
             "is_owner": is_owner_user(),
             "contact_email": app.config.get("CONTACT_EMAIL", CONTACT_EMAIL),
+            "legal_accepted": legal_accepted,
         }
 
     # Phase 2G: Allowed hosts validation
@@ -1677,6 +1691,8 @@ def create_app():
         path = request.path or ""
         if path == SERVICE_PRICES_ANALYZE_PATH:
             limit = SERVICE_PRICES_ANALYZE_LIMIT_BYTES
+        elif path == "/api/leasing/frame":
+            limit = SERVICE_PRICES_ANALYZE_LIMIT_BYTES  # 6 MB for file upload
         else:
             limit = DEFAULT_API_PAYLOAD_LIMIT_BYTES
             # Tight guard for all other write routes to preserve DoS safety.
@@ -1696,7 +1712,7 @@ def create_app():
             return None
         
         # Only check specific endpoints (not login/auth which may come from external OAuth flow)
-        protected_paths = ['/analyze', '/advisor_api', '/api/account/delete', '/api/compare']
+        protected_paths = ['/analyze', '/advisor_api', '/api/account/delete', '/api/compare', '/api/leasing']
         if not any(request.path.startswith(p) for p in protected_paths):
             return None
 
@@ -1755,11 +1771,13 @@ def create_app():
             "/terms",
             "/privacy",
             "/api/legal/accept",
+            "/api/legal/status",
             "/login",
             "/logout",
             "/auth",
             "/healthz",
             "/recommendations",
+            "/leasing",
         }
         if path in allowlist or path.startswith(("/static/", "/assets/")) or path == "/favicon.ico":
             return None
@@ -1776,7 +1794,7 @@ def create_app():
             return resp
 
         is_ai_write = request.method in ("POST", "PUT", "PATCH", "DELETE") and path.startswith(
-            ("/analyze", "/advisor_api", "/api/compare")
+            ("/analyze", "/advisor_api", "/api/compare", "/api/leasing/recommend")
         )
         if not is_ai_write:
             return None
@@ -1973,6 +1991,7 @@ def create_app():
     from app.routes.legal_routes import bp as legal_bp
     from app.routes.comparison_routes import bp as comparison_bp
     from app.routes.service_prices_routes import bp as service_prices_bp
+    from app.routes.leasing_routes import bp as leasing_bp
     app.register_blueprint(public_bp)
     app.register_blueprint(analyze_bp)
     app.register_blueprint(advisor_bp)
@@ -1980,6 +1999,7 @@ def create_app():
     app.register_blueprint(legal_bp)
     app.register_blueprint(comparison_bp)
     app.register_blueprint(service_prices_bp)
+    app.register_blueprint(leasing_bp)
 
 
     @app.cli.command("init-db")

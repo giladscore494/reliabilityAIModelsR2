@@ -1,0 +1,51 @@
+make,model,trim,list_price_ils,powertrain,body_type,seats,trunk_liters,safety_stars,has_adas,has_carplay
+Toyota,Corolla,Comfort,139900,ice,sedan,5,470,5,true,true
+Toyota,Corolla Cross,Comfort,169900,hybrid,suv,5,433,5,true,true
+Toyota,Yaris Cross,Dynamic,149900,hybrid,suv,5,390,5,true,true
+Toyota,RAV4,Premium,219900,hybrid,suv,5,580,5,true,true
+Toyota,Camry,Prestige,239900,hybrid,sedan,5,524,5,true,true
+Toyota,bZ4X,Premium,249900,ev,suv,5,452,5,true,true
+Hyundai,Ioniq 5,Premium,249900,ev,suv,5,531,5,true,true
+Hyundai,Ioniq 6,Executive,259900,ev,sedan,5,401,5,true,true
+Hyundai,Tucson,Style,199900,hybrid,suv,5,546,5,true,true
+Hyundai,Kona,Executive,169900,ev,suv,5,466,5,true,true
+Hyundai,i20,Style,109900,ice,hatchback,5,352,5,true,true
+Kia,EV6,Premium,259900,ev,suv,5,490,5,true,true
+Kia,Niro,Executive,189900,hybrid,suv,5,451,5,true,true
+Kia,Sportage,Style,209900,hybrid,suv,5,543,5,true,true
+Kia,Picanto,Top,89900,ice,hatchback,5,255,4,false,true
+Skoda,Octavia,Style,159900,ice,sedan,5,600,5,true,true
+Skoda,Enyaq,Suite,259900,ev,suv,5,585,5,true,true
+Skoda,Kamiq,Style,149900,ice,suv,5,400,5,true,true
+MG,MG4,Luxury,149900,ev,hatchback,5,363,5,true,true
+MG,ZS EV,Luxury,159900,ev,suv,5,448,4,true,true
+MG,HS,Luxury,139900,phev,suv,5,463,5,true,true
+BYD,Atto 3,Premium,169900,ev,suv,5,440,5,true,true
+BYD,Seal,Excellence,249900,ev,sedan,5,402,5,true,true
+BYD,Dolphin,Premium,139900,ev,hatchback,5,345,5,true,true
+Mazda,CX-30,Skyactiv,169900,ice,suv,5,430,5,true,true
+Mazda,CX-60,Takumi,279900,phev,suv,5,570,5,true,true
+Mazda,3,Skyactiv,149900,ice,sedan,5,444,5,true,true
+Volkswagen,ID.4,Pro,239900,ev,suv,5,543,5,true,true
+Volkswagen,Golf,Style,169900,ice,hatchback,5,381,5,true,true
+Volkswagen,Tiguan,Elegance,229900,ice,suv,5,615,5,true,true
+Nissan,Qashqai,Acenta,189900,ice,suv,5,504,5,true,true
+Nissan,Leaf,Tekna,179900,ev,hatchback,5,435,5,true,true
+Nissan,Ariya,Evolve,259900,ev,suv,5,468,5,true,true
+Seat,Leon,FR,159900,ice,hatchback,5,380,5,true,true
+Seat,Ateca,Xcellence,189900,ice,suv,5,510,5,true,true
+Renault,Megane E-Tech,Techno,199900,ev,hatchback,5,440,5,true,true
+Renault,Austral,Techno,199900,hybrid,suv,5,500,5,true,true
+Peugeot,e-208,Allure,159900,ev,hatchback,5,309,5,true,true
+Peugeot,e-2008,Allure,179900,ev,suv,5,405,5,true,true
+Citroen,e-C4,Shine,169900,ev,hatchback,5,380,4,true,true
+Subaru,Crosstrek,Premium,179900,hybrid,suv,5,345,5,true,true
+Subaru,Forester,Premium,199900,hybrid,suv,5,509,5,true,true
+Geely,Geometry C,Premium,139900,ev,hatchback,5,375,4,true,true
+Cupra,Born,V2,199900,ev,hatchback,5,385,5,true,true
+BMW,iX1,xDrive30,289900,ev,suv,5,490,5,true,true
+Mercedes,EQA,250+,299900,ev,suv,5,340,5,true,true
+Audi,Q4 e-tron,Advanced,299900,ev,suv,5,520,5,true,true
+Tesla,Model 3,Standard,199900,ev,sedan,5,561,5,true,true
+Tesla,Model Y,Standard,219900,ev,suv,5,854,5,true,true
+Volvo,EX30,Plus,199900,ev,suv,5,318,5,true,true
