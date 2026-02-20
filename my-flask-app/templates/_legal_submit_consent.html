@@ -1,0 +1,9 @@
+<div class="mt-4 space-y-2">
+    <label class="flex items-start gap-2 text-slate-200 cursor-pointer">
+        <input type="checkbox"
+               id="{{ checkbox_id }}"
+               class="mt-1 rounded border-slate-600 bg-slate-800 text-primary">
+        <span>I confirm I read and agree to the <a href="{{ url_for('public.terms') }}" target="_blank" class="underline text-primary">Terms of Use</a> and <a href="{{ url_for('public.privacy') }}" target="_blank" class="underline text-primary">Privacy Policy</a>.</span>
+    </label>
+    <p id="{{ error_id }}" class="hidden text-xs text-danger">Please check the consent box before continuing.</p>
+</div>

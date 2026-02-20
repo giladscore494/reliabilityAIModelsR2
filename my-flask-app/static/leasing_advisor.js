@@ -52,7 +52,7 @@
   // ── Legal acceptance ────────────────────────────────────
   function revealLegalBanner(errorMessage) {
     var banner = $("#legalBanner");
-    var legalError = $("#legalError");
+    var legalError = $("#leasingLegalError");
     if (banner) banner.classList.remove("hidden");
     if (legalError) {
       if (errorMessage) legalError.textContent = errorMessage;
@@ -61,44 +61,33 @@
     legalAccepted = false;
   }
 
-  function syncLegalBannerState() {
+  function markLegalAccepted() {
+    legalAccepted = true;
     var banner = $("#legalBanner");
-    var legalCheckbox = $("#legalConfirmCheckbox");
+    if (banner) banner.dataset.legalAccepted = "true";
     var legalStatus = $("#legalStatusText");
-    var acceptBtn = $("#acceptLegalBtn");
-    var legalError = $("#legalError");
-    if (banner) banner.dataset.legalAccepted = legalAccepted ? "true" : "false";
-    if (legalCheckbox) {
-      legalCheckbox.checked = !!legalAccepted;
-      legalCheckbox.disabled = !!legalAccepted;
-    }
     if (legalStatus) {
-      legalStatus.textContent = legalAccepted
-        ? "Legal consent accepted ✅"
-        : "You must accept Terms & Privacy before running AI.";
+      legalStatus.innerHTML = '<span>✅</span><span>Legal consent accepted</span>';
     }
-    if (acceptBtn) acceptBtn.classList.toggle("hidden", !!legalAccepted);
-    if (legalError) legalError.classList.add("hidden");
   }
 
-  function markLegalAccepted() {
-    var btn = $("#recommendBtn");
-    if (btn) btn.disabled = false;
-    legalAccepted = true;
-    syncLegalBannerState();
+  function requireLeasingLegalConfirm() {
+    var legalCheckbox = $("#leasingLegalConfirm");
+    var legalError = $("#leasingLegalError");
+    if (!legalCheckbox || !legalError) return { ok: true };
+    if (!legalCheckbox.checked) {
+      legalError.textContent = "Please check the consent box before continuing.";
+      legalError.classList.remove("hidden");
+      return { ok: false };
+    }
+    legalError.classList.add("hidden");
+    return { ok: true };
   }
 
   function ensureLegalAcceptance() {
     if (legalAccepted) {
       return Promise.resolve(true);
     }
-    var legalCheckbox = $("#legalConfirmCheckbox");
-    var legalError = $("#legalError");
-    if (!legalCheckbox || !legalCheckbox.checked) {
-      if (legalError) legalError.classList.remove("hidden");
-      return Promise.resolve(false);
-    }
-    if (legalError) legalError.classList.add("hidden");
     var legalBanner = $("#legalBanner");
     return fetch("/api/legal/accept", {
       method: "POST",
@@ -125,13 +114,6 @@
         return false;
       });
   }
-
-  if ($("#acceptLegalBtn")) {
-    $("#acceptLegalBtn").addEventListener("click", function () {
-      ensureLegalAcceptance();
-    });
-  }
-  syncLegalBannerState();
 
   // ── Timing banner ────────────────────────────────────────
   var leasingTimingBanner = $("#leasingTimingBanner");
@@ -426,6 +408,10 @@
   if (recommendBtn) {
     recommendBtn.addEventListener("click", function () {
       if (recommendBtn.disabled) return;
+      var legalConfirm = requireLeasingLegalConfirm();
+      if (!legalConfirm.ok) {
+        return;
+      }
       ensureLegalAcceptance().then(function (accepted) {
         if (!accepted) {
           showRecommendError("יש לאשר תנאי שימוש ומדיניות פרטיות לפני שליחת בקשה.");
@@ -467,7 +453,7 @@
                   errorCode = data.error;
                 }
                 if (errorCode === "TERMS_NOT_ACCEPTED" || errorCode === "TERMS_VERSION_MISMATCH") {
-                  revealLegalBanner(errorMsg);
+                  revealLegalBanner("Please accept Terms & Privacy first.");
                 }
                 showRecommendError(errorMsg);
                 return;
@@ -483,7 +469,7 @@
           })
           .finally(function () {
             recommendLoading.classList.add("hidden");
-            recommendBtn.disabled = !legalAccepted;
+            recommendBtn.disabled = false;
             stopTimer(true);
           });
       });
