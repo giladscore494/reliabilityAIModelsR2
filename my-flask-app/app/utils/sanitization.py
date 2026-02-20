@@ -419,6 +419,69 @@ def sanitize_advisor_response(payload: Any) -> Dict[str, Any]:
 
 
 # -----------------------------
+# /compare narrative sanitization
+# -----------------------------
+
+_CATEGORY_KEY_ALLOWED = {
+    "reliability_risk", "ownership_cost", "practicality_comfort",
+    "driving_performance", "safety",
+}
+_WINNER_ALLOWED = {"car_1", "car_2", "car_3", "tie"}
+
+
+def sanitize_comparison_narrative(narrative: Any) -> Optional[Dict[str, Any]]:
+    """Sanitize narrative output from the 2nd LLM call.
+    Enforces allowlist keys, HTML-escapes strings, caps sizes.
+    Returns None if input is not a dict.
+    """
+    if not isinstance(narrative, dict):
+        return None
+
+    out: Dict[str, Any] = {}
+
+    # overall_summary
+    if "overall_summary" in narrative:
+        out["overall_summary"] = _escape(narrative["overall_summary"])
+
+    # category_explanations
+    raw_cats = _coerce_list(narrative.get("category_explanations"))[:10]
+    cats_out = []
+    for cat in raw_cats:
+        if not isinstance(cat, dict):
+            continue
+        cat_key = str(cat.get("category_key", "")).strip()
+        if cat_key not in _CATEGORY_KEY_ALLOWED:
+            continue
+        winner = str(cat.get("winner", "")).strip()
+        if winner not in _WINNER_ALLOWED:
+            winner = ""
+
+        explanations_raw = _coerce_dict(cat.get("explanations"))
+        explanations_out = {}
+        for k in ("car_1", "car_2", "car_3"):
+            if k in explanations_raw:
+                explanations_out[k] = _escape(explanations_raw[k])
+
+        why_list = _coerce_list(cat.get("why_it_scored_that_way"))[:3]
+        why_out = [_escape(w) for w in why_list]
+
+        cats_out.append({
+            "category_key": cat_key,
+            "title_he": _escape(cat.get("title_he", "")),
+            "winner": winner,
+            "explanations": explanations_out,
+            "why_it_scored_that_way": why_out,
+        })
+    out["category_explanations"] = cats_out
+
+    # disclaimers
+    raw_disclaimers = _coerce_list(narrative.get("disclaimers_he"))[:5]
+    out["disclaimers_he"] = [_escape(d) for d in raw_disclaimers]
+
+    return out
+
+
+# -----------------------------
 # Reliability report (strict JSON spec)
 # -----------------------------
 

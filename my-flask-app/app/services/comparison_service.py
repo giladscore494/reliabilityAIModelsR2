@@ -25,6 +25,7 @@ from app.utils.prompt_defense import (
 )
 import app.extensions as extensions
 from google.genai import types as genai_types
+from app.utils.sanitization import sanitize_comparison_narrative
 
 
 # ============================================================
@@ -79,6 +80,32 @@ def _safe_json_obj(value, default):
         return default
 
 
+def build_display_name(car: Dict[str, Any]) -> str:
+    """Build a human-readable display name for a car.
+    Format: "{make} {model} {year}" or "{make} {model}" if no year.
+    """
+    parts = [car.get("make", ""), car.get("model", "")]
+    year = car.get("year")
+    if year:
+        parts.append(str(year))
+    elif car.get("year_start") and car.get("year_end"):
+        parts.append(f"{car['year_start']}-{car['year_end']}")
+    return " ".join(p for p in parts if p).strip()
+
+
+def map_cars_to_slots(validated_cars: List[Dict]) -> Dict[str, Dict]:
+    """Map validated cars to stable slot keys: car_1, car_2, car_3.
+    Each slot includes the original selection fields plus display_name.
+    """
+    slots = {}
+    for i, car in enumerate(validated_cars):
+        slot_key = f"car_{i + 1}"
+        slot_data = dict(car)  # copy
+        slot_data["display_name"] = build_display_name(car)
+        slots[slot_key] = slot_data
+    return slots
+
+
 # ============================================================
 # CONFIGURATION
 # ============================================================
@@ -86,6 +113,7 @@ def _safe_json_obj(value, default):
 COMPARISON_PROMPT_VERSION = "v1"
 COMPARISON_MODEL_ID = os.environ.get("GEMINI_COMPARISON_MODEL_ID", "gemini-3-flash-preview")
 AI_CALL_TIMEOUT_SEC = int(os.environ.get("AI_CALL_TIMEOUT_SEC", "170"))
+TIE_THRESHOLD = 3  # Score delta below this = "tie" (צמוד)
 
 # Category weights for overall score calculation
 CATEGORY_WEIGHTS = {
@@ -249,6 +277,14 @@ def build_comparison_prompt(cars: List[Dict[str, str]]) -> str:
     bounded_cars = wrap_user_input_in_boundary(cars_json, boundary_tag="cars_input")
     data_instruction = create_data_only_instruction()
     
+    # Build slot mapping for stable keys
+    slot_mapping = {}
+    for i, car in enumerate(sanitized_cars):
+        slot_key = f"car_{i + 1}"
+        slot_mapping[slot_key] = build_display_name(car)
+    
+    slot_mapping_text = "\n".join(f"  {k}: {v}" for k, v in slot_mapping.items())
+    
     return f"""
 {data_instruction}
 
@@ -265,6 +301,11 @@ Your ONLY job is to retrieve factual data for each metric for each car, with cit
 
 {bounded_cars}
 
+IMPORTANT: Use these EXACT keys in the "cars" object:
+{slot_mapping_text}
+
+Return data for each car using the slot key (car_1, car_2, etc.) NOT the car name.
+
 Return a SINGLE JSON object with this EXACT structure:
 
 {{
@@ -276,7 +317,7 @@ Return a SINGLE JSON object with this EXACT structure:
     "trim_assumption": "If specific trim wasn't given, state what you assumed"
   }},
   "cars": {{
-    "<car_identifier_1>": {{
+    "car_1": {{
       "reliability_risk": {{
         "reliability_rating": {{
           "value": 0-100 or null,
@@ -422,7 +463,7 @@ Return a SINGLE JSON object with this EXACT structure:
         }}
       }}
     }}
-    // Repeat for each car...
+    "car_2": {{ ... }}
   }}
 }}
 
@@ -588,12 +629,19 @@ def compute_overall_score(category_scores: Dict[str, Optional[float]]) -> Option
     return None
 
 
-def determine_winner(scores: Dict[str, Optional[float]]) -> Optional[str]:
-    """Determine winner from a dict of car_id -> score."""
+def determine_winner(scores: Dict[str, Optional[float]], tie_threshold: float = TIE_THRESHOLD) -> Optional[str]:
+    """Determine winner from a dict of car_id -> score. Returns 'tie' if scores are close."""
     valid_scores = {k: v for k, v in scores.items() if v is not None}
     if not valid_scores:
         return None
-    return max(valid_scores, key=lambda x: valid_scores[x])
+    if len(valid_scores) < 2:
+        return next(iter(valid_scores))
+    sorted_scores = sorted(valid_scores.items(), key=lambda x: x[1], reverse=True)
+    top_score = sorted_scores[0][1]
+    second_score = sorted_scores[1][1]
+    if abs(top_score - second_score) < tie_threshold:
+        return "tie"
+    return sorted_scores[0][0]
 
 
 def compute_comparison_results(model_output: Dict) -> Dict:
@@ -760,6 +808,161 @@ def call_gemini_comparison(prompt: str, timeout_sec: int = AI_CALL_TIMEOUT_SEC) 
             COMPARISON_MODEL_ID,
             duration_ms,
         )
+
+
+def generate_narrative(cars_selected_slots: Dict, computed_result: Dict, timeout_sec: int = 60) -> Optional[Dict]:
+    """
+    Generate short human-friendly explanations using Gemini Flash WITHOUT grounding.
+    Input: only computed scores and display names (no new data retrieval).
+    Returns strict JSON narrative or None on failure.
+    """
+    import concurrent.futures
+    from app.factory import AI_EXECUTOR, AI_EXECUTOR_WORKERS
+
+    try:
+        if extensions.ai_client is None:
+            current_app.logger.warning("[NARRATIVE] AI client not initialized")
+            return None
+
+        # Build input context from computed results only
+        car_summaries = {}
+        for slot_key, slot_data in cars_selected_slots.items():
+            car_computed = computed_result.get("cars", {}).get(slot_key, {})
+            car_summaries[slot_key] = {
+                "display_name": slot_data.get("display_name", slot_key),
+                "overall_score": car_computed.get("overall_score"),
+                "categories": {}
+            }
+            for cat_name, cat_data in car_computed.get("categories", {}).items():
+                car_summaries[slot_key]["categories"][cat_name] = cat_data.get("score")
+
+        category_winners = computed_result.get("category_winners", {})
+        overall_winner = computed_result.get("overall_winner")
+        top_reasons = computed_result.get("top_reasons", [])
+
+        cat_names_he = {
+            "reliability_risk": "אמינות וסיכונים",
+            "ownership_cost": "עלות אחזקה",
+            "practicality_comfort": "נוחות ופרקטיות",
+            "driving_performance": "ביצועים ונהיגה",
+        }
+
+        slot_keys = list(cars_selected_slots.keys())
+        car_explanations_template = ", ".join(
+            f'"{k}": "string (1-2 sentences)"' for k in slot_keys
+        )
+
+        prompt = f"""You are a car comparison summary writer. Write SHORT, friendly, user-facing explanations in Hebrew.
+
+INPUT DATA (already computed, DO NOT add new facts):
+{json.dumps(car_summaries, ensure_ascii=False, indent=2)}
+
+Category winners: {json.dumps(category_winners, ensure_ascii=False)}
+Overall winner: {json.dumps(overall_winner, ensure_ascii=False)}
+Top reasons: {json.dumps(top_reasons, ensure_ascii=False)}
+
+RULES:
+1. Do NOT add new factual claims or data not present in the input.
+2. Do NOT introduce new sources or URLs.
+3. Explain ONLY the scores and winners given above.
+4. Use simple, friendly Hebrew. Fewer numbers, more human language.
+5. When scores are very close (within {TIE_THRESHOLD} points), say "צמוד" (close race).
+6. Return ONLY valid JSON. No markdown, no extra text.
+
+Return this EXACT JSON structure:
+{{{{
+  "overall_summary": "string (2-4 sentences summarizing the comparison)",
+  "category_explanations": [
+    {{{{
+      "category_key": "reliability_risk",
+      "title_he": "{cat_names_he.get('reliability_risk', '')}",
+      "winner": "car_1|car_2|car_3|tie",
+      "explanations": {{{{ {car_explanations_template} }}}},
+      "why_it_scored_that_way": ["string", "string"]
+    }}}},
+    {{{{
+      "category_key": "ownership_cost",
+      "title_he": "{cat_names_he.get('ownership_cost', '')}",
+      "winner": "car_1|car_2|car_3|tie",
+      "explanations": {{{{ {car_explanations_template} }}}},
+      "why_it_scored_that_way": ["string", "string"]
+    }}}},
+    {{{{
+      "category_key": "practicality_comfort",
+      "title_he": "{cat_names_he.get('practicality_comfort', '')}",
+      "winner": "car_1|car_2|car_3|tie",
+      "explanations": {{{{ {car_explanations_template} }}}},
+      "why_it_scored_that_way": ["string", "string"]
+    }}}},
+    {{{{
+      "category_key": "driving_performance",
+      "title_he": "{cat_names_he.get('driving_performance', '')}",
+      "winner": "car_1|car_2|car_3|tie",
+      "explanations": {{{{ {car_explanations_template} }}}},
+      "why_it_scored_that_way": ["string", "string"]
+    }}}}
+  ],
+  "disclaimers_he": ["הניקוד מבוסס על נתונים שנאספו מהאינטרנט ועשוי להשתנות", "מומלץ לבצע בדיקה מקצועית לפני רכישה"]
+}}}}
+"""
+
+        config = genai_types.GenerateContentConfig(
+            temperature=0.4,
+            top_p=0.9,
+            top_k=40,
+            response_mime_type="application/json",
+        )
+
+        def _invoke():
+            return extensions.ai_client.models.generate_content(
+                model=COMPARISON_MODEL_ID,
+                contents=prompt,
+                config=config,
+            )
+
+        try:
+            future = AI_EXECUTOR.submit(_invoke)
+        except Exception:
+            current_app.logger.warning("[NARRATIVE] Executor saturated, skipping narrative")
+            return None
+
+        try:
+            resp = future.result(timeout=timeout_sec)
+        except concurrent.futures.TimeoutError:
+            future.cancel()
+            current_app.logger.warning("[NARRATIVE] Timeout generating narrative")
+            return None
+        except Exception as e:
+            current_app.logger.warning(f"[NARRATIVE] Call failed: {type(e).__name__}")
+            return None
+
+        if resp is None:
+            return None
+
+        text = (getattr(resp, "text", "") or "").strip()
+        if not text:
+            return None
+
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            try:
+                from json_repair import repair_json
+                repaired = repair_json(text)
+                parsed = json.loads(repaired)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                pass
+
+        current_app.logger.warning("[NARRATIVE] Failed to parse narrative response")
+        return None
+
+    except Exception as e:
+        current_app.logger.warning(f"[NARRATIVE] Unexpected error: {e}")
+        return None
 
 
 def normalize_model_output(parsed: Any, request_id: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
@@ -1032,6 +1235,9 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     if not is_valid:
         return api_error("validation_error", error_msg, status=400)
     
+    # Map cars to stable slots with display_name
+    cars_selected_slots = map_cars_to_slots(validated_cars)
+    
     # Enforce per-user daily limit before any AI calls
     if user_id:
         now = datetime.utcnow()
@@ -1103,12 +1309,21 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                         logger.warning(f"[COMPARISON] self-heal commit failed: {heal_err}")
                         db.session.rollback()
                 
+                # Reconstruct slots from cached list; guard against corrupted non-list data
+                if isinstance(cars_selected, list):
+                    cached_slots = map_cars_to_slots(cars_selected)
+                else:
+                    logger.warning(f"[COMPARISON] cars_selected not a list in cache row {cached.id}, using as-is")
+                    cached_slots = cars_selected if isinstance(cars_selected, dict) else {}
+
                 return api_ok({
                     "cached": True,
                     "comparison_id": cached.id,
-                    "cars_selected": cars_selected,
+                    "cars_selected": cached_slots,
+                    "cars_selected_list": cars_selected if isinstance(cars_selected, list) else [],
                     "model_output": model_output,
                     "computed_result": computed_result,
+                    "narrative": computed_result.get("narrative") if isinstance(computed_result, dict) else None,
                     "sources_index": sources_index if sources_index else {},
                     "assumptions": assumptions,
                 })
@@ -1169,11 +1384,20 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     # Build sources index
     sources_index = build_sources_index(model_output)
     
-    # Generate car identifiers
-    car_ids = []
-    for car in validated_cars:
-        car_id = f"{car['make']} {car['model']}"
-        car_ids.append(car_id)
+    # Generate narrative explanations (2nd LLM call, no grounding)
+    narrative = None
+    try:
+        raw_narrative = generate_narrative(cars_selected_slots, computed_result)
+        if raw_narrative:
+            narrative = sanitize_comparison_narrative(raw_narrative)
+            logger.info(f"[COMPARISON] narrative generated request_id={request_id}")
+    except Exception as e:
+        logger.warning(f"[COMPARISON] narrative generation failed: {e}")
+    
+    # Include narrative in computed_result for storage
+    stored_computed = dict(computed_result)
+    if narrative:
+        stored_computed["narrative"] = narrative
     
     # Save to database
     try:
@@ -1183,7 +1407,7 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
             session_id=session_id,
             cars_selected=json.dumps(validated_cars, ensure_ascii=False),
             model_json_raw=json.dumps(model_output, ensure_ascii=False),
-            computed_result=json.dumps(computed_result, ensure_ascii=False),
+            computed_result=json.dumps(stored_computed, ensure_ascii=False),
             sources_index=json.dumps(sources_index, ensure_ascii=False),
             model_name=COMPARISON_MODEL_ID,
             grounding_enabled=True,
@@ -1203,9 +1427,11 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     return api_ok({
         "cached": False,
         "comparison_id": comparison_id,
-        "cars_selected": validated_cars,
+        "cars_selected": cars_selected_slots,
+        "cars_selected_list": validated_cars,
         "model_output": model_output,
         "computed_result": computed_result,
+        "narrative": narrative,
         "sources_index": sources_index,
         "assumptions": model_output.get("assumptions", {}),
     })
@@ -1279,12 +1505,20 @@ def get_comparison_detail(comparison_id: int, user_id: Optional[int]) -> Optiona
         
         assumptions = model_output.get("assumptions", {}) if model_output else {}
         
+        # Extract narrative from computed_result if stored there
+        narrative = computed_result.get("narrative") if isinstance(computed_result, dict) else None
+        
+        # Reconstruct stable car slots
+        cars_selected_slots = map_cars_to_slots(cars_selected) if isinstance(cars_selected, list) else cars_selected
+        
         return {
             "id": record.id,
             "created_at": record.created_at.isoformat(),
-            "cars_selected": cars_selected,
+            "cars_selected": cars_selected_slots,
+            "cars_selected_list": cars_selected if isinstance(cars_selected, list) else [],
             "model_output": model_output,
             "computed_result": computed_result,
+            "narrative": narrative,
             "sources_index": sources_index,
             "assumptions": assumptions,
             "model_name": record.model_name,
