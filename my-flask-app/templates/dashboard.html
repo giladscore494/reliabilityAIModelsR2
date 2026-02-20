@@ -153,6 +153,10 @@
             <span class="whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50">
                 היסטוריית המלצות (בקרוב · {{ advisor_count or 0 }} שאלונים)
             </span>
+            <button type="button" onclick="showTab('leasing')" id="tab-leasing"
+                    class="tab-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50 cursor-pointer transition-colors hover:bg-slate-800 hover:text-slate-300">
+                יועץ ליסינג ({{ leasing_history|default([])|length }})
+            </button>
             <button type="button" onclick="showTab('service_prices')" id="tab-service_prices"
                     class="tab-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50 cursor-pointer transition-colors hover:bg-slate-800 hover:text-slate-300">
                 בדיקת מחירי טיפול
@@ -241,6 +245,33 @@
         <div id="service-prices-list" class="grid gap-4">
             <div class="text-center py-8 text-slate-400">טוען היסטוריית בדיקות מחירים...</div>
         </div>
+    </div>
+
+    <!-- Leasing Advisor History Tab -->
+    <div id="tab-content-leasing" class="relative z-10 hidden">
+        {% if leasing_history and leasing_history|length > 0 %}
+        <div class="grid gap-4">
+            {% for lh in leasing_history %}
+            <article class="bg-dark-lighter/80 border border-slate-700/60 rounded-xl p-4 shadow-lg">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h3 class="text-lg font-bold text-white">{{ lh.top_recommendation or 'יועץ ליסינג' }}</h3>
+                        <p class="text-sm text-slate-400 mt-1">{{ lh.frame_summary }}</p>
+                    </div>
+                    <span class="text-xs text-slate-500">{{ lh.created_at }}</span>
+                </div>
+                {% if lh.duration_ms %}
+                <span class="text-xs text-slate-500 mt-2 block">⏱️ {{ lh.duration_ms }}ms</span>
+                {% endif %}
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center py-12">
+            <p class="text-slate-400 text-lg">עדיין אין היסטוריית יועץ ליסינג</p>
+            <a href="/leasing" class="mt-4 inline-block px-6 py-2 rounded-xl bg-primary/20 text-primary font-bold hover:bg-primary/30 transition">התחל שימוש ביועץ ליסינג</a>
+        </div>
+        {% endif %}
     </div>
 
     <!-- Delete Account Section -->
@@ -809,6 +840,7 @@
         document.getElementById('tab-content-reliability').classList.toggle('hidden', tabName !== 'reliability');
         document.getElementById('tab-content-comparisons').classList.toggle('hidden', tabName !== 'comparisons');
         document.getElementById('tab-content-service_prices').classList.toggle('hidden', tabName !== 'service_prices');
+        document.getElementById('tab-content-leasing').classList.toggle('hidden', tabName !== 'leasing');
         
         // Load comparisons if switching to that tab for the first time
         if (tabName === 'comparisons' && !comparisonsLoaded) {

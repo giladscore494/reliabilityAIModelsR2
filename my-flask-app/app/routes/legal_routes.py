@@ -112,3 +112,23 @@ def accept_legal():
         "privacy_version": privacy_version,
         "feature_consents": processed_features,
     })
+
+
+@bp.route("/api/legal/status", methods=["GET"])
+@login_required
+def legal_status():
+    """Return the current legal acceptance status for the logged-in user."""
+    terms_version = current_app.config.get("TERMS_VERSION")
+    privacy_version = current_app.config.get("PRIVACY_VERSION")
+
+    accepted = LegalAcceptance.query.filter_by(
+        user_id=current_user.id,
+        terms_version=terms_version,
+        privacy_version=privacy_version,
+    ).first() is not None
+
+    return jsonify({
+        "accepted": accepted,
+        "terms_version": terms_version,
+        "privacy_version": privacy_version,
+    })
