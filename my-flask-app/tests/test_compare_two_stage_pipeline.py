@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 import copy
+from datetime import datetime
 
 from app.services import comparison_service
+from app.quota import compute_quota_window, resolve_app_timezone
+from app.models import DailyQuotaUsage
+from main import db
 
 
 def _grounded_output_fixture():
@@ -106,3 +110,60 @@ def test_compare_two_stage_handles_stage_b_failure_gracefully(app, logged_in_cli
     assert calls == {"stage_a": 1, "stage_b": 1}
     assert payload["computed_result"]["overall_winner"] == "car_1"
     assert payload["narrative"] is None
+
+
+def test_compare_quota_blocks_non_owner(app, logged_in_client):
+    client, user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    with app.app_context():
+        tz, _ = resolve_app_timezone()
+        day_key, *_ = compute_quota_window(tz)
+        db.session.add(DailyQuotaUsage(user_id=user_id, day=day_key, count=5, updated_at=datetime.utcnow()))
+        db.session.commit()
+
+    resp = client.post(
+        "/api/compare",
+        json={
+            "cars": [
+                {"make": "Toyota", "model": "Corolla", "year": 2020},
+                {"make": "Honda", "model": "Civic", "year": 2020},
+            ],
+            "legal_confirm": True,
+        },
+        headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+    )
+    assert resp.status_code == 429
+    data = resp.get_json()
+    assert data["error"]["code"] == "DAILY_LIMIT_REACHED"
+
+
+def test_compare_owner_bypasses_quota(app, logged_in_client, monkeypatch):
+    client, user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+    app.config["OWNER_EMAILS"] = {"tester@example.com"}
+
+    with app.app_context():
+        tz, _ = resolve_app_timezone()
+        day_key, *_ = compute_quota_window(tz)
+        db.session.add(DailyQuotaUsage(user_id=user_id, day=day_key, count=5, updated_at=datetime.utcnow()))
+        db.session.commit()
+
+    def fake_handle(_data, _uid, _sid):
+        from app.utils.http_helpers import api_ok
+        return api_ok({"computed_result": {"overall_winner": "car_1"}, "cars_selected": {}, "narrative": None})
+
+    monkeypatch.setattr(comparison_service, "handle_comparison_request", fake_handle)
+
+    resp = client.post(
+        "/api/compare",
+        json={
+            "cars": [
+                {"make": "Toyota", "model": "Corolla", "year": 2020},
+                {"make": "Honda", "model": "Civic", "year": 2020},
+            ],
+            "legal_confirm": True,
+        },
+        headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+    )
+    assert resp.status_code == 200

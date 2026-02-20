@@ -50,6 +50,7 @@ def load_catalog() -> List[Dict[str, Any]]:
     if _catalog_cache is not None:
         return _catalog_cache
 
+    # Leasing candidates are loaded from a local CSV and cached in-memory (no external API call).
     catalog_path = os.path.join(os.path.dirname(__file__), "..", "data", "leasing_catalog_il_2026.csv")
     rows: List[Dict[str, Any]] = []
     with open(catalog_path, encoding="utf-8") as f:

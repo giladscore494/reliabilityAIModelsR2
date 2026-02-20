@@ -13,6 +13,28 @@ from app.utils.http_helpers import api_ok, api_error, get_request_id
 from app.utils.sanitization import sanitize_analyze_response
 
 
+def safe_json_obj(value, default=None):
+    """Safely decode value into dict/list, including a double-encoded JSON string."""
+    fallback = {} if default is None else default
+    try:
+        if isinstance(value, (dict, list)):
+            return value
+        if not isinstance(value, str):
+            return fallback
+        stripped = value.strip()
+        if not stripped:
+            return fallback
+        result = json.loads(stripped)
+        if isinstance(result, str):
+            try:
+                result = json.loads(result)
+            except Exception:
+                return fallback
+        return result if isinstance(result, (dict, list)) else fallback
+    except Exception:
+        return fallback
+
+
 def fetch_dashboard_history(user_id: int) -> Tuple[list, list, Optional[str], Optional[str]]:
     search_error = None
     advisor_error = None
@@ -68,19 +90,16 @@ def build_leasing_data(entries: list) -> list:
     """Build leasing history summary for dashboard display."""
     result = []
     for e in entries:
-        try:
-            frame = json.loads(e.frame_input_json) if isinstance(e.frame_input_json, str) else (e.frame_input_json or {})
-        except Exception:
+        frame = safe_json_obj(e.frame_input_json, default={})
+        response = safe_json_obj(e.gemini_response_json, default={})
+        if not isinstance(frame, dict):
             frame = {}
-        try:
-            response = json.loads(e.gemini_response_json) if isinstance(e.gemini_response_json, str) else (e.gemini_response_json or {})
-        except Exception:
-            response = {}
         top_rec = ""
-        top3 = response.get("top3", [])
-        if top3:
+        top3 = response.get("top3", []) if isinstance(response, dict) else []
+        if isinstance(top3, list) and top3:
             first = top3[0]
-            top_rec = f"{first.get('make', '')} {first.get('model', '')}"
+            if isinstance(first, dict):
+                top_rec = f"{first.get('make', '')} {first.get('model', '')}"
         result.append({
             "id": e.id,
             "created_at": e.created_at.strftime("%d/%m/%Y %H:%M"),

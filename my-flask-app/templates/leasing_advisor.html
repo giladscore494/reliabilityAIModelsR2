@@ -69,10 +69,19 @@
 
     <!-- Legal banner (if not accepted) -->
     {% if not legal_accepted %}
-    <div id="legalBanner" class="mb-6 p-4 rounded-xl bg-warning/10 border border-warning/30 text-warning text-sm flex items-center gap-3">
-        <span>⚠️</span>
-        <span>כדי להשתמש בכלי AI, יש לאשר את <a href="/terms" class="underline">תנאי השימוש</a> ו<a href="/privacy" class="underline">מדיניות הפרטיות</a> תחילה.</span>
-        <button id="acceptLegalBtn" class="mr-auto px-4 py-1 rounded-lg bg-warning text-dark font-bold text-xs hover:bg-warning/80 transition">אשר עכשיו</button>
+    <div id="legalBanner" class="mb-6 p-4 rounded-xl bg-warning/10 border border-warning/30 text-warning text-sm space-y-3" data-terms-version="{{ terms_version }}" data-privacy-version="{{ privacy_version }}">
+        <div class="flex items-center gap-2">
+            <span>⚠️</span>
+            <span>נדרש אישור חוקי לפני הפעלת המלצת AI.</span>
+        </div>
+        <label class="flex items-start gap-2 text-slate-200 cursor-pointer">
+            <input type="checkbox" id="legalConfirmCheckbox" class="mt-1 rounded border-slate-600 bg-slate-800 text-primary">
+            <span>I confirm I read and agree to the <a href="{{ url_for('public.terms') }}" target="_blank" class="underline text-warning">Terms of Use</a> and <a href="{{ url_for('public.privacy') }}" target="_blank" class="underline text-warning">Privacy Policy</a></span>
+        </label>
+        <div class="flex items-center gap-3">
+            <button id="acceptLegalBtn" class="px-4 py-1 rounded-lg bg-warning text-dark font-bold text-xs hover:bg-warning/80 transition">אשר עכשיו</button>
+            <span id="legalError" class="hidden text-xs text-danger">יש לסמן את תיבת האישור לפני המשך.</span>
+        </div>
     </div>
     {% endif %}
 
@@ -80,6 +89,17 @@
         יועץ ליסינג
         <button id="helpBtn" class="text-base text-slate-400 hover:text-white mr-2" title="עזרה">❓</button>
     </h1>
+
+    <div id="leasingTimingBanner" class="hidden mb-6 rounded-2xl border border-primary/40 bg-dark-lighter/95 p-4">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-gradient-to-r from-primary to-secondary flex items-center justify-center text-white font-black">⏱</div>
+            <div class="text-sm text-slate-300">
+                <div id="leasingAvgTime">זמן ממוצע: —</div>
+                <div id="leasingCurrentTime">זמן ריצה: <span id="leasingElapsedTime">0.0s</span></div>
+                <div id="leasingTimingStatus" class="text-slate-400">ממתין להפעלה</div>
+            </div>
+        </div>
+    </div>
 
     <!-- Step 1: Input -->
     <section id="step1" class="bg-dark-lighter rounded-2xl border border-slate-700 p-6 mb-6">
