@@ -208,13 +208,6 @@
         /* Autocomplete styles */
         .autocomplete-container { position: relative; }
         .autocomplete-input {
-            width: 100%;
-            background: #0f172a;
-            border: 2px solid #334155;
-            border-radius: 0.75rem;
-            padding: 0.75rem 1rem;
-            color: #e2e8f0;
-            font-size: 0.95rem;
             direction: ltr;
             text-align: left;
             transition: border-color 0.2s;
@@ -225,10 +218,6 @@
             -webkit-text-fill-color: #e2e8f0;
             -webkit-box-shadow: 0 0 0px 1000px #0f172a inset;
             box-shadow: 0 0 0px 1000px #0f172a inset;
-        }
-        .autocomplete-input:focus {
-            outline: none;
-            border-color: #6366F1;
         }
         .autocomplete-input::placeholder {
             color: #64748b;
@@ -330,7 +319,7 @@
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div class="autocomplete-container md:col-span-1">
                                 <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 block">חפש רכב</label>
-                                <input type="text" id="car_search_1" class="autocomplete-input" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
+                                <input type="text" id="car_search_1" class="autocomplete-input w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 focus:ring-primary focus:border-primary" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
                                 <div id="car_dropdown_1" class="autocomplete-dropdown"></div>
                                 <input type="hidden" id="car_make_1" name="make_1">
                                 <input type="hidden" id="car_model_1" name="model_1">
@@ -380,7 +369,7 @@
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div class="autocomplete-container md:col-span-1">
                                 <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 block">חפש רכב</label>
-                                <input type="text" id="car_search_2" class="autocomplete-input" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
+                                <input type="text" id="car_search_2" class="autocomplete-input w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 focus:ring-primary focus:border-primary" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
                                 <div id="car_dropdown_2" class="autocomplete-dropdown"></div>
                                 <input type="hidden" id="car_make_2" name="make_2">
                                 <input type="hidden" id="car_model_2" name="model_2">
@@ -430,7 +419,7 @@
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div class="autocomplete-container md:col-span-1">
                                 <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 block">חפש רכב</label>
-                                <input type="text" id="car_search_3" class="autocomplete-input" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
+                                <input type="text" id="car_search_3" class="autocomplete-input w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 focus:ring-primary focus:border-primary" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
                                 <div id="car_dropdown_3" class="autocomplete-dropdown"></div>
                                 <input type="hidden" id="car_make_3" name="make_3">
                                 <input type="hidden" id="car_model_3" name="model_3">

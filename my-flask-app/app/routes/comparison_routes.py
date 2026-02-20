@@ -6,7 +6,17 @@ from flask import Blueprint, render_template, request, current_app, session
 from flask_login import current_user, login_required
 
 from car_models_dict import israeli_car_market_full_compilation
-from app.quota import check_and_increment_ip_rate_limit, get_client_ip, log_access_decision, PER_IP_PER_MIN_LIMIT
+from app.quota import (
+    check_and_increment_ip_rate_limit,
+    get_client_ip,
+    log_access_decision,
+    resolve_app_timezone,
+    compute_quota_window,
+    reserve_daily_quota,
+    finalize_quota_reservation,
+    release_quota_reservation,
+    PER_IP_PER_MIN_LIMIT,
+)
 from app.legal import TERMS_VERSION, PRIVACY_VERSION
 from app.models import LegalAcceptance
 from app.utils.http_helpers import api_error, api_ok, is_owner_user, get_request_id
@@ -89,9 +99,37 @@ def compare_api():
     # Get session ID for anonymous tracking
     session_id = session.get('_id') if not user_id else None
     
+    # Daily quota enforcement
+    from app.factory import USER_DAILY_LIMIT
+    tz, _ = resolve_app_timezone()
+    day_key, _, _, resets_at, _, _ = compute_quota_window(tz)
+    daily_limit = current_app.config.get("USER_DAILY_LIMIT", USER_DAILY_LIMIT)
+    owner_bypass = is_owner_user()
+    request_id = get_request_id()
+    reservation_id = None
+
+    if not owner_bypass:
+        try:
+            ok, used, _active, reservation_id = reserve_daily_quota(user_id, day_key, daily_limit, request_id)
+        except Exception:
+            return api_error("quota_error", "Quota system error", status=500)
+        if not ok:
+            log_access_decision('/api/compare', user_id, 'rejected', 'daily limit reached')
+            return api_error(
+                "DAILY_LIMIT_REACHED",
+                "הגעת למגבלת השימוש היומית.",
+                status=429,
+                details={"limit": daily_limit, "used": used, "resets_at": resets_at.isoformat()},
+            )
+
     # Process comparison
     try:
         resp = comparison_service.handle_comparison_request(data, user_id, session_id)
+        if reservation_id:
+            if resp.status_code < 400:
+                finalize_quota_reservation(reservation_id, user_id, day_key)
+            else:
+                release_quota_reservation(reservation_id, user_id, day_key)
         # Check for legal terms enforcement
         # Support both standard API format and legal enforcement format
         if resp.status_code == 403:
@@ -103,6 +141,8 @@ def compare_api():
                 pass  # If JSON parsing fails, just return the response
         return resp
     except Exception:
+        if reservation_id:
+            release_quota_reservation(reservation_id, user_id, day_key)
         current_app.logger.exception("compare_api failed")
         return api_error("server_error", "שגיאת שרת בעת השוואה", status=500)
 

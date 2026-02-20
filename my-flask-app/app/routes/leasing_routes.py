@@ -20,7 +20,7 @@ from app.quota import (
 )
 from app.utils.http_helpers import api_ok, api_error, get_request_id, is_owner_user
 from app.services import leasing_advisor_service as leasing_svc
-from app.legal import TERMS_VERSION, PRIVACY_VERSION
+from app.legal import TERMS_VERSION, PRIVACY_VERSION, parse_legal_confirm
 from app.models import LegalAcceptance
 
 bp = Blueprint("leasing", __name__)
@@ -51,6 +51,8 @@ def leasing_page():
         is_owner=is_owner_user(),
         active_page="leasing",
         legal_accepted=legal_accepted,
+        terms_version=current_app.config.get("TERMS_VERSION", TERMS_VERSION),
+        privacy_version=current_app.config.get("PRIVACY_VERSION", PRIVACY_VERSION),
     )
 
 
@@ -189,6 +191,12 @@ def leasing_recommend():
         return api_error("invalid_content_type", "Content-Type must be application/json", status=415)
 
     data = request.get_json(silent=True) or {}
+    if not parse_legal_confirm(data.get("legal_confirm")) or not _check_legal_accepted():
+        return api_error(
+            "TERMS_NOT_ACCEPTED",
+            "יש לאשר תנאי שימוש ומדיניות פרטיות לפני המשך.",
+            status=403,
+        )
     candidates = data.get("candidates")
     prefs = data.get("prefs")
     frame_context = data.get("frame") or {}
@@ -206,7 +214,7 @@ def leasing_recommend():
     day_key, _, _, resets_at, _, retry_after = compute_quota_window(tz)
     daily_limit = current_app.config.get("USER_DAILY_LIMIT", USER_DAILY_LIMIT)
 
-    owner_bypass = current_app.config.get("OWNER_BYPASS_QUOTA", False) and is_owner_user()
+    owner_bypass = is_owner_user()
     reservation_id = None
 
     if not owner_bypass:

@@ -245,6 +245,35 @@ class TestLeasingLegalGating:
         # Should not be 403 (legal gating). May be 502 due to no AI client.
         assert resp.status_code != 403
 
+    def test_recommend_requires_legal_confirm_flag(self, logged_in_client, app):
+        """Even with accepted terms, legal_confirm must be explicitly true."""
+        client, user_id = logged_in_client
+        with app.app_context():
+            db.session.add(LegalAcceptance(
+                user_id=user_id,
+                terms_version=TERMS_VERSION,
+                privacy_version=PRIVACY_VERSION,
+                accepted_at=datetime.utcnow(),
+                accepted_ip="1.2.3.0",
+            ))
+            db.session.commit()
+
+        resp = client.post(
+            "/api/leasing/recommend",
+            json={
+                "candidates": [{"make": "Toyota", "model": "Corolla"}],
+                "prefs": {"driving_type": "city"},
+                "legal_confirm": False,
+            },
+            headers={"Origin": "http://localhost"},
+        )
+        assert resp.status_code == 403
+        data = resp.get_json()
+        if isinstance(data.get("error"), dict):
+            assert data["error"]["code"] == "TERMS_NOT_ACCEPTED"
+        else:
+            assert data["error"] == "TERMS_NOT_ACCEPTED"
+
     def test_leasing_page_accessible_without_legal(self, logged_in_client):
         """GET /leasing should work without legal acceptance (browsing allowed)."""
         client, _ = logged_in_client
