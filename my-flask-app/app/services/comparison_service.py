@@ -587,6 +587,31 @@ If unsure, keep it short and say 'Not enough data' in 6 words max.
     return prompt
 
 
+def build_compare_writer_retry_prompt(cars_selected_slots: Dict, computed_result: Dict) -> str:
+    """Build a minimal retry prompt for summary+winner only."""
+    retry_payload = {
+        "carA": {"label": (cars_selected_slots.get("car_1", {}) or {}).get("display_name", "car_1")},
+        "carB": {"label": (cars_selected_slots.get("car_2", {}) or {}).get("display_name", "car_2")},
+        "overall_winner": computed_result.get("overall_winner"),
+        "overall_scores": {
+            "carA": ((computed_result.get("cars", {}).get("car_1", {}) or {}).get("overall_score")),
+            "carB": ((computed_result.get("cars", {}).get("car_2", {}) or {}).get("overall_score")),
+        },
+    }
+    prompt = f"""RETRY_MODE_SUMMARY_ONLY
+Return ONLY JSON:
+{{
+  "summary": "max 20 words",
+  "winner": "carA|carB|tie",
+  "categories": [],
+  "caveats": []
+}}
+Do not add extra keys. Do not add categories.
+DATA:{json.dumps(retry_payload, ensure_ascii=False, separators=(",", ":"))}
+"""
+    return prompt[: min(COMPARE_WRITER_PROMPT_CHAR_CAP, 4000)]
+
+
 # ============================================================
 # SCORING FUNCTIONS (DETERMINISTIC - CODE ONLY)
 # ============================================================
@@ -1119,7 +1144,7 @@ def call_gemini_compare_writer(prompt: str, timeout_sec: int = COMPARE_WRITER_TI
 
     start_time = pytime.perf_counter()
     prompt_chars = len(prompt or "")
-    is_retry_summary_only = "Respond with only summary and winner, no categories." in (prompt or "")
+    is_retry_summary_only = "RETRY_MODE_SUMMARY_ONLY" in (prompt or "")
     max_output_tokens = COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS if is_retry_summary_only else COMPARE_WRITER_MAX_OUTPUT_TOKENS
     _inc_compare_metric("compare_ai_calls_total")
 
@@ -1128,6 +1153,7 @@ def call_gemini_compare_writer(prompt: str, timeout_sec: int = COMPARE_WRITER_TI
 
     config = genai_types.GenerateContentConfig(
         temperature=0.3,
+        # Keep sampling conservative to reduce verbosity drift and long responses.
         top_p=0.8,
         top_k=20,
         max_output_tokens=max_output_tokens,
@@ -1805,7 +1831,7 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     narrative = None
     if stage_b_error:
         logger.warning(f"[COMPARISON] stage_b call failed request_id={request_id} error={stage_b_error}")
-        retry_prompt = f"{writer_prompt}\nRespond with only summary and winner, no categories."
+        retry_prompt = build_compare_writer_retry_prompt(cars_selected_slots, server_computed_result)
         retry_output, retry_error = call_gemini_compare_writer(retry_prompt)
         if retry_error:
             logger.warning(f"[COMPARISON] stage_b retry failed request_id={request_id} error={retry_error}")
@@ -1827,7 +1853,7 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
             raw_narrative = stage_b_output.get("narrative")
             if raw_narrative:
                 narrative = sanitize_comparison_narrative(raw_narrative)
-                logger.info(f"[COMPARISON] narrative generated request_id={request_id} mode=legacy")
+                logger.info(f"[COMPARISON] narrative generated request_id={request_id} mode=legacy_deprecated")
             else:
                 _inc_compare_metric("compare_ai_fallback_used_total")
                 narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
