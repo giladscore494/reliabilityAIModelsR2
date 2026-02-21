@@ -1121,8 +1121,6 @@ def call_gemini_comparison(prompt: str, timeout_sec: int = COMPARE_STAGE_A_TIMEO
     prompt_chars = len(prompt or "")
     outcome = "ok"
     outcome_reason = None
-    outcome = "ok"
-    outcome_reason = None
     try:
         if extensions.ai_client is None:
             outcome = "error"
