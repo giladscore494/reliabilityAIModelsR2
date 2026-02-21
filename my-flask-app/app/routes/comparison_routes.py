@@ -224,6 +224,25 @@ def compare_detail(comparison_id):
     return api_ok(detail)
 
 
+@bp.route('/api/compare/ai-regenerate', methods=['POST'])
+@login_required
+def compare_ai_regenerate():
+    comparison_id_raw = request.args.get("comparison_id", "").strip()
+    if not comparison_id_raw.isdigit():
+        return api_error("invalid_comparison_id", "comparison_id is required", status=400)
+
+    comparison_id = int(comparison_id_raw)
+    try:
+        regenerated = comparison_service.regenerate_comparison_ai(comparison_id, current_user.id)
+    except Exception:
+        current_app.logger.exception("compare_ai_regenerate failed")
+        return api_error("server_error", "שגיאת שרת בעת יצירת הסבר מחדש", status=500)
+
+    if not regenerated:
+        return api_error("not_found", "השוואה לא נמצאה", status=404)
+    return api_ok(regenerated)
+
+
 @bp.route('/api/compare/cars', methods=['GET'])
 @login_required
 def get_available_cars():

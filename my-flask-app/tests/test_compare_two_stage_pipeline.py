@@ -2,6 +2,7 @@
 import copy
 import time
 from datetime import datetime
+from types import SimpleNamespace
 
 from app.services import comparison_service
 from app.quota import compute_quota_window, resolve_app_timezone
@@ -111,8 +112,10 @@ def test_compare_two_stage_handles_stage_b_failure_gracefully(app, logged_in_cli
     assert calls == {"stage_a": 1, "stage_b": 2}
     assert payload["computed_result"]["overall_winner"] == "car_1"
     assert payload["narrative"] is not None
-    assert "numeric comparison" in payload["narrative"]["overall_summary"].lower()
+    assert "הסבר ai לא זמין" in payload["narrative"]["overall_summary"].lower()
     assert len(payload["narrative"]["category_explanations"]) == 4
+    assert payload["ai"]["status"] in {"ok", "fallback"}
+    assert "reason" in payload["ai"]
 
 
 def test_compare_stage_b_length_error_returns_fallback_200_fast(app, logged_in_client, monkeypatch):
@@ -146,8 +149,9 @@ def test_compare_stage_b_length_error_returns_fallback_200_fast(app, logged_in_c
     assert elapsed < (comparison_service.COMPARE_WRITER_TIMEOUT_SEC + 5)
     payload = resp.get_json()["data"]
     assert payload["narrative"] is not None
-    assert "numeric comparison" in payload["narrative"]["overall_summary"].lower()
+    assert "הסבר ai לא זמין" in payload["narrative"]["overall_summary"].lower()
     assert len(payload["narrative"]["category_explanations"]) == 4
+    assert payload["ai"]["status"] in {"ok", "fallback"}
 
 
 def test_compare_stage_b_json_schema_parsed_into_narrative(app, logged_in_client, monkeypatch):
@@ -192,6 +196,114 @@ def test_compare_stage_b_json_schema_parsed_into_narrative(app, logged_in_client
     cat = payload["narrative"]["category_explanations"][0]
     assert cat["category_key"] == "reliability_risk"
     assert cat["winner"] == "car_1"
+    assert payload["ai"]["status"] == "ok"
+    assert payload["ai"]["reason"] is None
+
+
+def test_compare_stage_a_timeout_returns_200_with_ai_reason(app, logged_in_client, monkeypatch):
+    client, _user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    def fake_stage_a(_prompt, timeout_sec=comparison_service.COMPARE_STAGE_A_TIMEOUT_SEC):
+        return None, "CALL_TIMEOUT"
+
+    def fake_stage_b(_prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC):
+        return None, "CALL_TIMEOUT"
+
+    monkeypatch.setattr(comparison_service, "call_gemini_comparison", fake_stage_a)
+    monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", fake_stage_b)
+
+    start = time.perf_counter()
+    resp = client.post(
+        "/api/compare",
+        json={
+            "cars": [
+                {"make": "Toyota", "model": "Corolla", "year": 2020},
+                {"make": "Honda", "model": "Civic", "year": 2020},
+            ],
+            "legal_confirm": True,
+        },
+        headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+    )
+    elapsed = time.perf_counter() - start
+    assert resp.status_code == 200
+    assert elapsed < 20
+    payload = resp.get_json()["data"]
+    assert payload["computed_result"] is not None
+    assert payload["ai"]["status"] == "fallback"
+    assert payload["ai"]["reason"] == "stage_a_timeout"
+
+
+def test_stage_a_config_is_bounded_and_tools_disabled(app, monkeypatch):
+    captured = {}
+
+    class _FakeModels:
+        def generate_content(self, *, model, contents, config):
+            captured["config"] = config
+            return SimpleNamespace(text='{"grounding_successful": true, "search_queries_used": [], "assumptions": {}, "cars": {}}')
+
+    monkeypatch.setattr(comparison_service.extensions, "ai_client", SimpleNamespace(models=_FakeModels()))
+    with app.app_context():
+        out, err = comparison_service.call_gemini_comparison("{}", timeout_sec=1)
+    assert err is None
+    assert isinstance(out, dict)
+    cfg = captured["config"]
+    assert 450 <= int(getattr(cfg, "max_output_tokens", 0)) <= 700
+    assert not getattr(cfg, "tools", None)
+
+
+def test_compare_ai_regenerate_updates_ai_only(app, logged_in_client, monkeypatch):
+    client, user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    grounded_output = _grounded_output_fixture()
+    monkeypatch.setattr(comparison_service, "call_gemini_comparison", lambda _prompt, timeout_sec=comparison_service.COMPARE_STAGE_A_TIMEOUT_SEC: (copy.deepcopy(grounded_output), None))
+    monkeypatch.setattr(
+        comparison_service,
+        "call_gemini_compare_writer",
+        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: ({
+            "summary": "סיכום ראשון.",
+            "winner": "carA",
+            "categories": [],
+            "caveats": [],
+        }, None),
+    )
+
+    first = client.post(
+        "/api/compare",
+        json={
+            "cars": [
+                {"make": "Toyota", "model": "Corolla", "year": 2020},
+                {"make": "Honda", "model": "Civic", "year": 2020},
+            ],
+            "legal_confirm": True,
+        },
+        headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+    )
+    assert first.status_code == 200
+    comparison_id = first.get_json()["data"]["comparison_id"]
+
+    monkeypatch.setattr(
+        comparison_service,
+        "call_gemini_compare_writer",
+        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: ({
+            "summary": "סיכום מעודכן.",
+            "winner": "carA",
+            "categories": [],
+            "caveats": [],
+        }, None),
+    )
+
+    regen = client.post(
+        f"/api/compare/ai-regenerate?comparison_id={comparison_id}",
+        json={"legal_confirm": True},
+        headers={"Origin": "http://localhost", "Referer": "http://localhost/compare"},
+        environ_overrides={"HTTP_ORIGIN": "http://localhost", "HTTP_REFERER": "http://localhost/compare"},
+    )
+    assert regen.status_code == 200
+    regen_payload = regen.get_json()["data"]
+    assert regen_payload["ai"]["status"] == "ok"
+    assert regen_payload["ai"]["stage_b"] is not None
 
 
 def test_compare_quota_blocks_non_owner(app, logged_in_client):

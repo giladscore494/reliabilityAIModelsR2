@@ -161,6 +161,9 @@ class TestComparisonCacheHit:
         data = resp.get_json()
         assert data["ok"] is True
         assert data["data"]["cached"] is True
+        assert "ai" in data["data"]
+        assert "status" in data["data"]["ai"]
+        assert "reason" in data["data"]["ai"]
         
         # Verify assumptions is a dict, not causing AttributeError
         assert isinstance(data["data"].get("assumptions", {}), dict)
