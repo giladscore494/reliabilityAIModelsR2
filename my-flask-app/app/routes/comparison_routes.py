@@ -243,7 +243,13 @@ def compare_ai_regenerate():
         )
         return api_ok({
             "comparison_id": comparison_id,
-            "ai": {"status": "fallback", "reason": "stage_b_error", "error": "CALL_FAILED:UNKNOWN"},
+            "ai": {
+                "status": "fallback",
+                "reason": "stage_b_error",
+                "error": "CALL_FAILED:UNKNOWN",
+                "stage_a": None,
+                "stage_b": None,
+            },
             "narrative": None,
         })
 

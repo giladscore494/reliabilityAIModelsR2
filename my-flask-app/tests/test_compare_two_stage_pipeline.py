@@ -398,7 +398,10 @@ def test_compare_ai_regenerate_writer_exception_returns_200_fallback(app, logged
         headers={"Content-Type": "application/json", "Origin": "http://localhost"},
     )
     comparison_id = first.get_json()["data"]["comparison_id"]
-    monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("writer boom")))
+    def _raise_writer(*_args, **_kwargs):
+        raise RuntimeError("writer boom")
+
+    monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", _raise_writer)
 
     regen = client.post(
         f"/api/compare/ai-regenerate?comparison_id={comparison_id}",

@@ -1316,44 +1316,68 @@ def call_gemini_compare_writer(prompt: str, timeout_sec: int = COMPARE_WRITER_TI
     outcome_reason = None
     _inc_compare_metric("compare_ai_calls_total")
 
-    if extensions.ai_client is None:
-        outcome_reason = "CLIENT_NOT_INITIALIZED"
-        return None, "CLIENT_NOT_INITIALIZED"
+    try:
+        if extensions.ai_client is None:
+            outcome_reason = "CLIENT_NOT_INITIALIZED"
+            return None, "CLIENT_NOT_INITIALIZED"
 
-    config = genai_types.GenerateContentConfig(
-        temperature=0.3,
-        # Keep sampling conservative to reduce verbosity drift and long responses.
-        top_p=0.8,
-        top_k=20,
-        max_output_tokens=max_output_tokens,
-        response_mime_type="application/json",
-    )
-
-    def _invoke():
-        return extensions.ai_client.models.generate_content(
-            model=COMPARISON_MODEL_ID,
-            contents=prompt,
-            config=config,
+        config = genai_types.GenerateContentConfig(
+            temperature=0.3,
+            # Keep sampling conservative to reduce verbosity drift and long responses.
+            top_p=0.8,
+            top_k=20,
+            max_output_tokens=max_output_tokens,
+            response_mime_type="application/json",
         )
 
-    try:
-        future = AI_EXECUTOR.submit(_invoke)
-        resp = future.result(timeout=timeout_sec)
-        outcome = "ok"
-    except concurrent.futures.TimeoutError:
-        future.cancel()
-        _inc_compare_metric("compare_ai_failures_total", reason="timeout")
-        outcome = "timeout"
-        outcome_reason = "CALL_TIMEOUT"
-        return None, "CALL_TIMEOUT"
-    except Exception as e:
-        _log_ai_client_error("comparison_stage_b", e)
-        _inc_compare_metric("compare_stage_b_error_total")
-        outcome = "error"
-        outcome_reason = type(e).__name__
-        if _is_output_too_long_error(str(e)):
-            return None, "CALL_FAILED_OUTPUT_TOO_LONG"
-        return None, f"CALL_FAILED:{type(e).__name__}"
+        def _invoke():
+            return extensions.ai_client.models.generate_content(
+                model=COMPARISON_MODEL_ID,
+                contents=prompt,
+                config=config,
+            )
+
+        try:
+            future = AI_EXECUTOR.submit(_invoke)
+            resp = future.result(timeout=timeout_sec)
+        except concurrent.futures.TimeoutError:
+            future.cancel()
+            _inc_compare_metric("compare_ai_failures_total", reason="timeout")
+            outcome = "timeout"
+            outcome_reason = "CALL_TIMEOUT"
+            return None, "CALL_TIMEOUT"
+        except Exception as e:
+            _log_ai_client_error("comparison_stage_b", e)
+            _inc_compare_metric("compare_stage_b_error_total")
+            outcome_reason = type(e).__name__
+            if _is_output_too_long_error(str(e)):
+                return None, "CALL_FAILED_OUTPUT_TOO_LONG"
+            return None, f"CALL_FAILED:{type(e).__name__}"
+
+        text = (getattr(resp, "text", "") or "").strip()
+        if not text:
+            outcome_reason = "EMPTY_RESPONSE"
+            return None, "EMPTY_RESPONSE"
+        COMPARE_AI_METRICS["compare_ai_output_tokens_estimate"] = _estimate_token_count(text)
+
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                outcome = "ok"
+                return parsed, None
+        except json.JSONDecodeError:
+            try:
+                from json_repair import repair_json
+                repaired = repair_json(text)
+                parsed = json.loads(repaired)
+                if isinstance(parsed, dict):
+                    outcome = "ok"
+                    return parsed, None
+            except Exception:
+                pass
+
+        outcome_reason = "MODEL_JSON_INVALID"
+        return None, "MODEL_JSON_INVALID"
     finally:
         duration_ms = (pytime.perf_counter() - start_time) * 1000
         current_app.logger.info(
@@ -1369,31 +1393,6 @@ def call_gemini_compare_writer(prompt: str, timeout_sec: int = COMPARE_WRITER_TI
             outcome,
             outcome_reason,
         )
-
-    text = (getattr(resp, "text", "") or "").strip()
-    if not text:
-        outcome = "error"
-        outcome_reason = "EMPTY_RESPONSE"
-        return None, "EMPTY_RESPONSE"
-    COMPARE_AI_METRICS["compare_ai_output_tokens_estimate"] = _estimate_token_count(text)
-
-    try:
-        parsed = json.loads(text)
-        if isinstance(parsed, dict):
-            return parsed, None
-    except json.JSONDecodeError:
-        try:
-            from json_repair import repair_json
-            repaired = repair_json(text)
-            parsed = json.loads(repaired)
-            if isinstance(parsed, dict):
-                return parsed, None
-        except Exception:
-            pass
-
-    outcome = "error"
-    outcome_reason = "MODEL_JSON_INVALID"
-    return None, "MODEL_JSON_INVALID"
 
 
 def _truncate_log_payload(value: Any, limit: int = 300) -> str:
