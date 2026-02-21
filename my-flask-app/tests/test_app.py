@@ -58,6 +58,26 @@ def test_api_schema_success(client):
     assert "request_id" in data
 
 
+def test_favicon_served(client):
+    resp = client.get("/favicon.ico")
+    assert resp.status_code == 200
+    assert len(resp.data) > 0
+
+
+def test_static_assets_non_empty(client):
+    script_resp = client.get("/static/script.js")
+    navbar_resp = client.get("/static/navbar.js")
+    assert script_resp.status_code == 200
+    assert navbar_resp.status_code == 200
+    assert len(script_resp.data) > 0
+    assert len(navbar_resp.data) > 0
+
+
+def test_security_scan_paths_fast_404(client):
+    assert client.get("/.env").status_code == 404
+    assert client.get("/wp-admin").status_code == 404
+
+
 def test_quota_refund_on_failure(app, logged_in_client, monkeypatch):
     client, user_id = logged_in_client
     monkeypatch.setenv("SIMULATE_AI_FAIL", "1")

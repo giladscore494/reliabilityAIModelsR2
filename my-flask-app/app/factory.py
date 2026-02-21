@@ -149,7 +149,7 @@ def resolve_app_timezone() -> Tuple[ZoneInfo, str]:
     """
     Resolve application timezone from APP_TZ env with safe fallback to UTC.
     """
-    tz_name = os.environ.get("APP_TZ", "UTC").strip() or "UTC"
+    tz_name = os.environ.get("APP_TZ", "Asia/Jerusalem").strip() or "Asia/Jerusalem"
     try:
         return ZoneInfo(tz_name), tz_name
     except Exception:
@@ -1677,6 +1677,30 @@ def create_app():
             if request.is_json or request.accept_mimetypes.accept_json or request.path.startswith(('/analyze', '/advisor_api', '/search-details')):
                 return api_error("invalid_host", "Invalid host header", status=400)
             return "Invalid host header", 400
+
+    @app.before_request
+    def block_security_scan_paths():
+        path = (request.path or "").lower()
+        blocked_prefixes = (
+            "/.env", "/.git", "/wp-admin", "/config", "/phpinfo",
+            "/phpmyadmin", "/server-status",
+        )
+        if not any(path == p or path.startswith(f"{p}/") for p in blocked_prefixes):
+            return None
+        client_ip = get_client_ip()
+        try:
+            check_and_increment_ip_rate_limit(client_ip, limit=PER_IP_PER_MIN_LIMIT)
+        except Exception:
+            pass
+        logger.warning(
+            "[SECURITY_SCAN] method=%s path=%s ip=%s ua=%s request_id=%s",
+            request.method,
+            request.path,
+            client_ip,
+            (request.headers.get("User-Agent") or "")[:120],
+            get_request_id(),
+        )
+        return ("", 404)
 
     @app.before_request
     def enforce_route_specific_payload_limits():

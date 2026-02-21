@@ -135,7 +135,43 @@ def test_compare_quota_blocks_non_owner(app, logged_in_client):
     )
     assert resp.status_code == 429
     data = resp.get_json()
-    assert data["error"]["code"] == "DAILY_LIMIT_REACHED"
+    assert data["error"] == "daily_limit_reached"
+    assert "reset_at" in data
+
+
+def test_compare_idempotency_key_does_not_consume_quota_twice(app, logged_in_client, monkeypatch):
+    client, user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    def fake_handle(_data, _uid, _sid, owner_bypass=False):
+        from app.utils.http_helpers import api_ok
+        return api_ok({"computed_result": {"overall_winner": "car_1"}, "cars_selected": {}, "narrative": None})
+
+    monkeypatch.setattr(comparison_service, "handle_comparison_request", fake_handle)
+
+    headers = {
+        "Content-Type": "application/json",
+        "Origin": "http://localhost",
+        "X-Idempotency-Key": "same-request-key",
+    }
+    payload = {
+        "cars": [
+            {"make": "Toyota", "model": "Corolla", "year": 2020},
+            {"make": "Honda", "model": "Civic", "year": 2020},
+        ],
+        "legal_confirm": True,
+    }
+
+    resp1 = client.post("/api/compare", json=payload, headers=headers)
+    resp2 = client.post("/api/compare", json=payload, headers=headers)
+    assert resp1.status_code == 200
+    assert resp2.status_code == 200
+
+    with app.app_context():
+        tz, _ = resolve_app_timezone()
+        day_key, *_ = compute_quota_window(tz)
+        quota = DailyQuotaUsage.query.filter_by(user_id=user_id, day=day_key).first()
+        assert quota and quota.count == 1
 
 
 def test_compare_owner_bypasses_quota(app, logged_in_client, monkeypatch):

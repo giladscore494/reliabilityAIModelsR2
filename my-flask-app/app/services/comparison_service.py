@@ -948,6 +948,33 @@ def call_gemini_compare_writer(prompt: str, timeout_sec: int = 60) -> Tuple[Opti
     return None, "MODEL_JSON_INVALID"
 
 
+def _truncate_log_payload(value: Any, limit: int = 300) -> str:
+    try:
+        raw = json.dumps(value, ensure_ascii=False)
+    except Exception:
+        raw = str(value)
+    raw = " ".join(raw.split())
+    return raw[:limit]
+
+
+def _attempt_schema_repair(payload: Any, request_id: str) -> Optional[Dict[str, Any]]:
+    repair_prompt = (
+        "Return EXACTLY one JSON object with keys grounding_successful, assumptions, search_queries_used, cars. "
+        "Do not return arrays at top-level and do not add markdown. "
+        f"Normalize this payload into that object schema:\n{json.dumps(payload, ensure_ascii=False)}"
+    )
+    repaired, repair_error = call_gemini_compare_writer(repair_prompt, timeout_sec=25)
+    if repair_error or not isinstance(repaired, dict):
+        current_app.logger.warning(
+            "[AI_SCHEMA] schema_repair_failed request_id=%s error=%s payload_sample=%s",
+            request_id,
+            repair_error,
+            _truncate_log_payload(payload),
+        )
+        return None
+    return repaired
+
+
 def generate_narrative(cars_selected_slots: Dict, computed_result: Dict, timeout_sec: int = 60) -> Optional[Dict]:
     """
     Generate short human-friendly explanations using Gemini Flash WITHOUT grounding.
@@ -1125,26 +1152,35 @@ def normalize_model_output(parsed: Any, request_id: str) -> Tuple[Optional[Dict[
     # If it's a list, try to extract the dict
     if isinstance(parsed, list):
         if len(parsed) == 1 and isinstance(parsed[0], dict):
-            # Single-element list containing a dict - use it with a warning
-            current_app.logger.warning(
-                "[COMPARISON] Model returned list with single dict, normalizing. request_id=%s",
-                request_id
+            candidate = parsed[0]
+            needs_repair = not (
+                isinstance(candidate.get("cars"), dict)
+                and "grounding_successful" in candidate
             )
-            return parsed[0], None
+            repaired = _attempt_schema_repair(candidate, request_id) if needs_repair else None
+            current_app.logger.warning(
+                "[AI_SCHEMA] list_single_dict_normalized request_id=%s repaired=%s payload_sample=%s",
+                request_id,
+                bool(repaired),
+                _truncate_log_payload(parsed[0]),
+            )
+            return repaired or parsed[0], None
         else:
             # List with multiple elements or non-dict elements
             current_app.logger.error(
-                "[COMPARISON] Model returned invalid list shape (len=%d). request_id=%s",
+                "[AI_SCHEMA] invalid_list_shape len=%d request_id=%s payload_sample=%s",
                 len(parsed),
-                request_id
+                request_id,
+                _truncate_log_payload(parsed),
             )
             return None, "MODEL_SHAPE_INVALID"
     
     # Any other type is invalid
     current_app.logger.error(
-        "[COMPARISON] Model returned unexpected type: %s. request_id=%s",
+        "[AI_SCHEMA] unexpected_type=%s request_id=%s payload_sample=%s",
         type(parsed).__name__,
-        request_id
+        request_id,
+        _truncate_log_payload(parsed),
     )
     return None, "MODEL_SHAPE_INVALID"
 
@@ -1381,6 +1417,10 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     """
     logger = current_app.logger
     request_id = get_request_id()
+    total_start = pytime.perf_counter()
+    deterministic_ms = 0
+    ai_ms = 0
+    db_ms = 0
     
     # Validate request
     is_valid, error_msg, validated_cars = validate_comparison_request(data)
@@ -1389,26 +1429,6 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     
     # Map cars to stable slots with display_name
     cars_selected_slots = map_cars_to_slots(validated_cars)
-    
-    # Enforce per-user daily limit before any AI calls
-    if user_id and not owner_bypass:
-        now = datetime.utcnow()
-        day_start = datetime(now.year, now.month, now.day)
-        day_end = day_start + timedelta(days=1)
-        today_count = (
-            ComparisonHistory.query.filter(
-                ComparisonHistory.user_id == user_id,
-                ComparisonHistory.created_at >= day_start,
-                ComparisonHistory.created_at < day_end,
-            ).count()
-        )
-        if today_count >= 3:
-            log_access_decision('/api/compare', user_id, 'rejected', 'daily limit reached')
-            return api_error(
-                "limit_reached",
-                "הגעת למקסימום 3 השוואות היום. נסה מחר.",
-                status=429,
-            )
     
     # Compute request hash for caching
     request_hash = compute_request_hash(validated_cars)
@@ -1494,9 +1514,10 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     prompt = build_compare_grounding_prompt(validated_cars)
 
     # Stage A: grounded Gemini call
-    start_time = pytime.perf_counter()
+    stage_a_start = pytime.perf_counter()
     model_output, error = call_gemini_comparison(prompt)
-    duration_ms = int((pytime.perf_counter() - start_time) * 1000)
+    duration_ms = int((pytime.perf_counter() - stage_a_start) * 1000)
+    ai_ms += duration_ms
     
     if error:
         logger.error(f"[COMPARISON] AI call failed request_id={request_id} error={error}")
@@ -1531,14 +1552,16 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
         )
     
     # Compute scores deterministically (server-side source of truth)
+    scoring_start = pytime.perf_counter()
     server_computed_result = compute_comparison_results(model_output)
-    
-    # Build sources index
     sources_index = build_sources_index(model_output)
+    deterministic_ms = int((pytime.perf_counter() - scoring_start) * 1000)
     
     # Stage B: non-grounded writer call (full schema + narrative around server results)
     writer_prompt = build_compare_writer_prompt(cars_selected_slots, server_computed_result, model_output)
+    stage_b_start = pytime.perf_counter()
     stage_b_output, stage_b_error = call_gemini_compare_writer(writer_prompt)
+    ai_ms += int((pytime.perf_counter() - stage_b_start) * 1000)
     narrative = None
     if stage_b_error:
         logger.warning(f"[COMPARISON] stage_b call failed request_id={request_id} error={stage_b_error}")
@@ -1557,6 +1580,7 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     
     # Save to database
     try:
+        db_start = pytime.perf_counter()
         comparison_record = ComparisonHistory(
             created_at=datetime.utcnow(),
             user_id=user_id,
@@ -1574,11 +1598,22 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
         db.session.add(comparison_record)
         db.session.commit()
         comparison_id = comparison_record.id
+        db_ms = int((pytime.perf_counter() - db_start) * 1000)
         logger.info(f"[COMPARISON] saved request_id={request_id} comparison_id={comparison_id}")
     except Exception as e:
         logger.error(f"[COMPARISON] save failed request_id={request_id} error={e}")
         db.session.rollback()
         comparison_id = None
+    finally:
+        total_ms = int((pytime.perf_counter() - total_start) * 1000)
+        logger.info(
+            "[COMPARE_TIMING] request_id=%s total_ms=%s deterministic_ms=%s ai_ms=%s db_ms=%s",
+            request_id,
+            total_ms,
+            deterministic_ms,
+            ai_ms,
+            db_ms,
+        )
     
     return api_ok({
         "cached": False,
