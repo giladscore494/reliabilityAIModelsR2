@@ -153,4 +153,7 @@
   </div>
 </div>
 
+<script>
+  window.__IS_AUTHENTICATED__ = {{ 'true' if is_authenticated else 'false' }};
+</script>
 <script src="{{ url_for('static', filename='navbar.js') }}" defer></script>

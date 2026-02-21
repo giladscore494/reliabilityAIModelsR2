@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Comparison routes blueprint for Car Comparison feature."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Blueprint, render_template, request, current_app, session
 from flask_login import current_user, login_required
 
@@ -15,10 +15,11 @@ from app.quota import (
     reserve_daily_quota,
     finalize_quota_reservation,
     release_quota_reservation,
+    get_daily_quota_usage,
     PER_IP_PER_MIN_LIMIT,
 )
 from app.legal import TERMS_VERSION, PRIVACY_VERSION
-from app.models import LegalAcceptance
+from app.models import LegalAcceptance, QuotaReservation
 from app.utils.http_helpers import api_error, api_ok, is_owner_user, get_request_id
 from app.services import comparison_service
 
@@ -107,25 +108,64 @@ def compare_api():
     owner_bypass = is_owner_user()
     request_id = get_request_id()
     reservation_id = None
+    idempotency_key = (request.headers.get("X-Idempotency-Key") or "").strip()
+    if len(idempotency_key) > 64:
+        return api_error("invalid_idempotency_key", "X-Idempotency-Key must be at most 64 chars", status=400)
+    idempotent_retry = False
+    reservation_request_id = request_id
 
     if not owner_bypass:
+        if idempotency_key:
+            idem_request_id = f"idem:{idempotency_key}"
+            idem_ttl_seconds = int(current_app.config.get("COMPARE_IDEMPOTENCY_TTL_SECONDS", 300))
+            ttl_cutoff = datetime.utcnow() - timedelta(seconds=idem_ttl_seconds)
+            existing = (
+                QuotaReservation.query
+                .filter(
+                    QuotaReservation.user_id == user_id,
+                    QuotaReservation.day == day_key,
+                    QuotaReservation.request_id == idem_request_id,
+                    QuotaReservation.created_at >= ttl_cutoff,
+                    QuotaReservation.status.in_(("reserved", "consumed")),
+                )
+                .order_by(QuotaReservation.created_at.desc())
+                .first()
+            )
+            if existing and existing.status == "reserved":
+                return api_error("request_in_progress", "בקשה זהה עדיין בתהליך.", status=409)
+            if existing and existing.status == "consumed":
+                idempotent_retry = True
+            else:
+                reservation_request_id = idem_request_id
         try:
-            ok, used, _active, reservation_id = reserve_daily_quota(user_id, day_key, daily_limit, request_id)
+            if not idempotent_retry:
+                ok, used, _active, reservation_id = reserve_daily_quota(
+                    user_id, day_key, daily_limit, reservation_request_id
+                )
+            else:
+                ok, used = True, get_daily_quota_usage(user_id, day_key)
         except Exception:
             return api_error("quota_error", "Quota system error", status=500)
         if not ok:
             log_access_decision('/api/compare', user_id, 'rejected', 'daily limit reached')
-            return api_error(
-                "DAILY_LIMIT_REACHED",
-                "הגעת למגבלת השימוש היומית.",
+            resp = current_app.response_class(
+                response=current_app.json.dumps({
+                    "error": "daily_limit_reached",
+                    "limit": daily_limit,
+                    "used": used,
+                    "reset_at": resets_at.isoformat(),
+                    "request_id": request_id,
+                }),
                 status=429,
-                details={"limit": daily_limit, "used": used, "resets_at": resets_at.isoformat()},
+                mimetype="application/json",
             )
+            resp.headers["X-Request-ID"] = request_id
+            return resp
 
     # Process comparison
     try:
         resp = comparison_service.handle_comparison_request(data, user_id, session_id, owner_bypass=owner_bypass)
-        if reservation_id:
+        if reservation_id and not idempotent_retry:
             if resp.status_code < 400:
                 finalize_quota_reservation(reservation_id, user_id, day_key)
             else:

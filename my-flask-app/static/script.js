@@ -719,8 +719,8 @@
             form.addEventListener('submit', handleSubmit);
         }
         
-        // Load history list on page load if logged in
-        if (typeof window.loadHistoryList === 'function') {
+        // Load history list only for authenticated sessions
+        if (window.__IS_AUTHENTICATED__ === true && typeof window.loadHistoryList === 'function') {
             window.loadHistoryList();
         }
     });
@@ -734,6 +734,9 @@
             });
             
             if (!res.ok) {
+                if (res.error?.details?.status === 401 || res.error?.code === 'unauthenticated') {
+                    return;
+                }
                 console.error('Failed to load history:', res.error);
                 return;
             }

@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <title>yedaarechevAI – השוואת רכבים</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
 
     <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
     <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
@@ -805,6 +806,8 @@
     
     let compareTimingInterval = null;
     let compareTimingStartTime = null;
+    let compareInFlight = false;
+    let compareIdempotencyKey = null;
     
     // ============================================================
     // TIMING BANNER FUNCTIONS
@@ -1315,6 +1318,7 @@
     }
     
     async function runComparison() {
+        if (compareInFlight) return;
         const cars = getSelectedCars();
         if (cars.length < 2) return;
         const legalConfirm = requireCompareLegalConfirm();
@@ -1326,12 +1330,15 @@
         }
         
         // UI state
+        compareInFlight = true;
+        compareIdempotencyKey = compareIdempotencyKey || (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
         compareBtn.querySelector('.btn-text').classList.add('hidden');
         compareBtn.querySelector('.btn-loading').classList.remove('hidden');
         compareBtn.disabled = true;
         resultsSection.classList.add('hidden');
         errorSection.classList.add('hidden');
         document.getElementById('errorRequestId').classList.add('hidden');
+        retryBtn?.classList.remove('hidden');
         
         try {
             if (!window.legalAccepted) {
@@ -1349,6 +1356,7 @@
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'X-Idempotency-Key': compareIdempotencyKey,
                 },
                 body: JSON.stringify({ cars, legal_confirm: true })
             });
@@ -1391,11 +1399,17 @@
                 if (errorCode === 'limit_reached' || data.error === 'limit_reached') {
                     throw createCompareError('הגעת למקסימום 3 השוואות היום. נסה מחר.', requestId);
                 }
+                if (data.error === 'daily_limit_reached') {
+                    const resetAt = data.reset_at ? new Date(data.reset_at).toLocaleString('he-IL') : '';
+                    retryBtn?.classList.add('hidden');
+                    throw createCompareError(`הגעת למגבלת השימוש היומית. ניתן לנסות שוב אחרי ${resetAt}`, requestId);
+                }
                 
                 throw createCompareError(errorMsg, requestId);
             }
             
             comparisonResult = data.data;
+            compareIdempotencyKey = null;
             renderResults(comparisonResult);
             resultsSection.classList.remove('hidden');
             
@@ -1421,6 +1435,7 @@
             
             compareBtn.querySelector('.btn-text').classList.remove('hidden');
             compareBtn.querySelector('.btn-loading').classList.add('hidden');
+            compareInFlight = false;
             updateCompareButton();
         }
     }

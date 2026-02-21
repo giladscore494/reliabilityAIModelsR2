@@ -20,7 +20,7 @@ MAX_ACTIVE_RESERVATIONS = 1
 
 
 def resolve_app_timezone() -> Tuple[ZoneInfo, str]:
-    tz_name = os.environ.get("APP_TZ", "UTC").strip() or "UTC"
+    tz_name = os.environ.get("APP_TZ", "Asia/Jerusalem").strip() or "Asia/Jerusalem"
     try:
         return ZoneInfo(tz_name), tz_name
     except Exception:

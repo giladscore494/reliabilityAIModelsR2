@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """Public routes blueprint - handles public-facing pages and authentication."""
 
-import os
 from flask import Blueprint, render_template, redirect, url_for, send_from_directory, session, flash, current_app
 from flask_login import login_user, logout_user, current_user, login_required
 from authlib.integrations.base_client.errors import MismatchingStateError
@@ -21,7 +20,7 @@ def healthz():
 
 @bp.route('/favicon.ico')
 def favicon():
-    return send_from_directory(os.path.join(current_app.root_path, 'static'), 'favicon.ico')
+    return send_from_directory(current_app.static_folder, 'favicon.ico')
 
 
 @bp.route('/')
