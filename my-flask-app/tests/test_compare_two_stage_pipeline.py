@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import copy
+import time
 from datetime import datetime
 
 from app.services import comparison_service
@@ -107,9 +108,90 @@ def test_compare_two_stage_handles_stage_b_failure_gracefully(app, logged_in_cli
     )
     assert resp.status_code == 200
     payload = resp.get_json()["data"]
-    assert calls == {"stage_a": 1, "stage_b": 1}
+    assert calls == {"stage_a": 1, "stage_b": 2}
     assert payload["computed_result"]["overall_winner"] == "car_1"
-    assert payload["narrative"] is None
+    assert payload["narrative"] is not None
+    assert "numeric comparison" in payload["narrative"]["overall_summary"].lower()
+    assert len(payload["narrative"]["category_explanations"]) == 4
+
+
+def test_compare_stage_b_length_error_returns_fallback_200_fast(app, logged_in_client, monkeypatch):
+    client, _user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    def fake_stage_a(_prompt, timeout_sec=comparison_service.AI_CALL_TIMEOUT_SEC):
+        return copy.deepcopy(_grounded_output_fixture()), None
+
+    def fake_stage_b(_prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC):
+        return None, "CALL_FAILED_OUTPUT_TOO_LONG"
+
+    monkeypatch.setattr(comparison_service, "call_gemini_comparison", fake_stage_a)
+    monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", fake_stage_b)
+
+    start = time.perf_counter()
+    resp = client.post(
+        "/api/compare",
+        json={
+            "cars": [
+                {"make": "Toyota", "model": "Corolla", "year": 2020},
+                {"make": "Honda", "model": "Civic", "year": 2020},
+            ],
+            "legal_confirm": True,
+        },
+        headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+    )
+    elapsed = time.perf_counter() - start
+
+    assert resp.status_code == 200
+    assert elapsed < (comparison_service.COMPARE_WRITER_TIMEOUT_SEC + 5)
+    payload = resp.get_json()["data"]
+    assert payload["narrative"] is not None
+    assert "numeric comparison" in payload["narrative"]["overall_summary"].lower()
+    assert len(payload["narrative"]["category_explanations"]) == 4
+
+
+def test_compare_stage_b_json_schema_parsed_into_narrative(app, logged_in_client, monkeypatch):
+    client, _user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    def fake_stage_a(_prompt, timeout_sec=comparison_service.AI_CALL_TIMEOUT_SEC):
+        return copy.deepcopy(_grounded_output_fixture()), None
+
+    def fake_stage_b(_prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC):
+        return {
+            "summary": "טויוטה מובילה מעט באמינות ובתמונה הכוללת.",
+            "winner": "carA",
+            "categories": [
+                {
+                    "name": "reliability_risk",
+                    "winner": "carA",
+                    "why": "פחות סיכון לתקלות משמעותיות לפי הניקוד.",
+                    "tips": ["בדקו היסטוריית טיפולים", "בצעו בדיקת קנייה"],
+                }
+            ],
+            "caveats": ["הנתונים עשויים להשתנות לפי רמת תחזוקה."],
+        }, None
+
+    monkeypatch.setattr(comparison_service, "call_gemini_comparison", fake_stage_a)
+    monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", fake_stage_b)
+
+    resp = client.post(
+        "/api/compare",
+        json={
+            "cars": [
+                {"make": "Toyota", "model": "Corolla", "year": 2020},
+                {"make": "Honda", "model": "Civic", "year": 2020},
+            ],
+            "legal_confirm": True,
+        },
+        headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+    )
+    assert resp.status_code == 200
+    payload = resp.get_json()["data"]
+    assert payload["narrative"]["overall_summary"]
+    cat = payload["narrative"]["category_explanations"][0]
+    assert cat["category_key"] == "reliability_risk"
+    assert cat["winner"] == "car_1"
 
 
 def test_compare_quota_blocks_non_owner(app, logged_in_client):
