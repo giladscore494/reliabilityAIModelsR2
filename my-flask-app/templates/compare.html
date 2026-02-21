@@ -510,6 +510,9 @@
                     <p id="narrativeOverallSummary" class="text-slate-200 leading-relaxed"></p>
                     <div id="narrativeCategoryExplanations" class="space-y-3"></div>
                     <div id="narrativeDisclaimers" class="text-xs text-slate-400 mt-4"></div>
+                    <button id="aiRetryBtn" type="button" class="hidden mt-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-full transition-all">
+                        נסה שוב
+                    </button>
                 </div>
                 
                 <!-- Metric Legend (explains low/medium/high) -->
@@ -808,6 +811,7 @@
     let compareTimingStartTime = null;
     let compareInFlight = false;
     let compareIdempotencyKey = null;
+    let currentComparisonId = null;
     
     // ============================================================
     // TIMING BANNER FUNCTIONS
@@ -1186,12 +1190,14 @@
             
             // Build compatible result object for renderResults
             const resultCompat = {
+                comparison_id: record.id,
                 cars_selected: record.cars_selected || {},
                 computed_result: record.computed_result || {},
                 model_output: record.model_output || {},
                 sources_index: record.sources_index || {},
                 assumptions: record.assumptions || {},
-                narrative: record.narrative || null
+                narrative: record.narrative || null,
+                ai: record.ai || null
             };
             
             // For populateSelectorsFromCars, use the list format
@@ -1200,6 +1206,7 @@
             
             // Render results using existing function
             comparisonResult = resultCompat;
+            currentComparisonId = resultCompat.comparison_id || null;
             renderResults(resultCompat);
             resultsSection.classList.remove('hidden');
             
@@ -1344,7 +1351,7 @@
             if (!window.legalAccepted) {
                 const acceptedViaBanner = await ensureLegalAcceptance();
                 if (!acceptedViaBanner) {
-                    showCompareLegalError('Please accept Terms & Privacy first.');
+                    showCompareLegalError('יש לאשר תנאי שימוש ומדיניות פרטיות.');
                     return;
                 }
             }
@@ -1393,7 +1400,7 @@
                 };
                 
                 if (errorCode === 'TERMS_NOT_ACCEPTED' || data.error === 'TERMS_NOT_ACCEPTED') {
-                    showCompareLegalError('Please accept Terms & Privacy first.');
+                    showCompareLegalError('יש לאשר תנאי שימוש ומדיניות פרטיות.');
                     throw createCompareError('נדרש לאשר תנאי שימוש ומדיניות פרטיות', requestId);
                 }
                 if (errorCode === 'limit_reached' || data.error === 'limit_reached') {
@@ -1409,6 +1416,7 @@
             }
             
             comparisonResult = data.data;
+            currentComparisonId = comparisonResult?.comparison_id || null;
             compareIdempotencyKey = null;
             renderResults(comparisonResult);
             resultsSection.classList.remove('hidden');
@@ -1501,7 +1509,7 @@
         reasonsList.innerHTML = reasons.map(r => `<li>• ${escapeHtml(r)}</li>`).join('') || '<li>אין נתונים</li>';
         
         // Render narrative
-        renderNarrative(result.narrative, carKeys);
+        renderNarrative(result, carKeys);
         
         // Render categories
         const categoriesSection = document.getElementById('categoriesSection');
@@ -1525,7 +1533,7 @@
             const catWinnerBadgeClass = catWinner === 'tie' ? 'tie-badge' : 'winner-badge';
             
             // Find narrative for this category
-            const catNarrative = (result.narrative?.category_explanations || []).find(c => c.category_key === catName);
+            const catNarrative = (result.ai?.stage_b?.categories || result.narrative?.category_explanations || []).find(c => c.category_key === catName);
             
             catDiv.innerHTML = `
                 <div class="category-header" data-category="${catName}">
@@ -1657,10 +1665,58 @@
     // NARRATIVE RENDERING
     // ============================================================
     
-    function renderNarrative(narrative, carKeys) {
+    async function regenerateAiExplanation() {
+        if (!currentComparisonId) return;
+        const aiRetryBtn = document.getElementById('aiRetryBtn');
+        if (aiRetryBtn) {
+            aiRetryBtn.disabled = true;
+            aiRetryBtn.textContent = 'טוען...';
+        }
+        try {
+            const response = await fetch(`/api/compare/ai-regenerate?comparison_id=${encodeURIComponent(currentComparisonId)}`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ legal_confirm: true })
+            });
+            const payload = await response.json();
+            if (response.ok && payload.ok && comparisonResult) {
+                comparisonResult.ai = payload.data?.ai || comparisonResult.ai;
+                comparisonResult.narrative = payload.data?.narrative || comparisonResult.narrative;
+                const carKeys = Object.keys(comparisonResult.cars_selected || {}).filter(k => k.startsWith('car_'));
+                renderNarrative(comparisonResult, carKeys);
+            }
+        } catch (error) {
+            console.error('[COMPARE] AI regenerate failed', error);
+        } finally {
+            if (aiRetryBtn) {
+                aiRetryBtn.disabled = false;
+                aiRetryBtn.textContent = 'נסה שוב';
+            }
+        }
+    }
+
+    function renderNarrative(result, carKeys) {
+        const ai = result?.ai || {};
+        const narrative = ai?.stage_b ? {
+            overall_summary: ai.stage_b.narrative,
+            category_explanations: ai.stage_b.categories || [],
+            disclaimers_he: [],
+        } : (result?.narrative || null);
         const section = document.getElementById('narrativeSection');
-        if (!section || !narrative) {
-            if (section) section.classList.add('hidden');
+        const aiRetryBtn = document.getElementById('aiRetryBtn');
+        if (!section) {
+            return;
+        }
+        if (aiRetryBtn) {
+            aiRetryBtn.classList.toggle('hidden', !currentComparisonId);
+        }
+        if (!narrative || ai?.status !== 'ok') {
+            section.classList.remove('hidden');
+            const summaryEl = document.getElementById('narrativeOverallSummary');
+            const disclaimersEl = document.getElementById('narrativeDisclaimers');
+            if (summaryEl) summaryEl.textContent = 'הסבר AI לא זמין כרגע; מוצגת השוואה מספרית.';
+            if (disclaimersEl) disclaimersEl.textContent = 'אפשר לנסות שוב.';
             return;
         }
         
@@ -1730,6 +1786,7 @@
     retryBtn.addEventListener('click', () => {
         errorSection.classList.add('hidden');
     });
+    document.getElementById('aiRetryBtn')?.addEventListener('click', regenerateAiExplanation);
     
     // ============================================================
     // INITIALIZE
