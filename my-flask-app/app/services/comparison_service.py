@@ -113,7 +113,18 @@ def map_cars_to_slots(validated_cars: List[Dict]) -> Dict[str, Dict]:
 COMPARISON_PROMPT_VERSION = "v1"
 COMPARISON_MODEL_ID = "gemini-3-flash-preview"
 AI_CALL_TIMEOUT_SEC = int(os.environ.get("AI_CALL_TIMEOUT_SEC", "170"))
+COMPARE_WRITER_TIMEOUT_SEC = int(os.environ.get("COMPARE_WRITER_TIMEOUT_SEC", "30"))
+COMPARE_WRITER_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_WRITER_MAX_OUTPUT_TOKENS", "1100"))
+COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS", "500"))
+COMPARE_WRITER_PROMPT_CHAR_CAP = int(os.environ.get("COMPARE_WRITER_PROMPT_CHAR_CAP", "16000"))
 TIE_THRESHOLD = 3  # Score delta below this = "tie" (צמוד)
+
+COMPARE_AI_METRICS = {
+    "compare_ai_calls_total": 0,
+    "compare_ai_failures_total": {},
+    "compare_ai_fallback_used_total": 0,
+    "compare_ai_output_tokens_estimate": 0,
+}
 
 # Category weights for overall score calculation
 CATEGORY_WEIGHTS = {
@@ -482,45 +493,98 @@ RULES:
 
 
 def build_compare_writer_prompt(cars_selected_slots: Dict, computed_result: Dict, grounded_output: Dict) -> str:
-    """Build Stage B non-grounded writer prompt for final narrative/schema packaging."""
-    slot_keys = list(cars_selected_slots.keys())
-    car_explanations_template = ", ".join(f'"{k}": "string (1-2 sentences)"' for k in slot_keys)
-    grounding_summary = {
-        "assumptions": grounded_output.get("assumptions", {}) if isinstance(grounded_output, dict) else {},
-        "search_queries_used": grounded_output.get("search_queries_used", []) if isinstance(grounded_output, dict) else [],
+    """Build compact Stage B prompt from deterministic results only."""
+    def _truncate_text(value: Any, max_chars: int = 120) -> str:
+        raw = str(value or "").strip()
+        return raw[:max_chars]
+
+    def _winner_to_public(winner: Optional[str]) -> str:
+        if winner == "car_1":
+            return "carA"
+        if winner == "car_2":
+            return "carB"
+        return "tie"
+
+    def _category_feature_snapshot(category_key: str) -> List[Dict[str, Any]]:
+        feature_keys = []
+        if category_key == "reliability_risk":
+            feature_keys = ["reliability_rating", "major_failure_risk", "mileage_sensitivity"]
+        elif category_key == "ownership_cost":
+            feature_keys = ["fuel_economy_real_world", "insurance_cost_level", "depreciation_value_retention"]
+        elif category_key == "practicality_comfort":
+            feature_keys = ["trunk_space_liters", "cabin_space", "ride_comfort"]
+        elif category_key == "driving_performance":
+            feature_keys = ["acceleration_0_100", "engine_power_hp", "handling_stability"]
+        out = []
+        grounded_cars = grounded_output.get("cars", {}) if isinstance(grounded_output, dict) else {}
+        for metric_key in feature_keys:
+            metric_values = {}
+            for slot in ("car_1", "car_2"):
+                value = (((grounded_cars.get(slot) or {}).get(category_key) or {}).get(metric_key) or {}).get("value")
+                metric_values["carA" if slot == "car_1" else "carB"] = value
+            out.append({"metric": metric_key, "values": metric_values})
+        return out
+
+    car_a = cars_selected_slots.get("car_1", {}) if isinstance(cars_selected_slots, dict) else {}
+    car_b = cars_selected_slots.get("car_2", {}) if isinstance(cars_selected_slots, dict) else {}
+    constraints = {}
+    assumptions = grounded_output.get("assumptions", {}) if isinstance(grounded_output, dict) else {}
+    for k in ("budget", "max_mileage"):
+        if assumptions.get(k):
+            constraints[k] = assumptions.get(k)
+
+    model_payload = {
+        "carA": {"label": _truncate_text(car_a.get("display_name") or "car_1")},
+        "carB": {"label": _truncate_text(car_b.get("display_name") or "car_2")},
+        "overall": {
+            "winner": _winner_to_public(computed_result.get("overall_winner")),
+            "scores": {
+                "carA": ((computed_result.get("cars", {}).get("car_1", {}) or {}).get("overall_score")),
+                "carB": ((computed_result.get("cars", {}).get("car_2", {}) or {}).get("overall_score")),
+            },
+        },
+        "categories": [],
+        "constraints": constraints,
     }
-    return f"""You are a car comparison response writer.
-Use ONLY the provided server-calculated results. Do not recalculate any scores/ranks.
-Do not add new facts, URLs, or citations.
-Return ONLY valid JSON.
+    for category_key in ("reliability_risk", "ownership_cost", "practicality_comfort", "driving_performance"):
+        model_payload["categories"].append({
+            "name": category_key,
+            "winner": _winner_to_public((computed_result.get("category_winners", {}) or {}).get(category_key)),
+            "scores": {
+                "carA": (((computed_result.get("cars", {}).get("car_1", {}) or {}).get("categories", {}) or {}).get(category_key, {}).get("score")),
+                "carB": (((computed_result.get("cars", {}).get("car_2", {}) or {}).get("categories", {}) or {}).get(category_key, {}).get("score")),
+            },
+            "key_features": _category_feature_snapshot(category_key),
+        })
 
-SERVER_COMPUTED_RESULTS (authoritative):
-{json.dumps(computed_result, ensure_ascii=False, indent=2)}
+    payload_json = json.dumps(model_payload, ensure_ascii=False, separators=(",", ":"))
+    prompt = f"""You are a concise car comparison explainer.
+Use only MODEL_PAYLOAD below. Do not add facts. Do not repeat input values.
 
-SELECTED_CARS:
-{json.dumps(cars_selected_slots, ensure_ascii=False, indent=2)}
+MODEL_PAYLOAD:
+{payload_json}
 
-GROUNDED_CONTEXT_SUMMARY:
-{json.dumps(grounding_summary, ensure_ascii=False, indent=2)}
-
-Return this exact structure:
+Return ONLY valid JSON with EXACTLY this schema and no extra keys:
 {{
-  "computed_result": "copy the exact SERVER_COMPUTED_RESULTS object provided above",
-  "narrative": {{
-    "overall_summary": "string (2-4 sentences in Hebrew)",
-    "category_explanations": [
-      {{
-        "category_key": "reliability_risk|ownership_cost|practicality_comfort|driving_performance",
-        "title_he": "string",
-        "winner": "car_1|car_2|car_3|tie",
-        "explanations": {{ {car_explanations_template} }},
-        "why_it_scored_that_way": ["string", "string"]
-      }}
-    ],
-    "disclaimers_he": ["string", "string"]
-  }}
+  "summary": "1-2 sentences, max 40 words",
+  "winner": "carA|carB|tie",
+  "categories": [
+    {{
+      "name": "reliability_risk|ownership_cost|practicality_comfort|driving_performance",
+      "winner": "carA|carB|tie",
+      "why": "max 35 words",
+      "tips": ["max 3 short tips, each max 12 words"]
+    }}
+  ],
+  "caveats": ["max 3, each max 14 words"]
 }}
+
+Forbidden: long paragraphs, tables, repeated input data, markdown, and any keys outside schema.
+If unsure, keep it short and say 'Not enough data' in 6 words max.
 """
+    if len(prompt) > COMPARE_WRITER_PROMPT_CHAR_CAP:
+        prompt = prompt[:COMPARE_WRITER_PROMPT_CHAR_CAP]
+    return prompt
 
 
 # ============================================================
@@ -780,6 +844,148 @@ def compute_comparison_results(model_output: Dict) -> Dict:
 # AI CALL FUNCTION
 # ============================================================
 
+def _inc_compare_metric(metric: str, reason: Optional[str] = None) -> None:
+    if metric == "compare_ai_failures_total":
+        bucket = COMPARE_AI_METRICS.setdefault(metric, {})
+        key = reason or "unknown"
+        bucket[key] = int(bucket.get(key, 0)) + 1
+        return
+    COMPARE_AI_METRICS[metric] = int(COMPARE_AI_METRICS.get(metric, 0)) + 1
+
+
+def _estimate_token_count(text: str) -> int:
+    return max(1, int(len(text or "") / 4))
+
+
+def _is_output_too_long_error(raw: str) -> bool:
+    lowered = (raw or "").lower()
+    return (
+        "answer candidate length is too long" in lowered
+        or "maximum token limit" in lowered
+        or "token limit of 8192" in lowered
+    )
+
+
+def validate_compare_writer_response(payload: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return None
+    if set(payload.keys()) != {"summary", "winner", "categories", "caveats"}:
+        return None
+
+    def _word_cap(value: Any, limit: int) -> Optional[str]:
+        if not isinstance(value, str):
+            return None
+        compact = " ".join(value.split())
+        if not compact or len(compact.split()) > limit:
+            return None
+        return compact
+
+    summary = _word_cap(payload.get("summary"), 40)
+    winner = payload.get("winner")
+    categories = payload.get("categories")
+    caveats = payload.get("caveats")
+    if summary is None or winner not in {"carA", "carB", "tie"}:
+        return None
+    if not isinstance(categories, list) or len(categories) > 4:
+        return None
+    if not isinstance(caveats, list) or len(caveats) > 3:
+        return None
+
+    validated_categories = []
+    for item in categories:
+        if not isinstance(item, dict):
+            return None
+        if set(item.keys()) != {"name", "winner", "why", "tips"}:
+            return None
+        if item.get("name") not in {"reliability_risk", "ownership_cost", "practicality_comfort", "driving_performance"}:
+            return None
+        if item.get("winner") not in {"carA", "carB", "tie"}:
+            return None
+        why = _word_cap(item.get("why"), 35)
+        if why is None:
+            return None
+        tips = item.get("tips")
+        if not isinstance(tips, list) or len(tips) > 3:
+            return None
+        normalized_tips = []
+        for tip in tips:
+            tip_clean = _word_cap(tip, 12)
+            if tip_clean is None:
+                return None
+            normalized_tips.append(tip_clean)
+        validated_categories.append({
+            "name": item.get("name"),
+            "winner": item.get("winner"),
+            "why": why,
+            "tips": normalized_tips,
+        })
+
+    normalized_caveats = []
+    for caveat in caveats:
+        caveat_clean = _word_cap(caveat, 14)
+        if caveat_clean is None:
+            return None
+        normalized_caveats.append(caveat_clean)
+
+    return {
+        "summary": summary,
+        "winner": winner,
+        "categories": validated_categories,
+        "caveats": normalized_caveats,
+    }
+
+
+def build_deterministic_fallback_narrative(cars_selected_slots: Dict, computed_result: Dict) -> Dict[str, Any]:
+    car_keys = list((cars_selected_slots or {}).keys())
+    category_explanations = []
+    for cat in ("reliability_risk", "ownership_cost", "practicality_comfort", "driving_performance"):
+        winner = (computed_result.get("category_winners", {}) or {}).get(cat) or "tie"
+        explanations = {}
+        for car_key in car_keys:
+            explanations[car_key] = "Numeric score-based comparison is shown."
+        category_explanations.append({
+            "category_key": cat,
+            "title_he": "",
+            "winner": winner if winner in {"car_1", "car_2", "car_3", "tie"} else "tie",
+            "explanations": explanations,
+            "why_it_scored_that_way": ["AI explanation unavailable; showing numeric comparison."],
+        })
+    return {
+        "overall_summary": "AI explanation unavailable; showing numeric comparison.",
+        "category_explanations": category_explanations,
+        "disclaimers_he": ["Use metric scores and winners for final decision."],
+    }
+
+
+def convert_writer_response_to_narrative(validated_payload: Dict[str, Any], cars_selected_slots: Dict) -> Dict[str, Any]:
+    car_keys = list((cars_selected_slots or {}).keys())
+
+    def _winner_to_slot(value: str) -> str:
+        if value == "carA":
+            return "car_1"
+        if value == "carB":
+            return "car_2"
+        return "tie"
+
+    category_explanations = []
+    for cat in validated_payload.get("categories", []):
+        explanations = {}
+        for car_key in car_keys:
+            explanations[car_key] = cat.get("why", "")
+        category_explanations.append({
+            "category_key": cat.get("name"),
+            "title_he": "",
+            "winner": _winner_to_slot(cat.get("winner")),
+            "explanations": explanations,
+            "why_it_scored_that_way": cat.get("tips", []),
+        })
+    return {
+        "overall_summary": validated_payload.get("summary", ""),
+        "category_explanations": category_explanations,
+        "disclaimers_he": validated_payload.get("caveats", []),
+    }
+
+
 def _safe_ai_response_snippet(exc: Exception, max_len: int = 280) -> str:
     """Extract a short, safe response snippet from provider exceptions."""
     response = getattr(exc, "response", None)
@@ -807,12 +1013,17 @@ def _log_ai_client_error(feature: str, exc: Exception) -> None:
         or getattr(exc, "code", None)
         or getattr(getattr(exc, "response", None), "status_code", None)
     )
+    message = str(exc)
+    reason = "output_too_long" if _is_output_too_long_error(message) else "client_error"
+    _inc_compare_metric("compare_ai_failures_total", reason=reason)
     current_app.logger.error(
-        "[AI] feature=%s client_error status_code=%s error_type=%s message=%s response_snippet=%s",
+        "[AI] request_id=%s feature=%s model=%s error_code=%s reason=%s error_type=%s response_snippet=%s",
+        get_request_id(),
         feature,
+        COMPARISON_MODEL_ID,
         status_code,
+        reason,
         type(exc).__name__,
-        str(exc),
         _safe_ai_response_snippet(exc),
     )
 
@@ -826,6 +1037,7 @@ def call_gemini_comparison(prompt: str, timeout_sec: int = AI_CALL_TIMEOUT_SEC) 
     from app.factory import AI_EXECUTOR, AI_EXECUTOR_WORKERS
     
     start_time = pytime.perf_counter()
+    prompt_chars = len(prompt or "")
     try:
         if extensions.ai_client is None:
             return None, "CLIENT_NOT_INITIALIZED"
@@ -862,9 +1074,12 @@ def call_gemini_comparison(prompt: str, timeout_sec: int = AI_CALL_TIMEOUT_SEC) 
             resp = future.result(timeout=timeout_sec)
         except concurrent.futures.TimeoutError:
             future.cancel()
+            _inc_compare_metric("compare_ai_failures_total", reason="timeout")
             return None, "CALL_TIMEOUT"
         except Exception as e:
             _log_ai_client_error("comparison_stage_a", e)
+            if _is_output_too_long_error(str(e)):
+                return None, "CALL_FAILED_OUTPUT_TOO_LONG"
             return None, f"CALL_FAILED:{type(e).__name__}"
         
         if resp is None:
@@ -889,24 +1104,33 @@ def call_gemini_comparison(prompt: str, timeout_sec: int = AI_CALL_TIMEOUT_SEC) 
     finally:
         duration_ms = (pytime.perf_counter() - start_time) * 1000
         current_app.logger.info(
-            "[AI] feature=comparison model=%s duration_ms=%.2f",
+            "[AI] feature=comparison_stage_a model=%s duration_ms=%.2f prompt_chars=%s prompt_tokens_est=%s",
             COMPARISON_MODEL_ID,
             duration_ms,
+            prompt_chars,
+            _estimate_token_count(prompt),
         )
 
 
-def call_gemini_compare_writer(prompt: str, timeout_sec: int = 60) -> Tuple[Optional[Dict], Optional[str]]:
+def call_gemini_compare_writer(prompt: str, timeout_sec: int = COMPARE_WRITER_TIMEOUT_SEC) -> Tuple[Optional[Dict], Optional[str]]:
     """Call Gemini Stage B writer WITHOUT grounding tools."""
     import concurrent.futures
     from app.factory import AI_EXECUTOR
+
+    start_time = pytime.perf_counter()
+    prompt_chars = len(prompt or "")
+    is_retry_summary_only = "Respond with only summary and winner, no categories." in (prompt or "")
+    max_output_tokens = COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS if is_retry_summary_only else COMPARE_WRITER_MAX_OUTPUT_TOKENS
+    _inc_compare_metric("compare_ai_calls_total")
 
     if extensions.ai_client is None:
         return None, "CLIENT_NOT_INITIALIZED"
 
     config = genai_types.GenerateContentConfig(
         temperature=0.3,
-        top_p=0.9,
-        top_k=40,
+        top_p=0.8,
+        top_k=20,
+        max_output_tokens=max_output_tokens,
         response_mime_type="application/json",
     )
 
@@ -922,14 +1146,28 @@ def call_gemini_compare_writer(prompt: str, timeout_sec: int = 60) -> Tuple[Opti
         resp = future.result(timeout=timeout_sec)
     except concurrent.futures.TimeoutError:
         future.cancel()
+        _inc_compare_metric("compare_ai_failures_total", reason="timeout")
         return None, "CALL_TIMEOUT"
     except Exception as e:
         _log_ai_client_error("comparison_stage_b", e)
+        if _is_output_too_long_error(str(e)):
+            return None, "CALL_FAILED_OUTPUT_TOO_LONG"
         return None, f"CALL_FAILED:{type(e).__name__}"
+    finally:
+        duration_ms = (pytime.perf_counter() - start_time) * 1000
+        current_app.logger.info(
+            "[AI] feature=comparison_stage_b model=%s duration_ms=%.2f max_output_tokens=%s prompt_chars=%s prompt_tokens_est=%s",
+            COMPARISON_MODEL_ID,
+            duration_ms,
+            max_output_tokens,
+            prompt_chars,
+            _estimate_token_count(prompt),
+        )
 
     text = (getattr(resp, "text", "") or "").strip()
     if not text:
         return None, "EMPTY_RESPONSE"
+    COMPARE_AI_METRICS["compare_ai_output_tokens_estimate"] = _estimate_token_count(text)
 
     try:
         parsed = json.loads(text)
@@ -1527,8 +1765,10 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
             return api_error("server_busy", "השרת עמוס כרגע. נסה שוב בעוד רגע.", status=503)
         elif error == "MODEL_JSON_INVALID":
             return api_error("model_json_invalid", "המודל החזיר פורמט לא תקין. נסה שוב.", status=502, details={"request_id": request_id})
+        elif error == "CALL_FAILED_OUTPUT_TOO_LONG":
+            return api_error("ai_upstream_length_limit", "שירות ה-AI החיצוני החזיר תשובה ארוכה מדי. נסה שוב בעוד רגע.", status=502, details={"request_id": request_id})
         else:
-            return api_error("ai_call_failed", "שגיאה בתקשורת עם מנוע ה-AI. נסה שוב מאוחר יותר.", status=500)
+            return api_error("ai_call_failed", "שגיאה בתקשורת עם מנוע ה-AI. נסה שוב מאוחר יותר.", status=502)
     
     # Normalize model output shape (handles list vs dict mismatch)
     model_output, shape_error = normalize_model_output(model_output, request_id)
@@ -1565,11 +1805,32 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     narrative = None
     if stage_b_error:
         logger.warning(f"[COMPARISON] stage_b call failed request_id={request_id} error={stage_b_error}")
+        retry_prompt = f"{writer_prompt}\nRespond with only summary and winner, no categories."
+        retry_output, retry_error = call_gemini_compare_writer(retry_prompt)
+        if retry_error:
+            logger.warning(f"[COMPARISON] stage_b retry failed request_id={request_id} error={retry_error}")
+            _inc_compare_metric("compare_ai_fallback_used_total")
+            narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
+        else:
+            validated_retry = validate_compare_writer_response(retry_output)
+            if validated_retry:
+                narrative = sanitize_comparison_narrative(convert_writer_response_to_narrative(validated_retry, cars_selected_slots))
+            else:
+                _inc_compare_metric("compare_ai_fallback_used_total")
+                narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
     elif isinstance(stage_b_output, dict):
-        raw_narrative = stage_b_output.get("narrative")
-        if raw_narrative:
-            narrative = sanitize_comparison_narrative(raw_narrative)
+        validated_writer = validate_compare_writer_response(stage_b_output)
+        if validated_writer:
+            narrative = sanitize_comparison_narrative(convert_writer_response_to_narrative(validated_writer, cars_selected_slots))
             logger.info(f"[COMPARISON] narrative generated request_id={request_id}")
+        else:
+            raw_narrative = stage_b_output.get("narrative")
+            if raw_narrative:
+                narrative = sanitize_comparison_narrative(raw_narrative)
+                logger.info(f"[COMPARISON] narrative generated request_id={request_id} mode=legacy")
+            else:
+                _inc_compare_metric("compare_ai_fallback_used_total")
+                narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
 
     computed_result = enforce_authoritative_numbers(server_computed_result, stage_b_output, request_id)
 

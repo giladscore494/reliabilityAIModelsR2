@@ -18,6 +18,9 @@ from app.services.comparison_service import (
     determine_winner,
     compute_comparison_results,
     TIE_THRESHOLD,
+    build_compare_writer_prompt,
+    validate_compare_writer_response,
+    COMPARE_WRITER_PROMPT_CHAR_CAP,
 )
 from app.utils.sanitization import sanitize_comparison_narrative
 
@@ -266,6 +269,48 @@ class TestSanitizeComparisonNarrative:
         assert "car_1" in explanations
         assert "car_2" in explanations
         assert "bad_key" not in explanations
+
+
+class TestCompareWriterPromptAndValidation:
+    def test_writer_prompt_is_capped(self):
+        cars_selected_slots = {
+            "car_1": {"display_name": "Toyota " + ("X" * 5000)},
+            "car_2": {"display_name": "Honda " + ("Y" * 5000)},
+        }
+        computed_result = {
+            "overall_winner": "car_1",
+            "category_winners": {"reliability_risk": "car_1", "ownership_cost": "car_2", "practicality_comfort": "tie", "driving_performance": "car_1"},
+            "cars": {
+                "car_1": {"overall_score": 82, "categories": {}},
+                "car_2": {"overall_score": 79, "categories": {}},
+            },
+        }
+        prompt = build_compare_writer_prompt(cars_selected_slots, computed_result, {"cars": {}, "assumptions": {}})
+        assert len(prompt) <= COMPARE_WRITER_PROMPT_CHAR_CAP
+
+    def test_writer_validator_rejects_non_schema_and_long_fields(self):
+        invalid_payload = {
+            "summary": " ".join(["too"] * 41),
+            "winner": "carA",
+            "categories": [],
+            "caveats": [],
+        }
+        assert validate_compare_writer_response(invalid_payload) is None
+
+        valid_payload = {
+            "summary": "Toyota wins slightly on reliability and balanced costs.",
+            "winner": "carA",
+            "categories": [
+                {
+                    "name": "reliability_risk",
+                    "winner": "carA",
+                    "why": "Lower failure risk and stronger reliability score.",
+                    "tips": ["Check service history", "Verify recall completion"],
+                }
+            ],
+            "caveats": ["Market conditions may vary."],
+        }
+        assert validate_compare_writer_response(valid_payload) is not None
 
 
 # ============================================================
