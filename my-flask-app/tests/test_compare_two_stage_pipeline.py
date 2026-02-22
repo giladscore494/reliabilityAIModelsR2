@@ -234,6 +234,30 @@ def test_compare_stage_a_timeout_returns_200_with_ai_reason(app, logged_in_clien
     assert payload["ai"]["reason"] == "stage_a_timeout"
 
 
+def test_parse_stage_a_json_handles_fences_and_text():
+    raw = """prefix
+```json
+{"grounding_successful": true, "search_queries_used": [], "assumptions": {}, "cars": {}}
+```
+suffix"""
+    parsed, err = comparison_service.parse_stage_a_json(raw)
+    assert err is None
+    assert parsed["grounding_successful"] is True
+
+
+def test_parse_stage_a_json_repairs_trailing_comma():
+    raw = '{"grounding_successful": true, "search_queries_used": [], "assumptions": {}, "cars": {},}'
+    parsed, err = comparison_service.parse_stage_a_json(raw)
+    assert err is None
+    assert isinstance(parsed, dict)
+
+
+def test_parse_stage_a_json_invalid_returns_model_json_invalid():
+    parsed, err = comparison_service.parse_stage_a_json("not-json")
+    assert parsed is None
+    assert err == "MODEL_JSON_INVALID"
+
+
 def test_stage_a_config_is_bounded_and_tools_disabled(app, monkeypatch):
     captured = {}
 
@@ -250,6 +274,18 @@ def test_stage_a_config_is_bounded_and_tools_disabled(app, monkeypatch):
     cfg = captured["config"]
     assert 450 <= int(getattr(cfg, "max_output_tokens", 0)) <= 700
     assert not getattr(cfg, "tools", None)
+
+
+def test_call_gemini_compare_writer_exception_path_returns_error(app, monkeypatch):
+    class _FailingModels:
+        def generate_content(self, **_kwargs):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(comparison_service.extensions, "ai_client", SimpleNamespace(models=_FailingModels()))
+    with app.app_context():
+        out, err = comparison_service.call_gemini_compare_writer("{}", timeout_sec=1)
+    assert out is None
+    assert err and err.startswith("CALL_FAILED:")
 
 
 def test_compare_ai_regenerate_updates_ai_only(app, logged_in_client, monkeypatch):
@@ -304,6 +340,78 @@ def test_compare_ai_regenerate_updates_ai_only(app, logged_in_client, monkeypatc
     regen_payload = regen.get_json()["data"]
     assert regen_payload["ai"]["status"] == "ok"
     assert regen_payload["ai"]["stage_b"] is not None
+
+
+def test_compare_stage_a_json_invalid_returns_200_with_fallback(app, logged_in_client, monkeypatch):
+    client, _user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    monkeypatch.setattr(comparison_service, "call_gemini_comparison", lambda _prompt, timeout_sec=comparison_service.COMPARE_STAGE_A_TIMEOUT_SEC: (None, "MODEL_JSON_INVALID"))
+    monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: (None, "CALL_TIMEOUT"))
+
+    start = time.perf_counter()
+    resp = client.post(
+        "/api/compare",
+        json={
+            "cars": [
+                {"make": "Toyota", "model": "Corolla", "year": 2020},
+                {"make": "Honda", "model": "Civic", "year": 2020},
+            ],
+            "legal_confirm": True,
+        },
+        headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+    )
+    elapsed = time.perf_counter() - start
+    assert resp.status_code == 200
+    assert elapsed < 20
+    payload = resp.get_json()["data"]
+    assert payload["ai"]["status"] == "fallback"
+    assert payload["ai"]["reason"] == "stage_a_error"
+    assert payload["ai"]["error"] == "MODEL_JSON_INVALID"
+
+
+def test_compare_ai_regenerate_writer_exception_returns_200_fallback(app, logged_in_client, monkeypatch):
+    client, _user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    grounded_output = _grounded_output_fixture()
+    monkeypatch.setattr(comparison_service, "call_gemini_comparison", lambda _prompt, timeout_sec=comparison_service.COMPARE_STAGE_A_TIMEOUT_SEC: (copy.deepcopy(grounded_output), None))
+    monkeypatch.setattr(
+        comparison_service,
+        "call_gemini_compare_writer",
+        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: ({
+            "summary": "סיכום ראשון.",
+            "winner": "carA",
+            "categories": [],
+            "caveats": [],
+        }, None),
+    )
+    first = client.post(
+        "/api/compare",
+        json={
+            "cars": [
+                {"make": "Toyota", "model": "Corolla", "year": 2020},
+                {"make": "Honda", "model": "Civic", "year": 2020},
+            ],
+            "legal_confirm": True,
+        },
+        headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+    )
+    comparison_id = first.get_json()["data"]["comparison_id"]
+    def _raise_writer(*_args, **_kwargs):
+        raise RuntimeError("writer boom")
+
+    monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", _raise_writer)
+
+    regen = client.post(
+        f"/api/compare/ai-regenerate?comparison_id={comparison_id}",
+        json={"legal_confirm": True},
+        headers={"Origin": "http://localhost", "Referer": "http://localhost/compare"},
+    )
+    assert regen.status_code == 200
+    regen_payload = regen.get_json()["data"]
+    assert regen_payload["ai"]["status"] == "fallback"
+    assert regen_payload["ai"]["reason"] == "stage_b_error"
 
 
 def test_compare_quota_blocks_non_owner(app, logged_in_client):

@@ -235,8 +235,23 @@ def compare_ai_regenerate():
     try:
         regenerated = comparison_service.regenerate_comparison_ai(comparison_id, current_user.id)
     except Exception:
-        current_app.logger.exception("compare_ai_regenerate failed")
-        return api_error("server_error", "שגיאת שרת בעת יצירת הסבר מחדש", status=500)
+        current_app.logger.exception(
+            "compare_ai_regenerate failed request_id=%s comparison_id=%s user_id=%s",
+            get_request_id(),
+            comparison_id,
+            current_user.id,
+        )
+        return api_ok({
+            "comparison_id": comparison_id,
+            "ai": {
+                "status": "fallback",
+                "reason": "stage_b_error",
+                "error": "CALL_FAILED:UNKNOWN",
+                "stage_a": None,
+                "stage_b": None,
+            },
+            "narrative": None,
+        })
 
     if not regenerated:
         return api_error("not_found", "השוואה לא נמצאה", status=404)
