@@ -112,7 +112,7 @@ def map_cars_to_slots(validated_cars: List[Dict]) -> Dict[str, Dict]:
 # ============================================================
 
 COMPARISON_PROMPT_VERSION = "v1"
-COMPARISON_MODEL_ID = "gemini-3-flash-preview"
+COMPARISON_MODEL_ID = "gemini-3.1-flash-preview"
 AI_CALL_TIMEOUT_SEC = int(os.environ.get("AI_CALL_TIMEOUT_SEC", "170"))
 COMPARE_STAGE_A_TIMEOUT_SEC = int(os.environ.get("COMPARE_STAGE_A_TIMEOUT_SEC", "15"))
 COMPARE_STAGE_A_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_STAGE_A_MAX_OUTPUT_TOKENS", "600"))

@@ -237,7 +237,7 @@ class ComparisonHistory(db.Model):
     sources_index = db.Column(JSONEncodedText, nullable=True)  # Sources index JSON
     
     # Metadata columns
-    model_name = db.Column(db.String(64), nullable=False, default="gemini-3-flash")
+    model_name = db.Column(db.String(64), nullable=False, default="gemini-3.1-flash")
     grounding_enabled = db.Column(db.Boolean, nullable=False, default=True)
     prompt_version = db.Column(db.String(32), nullable=False, default="v1")
     request_hash = db.Column(db.String(64), nullable=True)  # Index defined in __table_args__

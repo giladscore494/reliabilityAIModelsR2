@@ -149,7 +149,7 @@ class TestCompareHistoryAPI:
                 user_id=user_id,
                 cars_selected=json.dumps([{"make": "Toyota", "model": "Corolla"}]),
                 computed_result=json.dumps({"overall_winner": "Toyota Corolla"}),
-                model_name="gemini-3-flash",
+                model_name="gemini-3.1-flash",
                 prompt_version="v1",
             )
             db.session.add(record)
@@ -180,7 +180,7 @@ class TestCompareHistoryAPI:
                 user_id=user_id,
                 cars_selected=double_encoded_cars,
                 computed_result=double_encoded_computed,
-                model_name="gemini-3-flash",
+                model_name="gemini-3.1-flash",
                 prompt_version="v1",
             )
             db.session.add(record)
@@ -208,7 +208,7 @@ class TestCompareHistoryAPI:
                 user_id=user_id,
                 cars_selected=json.dumps([{"make": "Honda", "model": "Civic"}]),
                 computed_result=json.dumps({"overall_winner": "Honda Civic"}),
-                model_name="gemini-3-flash",
+                model_name="gemini-3.1-flash",
                 prompt_version="v1",
             )
             db.session.add(normal)
@@ -219,7 +219,7 @@ class TestCompareHistoryAPI:
                 user_id=user_id,
                 cars_selected=json.dumps([{"make": "Toyota", "model": "Corolla"}]),
                 computed_result=json.dumps(inner_computed),  # double-encoded
-                model_name="gemini-3-flash",
+                model_name="gemini-3.1-flash",
                 prompt_version="v1",
             )
             db.session.add(double)
@@ -242,7 +242,7 @@ class TestCompareHistoryAPI:
                 user_id=user_id,
                 cars_selected=json.dumps([{"make": "Toyota", "model": "Corolla"}]),
                 computed_result=None,  # null
-                model_name="gemini-3-flash",
+                model_name="gemini-3.1-flash",
                 prompt_version="v1",
             )
             db.session.add(record)
@@ -283,7 +283,7 @@ class TestCompareDetailAPI:
                 computed_result=double_encoded_computed,
                 model_json_raw=json.dumps({"raw": "data", "assumptions": {"note": "test"}}),
                 sources_index=json.dumps({"source1": "url1"}),
-                model_name="gemini-3-flash",
+                model_name="gemini-3.1-flash",
                 prompt_version="v1",
             )
             db.session.add(record)

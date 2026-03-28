@@ -371,7 +371,7 @@ class TestCompareDetailWithNarrative:
                 user_id=user_id,
                 cars_selected=json.dumps([{"make": "Toyota", "model": "Corolla", "year": 2020}]),
                 computed_result=json.dumps(computed),
-                model_name="gemini-3-flash",
+                model_name="gemini-3.1-flash",
                 prompt_version="v1",
             )
             db.session.add(record)
@@ -396,7 +396,7 @@ class TestCompareDetailWithNarrative:
                 user_id=user_id,
                 cars_selected=json.dumps([{"make": "Honda", "model": "Civic", "year": 2021}]),
                 computed_result=json.dumps(computed),
-                model_name="gemini-3-flash",
+                model_name="gemini-3.1-flash",
                 prompt_version="v1",
             )
             db.session.add(record)
@@ -421,7 +421,7 @@ class TestCompareDetailWithNarrative:
                     {"make": "Honda", "model": "Civic", "year": 2021}
                 ]),
                 computed_result=json.dumps({"overall_winner": "car_1", "cars": {}}),
-                model_name="gemini-3-flash",
+                model_name="gemini-3.1-flash",
                 prompt_version="v1",
             )
             db.session.add(record)
