@@ -109,7 +109,7 @@ MAX_CACHE_DAYS = 45
 PER_IP_PER_MIN_LIMIT = 20
 QUOTA_RESERVATION_TTL_SECONDS = int(os.environ.get("QUOTA_RESERVATION_TTL_SECONDS", "600"))
 MAX_ACTIVE_RESERVATIONS = 1
-AI_EXECUTOR_WORKERS = int(os.environ.get("AI_EXECUTOR_WORKERS", "4"))
+AI_EXECUTOR_WORKERS = int(os.environ.get("AI_EXECUTOR_WORKERS", "8"))
 AI_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=AI_EXECUTOR_WORKERS)
 MAX_CONTENT_LENGTH_DEFAULT = 8 * 1024 * 1024
 SERVICE_PRICES_ANALYZE_LIMIT_BYTES = 6 * 1024 * 1024
@@ -890,7 +890,8 @@ Return ONLY raw JSON. Do not add any backticks or explanation text.
         try:
             return json.loads(text)
         except json.JSONDecodeError:
-            return {"_error": "JSON decode error from Gemini Car Advisor", "_raw": text}
+            logger.warning("[AI] Car Advisor JSON decode error, raw length=%d", len(text) if text else 0)
+            return {"_error": "JSON decode error from Gemini Car Advisor"}
     finally:
         duration_ms = (pytime.perf_counter() - start_time) * 1000
         logger.info(

@@ -14,7 +14,7 @@
                id="{{ checkbox_id|default('legalConfirmCheckbox') }}"
                class="mt-1 rounded border-slate-600 bg-slate-800 text-primary"
                {% if legal_accepted %}checked disabled{% endif %}>
-        <span>I confirm I read and agree to the <a href="{{ url_for('public.terms') }}" target="_blank" class="underline {{ 'text-emerald-300' if legal_accepted else 'text-warning' }}">Terms of Use</a> and <a href="{{ url_for('public.privacy') }}" target="_blank" class="underline {{ 'text-emerald-300' if legal_accepted else 'text-warning' }}">Privacy Policy</a></span>
+        <span>I confirm I read and agree to the <a href="{{ url_for('public.terms') }}" target="_blank" rel="noopener noreferrer" class="underline {{ 'text-emerald-300' if legal_accepted else 'text-warning' }}">Terms of Use</a> and <a href="{{ url_for('public.privacy') }}" target="_blank" rel="noopener noreferrer" class="underline {{ 'text-emerald-300' if legal_accepted else 'text-warning' }}">Privacy Policy</a></span>
     </label>
     {% if show_accept_button|default(false) %}
     <div class="flex items-center gap-3">

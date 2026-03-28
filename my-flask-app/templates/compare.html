@@ -654,7 +654,7 @@
 
 <!-- Car data JSON -->
 <script type="application/json" id="car-data">
-    {{ car_models_data | tojson | safe }}
+    {{ car_models_data | tojson }}
 </script>
 
 <script>
@@ -1646,7 +1646,7 @@
                                         <div class="sources-list">
                                             ${sources.map(s => `
                                                 <div class="source-item">
-                                                    <a href="${escapeHtml(s.url)}" target="_blank" class="source-link">${escapeHtml(s.title || s.url)}</a>
+                                                    <a href="${sanitizeUrl(escapeHtml(s.url))}" target="_blank" rel="noopener noreferrer" class="source-link">${escapeHtml(s.title || s.url)}</a>
                                                     ${s.snippet ? `<p class="text-slate-400 mt-1 text-xs">${escapeHtml(s.snippet)}</p>` : ''}
                                                 </div>
                                             `).join('')}
@@ -1745,6 +1745,14 @@
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
+    }
+
+    function sanitizeUrl(url) {
+        if (!url) return '';
+        var trimmed = url.replace(/^\s+/, '');
+        if (/^https?:\/\//i.test(trimmed)) return trimmed;
+        if (/^mailto:/i.test(trimmed)) return trimmed;
+        return '';
     }
     
     function formatValue(value) {

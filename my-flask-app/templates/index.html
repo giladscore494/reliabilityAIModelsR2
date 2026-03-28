@@ -355,10 +355,10 @@
                                class="mt-1 w-6 h-6 rounded border-2 border-slate-600 text-primary focus:ring-offset-0 focus:ring-primary bg-slate-900/50 checked:bg-primary transition-colors">
                         <span class="text-sm text-slate-300 leading-relaxed">
                             אני מאשר/ת כי אני מעל גיל 18, וקראתי והסכמתי
-                            <a href="{{ url_for('public.terms') }}" target="_blank"
+                            <a href="{{ url_for('public.terms') }}" target="_blank" rel="noopener noreferrer"
                                class="text-primary font-bold hover:underline underline-offset-4">לתנאי השימוש</a>
                             ו
-                            <a href="{{ url_for('public.privacy') }}" target="_blank"
+                            <a href="{{ url_for('public.privacy') }}" target="_blank" rel="noopener noreferrer"
                                class="text-primary font-bold hover:underline underline-offset-4">מדיניות הפרטיות</a>
                             של האתר.
                         </span>
@@ -506,7 +506,7 @@
         {% if is_logged_in %}true{% else %}false{% endif %}
     </script>
     <script type="application/json" id="car-data">
-        {{ car_models_data | tojson | safe }}
+        {{ car_models_data | tojson }}
     </script>
 
     <script src="/static/script.js"></script>

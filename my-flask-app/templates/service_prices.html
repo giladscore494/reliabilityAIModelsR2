@@ -113,9 +113,9 @@
                         <div id="termsSection" class="mb-6">
                             <p class="text-slate-300 mb-4">
                                 לפני שימוש בשירות זה, יש לאשר את 
-                                <a href="{{ url_for('public.terms') }}" target="_blank" class="text-primary hover:underline">תנאי השימוש</a>
+                                <a href="{{ url_for('public.terms') }}" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">תנאי השימוש</a>
                                 ואת 
-                                <a href="{{ url_for('public.privacy') }}" target="_blank" class="text-primary hover:underline">מדיניות הפרטיות</a>.
+                                <a href="{{ url_for('public.privacy') }}" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">מדיניות הפרטיות</a>.
                             </p>
                             <label class="flex items-start gap-3 cursor-pointer group">
                                 <input type="checkbox" id="legalConfirmCheckbox" class="mt-1 rounded border-slate-600 bg-slate-800 text-primary focus:ring-primary" {% if legal_accepted %}checked disabled{% endif %}>
@@ -695,7 +695,7 @@
                                     </div>
                                 </div>
                                 <div class="flex items-center gap-3 text-sm">
-                                    <a href="/service-prices/report/${inv.id}" target="_blank" rel="noopener"
+                                    <a href="/service-prices/report/${inv.id}" target="_blank" rel="noopener noreferrer"
                                        class="text-primary hover:underline">דוח (PDF)</a>
                                     <a href="/api/service-prices/download/${inv.id}"
                                        class="text-slate-300 hover:underline">JSON (טכני)</a>
