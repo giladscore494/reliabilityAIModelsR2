@@ -105,7 +105,7 @@
 
             <!-- Legal Modal -->
             <div id="legalModal" class="fixed inset-0 z-50 hidden">
-                <div class="absolute inset-0 bg-black/70" onclick="closeLegalModal()"></div>
+                <div class="absolute inset-0 bg-black/70" id="legal-modal-backdrop"></div>
                 <div class="absolute inset-0 flex items-center justify-center p-4">
                     <div class="bg-dark-lighter rounded-2xl p-6 md:p-8 max-w-lg w-full max-h-[90vh] overflow-y-auto border border-slate-700/50 shadow-2xl">
                         <h2 class="text-2xl font-bold text-white mb-4">אישור תנאים</h2>
@@ -144,11 +144,11 @@
                         </div>
                         
                         <div class="flex gap-3">
-                            <button id="acceptBtn" onclick="acceptTerms()" disabled
+                            <button id="acceptBtn" disabled
                                     class="flex-1 px-6 py-3 rounded-full font-bold bg-gradient-to-r from-primary to-secondary text-white opacity-50 cursor-not-allowed transition">
                                 אשר והמשך
                             </button>
-                            <button onclick="closeLegalModal()"
+                            <button id="cancel-legal-btn"
                                     class="px-6 py-3 rounded-full font-medium bg-slate-700 hover:bg-slate-600 text-white transition">
                                 ביטול
                             </button>
@@ -720,6 +720,16 @@
         document.getElementById('exportAllBtn').addEventListener('click', () => {
             window.location.href = '/api/service-prices/export';
         });
+
+        // --- Event listeners replacing inline handlers ---
+        var legalBackdrop = document.getElementById('legal-modal-backdrop');
+        if (legalBackdrop) legalBackdrop.addEventListener('click', closeLegalModal);
+
+        var acceptBtn = document.getElementById('acceptBtn');
+        if (acceptBtn) acceptBtn.addEventListener('click', acceptTerms);
+
+        var cancelLegalBtn = document.getElementById('cancel-legal-btn');
+        if (cancelLegalBtn) cancelLegalBtn.addEventListener('click', closeLegalModal);
     </script>
 </body>
 </html>

@@ -142,23 +142,23 @@
         {% endif %}
 
         <div class="flex gap-2 overflow-x-auto no-scrollbar pb-2">
-            <button type="button" onclick="showTab('reliability')" id="tab-reliability"
+            <button type="button" data-tab="reliability" id="tab-reliability"
                     class="tab-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-800 text-slate-100 border border-slate-600 cursor-pointer transition-colors">
                 היסטוריית בדיקות אמינות
             </button>
-            <button type="button" onclick="showTab('comparisons')" id="tab-comparisons"
+            <button type="button" data-tab="comparisons" id="tab-comparisons"
                     class="tab-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50 cursor-pointer transition-colors hover:bg-slate-800 hover:text-slate-300">
                 השוואות
             </button>
-            <button type="button" onclick="showTab('advisor')" id="tab-advisor"
+            <button type="button" data-tab="advisor" id="tab-advisor"
                     class="tab-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50 cursor-pointer transition-colors hover:bg-slate-800 hover:text-slate-300">
                 היסטוריית המלצות ({{ advisor_count or 0 }})
             </button>
-            <button type="button" onclick="showTab('leasing')" id="tab-leasing"
+            <button type="button" data-tab="leasing" id="tab-leasing"
                     class="tab-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50 cursor-pointer transition-colors hover:bg-slate-800 hover:text-slate-300">
                 יועץ ליסינג ({{ leasing_history|default([])|length }})
             </button>
-            <button type="button" onclick="showTab('service_prices')" id="tab-service_prices"
+            <button type="button" data-tab="service_prices" id="tab-service_prices"
                     class="tab-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50 cursor-pointer transition-colors hover:bg-slate-800 hover:text-slate-300">
                 בדיקת מחירי טיפול
             </button>
@@ -173,7 +173,6 @@
                     <article
                         class="bg-dark-lighter/80 border border-slate-700/60 rounded-xl p-4 active:scale-[0.98] transition-transform cursor-pointer shadow-lg"
                         data-search-id="{{ s.id }}"
-                        onclick="openDetails('{{ s.id }}')"
                     >
                         <div class="flex justify-between items-start">
                             <div>
@@ -295,7 +294,7 @@
                 מחיקת החשבון תסיר לצמיתות את כל הנתונים שלך, כולל היסטוריית חיפושים ושאלונים. פעולה זו אינה הפיכה.
             </p>
             <button 
-                onclick="openDeleteModal()"
+                id="open-delete-btn"
                 class="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-colors">
                 מחק חשבון לצמיתות
             </button>
@@ -305,8 +304,8 @@
 </main>
 
 <!-- Delete Account Modal -->
-<div id="deleteModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onclick="closeDeleteModal(event)">
-    <div class="bg-dark-lighter border-2 border-red-600/50 rounded-2xl p-8 max-w-md w-full overlay-open" onclick="event.stopPropagation()">
+<div id="deleteModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-dark-lighter border-2 border-red-600/50 rounded-2xl p-8 max-w-md w-full overlay-open">
         <h3 class="text-2xl font-bold text-white mb-4">אישור מחיקת חשבון</h3>
         <p class="text-slate-300 mb-6">
             פעולה זו תמחק לצמיתות את החשבון שלך וכל הנתונים הקשורים אליו.
@@ -320,19 +319,17 @@
             id="deleteConfirmInput"
             placeholder="הקלד DELETE"
             class="w-full px-4 py-3 bg-slate-900 border-2 border-slate-700 focus:border-red-500 rounded-lg text-white mb-2"
-            onkeypress="if(event.key==='Enter') confirmDelete()"
         />
         <p id="deleteError" class="text-red-400 text-sm mb-4 hidden"></p>
         
         <div class="flex gap-3">
             <button 
-                onclick="confirmDelete()"
                 id="deleteConfirmButton"
                 class="flex-1 px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-colors">
                 אשר מחיקה
             </button>
             <button 
-                onclick="closeDeleteModal()"
+                id="cancel-delete-btn"
                 class="flex-1 px-6 py-3 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-lg transition-colors">
                 ביטול
             </button>
@@ -655,20 +652,20 @@
 
         // --- NEW BUTTONS NAVIGATION (MODIFIED SECTION) ---
         const navButtons = `
-          <div class="sticky top-0 z-30 bg-dark/95 backdrop-blur py-3 border-b border-slate-700/50 mb-6 flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4">
-              <button onclick="document.getElementById('sec-competitors').scrollIntoView({behavior: 'smooth'})" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded flex items-center gap-2 text-xs text-slate-200 transition-colors shrink-0">
+          <div class="sticky top-0 z-30 bg-dark/95 backdrop-blur py-3 border-b border-slate-700/50 mb-6 flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4" id="detail-nav">
+              <button data-scroll-to="sec-competitors" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded flex items-center gap-2 text-xs text-slate-200 transition-colors shrink-0">
                   <span>מתחרים</span> <span class="bg-orange-500 text-white rounded px-1 text-[10px] font-bold">VS</span>
               </button>
-              <button onclick="document.getElementById('sec-costs').scrollIntoView({behavior: 'smooth'})" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded flex items-center gap-2 text-xs text-slate-200 transition-colors shrink-0">
+              <button data-scroll-to="sec-costs" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded flex items-center gap-2 text-xs text-slate-200 transition-colors shrink-0">
                   <span>עלויות</span>
               </button>
-              <button onclick="document.getElementById('sec-issues').scrollIntoView({behavior: 'smooth'})" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded flex items-center gap-2 text-xs text-slate-200 transition-colors shrink-0">
+              <button data-scroll-to="sec-issues" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded flex items-center gap-2 text-xs text-slate-200 transition-colors shrink-0">
                   <span>תקלות</span>
               </button>
-              <button onclick="document.getElementById('sec-summary').scrollIntoView({behavior: 'smooth'})" class="px-3 py-1.5 bg-slate-600/80 border-b-2 border-primary text-white rounded-t flex items-center gap-2 text-xs transition-colors shrink-0">
+              <button data-scroll-to="sec-summary" class="px-3 py-1.5 bg-slate-600/80 border-b-2 border-primary text-white rounded-t flex items-center gap-2 text-xs transition-colors shrink-0">
                  <span>סיכום</span>
               </button>
-               <button onclick="document.getElementById('sec-sources').scrollIntoView({behavior: 'smooth'})" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded flex items-center gap-2 text-xs text-slate-200 transition-colors shrink-0">
+               <button data-scroll-to="sec-sources" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded flex items-center gap-2 text-xs text-slate-200 transition-colors shrink-0">
                   <span>מקורות</span> <span class="text-slate-400">קישור</span>
               </button>
           </div>
@@ -757,6 +754,18 @@
                 ${sourceTagHtml}
             </section>
         `;
+
+        // Event delegation for nav scroll buttons injected via innerHTML
+        var detailNav = document.getElementById('detail-nav');
+        if (detailNav) {
+            detailNav.addEventListener('click', function(e) {
+                var btn = e.target.closest('[data-scroll-to]');
+                if (btn) {
+                    var target = document.getElementById(btn.dataset.scrollTo);
+                    if (target) target.scrollIntoView({ behavior: 'smooth' });
+                }
+            });
+        }
     }
 
     // Delete account modal functions
@@ -1017,6 +1026,41 @@
             container.innerHTML = '<div class="text-center py-8 text-red-400">שגיאה בטעינת היסטוריית יועץ ליסינג</div>';
         }
     }
+
+    // --- Event listeners replacing inline handlers ---
+    document.querySelectorAll('[data-tab]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            showTab(this.dataset.tab);
+        });
+    });
+
+    document.addEventListener('click', function(e) {
+        var card = e.target.closest('[data-search-id]');
+        if (card) openDetails(card.dataset.searchId);
+    });
+
+    var openDeleteBtn = document.getElementById('open-delete-btn');
+    if (openDeleteBtn) openDeleteBtn.addEventListener('click', openDeleteModal);
+
+    var deleteModal = document.getElementById('deleteModal');
+    if (deleteModal) {
+        deleteModal.addEventListener('click', function(e) {
+            if (e.target === deleteModal) closeDeleteModal(e);
+        });
+    }
+
+    var deleteConfirmInput = document.getElementById('deleteConfirmInput');
+    if (deleteConfirmInput) {
+        deleteConfirmInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') confirmDelete();
+        });
+    }
+
+    var confirmDeleteBtn = document.getElementById('deleteConfirmButton');
+    if (confirmDeleteBtn) confirmDeleteBtn.addEventListener('click', confirmDelete);
+
+    var cancelDeleteBtn = document.getElementById('cancel-delete-btn');
+    if (cancelDeleteBtn) cancelDeleteBtn.addEventListener('click', function() { closeDeleteModal(); });
 
 </script>
 

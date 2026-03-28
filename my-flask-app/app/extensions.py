@@ -13,5 +13,5 @@ oauth = OAuth()
 # AI client placeholders (initialized in factory)
 ai_client = None
 advisor_client = None
-GEMINI_RELIABILITY_MODEL_ID = os.environ.get("GEMINI_RELIABILITY_MODEL_ID", "gemini-3.1-flash-preview")
+GEMINI_RELIABILITY_MODEL_ID = os.environ.get("GEMINI_RELIABILITY_MODEL_ID", "gemini-3-flash-preview")
 GEMINI_RECOMMENDER_MODEL_ID = os.environ.get("GEMINI_RECOMMENDER_MODEL_ID", "gemini-3.1-pro-preview")
