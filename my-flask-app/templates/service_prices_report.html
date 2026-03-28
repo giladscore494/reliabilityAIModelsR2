@@ -113,7 +113,7 @@
         {{ "₪{:,.0f}".format(value) if value is not none else "-" }}
     {%- endmacro %}
     <div class="toolbar">
-        <button class="btn" onclick="window.print()">שמור כ-PDF</button>
+        <button class="btn" id="print-btn">שמור כ-PDF</button>
     </div>
     {% if error_message %}
         <div class="page">
@@ -251,5 +251,8 @@
             <p class="list">לא נמצאו דוחות להצגה.</p>
         </div>
     {% endif %}
+<script nonce="{{ csp_nonce }}">
+    document.getElementById('print-btn').addEventListener('click', function() { window.print(); });
+</script>
 </body>
 </html>

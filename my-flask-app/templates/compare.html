@@ -1646,7 +1646,7 @@
                                         ${formatValue(value)}
                                     </div>
                                     ${sources.length > 0 ? `
-                                        <button class="sources-toggle" onclick="toggleSources(this)">
+                                        <button class="sources-toggle">
                                             ${sources.length} מקורות
                                         </button>
                                         <div class="sources-list">
@@ -1820,6 +1820,12 @@
         loadComparisonFromHistory(loadId);
     }
 })();
+
+    // Event delegation for dynamically inserted sources-toggle buttons
+    document.addEventListener('click', function(e) {
+        var toggle = e.target.closest('.sources-toggle');
+        if (toggle) toggleSources(toggle);
+    });
 </script>
 
 {% include "_footer.html" %}

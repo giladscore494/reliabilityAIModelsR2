@@ -29,7 +29,7 @@ BIK_GREEN_DISCOUNTS_2026: Dict[str, int] = {
     "ice": 0,
 }
 ALLOWED_POWERTRAINS = set(BIK_GREEN_DISCOUNTS_2026.keys()) | {"unknown"}
-LEASING_GEMINI_MODEL_ID = "gemini-3.1-flash-preview"
+LEASING_GEMINI_MODEL_ID = "gemini-3-flash-preview"
 UPLOAD_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
 
 # ── Catalog cache (module-level) ──────────────────────────────────────

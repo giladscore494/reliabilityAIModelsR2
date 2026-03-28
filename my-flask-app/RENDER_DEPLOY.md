@@ -20,7 +20,7 @@ These must be present (app will hard-fail on Render without `SECRET_KEY`/`DATABA
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `GEMINI_API_KEY`
-- `GEMINI_RELIABILITY_MODEL_ID` (optional, default: `gemini-3.1-flash-preview`)
+- `GEMINI_RELIABILITY_MODEL_ID` (optional, default: `gemini-3-flash-preview`)
 - `GEMINI_RECOMMENDER_MODEL_ID` (optional, default: `gemini-3.1-pro-preview`)
 - `APP_TZ=Asia/Jerusalem` (explicitly set production timezone)
 - `OWNER_EMAILS` (comma-separated, lowercase)
