@@ -56,6 +56,8 @@ def auth():
             )
             db.session.add(user)
             db.session.commit()
+        # SECURITY: Regenerate session to prevent session fixation attacks
+        session.clear()
         login_user(user)
         return redirect(url_for('public.index'))
     except MismatchingStateError:

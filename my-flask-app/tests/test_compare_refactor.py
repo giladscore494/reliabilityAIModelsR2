@@ -324,6 +324,7 @@ from app.models import ComparisonHistory
 @pytest.fixture
 def app(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "sqlite:///:memory:")
+    monkeypatch.setenv("SECRET_KEY", "test-secret-key-for-pytest")
     monkeypatch.delenv("SKIP_CREATE_ALL", raising=False)
     app = create_app()
     app.config.update(TESTING=True)
