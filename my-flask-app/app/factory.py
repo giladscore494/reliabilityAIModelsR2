@@ -1193,9 +1193,8 @@ def release_quota_reservation(reservation_id: Optional[int], user_id: int, day_k
 
 
 def get_client_ip() -> str:
-    """Resolve client IP from X-Forwarded-For or remote_addr."""
-    xff = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
-    ip = xff or (request.remote_addr or "")
+    """Resolve client IP — use remote_addr which is already set by ProxyFix."""
+    ip = request.remote_addr or ""
     return ip[:64] if ip else "unknown"
 
 
@@ -1587,7 +1586,13 @@ def create_app():
 
     # Config
     app.config["SQLALCHEMY_DATABASE_URI"] = db_url if db_url else "sqlite:///:memory:"
-    app.config["SECRET_KEY"] = secret_key if secret_key else "dev-secret-key-that-is-not-secret"
+    # SECURITY: Never boot without a real secret key — no fallback in any environment.
+    if not secret_key:
+        raise RuntimeError(
+            "SECRET_KEY is required in ALL environments. "
+            "Set SECRET_KEY as an environment variable."
+        )
+    app.config["SECRET_KEY"] = secret_key
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     
     # ===== SECURITY: MAX_CONTENT_LENGTH (Phase 1D: DoS prevention) =====
@@ -1623,8 +1628,7 @@ def create_app():
 
     if not db_url:
         print("[BOOT] ⚠️ DATABASE_URL not set. Using in-memory sqlite (LOCAL DEV ONLY).")
-    if not secret_key:
-        print("[BOOT] ⚠️ SECRET_KEY not set. Using dev fallback (LOCAL DEV ONLY).")
+
 
     if db_url:
         parsed_db_url = urlparse(db_url)
@@ -1894,6 +1898,12 @@ def create_app():
         )
         response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
         response.headers.setdefault("Cross-Origin-Resource-Policy", "same-site")
+        # TODO(security): Move to enforced CSP after completing these steps:
+        # 1. Move all inline <script> blocks to static .js files
+        # 2. Serve Tailwind CSS from static (remove CDN)
+        # 3. Add nonce to any remaining inline scripts
+        # 4. Change header to "Content-Security-Policy" and remove 'unsafe-inline'
+        # Target: within 2 weeks of launch
         response.headers.setdefault(
             "Content-Security-Policy-Report-Only",
             # Report-Only until inline scripts are moved or nonces are added.

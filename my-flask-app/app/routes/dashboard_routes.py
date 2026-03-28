@@ -120,12 +120,11 @@ def delete_account():
         
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"[{request_id}] Account deletion failed: {str(e)}")
+        current_app.logger.error(f"[{request_id}] Account deletion failed: {type(e).__name__}: {e}")
         return api_error(
             'DELETE_FAILED',
             'שגיאה במחיקת החשבון',
             status=500,
-            details={'error': str(e)},
             request_id=request_id
         )
 
