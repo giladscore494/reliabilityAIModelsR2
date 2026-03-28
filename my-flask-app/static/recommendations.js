@@ -28,6 +28,19 @@
             .replace(/'/g, '&#39;');
     }
 
+    function sanitizeUrl(url) {
+        if (!url) return '';
+        var trimmed = url.replace(/^\s+/, '');
+        if (/^https?:\/\//i.test(trimmed)) return trimmed;
+        if (/^mailto:/i.test(trimmed)) return trimmed;
+        return '';
+    }
+
+    const getCSRFToken = () => {
+        const meta = document.querySelector('meta[name="csrf-token"]');
+        return meta ? meta.getAttribute('content') : '';
+    };
+
     async function safeFetchJson(url, options = {}) {
         const headers = new Headers(options.headers || {});
         if (!headers.has('Accept')) {
@@ -37,6 +50,10 @@
         const isFormBody = options.body instanceof FormData || options.body instanceof URLSearchParams;
         if (hasBody && !isFormBody && !headers.has('Content-Type')) {
             headers.set('Content-Type', 'application/json');
+        }
+        const csrfToken = getCSRFToken();
+        if (csrfToken && !headers.has('X-CSRF-Token')) {
+            headers.set('X-CSRF-Token', csrfToken);
         }
         options.headers = headers;
         let response;

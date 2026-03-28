@@ -16,7 +16,7 @@
     @keyframes fadeIn{ from{opacity:0; transform:translateY(20px)} to{opacity:1; transform:none} }
   </style>
 
-  <script>
+  <script nonce="{{ csp_nonce }}">
     tailwind.config = {
       darkMode:'class',
       theme:{ extend:{ colors:{ primary:'#6366F1', secondary:'#EC4899', dark:'#0F172A', 'dark-lighter':'#1E293B', success:'#10B981', warning:'#F59E0B', danger:'#EF4444' } } }

@@ -9,7 +9,7 @@
     <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
     <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 
-    <script>
+    <script nonce="{{ csp_nonce }}">
         tailwind.config = {
             darkMode: 'class',
             theme: {
@@ -657,9 +657,14 @@
     {{ car_models_data | tojson }}
 </script>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 (function() {
     'use strict';
+
+    function getCSRFToken() {
+        var meta = document.querySelector('meta[name="csrf-token"]');
+        return meta ? meta.getAttribute('content') : '';
+    }
     
     // ============================================================
     // CAR DATA & MODEL MAP
@@ -1305,7 +1310,7 @@
         if (window.legalAccepted) return true;
         const res = await fetch('/api/legal/accept', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
             credentials: 'include',
             body: JSON.stringify({
                 legal_confirm: true,
@@ -1364,6 +1369,7 @@
                 headers: {
                     'Content-Type': 'application/json',
                     'X-Idempotency-Key': compareIdempotencyKey,
+                    'X-CSRF-Token': getCSRFToken(),
                 },
                 body: JSON.stringify({ cars, legal_confirm: true })
             });
@@ -1676,7 +1682,7 @@
             const response = await fetch(`/api/compare/ai-regenerate?comparison_id=${encodeURIComponent(currentComparisonId)}`, {
                 method: 'POST',
                 credentials: 'include',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
                 body: JSON.stringify({ legal_confirm: true })
             });
             const payload = await response.json();

@@ -1499,10 +1499,12 @@ def create_app():
         """
         Assign a request_id + start_time early and enforce canonical host redirect.
         """
+        import secrets
         from flask import g
         if not getattr(g, "request_id", None):
             g.request_id = str(uuid.uuid4())
         g.start_time = pytime.perf_counter()
+        g.csp_nonce = secrets.token_urlsafe(16)
 
         host = (request.host or "").lower()
         # Preserve port if present (e.g., local dev)
@@ -1517,6 +1519,7 @@ def create_app():
 
     @app.context_processor
     def inject_template_globals():
+        from flask import g
         legal_accepted = False
         if current_user.is_authenticated:
             try:
@@ -1535,6 +1538,8 @@ def create_app():
             "is_owner": is_owner_user(),
             "contact_email": app.config.get("CONTACT_EMAIL", CONTACT_EMAIL),
             "legal_accepted": legal_accepted,
+            "csp_nonce": getattr(g, "csp_nonce", ""),
+            "csrf_token": session.get("csrf_token", ""),
         }
 
     # Phase 2G: Allowed hosts validation
@@ -1731,6 +1736,13 @@ def create_app():
     
     # Phase 2H: Origin/Referer protection for session-auth POST endpoints (CSRF-safe without tokens)
     @app.before_request
+    def ensure_csrf_token():
+        """Ensure a CSRF token exists in the session for Double Submit Cookie pattern."""
+        if "csrf_token" not in session:
+            import secrets
+            session["csrf_token"] = secrets.token_hex(32)
+
+    @app.before_request
     def check_origin_referer_for_posts():
         """
         Validate Origin or Referer header for session-based POST endpoints.
@@ -1778,7 +1790,12 @@ def create_app():
                 origin_host = None
         
         if not origin_host:
-            logger.warning(f"[CSRF] POST to {request.path} with no Origin/Referer header")
+            # Fallback: Double Submit Cookie check
+            csrf_header = request.headers.get("X-CSRF-Token", "")
+            csrf_session = session.get("csrf_token", "")
+            if csrf_header and csrf_session and len(csrf_header) == 64 and csrf_header == csrf_session:
+                return None  # CSRF token valid, allow request
+            logger.warning(f"[CSRF] POST to {request.path} with no Origin/Referer and invalid/missing CSRF token")
             return _forbidden_response()
 
         host_no_port = origin_host.split(':')[0].lower() if ':' in origin_host else origin_host.lower()
@@ -1899,23 +1916,21 @@ def create_app():
         )
         response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
         response.headers.setdefault("Cross-Origin-Resource-Policy", "same-site")
-        # TODO(security): Move to enforced CSP after completing these steps:
-        # 1. Move all inline <script> blocks to static .js files
-        # 2. Serve Tailwind CSS from static (remove CDN)
-        # 3. Add nonce to any remaining inline scripts
-        # 4. Change header to "Content-Security-Policy" and remove 'unsafe-inline'
-        # Target: within 2 weeks of launch
+        from flask import g
+        csp_nonce = getattr(g, "csp_nonce", "")
+        nonce_directive = f"'nonce-{csp_nonce}'" if csp_nonce else "'unsafe-inline'"
         response.headers.setdefault(
-            "Content-Security-Policy-Report-Only",
-            # Report-Only until inline scripts are moved or nonces are added.
-            "default-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://fonts.googleapis.com https://fonts.gstatic.com data:; "
-            "img-src 'self' data: https://*.googleusercontent.com; "
-            "connect-src 'self' https://accounts.google.com https://www.googleapis.com https://openidconnect.googleapis.com https://generativelanguage.googleapis.com"
+            "Content-Security-Policy",
+            f"default-src 'self'; "
+            f"script-src 'self' {nonce_directive} https://cdn.tailwindcss.com https://cdn.jsdelivr.net; "
+            f"style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+            f"font-src 'self' https://fonts.gstatic.com; "
+            f"img-src 'self' data: https://*.googleusercontent.com; "
+            f"connect-src 'self' https://accounts.google.com https://www.googleapis.com https://openidconnect.googleapis.com https://generativelanguage.googleapis.com; "
+            f"frame-ancestors 'none'; "
+            f"base-uri 'self'; "
+            f"form-action 'self' https://accounts.google.com"
         )
-        # CSP enforcement plan:
-        # 1) Move inline scripts/styles to static files or add nonces.
-        # 2) Serve Tailwind locally (remove CDN dependency).
-        # 3) Flip to enforced Content-Security-Policy header and drop 'unsafe-inline'.
         if is_render or request.is_secure:
             response.headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
 

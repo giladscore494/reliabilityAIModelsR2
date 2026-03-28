@@ -10,7 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap"
           rel="stylesheet">
 
-    <script>
+    <script nonce="{{ csp_nonce }}">
         tailwind.config = {
             darkMode: 'class',
             theme: {
@@ -364,7 +364,7 @@
         </div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
     const overlayEl = document.getElementById('details-overlay');
     const detailsTitleEl = document.getElementById('details-title');
     const detailsMetaEl = document.getElementById('details-meta');
