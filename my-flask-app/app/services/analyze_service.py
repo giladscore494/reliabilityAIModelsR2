@@ -115,7 +115,7 @@ def compute_reliability_score_and_banner(
     raw_model = str(validated_input.get("model") or "").strip()
     make_profile = get_make_profile(raw_make)
     model_override = get_model_override(raw_make, raw_model)
-    score_mod, _, _ = get_combined_score_modifier(raw_make, raw_model)
+    score_mod, confidence_boost, transmission_default = get_combined_score_modifier(raw_make, raw_model)
     base = 62 + score_mod
     base = max(20, min(90, base))
 
@@ -239,7 +239,7 @@ def compute_reliability_score_and_banner(
         if vr_conf < 0.7:
             confidence -= 0.10
     if model_override:
-        confidence += model_override.get("confidence_boost", 0.0)
+        confidence += confidence_boost
 
     confidence = max(0.25, min(0.95, round(confidence, 2)))
 
