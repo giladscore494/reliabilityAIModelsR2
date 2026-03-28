@@ -1294,11 +1294,14 @@ def get_model_baseline(make: str, model: str) -> int:
             if key.lower() == clean_lower:
                 return score
 
-        # 3. Partial/substring match (prefer key that contains clean, or clean contains key)
-        for key, score in make_models.items():
-            key_lower = key.lower()
-            if clean_lower in key_lower or key_lower in clean_lower:
-                return score
+        # 3. Partial/substring match — prefer the longest (most specific) key
+        candidates = [
+            (key, score)
+            for key, score in make_models.items()
+            if clean_lower in key.lower() or key.lower() in clean_lower
+        ]
+        if candidates:
+            return max(candidates, key=lambda kv: len(kv[0]))[1]
 
     return get_make_baseline(make)
 
