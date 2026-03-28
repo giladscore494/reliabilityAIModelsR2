@@ -35,6 +35,11 @@ from app.factory import (
     normalize_text,
     MAX_CACHE_DAYS,
 )
+from app.services.scoring_baseline import (
+    get_make_profile,
+    get_model_override,
+    get_combined_score_modifier,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +111,13 @@ def compute_reliability_score_and_banner(
         }
 
     # --- base ---
-    base = 80
+    raw_make = str(validated_input.get("make") or "").strip()
+    raw_model = str(validated_input.get("model") or "").strip()
+    make_profile = get_make_profile(raw_make)
+    model_override = get_model_override(raw_make, raw_model)
+    score_mod, _, _ = get_combined_score_modifier(raw_make, raw_model)
+    base = 62 + score_mod
+    base = max(20, min(90, base))
 
     # --- usage penalties (0..20) ---
     usage = validated_input.get("usage_profile") or {}
@@ -146,7 +157,8 @@ def compute_reliability_score_and_banner(
     recalls = risk_signals.get("recalls") if isinstance(risk_signals.get("recalls"), dict) else {}
     high_sev = _safe_int(recalls.get("high_severity_count"), lo=0, hi=100)
     other_recalls = max(0, _safe_int(recalls.get("count"), lo=0, hi=100) - high_sev)
-    recall_penalty = min(high_sev * 8, 24) + min(other_recalls * 2, 10)
+    raw_recall_penalty = min(high_sev * 8, 24) + min(other_recalls * 2, 10)
+    recall_penalty = raw_recall_penalty * make_profile["recall_multiplier"]
 
     # --- systemic issue signals (cap -40) ---
     systemic_penalty = 0.0
@@ -199,6 +211,7 @@ def compute_reliability_score_and_banner(
         mcp_penalty = 10
     elif mcp_level == "medium":
         mcp_penalty = 5
+    mcp_penalty = mcp_penalty * make_profile["mcp_multiplier"]
 
     # --- final score ---
     total_penalty = usage_penalty + recall_penalty + systemic_penalty + mcp_penalty
@@ -225,6 +238,8 @@ def compute_reliability_score_and_banner(
         vr_conf = _safe_float(vr.get("confidence"), 0.0, 1.0, 0.5)
         if vr_conf < 0.7:
             confidence -= 0.10
+    if model_override:
+        confidence += model_override.get("confidence_boost", 0.0)
 
     confidence = max(0.25, min(0.95, round(confidence, 2)))
 
