@@ -8,7 +8,7 @@
     <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
     <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 
-    <script>
+    <script nonce="{{ csp_nonce }}">
         tailwind.config = {
             darkMode: 'class',
             theme: {
@@ -501,9 +501,11 @@
 {% include "_footer.html" %}
 
 {% if user and user.is_authenticated and is_owner %}
-<script>
-    window.advisorHistoryProfile = {{ advisor_history_profile|default(None)|tojson }};
-    window.advisorHistoryResult = {{ advisor_history_result|default(None)|tojson }};
+<script id="advisor-history-profile" type="application/json">{{ advisor_history_profile|default(None)|tojson }}</script>
+<script id="advisor-history-result" type="application/json">{{ advisor_history_result|default(None)|tojson }}</script>
+<script nonce="{{ csp_nonce }}">
+    window.advisorHistoryProfile = JSON.parse(document.getElementById('advisor-history-profile').textContent);
+    window.advisorHistoryResult = JSON.parse(document.getElementById('advisor-history-result').textContent);
 </script>
 <script src="/static/recommendations.js"></script>
 {% endif %}

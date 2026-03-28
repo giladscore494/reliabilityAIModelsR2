@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import desc, event
 from sqlalchemy.orm import relationship, validates
 from sqlalchemy.dialects.postgresql import JSONB
@@ -112,7 +112,7 @@ class DailyQuotaUsage(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
     day = db.Column(db.Date, nullable=False, index=True)
     count = db.Column(db.Integer, nullable=False, default=0)
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     __table_args__ = (
         db.UniqueConstraint("user_id", "day", name="uq_user_day_quota_usage"),
@@ -135,8 +135,8 @@ class QuotaReservation(db.Model):
     day = db.Column(db.Date, nullable=False, index=True)
     status = db.Column(db.String(20), nullable=False, index=True)  # reserved | consumed | released
     request_id = db.Column(db.String(64), nullable=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), index=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     __table_args__ = (
         db.Index("ix_reservation_user_day_status", "user_id", "day", "status"),
@@ -153,7 +153,7 @@ class SearchHistory(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
-    timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    timestamp = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     cache_key = db.Column(db.String(64), nullable=True)
     make = db.Column(db.String(100))
     model = db.Column(db.String(100))
@@ -174,7 +174,7 @@ class AdvisorHistory(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
-    timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    timestamp = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     profile_json = db.Column(db.Text, nullable=False)
     result_json = db.Column(db.Text, nullable=False)
     duration_ms = db.Column(db.Integer, nullable=True)
@@ -191,7 +191,7 @@ class IpRateLimit(db.Model):
     ip = db.Column(db.String(64), nullable=False, index=True)
     window_start = db.Column(db.DateTime, nullable=False, index=True)
     count = db.Column(db.Integer, nullable=False, default=0)
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     __table_args__ = (
         db.UniqueConstraint("ip", "window_start", name="uq_ip_window"),
@@ -206,7 +206,7 @@ class LegalAcceptance(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
     terms_version = db.Column(db.String(32), nullable=False)
     privacy_version = db.Column(db.String(32), nullable=False)
-    accepted_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    accepted_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     accepted_ip = db.Column(db.String(64), nullable=False)
     accepted_user_agent = db.Column(db.String(512), nullable=True)
     source = db.Column(db.String(32), nullable=False, default="web")
@@ -226,7 +226,7 @@ class ComparisonHistory(db.Model):
     __tablename__ = "comparison_history"
 
     id = db.Column(db.Integer, primary_key=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=True)
     session_id = db.Column(db.String(64), nullable=True, index=True)
     
@@ -273,7 +273,7 @@ class ServiceInvoice(db.Model):
     __tablename__ = "service_invoice"
 
     id = db.Column(db.Integer, primary_key=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
 
     make = db.Column(db.String(100), nullable=True, index=True)
@@ -337,7 +337,7 @@ class ServicePriceBenchmarkItem(db.Model):
     __tablename__ = "service_price_benchmark_item"
 
     id = db.Column(db.Integer, primary_key=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), index=True)
 
     canonical_code = db.Column(db.String(64), nullable=False, index=True)
     category = db.Column(db.String(32), nullable=True, index=True)
@@ -370,7 +370,7 @@ class LegalFeatureAcceptance(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
     feature_key = db.Column(db.String(64), nullable=False, index=True)  # e.g. "invoice_scanner"
     version = db.Column(db.String(32), nullable=False)  # e.g. "2026-02-07"
-    accepted_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    accepted_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     __table_args__ = (
         db.UniqueConstraint("user_id", "feature_key", "version", name="uq_feature_acceptance"),
@@ -390,7 +390,7 @@ class LeasingAdvisorHistory(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), index=True)
     frame_input_json = db.Column(JSONEncodedText, nullable=False)
     candidates_json = db.Column(JSONEncodedText, nullable=False)
     prefs_json = db.Column(JSONEncodedText, nullable=False)

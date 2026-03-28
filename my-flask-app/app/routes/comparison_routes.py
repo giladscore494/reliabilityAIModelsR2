@@ -20,7 +20,7 @@ from app.quota import (
 )
 from app.legal import TERMS_VERSION, PRIVACY_VERSION
 from app.models import LegalAcceptance, QuotaReservation
-from app.utils.http_helpers import api_error, api_ok, is_owner_user, get_request_id
+from app.utils.http_helpers import api_error, api_ok, is_owner_user, get_request_id, _utcnow
 from app.services import comparison_service
 
 bp = Blueprint('comparison', __name__)
@@ -66,7 +66,7 @@ def compare_api():
     client_ip = get_client_ip()
     ip_allowed, ip_count, ip_resets_at = check_and_increment_ip_rate_limit(client_ip, limit=per_ip_limit)
     if not ip_allowed:
-        retry_after = max(0, int((ip_resets_at - datetime.utcnow()).total_seconds()))
+        retry_after = max(0, int((ip_resets_at - _utcnow()).total_seconds()))
         resp = api_error(
             "rate_limited",
             "חרגת ממגבלת הבקשות לדקה.",
@@ -118,7 +118,7 @@ def compare_api():
         if idempotency_key:
             idem_request_id = f"idem:{idempotency_key}"
             idem_ttl_seconds = int(current_app.config.get("COMPARE_IDEMPOTENCY_TTL_SECONDS", 300))
-            ttl_cutoff = datetime.utcnow() - timedelta(seconds=idem_ttl_seconds)
+            ttl_cutoff = _utcnow() - timedelta(seconds=idem_ttl_seconds)
             existing = (
                 QuotaReservation.query
                 .filter(

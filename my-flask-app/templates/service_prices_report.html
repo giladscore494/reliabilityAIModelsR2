@@ -228,7 +228,7 @@
                         <ul class="list">
                             {% for source in report.get('grounding_sources', []) %}
                                 <li>
-                                    <a href="{{ source.get('url') }}" target="_blank" rel="noopener">{{ source.get('title') or source.get('url') }}</a>
+                                    <a href="{{ source.get('url') }}" target="_blank" rel="noopener noreferrer">{{ source.get('title') or source.get('url') }}</a>
                                 </li>
                             {% endfor %}
                         </ul>

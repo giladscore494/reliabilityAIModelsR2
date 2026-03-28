@@ -12,7 +12,7 @@ from flask_login import login_required, current_user
 from app.extensions import db
 from app.models import SearchHistory
 from app.quota import check_and_increment_ip_rate_limit, get_client_ip, log_access_decision, PER_IP_PER_MIN_LIMIT
-from app.utils.http_helpers import api_error, api_ok, is_owner_user
+from app.utils.http_helpers import api_error, api_ok, is_owner_user, _utcnow
 from app.services import analyze_service
 from app.factory import QUOTA_RESERVATION_TTL_SECONDS
 
@@ -51,7 +51,7 @@ def analyze_car():
     client_ip = get_client_ip()
     ip_allowed, ip_count, ip_resets_at = check_and_increment_ip_rate_limit(client_ip, limit=per_ip_limit)
     if not ip_allowed:
-        retry_after = max(0, int((ip_resets_at - datetime.utcnow()).total_seconds()))
+        retry_after = max(0, int((ip_resets_at - _utcnow()).total_seconds()))
         resp = api_error(
             "rate_limited",
             "חרגת ממגבלת הבקשות לדקה.",

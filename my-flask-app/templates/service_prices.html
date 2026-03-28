@@ -37,7 +37,7 @@
         .label-extreme { color: #DC2626; font-weight: bold; }
     </style>
 
-    <script>
+    <script nonce="{{ csp_nonce }}">
         tailwind.config = {
             darkMode: 'class',
             theme: {
@@ -113,9 +113,9 @@
                         <div id="termsSection" class="mb-6">
                             <p class="text-slate-300 mb-4">
                                 לפני שימוש בשירות זה, יש לאשר את 
-                                <a href="{{ url_for('public.terms') }}" target="_blank" class="text-primary hover:underline">תנאי השימוש</a>
+                                <a href="{{ url_for('public.terms') }}" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">תנאי השימוש</a>
                                 ואת 
-                                <a href="{{ url_for('public.privacy') }}" target="_blank" class="text-primary hover:underline">מדיניות הפרטיות</a>.
+                                <a href="{{ url_for('public.privacy') }}" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">מדיניות הפרטיות</a>.
                             </p>
                             <label class="flex items-start gap-3 cursor-pointer group">
                                 <input type="checkbox" id="legalConfirmCheckbox" class="mt-1 rounded border-slate-600 bg-slate-800 text-primary focus:ring-primary" {% if legal_accepted %}checked disabled{% endif %}>
@@ -304,7 +304,7 @@
     {% include "_footer.html" %}
 
     <script src="/static/script.js"></script>
-    <script>
+    <script nonce="{{ csp_nonce }}">
         // State
         let currentInvoiceId = null;
         let currentReport = null;
@@ -323,6 +323,11 @@
         const maxFileMb = {{ max_file_mb }};
         const requestLimitMb = {{ request_limit_mb }};
         const maxAllowedMb = Math.min(maxFileMb, requestLimitMb);
+
+        function getCSRFToken() {
+            var meta = document.querySelector('meta[name="csrf-token"]');
+            return meta ? meta.getAttribute('content') : '';
+        }
 
         // DOM Elements
         const dropZone = document.getElementById('dropZone');
@@ -473,7 +478,7 @@
                 
                 const resp = await fetch('/api/legal/accept', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
                     body: JSON.stringify({
                         legal_confirm: true,
                         terms_version: termsVersion,
@@ -528,6 +533,7 @@
                 
                 const resp = await fetch('/api/service-prices/analyze', {
                     method: 'POST',
+                    headers: { 'X-CSRF-Token': getCSRFToken() },
                     body: formData
                 });
 
@@ -695,7 +701,7 @@
                                     </div>
                                 </div>
                                 <div class="flex items-center gap-3 text-sm">
-                                    <a href="/service-prices/report/${inv.id}" target="_blank" rel="noopener"
+                                    <a href="/service-prices/report/${inv.id}" target="_blank" rel="noopener noreferrer"
                                        class="text-primary hover:underline">דוח (PDF)</a>
                                     <a href="/api/service-prices/download/${inv.id}"
                                        class="text-slate-300 hover:underline">JSON (טכני)</a>

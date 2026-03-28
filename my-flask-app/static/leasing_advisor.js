@@ -9,6 +9,19 @@
     return d.innerHTML;
   }
 
+  function sanitizeUrl(url) {
+    if (!url) return '';
+    var trimmed = url.replace(/^\s+/, '');
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    if (/^mailto:/i.test(trimmed)) return trimmed;
+    return '';
+  }
+
+  function getCSRFToken() {
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.getAttribute('content') : '';
+  }
+
   function $(sel) { return document.querySelector(sel); }
   function $$(sel) { return document.querySelectorAll(sel); }
 
@@ -91,7 +104,7 @@
     var legalBanner = $("#legalBanner");
     return fetch("/api/legal/accept", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      headers: { "Content-Type": "application/json", "Accept": "application/json", "X-CSRF-Token": getCSRFToken() },
       credentials: "include",
       body: JSON.stringify({
         legal_confirm: true,
@@ -321,7 +334,7 @@
         var maxBikVal = ($("#maxBik") || {}).value;
         if (maxBikVal) formData.append("max_bik", maxBikVal);
 
-        fetch("/api/leasing/frame", { method: "POST", body: formData })
+        fetch("/api/leasing/frame", { method: "POST", body: formData, headers: { "X-CSRF-Token": getCSRFToken() } })
           .then(handleFrameResponse)
           .catch(handleFrameError);
       } else {
@@ -330,7 +343,7 @@
 
         fetch("/api/leasing/frame", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": getCSRFToken() },
           body: JSON.stringify({
             max_bik: maxBik || null,
             list_price: listPrice || null,
@@ -432,7 +445,7 @@
 
         fetch("/api/leasing/recommend", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": getCSRFToken() },
           credentials: "include",
           body: JSON.stringify({
             candidates: currentCandidates,

@@ -17,7 +17,7 @@ from flask import current_app
 
 from app.extensions import db
 from app.models import ComparisonHistory
-from app.utils.http_helpers import api_ok, api_error, get_request_id
+from app.utils.http_helpers import api_ok, api_error, get_request_id, _utcnow
 from app.quota import log_access_decision
 from app.utils.prompt_defense import (
     escape_prompt_input,
@@ -2089,7 +2089,7 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     try:
         db_start = pytime.perf_counter()
         comparison_record = ComparisonHistory(
-            created_at=datetime.utcnow(),
+            created_at=_utcnow(),
             user_id=user_id,
             session_id=session_id,
             cars_selected=json.dumps(validated_cars, ensure_ascii=False),

@@ -30,7 +30,7 @@ from app.quota import (
     release_quota_reservation,
     PER_IP_PER_MIN_LIMIT,
 )
-from app.utils.http_helpers import api_error, api_ok, get_request_id
+from app.utils.http_helpers import api_error, api_ok, get_request_id, _utcnow
 from app.services import service_prices_service
 
 bp = Blueprint("service_prices", __name__)
@@ -215,7 +215,7 @@ def analyze_invoice():
     ip_allowed, ip_count, ip_resets_at = check_and_increment_ip_rate_limit(client_ip, limit=per_ip_limit)
     
     if not ip_allowed:
-        retry_after = max(0, int((ip_resets_at - datetime.utcnow()).total_seconds()))
+        retry_after = max(0, int((ip_resets_at - _utcnow()).total_seconds()))
         resp = api_error(
             "rate_limited",
             "חרגת ממגבלת הבקשות לדקה.",
@@ -496,7 +496,7 @@ def export_all_reports():
         buffer,
         mimetype="application/x-ndjson",
         as_attachment=True,
-        download_name=f"service_price_reports_export_{datetime.utcnow().strftime('%Y%m%d')}.jsonl",
+        download_name=f"service_price_reports_export_{_utcnow().strftime('%Y%m%d')}.jsonl",
     )
 
 

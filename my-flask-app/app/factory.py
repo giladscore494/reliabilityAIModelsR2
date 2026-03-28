@@ -60,6 +60,7 @@ from app.utils.http_helpers import (
     is_owner_user,
     get_redirect_uri,
     log_rejection,
+    _utcnow,
 )
 import app.extensions as extensions
 from app.extensions import (
@@ -109,7 +110,7 @@ MAX_CACHE_DAYS = 45
 PER_IP_PER_MIN_LIMIT = 20
 QUOTA_RESERVATION_TTL_SECONDS = int(os.environ.get("QUOTA_RESERVATION_TTL_SECONDS", "600"))
 MAX_ACTIVE_RESERVATIONS = 1
-AI_EXECUTOR_WORKERS = int(os.environ.get("AI_EXECUTOR_WORKERS", "4"))
+AI_EXECUTOR_WORKERS = int(os.environ.get("AI_EXECUTOR_WORKERS", "8"))
 AI_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=AI_EXECUTOR_WORKERS)
 MAX_CONTENT_LENGTH_DEFAULT = 8 * 1024 * 1024
 SERVICE_PRICES_ANALYZE_LIMIT_BYTES = 6 * 1024 * 1024
@@ -154,7 +155,7 @@ def resolve_app_timezone() -> Tuple[ZoneInfo, str]:
         return ZoneInfo(tz_name), tz_name
     except Exception:
         fallback = "UTC"
-        print(f"[QUOTA] ⚠️ Invalid APP_TZ='{tz_name}', falling back to UTC")
+        logger.warning("[QUOTA] Invalid APP_TZ='%s', falling back to UTC", tz_name)
         return ZoneInfo(fallback), fallback
 
 
@@ -162,7 +163,7 @@ def compute_quota_window(tz: ZoneInfo, *, now: Optional[datetime] = None) -> Tup
     """
     Compute timezone-aware quota window boundaries and retry-after seconds.
     """
-    now_utc = now.astimezone(ZoneInfo("UTC")) if now else datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))
+    now_utc = now.astimezone(ZoneInfo("UTC")) if now else _utcnow().replace(tzinfo=ZoneInfo("UTC"))
     now_tz = now_utc.astimezone(tz) if tz else now_utc
     day_key = now_tz.date()
     window_start = datetime.combine(day_key, time.min, tzinfo=tz)
@@ -200,7 +201,7 @@ def log_access_decision(route_name: str, user_id: Optional[int], decision: str, 
     log_msg = f"[ACCESS] {route_name} | {user_info} | {decision}"
     if reason:
         log_msg += f" | {reason}"
-    print(log_msg)
+    logger.info(log_msg)
 
 
 @login_manager.user_loader
@@ -214,7 +215,7 @@ def load_user(user_id):
         return User.query.get(int(user_id))
     except Exception as e:
         # Log the error safely (no secrets, no user IDs)
-        print(f"[AUTH] ⚠️ load_user failed: {e.__class__.__name__}")
+        logger.warning("[AUTH] load_user failed: %s", e.__class__.__name__)
         try:
             db.session.rollback()
         except Exception:
@@ -229,16 +230,16 @@ def load_user(user_id):
 # --- טעינת המילון ---
 try:
     from car_models_dict import israeli_car_market_full_compilation
-    print(f"[DICT] ✅ Loaded car_models_dict. Manufacturers: {len(israeli_car_market_full_compilation)}")
+    logger.info("[DICT] Loaded car_models_dict. Manufacturers: %s", len(israeli_car_market_full_compilation))
     try:
         _total_models = sum(len(models) for models in israeli_car_market_full_compilation.values())
-        print(f"[DICT] ✅ Total models loaded: {_total_models}")
+        logger.info("[DICT] Total models loaded: %s", _total_models)
     except Exception as inner_e:
-        print(f"[DICT] ⚠️ Count models failed: {inner_e}")
+        logger.warning("[DICT] Count models failed: %s", inner_e)
 except Exception as e:
-    print(f"[DICT] ❌ Failed to import car_models_dict: {e}")
+    logger.error("[DICT] Failed to import car_models_dict: %s", e)
     israeli_car_market_full_compilation = {"Toyota": ["Corolla (2008-2025)"]}
-    print("[DICT] ⚠️ Fallback applied — Toyota only")
+    logger.warning("[DICT] Fallback applied — Toyota only")
 
 import re as _re
 
@@ -427,12 +428,12 @@ def call_model_with_retry(prompt: str) -> dict:
             llm = genai.GenerativeModel(model_name)
         except Exception as e:
             last_err = e
-            print(f"[AI] ❌ init {model_name}: {e}")
+            logger.error("[AI] init %s: %s", model_name, e)
             continue
         
         for attempt in range(1, RETRIES + 1):
             try:
-                print(f"[AI] Calling {model_name} (attempt {attempt}/{RETRIES})")
+                logger.debug("[AI] Calling %s (attempt %s/%s)", model_name, attempt, RETRIES)
                 
                 # Phase 1F: Configure timeout at SDK level if supported
                 # Note: google-generativeai SDK doesn't expose direct timeout config in generate_content
@@ -468,12 +469,12 @@ def call_model_with_retry(prompt: str) -> dict:
                 if not isinstance(data, dict):
                     raise ValueError(f"Model returned non-object JSON: {type(data).__name__}")
                 
-                print(f"[AI] ✅ success with {model_name}")
+                logger.info("[AI] success with %s", model_name)
                 return data
                 
             except Exception as e:
                 error_type = type(e).__name__
-                print(f"[AI] ⚠️ {model_name} attempt {attempt}/{RETRIES} failed: {error_type}: {e}")
+                logger.warning("[AI] %s attempt %s/%s failed: %s: %s", model_name, attempt, RETRIES, error_type, e)
                 last_err = e
                 
                 if attempt < RETRIES:
@@ -481,13 +482,13 @@ def call_model_with_retry(prompt: str) -> dict:
                     backoff = RETRY_BACKOFF_SEC * (2 ** (attempt - 1))  # exponential
                     jitter = random.uniform(0, 0.5)  # add up to 0.5s jitter
                     sleep_time = backoff + jitter
-                    print(f"[AI] Retrying in {sleep_time:.2f}s...")
+                    logger.debug("[AI] Retrying in %.2fs...", sleep_time)
                     pytime.sleep(sleep_time)
                 continue
     
     # All retries exhausted
     error_msg = f"All AI model attempts failed. Last error: {type(last_err).__name__}"
-    print(f"[AI] ❌ {error_msg}")
+    logger.error("[AI] %s", error_msg)
     raise RuntimeError(error_msg)
 
 
@@ -890,7 +891,8 @@ Return ONLY raw JSON. Do not add any backticks or explanation text.
         try:
             return json.loads(text)
         except json.JSONDecodeError:
-            return {"_error": "JSON decode error from Gemini Car Advisor", "_raw": text}
+            logger.warning("[AI] Car Advisor JSON decode error, raw length=%d", len(text) if text else 0)
+            return {"_error": "JSON decode error from Gemini Car Advisor"}
     finally:
         duration_ms = (pytime.perf_counter() - start_time) * 1000
         logger.info(
@@ -1008,7 +1010,7 @@ def cleanup_expired_reservations(user_id: int, day_key: date, now_utc: Optional[
     """
     Remove stale reservations that were never finalized to avoid blocking quota.
     """
-    now = now_utc or datetime.utcnow()
+    now = now_utc or _utcnow()
     expire_before = now - timedelta(seconds=QUOTA_RESERVATION_TTL_SECONDS)
     deleted = (
         db.session.query(QuotaReservation)
@@ -1082,7 +1084,7 @@ def reserve_daily_quota(user_id: int, day_key: date, limit: int, request_id: str
         reserved_count (int): active reserved count AFTER this call (if allowed)
         reservation_id (int|None): id of created reservation if allowed
     """
-    now = now_utc or datetime.utcnow()
+    now = now_utc or _utcnow()
     try:
         try:
             cleanup_expired_reservations(user_id, day_key, now)
@@ -1138,7 +1140,7 @@ def finalize_quota_reservation(reservation_id: Optional[int], user_id: int, day_
     """
     if not reservation_id:
         return False, get_daily_quota_usage(user_id, day_key)
-    now = now_utc or datetime.utcnow()
+    now = now_utc or _utcnow()
     try:
         with db.session.begin_nested():
             reservation = (
@@ -1161,7 +1163,7 @@ def finalize_quota_reservation(reservation_id: Optional[int], user_id: int, day_
         db.session.commit()
         return True, quota.count
     except SQLAlchemyError as e:
-        print(f"[QUOTA] ❌ Finalize failed for user {user_id}: {type(e).__name__}")
+        logger.error("[QUOTA] Finalize failed for user %s: %s", user_id, type(e).__name__)
         db.session.rollback()
         return False, get_daily_quota_usage(user_id, day_key)
 
@@ -1172,7 +1174,7 @@ def release_quota_reservation(reservation_id: Optional[int], user_id: int, day_k
     """
     if not reservation_id:
         return False
-    now = now_utc or datetime.utcnow()
+    now = now_utc or _utcnow()
     try:
         with db.session.begin_nested():
             reservation = (
@@ -1187,7 +1189,7 @@ def release_quota_reservation(reservation_id: Optional[int], user_id: int, day_k
         db.session.commit()
         return True
     except SQLAlchemyError as e:
-        print(f"[QUOTA] ⚠️ Release failed for user {user_id}: {type(e).__name__}")
+        logger.warning("[QUOTA] Release failed for user %s: %s", user_id, type(e).__name__)
         db.session.rollback()
         return False
 
@@ -1218,7 +1220,7 @@ def check_and_increment_daily_quota(user_id: int, limit: int, day_key: date, now
         - current_count: The count AFTER increment (if allowed) or current count (if rejected)
     """
 
-    now = now_utc or datetime.utcnow()
+    now = now_utc or _utcnow()
 
     try:
         with db.session.begin_nested():
@@ -1278,13 +1280,13 @@ def check_and_increment_daily_quota(user_id: int, limit: int, day_key: date, now
             db.session.commit()
             return True, quota.count
         except SQLAlchemyError as e:
-            print(f"[QUOTA] ❌ Error after retry for user {user_id}: {type(e).__name__}")
+            logger.error("[QUOTA] Error after retry for user %s: %s", user_id, type(e).__name__)
             db.session.rollback()
             return False, 0
 
     except SQLAlchemyError as e:
         # Unexpected error, log and deny to be safe
-        print(f"[QUOTA] ❌ Error checking quota for user {user_id}: {type(e).__name__}")
+        logger.error("[QUOTA] Error checking quota for user %s: %s", user_id, type(e).__name__)
         db.session.rollback()
         return False, 0
 
@@ -1293,7 +1295,7 @@ def check_and_increment_ip_rate_limit(ip: str, limit: int = 20, now_utc: Optiona
     """
     Atomically enforce per-IP minute window limit.
     """
-    now = now_utc or datetime.utcnow()
+    now = now_utc or _utcnow()
     window_start = now.replace(second=0, microsecond=0)
     resets_at = window_start + timedelta(minutes=1)
     cleanup_before = window_start - timedelta(days=1)
@@ -1421,14 +1423,14 @@ def rollback_quota_increment(user_id: int, day_key: date) -> int:
             )
             if quota and quota.count > 0:
                 quota.count -= 1
-                quota.updated_at = datetime.utcnow()
+                quota.updated_at = _utcnow()
                 current = quota.count
             else:
                 current = quota.count if quota else 0
         db.session.commit()
         return current
     except SQLAlchemyError as e:
-        print(f"[QUOTA] ❌ rollback failed for user {user_id}: {type(e).__name__}")
+        logger.error("[QUOTA] rollback failed for user %s: %s", user_id, type(e).__name__)
         db.session.rollback()
         return 0
 
@@ -1498,10 +1500,12 @@ def create_app():
         """
         Assign a request_id + start_time early and enforce canonical host redirect.
         """
+        import secrets
         from flask import g
         if not getattr(g, "request_id", None):
             g.request_id = str(uuid.uuid4())
         g.start_time = pytime.perf_counter()
+        g.csp_nonce = secrets.token_urlsafe(16)
 
         host = (request.host or "").lower()
         # Preserve port if present (e.g., local dev)
@@ -1516,6 +1520,7 @@ def create_app():
 
     @app.context_processor
     def inject_template_globals():
+        from flask import g
         legal_accepted = False
         if current_user.is_authenticated:
             try:
@@ -1534,6 +1539,8 @@ def create_app():
             "is_owner": is_owner_user(),
             "contact_email": app.config.get("CONTACT_EMAIL", CONTACT_EMAIL),
             "legal_accepted": legal_accepted,
+            "csp_nonce": getattr(g, "csp_nonce", ""),
+            "csrf_token": session.get("csrf_token", ""),
         }
 
     # Phase 2G: Allowed hosts validation
@@ -1551,7 +1558,7 @@ def create_app():
         }
     if canonical_host:
         ALLOWED_HOSTS.add(canonical_host.lower())
-    print(f"[BOOT] Allowed hosts: {ALLOWED_HOSTS}")
+    logger.info("[BOOT] Allowed hosts: %s", ALLOWED_HOSTS)
     
     def is_host_allowed(host: str) -> bool:
         """Check if the given host is in the allowed hosts list."""
@@ -1624,10 +1631,10 @@ def create_app():
             "max_overflow": 10,
             "connect_args": {"connect_timeout": 10, "sslmode": "prefer"}
         }
-        print("[BOOT] SQLAlchemy configured with pool_pre_ping=True, pool_recycle=240")
+        logger.info("[BOOT] SQLAlchemy configured with pool_pre_ping=True, pool_recycle=240")
 
     if not db_url:
-        print("[BOOT] ⚠️ DATABASE_URL not set. Using in-memory sqlite (LOCAL DEV ONLY).")
+        logger.warning("[BOOT] DATABASE_URL not set. Using in-memory sqlite (LOCAL DEV ONLY).")
 
 
     if db_url:
@@ -1730,6 +1737,13 @@ def create_app():
     
     # Phase 2H: Origin/Referer protection for session-auth POST endpoints (CSRF-safe without tokens)
     @app.before_request
+    def ensure_csrf_token():
+        """Ensure a CSRF token exists in the session for Double Submit Cookie pattern."""
+        if "csrf_token" not in session:
+            import secrets
+            session["csrf_token"] = secrets.token_hex(32)
+
+    @app.before_request
     def check_origin_referer_for_posts():
         """
         Validate Origin or Referer header for session-based POST endpoints.
@@ -1777,7 +1791,12 @@ def create_app():
                 origin_host = None
         
         if not origin_host:
-            logger.warning(f"[CSRF] POST to {request.path} with no Origin/Referer header")
+            # Fallback: Double Submit Cookie check
+            csrf_header = request.headers.get("X-CSRF-Token", "")
+            csrf_session = session.get("csrf_token", "")
+            if csrf_header and csrf_session and len(csrf_header) == 64 and csrf_header == csrf_session:
+                return None  # CSRF token valid, allow request
+            logger.warning(f"[CSRF] POST to {request.path} with no Origin/Referer and invalid/missing CSRF token")
             return _forbidden_response()
 
         host_no_port = origin_host.split(':')[0].lower() if ':' in origin_host else origin_host.lower()
@@ -1898,23 +1917,21 @@ def create_app():
         )
         response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
         response.headers.setdefault("Cross-Origin-Resource-Policy", "same-site")
-        # TODO(security): Move to enforced CSP after completing these steps:
-        # 1. Move all inline <script> blocks to static .js files
-        # 2. Serve Tailwind CSS from static (remove CDN)
-        # 3. Add nonce to any remaining inline scripts
-        # 4. Change header to "Content-Security-Policy" and remove 'unsafe-inline'
-        # Target: within 2 weeks of launch
+        from flask import g
+        csp_nonce = getattr(g, "csp_nonce", "")
+        nonce_directive = f"'nonce-{csp_nonce}'" if csp_nonce else "'unsafe-inline'"
         response.headers.setdefault(
-            "Content-Security-Policy-Report-Only",
-            # Report-Only until inline scripts are moved or nonces are added.
-            "default-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://fonts.googleapis.com https://fonts.gstatic.com data:; "
-            "img-src 'self' data: https://*.googleusercontent.com; "
-            "connect-src 'self' https://accounts.google.com https://www.googleapis.com https://openidconnect.googleapis.com https://generativelanguage.googleapis.com"
+            "Content-Security-Policy",
+            f"default-src 'self'; "
+            f"script-src 'self' {nonce_directive} https://cdn.tailwindcss.com https://cdn.jsdelivr.net; "
+            f"style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+            f"font-src 'self' https://fonts.gstatic.com; "
+            f"img-src 'self' data: https://*.googleusercontent.com; "
+            f"connect-src 'self' https://accounts.google.com https://www.googleapis.com https://openidconnect.googleapis.com https://generativelanguage.googleapis.com; "
+            f"frame-ancestors 'none'; "
+            f"base-uri 'self'; "
+            f"form-action 'self' https://accounts.google.com"
         )
-        # CSP enforcement plan:
-        # 1) Move inline scripts/styles to static files or add nonces.
-        # 2) Serve Tailwind locally (remove CDN dependency).
-        # 3) Flip to enforced Content-Security-Policy header and drop 'unsafe-inline'.
         if is_render or request.is_secure:
             response.headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
 
@@ -1965,38 +1982,38 @@ def create_app():
             ip_rate_limit_exists = inspector.has_table('ip_rate_limit')
             quota_reservation_exists = inspector.has_table('quota_reservation')
             if not runtime_bootstrap_enabled:
-                print("[DB] ⏭️ Runtime schema bootstrap disabled in this environment")
+                logger.info("[DB] Runtime schema bootstrap disabled in this environment")
             elif is_render:
-                print("[DB] ⏭️ Render detected - skipping db.create_all(); run `flask db upgrade` via release/preDeploy")
+                logger.info("[DB] Render detected - skipping db.create_all(); run `flask db upgrade` via release/preDeploy")
             elif os.environ.get("SKIP_CREATE_ALL", "").lower() in ("1", "true", "yes"):
-                print("[DB] ⏭️ SKIP_CREATE_ALL enabled - skipping db.create_all()")
+                logger.info("[DB] SKIP_CREATE_ALL enabled - skipping db.create_all()")
             elif os.path.exists(lock_path) and quota_usage_exists and ip_rate_limit_exists and quota_reservation_exists:
-                print("[DB] ⏭️ create_all skipped (lock exists)")
+                logger.info("[DB] create_all skipped (lock exists)")
             else:
                 db.create_all()
                 try:
                     with open(lock_path, "w", encoding="utf-8") as f:
-                        f.write(str(datetime.utcnow()))
+                        f.write(str(_utcnow()))
                 except Exception:
                     pass
-                print("[DB] ✅ create_all executed")
+                logger.info("[DB] create_all executed")
         except Exception as e:
-            print(f"[DB] ⚠️ create_all failed: {e}")
+            logger.warning("[DB] create_all failed: %s", e)
 
     # Gemini key
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
     if not GEMINI_API_KEY:
-        print("[AI] ⚠️ GEMINI_API_KEY missing")
+        logger.warning("[AI] GEMINI_API_KEY missing")
 
     if GEMINI_API_KEY:
         try:
             extensions.ai_client = genai3.Client(api_key=GEMINI_API_KEY)
             extensions.advisor_client = extensions.ai_client
-            print("[AI] ✅ Gemini 3 client initialized")
+            logger.info("[AI] Gemini 3 client initialized")
         except Exception as e:
             extensions.ai_client = None
             extensions.advisor_client = None
-            print(f"[AI] ❌ Failed to init Gemini 3 client: {e}")
+            logger.error("[AI] Failed to init Gemini 3 client: %s", e)
     else:
         extensions.ai_client = None
         extensions.advisor_client = None
@@ -2040,7 +2057,7 @@ def create_app():
     def init_db_command():
         with app.app_context():
             db.create_all()
-        print("Initialized the database tables.")
+        logger.info("Initialized the database tables.")
 
     return app
 

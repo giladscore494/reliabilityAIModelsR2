@@ -23,6 +23,7 @@ import re
 _MAX_STR = 8000
 _MAX_LIST = 50
 _ZERO_WIDTH_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2066-\u2069]")
+_SAFE_URL_RE = re.compile(r'^https?://', re.IGNORECASE)
 
 
 def _normalize_text(raw: str) -> str:
@@ -45,6 +46,14 @@ def _escape(s: Any) -> str:
         s = s[:_MAX_STR]
     s = _normalize_text(s)
     return html.escape(s, quote=False)
+
+
+def _sanitize_url(raw: Any) -> str:
+    """Sanitize a URL: escape HTML entities and enforce http/https protocol."""
+    url = _escape(raw)
+    if url and not _SAFE_URL_RE.match(url):
+        return ""
+    return url
 
 
 def _coerce_dict(value: Any) -> Dict[str, Any]:
@@ -217,7 +226,7 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
                 out_list.append(
                     {
                         "title": _escape(item.get("title")),
-                        "url": _escape(item.get("url")),
+                        "url": _sanitize_url(item.get("url")),
                         "domain": _escape(item.get("domain")),
                     }
                 )

@@ -2,6 +2,7 @@
 """Advisor service logic."""
 
 import json
+import logging
 import time
 from datetime import datetime
 
@@ -21,6 +22,8 @@ from app.factory import (
     car_advisor_call_gemini_with_search,
     car_advisor_postprocess,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def handle_advisor_logic(payload, user, user_id):
@@ -159,7 +162,7 @@ def handle_advisor_logic(payload, user, user_id):
         db.session.add(rec_log)
         db.session.commit()
     except Exception as e:
-        print(f"[DB] ⚠️ failed to save advisor history: {e}")
+        logger.warning("[DB] failed to save advisor history: %s", e)
         db.session.rollback()
 
     return api_ok(sanitized_result)
