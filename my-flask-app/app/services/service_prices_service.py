@@ -14,6 +14,7 @@ from flask import current_app
 from app.extensions import db
 import app.extensions as extensions
 from app.models import ServiceInvoice, ServiceInvoiceItem, User
+from app.utils.http_helpers import _utcnow
 from app.legal import GEMINI_VISION_MODEL_ID
 
 # Pricing mode configuration
@@ -699,7 +700,7 @@ def build_report(
     """
     Build the final report with grounded ranges, labels, and analysis.
     """
-    now = datetime.utcnow()
+    now = _utcnow()
     
     per_item = []
     red_flags = []

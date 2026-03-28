@@ -77,7 +77,7 @@ def record_feature_acceptance(user_id: int, feature_key: str, version: str) -> N
     Record a feature-specific consent acceptance.
     Idempotent: if already exists, does nothing.
     """
-    from datetime import datetime
+    from app.utils.http_helpers import _utcnow
     from sqlalchemy.exc import IntegrityError
     from app.extensions import db
     from app.models import LegalFeatureAcceptance
@@ -94,7 +94,7 @@ def record_feature_acceptance(user_id: int, feature_key: str, version: str) -> N
         user_id=user_id,
         feature_key=feature_key,
         version=version,
-        accepted_at=datetime.utcnow(),
+        accepted_at=_utcnow(),
     )
     db.session.add(acceptance)
     try:

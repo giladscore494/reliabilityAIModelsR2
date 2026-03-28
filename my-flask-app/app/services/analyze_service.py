@@ -4,6 +4,7 @@
 import os
 import json
 import hashlib
+import logging
 import traceback
 import time as pytime
 from datetime import datetime, timedelta
@@ -23,7 +24,7 @@ from app.quota import (
     QuotaInternalError,
     ModelOutputInvalidError,
 )
-from app.utils.http_helpers import api_ok, api_error, get_request_id, log_rejection
+from app.utils.http_helpers import api_ok, api_error, get_request_id, log_rejection, _utcnow
 from app.utils.sanitization import sanitize_analyze_response, derive_missing_info
 from app.utils.validation import validate_analyze_request, ValidationError
 from app.factory import (
@@ -34,6 +35,8 @@ from app.factory import (
     normalize_text,
     MAX_CACHE_DAYS,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -315,7 +318,7 @@ def handle_analyze_request(
                 day_key,
                 limit_val,
                 get_request_id(),
-                now_utc=datetime.utcnow(),
+                now_utc=_utcnow(),
             )
         except QuotaInternalError:
             log_rejection("server_error", "quota subsystem failure")
@@ -468,7 +471,7 @@ def handle_analyze_request(
                 get_request_id(),
             )
         except Exception as e:
-            print(f"[DB] ⚠️ save failed: {e}")
+            logger.warning("[DB] save failed: %s", e)
             db.session.rollback()
             sanitized_output = sanitized_output or sanitize_analyze_response(ai_output)
     except Exception as e:

@@ -16,6 +16,8 @@ import unicodedata
 from datetime import datetime
 from typing import Any, Dict, Mapping
 
+from app.utils.http_helpers import _utcnow
+
 
 class ValidationError(Exception):
     """Raised when validation of a request payload fails.
@@ -311,7 +313,7 @@ def validate_analyze_request(payload: Mapping[str, Any], allowed_fields: set[str
 
         # Numeric range enforcement
         # Allow slight future buffer for upcoming model years that may appear in listings
-        current_year = datetime.utcnow().year + 2
+        current_year = _utcnow().year + 2
         if "year" in validated:
             validated["year"] = _validate_int_range("year", validated["year"], min_val=1950, max_val=current_year)
         if "year_min" in validated:

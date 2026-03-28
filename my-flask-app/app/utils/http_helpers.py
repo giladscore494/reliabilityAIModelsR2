@@ -2,8 +2,14 @@
 """HTTP helper functions for routes - moved from create_app() scope."""
 
 from typing import Optional, Mapping, Any, Dict
+from datetime import datetime, timezone
 from flask import jsonify, g, current_app, request
 from flask_login import current_user
+
+
+def _utcnow():
+    """Timezone-aware UTC now, stripped to naive for DB compatibility."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def get_request_id() -> str:
@@ -55,7 +61,8 @@ def get_redirect_uri():
         uri = request.url_root.rstrip("/") + "/auth"
     else:
         uri = f"{canonical_base}/auth"
-    print(f"[AUTH] Using redirect_uri={uri} (host={host})")
+    import logging
+    logging.getLogger(__name__).debug("[AUTH] Using redirect_uri=%s (host=%s)", uri, host)
     return uri
 
 

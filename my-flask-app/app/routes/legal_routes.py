@@ -11,7 +11,7 @@ from app.extensions import db
 from app.legal import normalize_legal_ip, parse_legal_confirm, record_feature_acceptance
 from app.models import LegalAcceptance
 from app.quota import get_client_ip
-from app.utils.http_helpers import get_request_id
+from app.utils.http_helpers import get_request_id, _utcnow
 
 bp = Blueprint("legal", __name__)
 
@@ -63,7 +63,7 @@ def accept_legal():
             user_id=current_user.id,
             terms_version=terms_version,
             privacy_version=privacy_version,
-            accepted_at=datetime.utcnow(),
+            accepted_at=_utcnow(),
             accepted_ip=normalize_legal_ip(raw_ip),
             accepted_user_agent=(request.headers.get("User-Agent") or "")[:512],
             source="web",

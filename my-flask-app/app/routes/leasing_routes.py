@@ -18,7 +18,7 @@ from app.quota import (
     release_quota_reservation,
     PER_IP_PER_MIN_LIMIT,
 )
-from app.utils.http_helpers import api_ok, api_error, get_request_id, is_owner_user
+from app.utils.http_helpers import api_ok, api_error, get_request_id, is_owner_user, _utcnow
 from app.services import leasing_advisor_service as leasing_svc
 from app.services.history_service import fetch_leasing_history, build_leasing_data, safe_json_obj
 from app.legal import TERMS_VERSION, PRIVACY_VERSION, parse_legal_confirm
@@ -72,7 +72,7 @@ def leasing_frame():
     client_ip = get_client_ip()
     ip_allowed, ip_count, ip_resets_at = check_and_increment_ip_rate_limit(client_ip, limit=per_ip_limit)
     if not ip_allowed:
-        retry_after = max(0, int((ip_resets_at - datetime.utcnow()).total_seconds()))
+        retry_after = max(0, int((ip_resets_at - _utcnow()).total_seconds()))
         resp = api_error("rate_limited", "חרגת ממגבלת הבקשות לדקה.", status=429)
         resp.headers["Retry-After"] = str(retry_after)
         return resp
@@ -183,7 +183,7 @@ def leasing_recommend():
     client_ip = get_client_ip()
     ip_allowed, ip_count, ip_resets_at = check_and_increment_ip_rate_limit(client_ip, limit=per_ip_limit)
     if not ip_allowed:
-        retry_after = max(0, int((ip_resets_at - datetime.utcnow()).total_seconds()))
+        retry_after = max(0, int((ip_resets_at - _utcnow()).total_seconds()))
         resp = api_error("rate_limited", "חרגת ממגבלת הבקשות לדקה.", status=429)
         resp.headers["Retry-After"] = str(retry_after)
         return resp
