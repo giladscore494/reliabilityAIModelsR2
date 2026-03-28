@@ -8,7 +8,7 @@ import logging
 import traceback
 import time as pytime
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from flask import current_app
 
@@ -35,6 +35,7 @@ from app.factory import (
     normalize_text,
     MAX_CACHE_DAYS,
 )
+from app.services.scoring_baseline import lookup_override as _baseline_lookup
 
 logger = logging.getLogger(__name__)
 
@@ -105,8 +106,15 @@ def compute_reliability_score_and_banner(
             "confidence_0_1": 0.25,
         }
 
-    # --- base ---
-    base = 80
+    # --- base (seeded from per-model baseline) ---
+    _make = str(validated_input.get("make") or "")
+    _model = str(validated_input.get("model") or "")
+    _year: Any = validated_input.get("year")
+    try:
+        _year_int: Optional[int] = int(_year) if _year is not None else None
+    except Exception:
+        _year_int = None
+    base = _baseline_lookup(_make, _model, _year_int)
 
     # --- usage penalties (0..20) ---
     usage = validated_input.get("usage_profile") or {}

@@ -9,6 +9,10 @@ from app.services.analyze_service import (
     _banner_from_score,
     _confidence_label,
 )
+from app.services.scoring_baseline import lookup_override
+
+# Baseline for the default vehicle (Toyota Corolla 2020) used across most tests.
+_DEFAULT_BASE = lookup_override("Toyota", "Corolla", 2020)
 
 
 # ---------------------------------------------------------------------------
@@ -130,11 +134,11 @@ class TestMissingRiskSignals:
 # ---------------------------------------------------------------------------
 
 class TestBaseScore:
-    def test_clean_vehicle_scores_80(self):
+    def test_clean_vehicle_scores_baseline(self):
         r = compute_reliability_score_and_banner(
             _default_validated(), _full_risk_signals()
         )
-        assert r["score_0_100"] == 80
+        assert r["score_0_100"] == _DEFAULT_BASE
         assert r["banner_he"] == "גבוה"
 
     def test_confidence_high_with_good_data(self):
@@ -155,7 +159,7 @@ class TestUsagePenalties:
             "driver_style": "aggressive", "load": "family",
         }})
         r = compute_reliability_score_and_banner(v, _full_risk_signals())
-        assert r["score_0_100"] == 75  # -5
+        assert r["score_0_100"] == _DEFAULT_BASE - 5  # -5
 
     def test_heavy_load(self):
         v = _default_validated({"usage_profile": {
@@ -163,7 +167,7 @@ class TestUsagePenalties:
             "driver_style": "normal", "load": "heavy",
         }})
         r = compute_reliability_score_and_banner(v, _full_risk_signals())
-        assert r["score_0_100"] == 75  # -5
+        assert r["score_0_100"] == _DEFAULT_BASE - 5  # -5
 
     def test_high_km(self):
         v = _default_validated({"usage_profile": {
@@ -171,7 +175,7 @@ class TestUsagePenalties:
             "driver_style": "normal", "load": "family",
         }})
         r = compute_reliability_score_and_banner(v, _full_risk_signals())
-        assert r["score_0_100"] == 74  # -6
+        assert r["score_0_100"] == _DEFAULT_BASE - 6  # -6
 
     def test_high_city(self):
         v = _default_validated({"usage_profile": {
@@ -179,7 +183,7 @@ class TestUsagePenalties:
             "driver_style": "normal", "load": "family",
         }})
         r = compute_reliability_score_and_banner(v, _full_risk_signals())
-        assert r["score_0_100"] == 76  # -4
+        assert r["score_0_100"] == _DEFAULT_BASE - 4  # -4
 
     def test_usage_penalty_capped_at_20(self):
         v = _default_validated({"usage_profile": {
@@ -187,7 +191,7 @@ class TestUsagePenalties:
             "driver_style": "aggressive", "load": "heavy",
         }})
         r = compute_reliability_score_and_banner(v, _full_risk_signals())
-        assert r["score_0_100"] == 60  # -20 (capped)
+        assert r["score_0_100"] == _DEFAULT_BASE - 20  # -20 (capped)
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +204,7 @@ class TestRecallPenalties:
             "recalls": {"count": 2, "high_severity_count": 2, "notes": ""},
         })
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        assert r["score_0_100"] == 64  # -16
+        assert r["score_0_100"] == _DEFAULT_BASE - 16  # -16
 
     def test_high_severity_capped(self):
         rs = _full_risk_signals({
@@ -208,14 +212,14 @@ class TestRecallPenalties:
         })
         r = compute_reliability_score_and_banner(_default_validated(), rs)
         # 5*8 = 40 but capped at 24
-        assert r["score_0_100"] == 56  # -24
+        assert r["score_0_100"] == _DEFAULT_BASE - 24  # -24
 
     def test_normal_recalls(self):
         rs = _full_risk_signals({
             "recalls": {"count": 3, "high_severity_count": 0, "notes": ""},
         })
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        assert r["score_0_100"] == 74  # -6
+        assert r["score_0_100"] == _DEFAULT_BASE - 6  # -6
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +235,7 @@ class TestSystemicIssues:
             ],
         })
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        assert r["score_0_100"] == 62  # -18
+        assert r["score_0_100"] == _DEFAULT_BASE - 18  # -18
 
     def test_engine_high_common_weak_evidence(self):
         rs = _full_risk_signals({
@@ -242,7 +246,7 @@ class TestSystemicIssues:
         })
         r = compute_reliability_score_and_banner(_default_validated(), rs)
         # -15 * 0.4 = -6
-        assert r["score_0_100"] == 74
+        assert r["score_0_100"] == _DEFAULT_BASE - 6
 
     def test_systemic_cap(self):
         """Many high-severity issues should cap at -40."""
@@ -258,7 +262,7 @@ class TestSystemicIssues:
         })
         r = compute_reliability_score_and_banner(_default_validated(), rs)
         # 18 + 15 + 8 = 41 → capped at 40
-        assert r["score_0_100"] == 40
+        assert r["score_0_100"] == _DEFAULT_BASE - 40
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +277,7 @@ class TestMaintenanceCostPressure:
             },
         })
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        assert r["score_0_100"] == 70  # -10
+        assert r["score_0_100"] == _DEFAULT_BASE - 10  # -10
 
     def test_medium(self):
         rs = _full_risk_signals({
@@ -282,7 +286,7 @@ class TestMaintenanceCostPressure:
             },
         })
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        assert r["score_0_100"] == 75  # -5
+        assert r["score_0_100"] == _DEFAULT_BASE - 5  # -5
 
     def test_low(self):
         rs = _full_risk_signals({
@@ -291,7 +295,7 @@ class TestMaintenanceCostPressure:
             },
         })
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        assert r["score_0_100"] == 80  # no penalty
+        assert r["score_0_100"] == _DEFAULT_BASE  # no penalty
 
 
 # ---------------------------------------------------------------------------

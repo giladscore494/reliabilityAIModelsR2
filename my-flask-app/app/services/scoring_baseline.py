@@ -6,6 +6,7 @@ Model keys are the bare model name without year-range suffixes.
 Scores represent a starting-point reliability estimate (0-100) based on
 historical data, forum reports, and known common issues for the Israeli market.
 These are used as the initial base before dynamic risk-signal adjustments.
+Covers 88 manufacturers and approximately 963 models.
 """
 from __future__ import annotations
 import re
@@ -753,8 +754,8 @@ MODEL_OVERRIDES: dict[str, dict[str, int]] = {
         "DS5": 68,
         "DS 7 Crossback (old)": 68,
         "e-C3": 69,
-        "\u00eb-Berlingo": 71,
-        "\u00eb-SpaceTourer": 69,
+        "ë-Berlingo": 71,
+        "ë-SpaceTourer": 69,
         "ZX": 70,
     },
     "DS Automobiles": {
@@ -1298,7 +1299,7 @@ def get_model_baseline(make: str, model: str) -> int:
         candidates = [
             (key, score)
             for key, score in make_models.items()
-            if clean_lower in key.lower() or key.lower() in clean_lower
+            if (kl := key.lower()) and (clean_lower in kl or kl in clean_lower)
         ]
         if candidates:
             return max(candidates, key=lambda kv: len(kv[0]))[1]
