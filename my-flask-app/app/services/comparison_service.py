@@ -110,11 +110,157 @@ def map_cars_to_slots(validated_cars: List[Dict]) -> Dict[str, Dict]:
     return slots
 
 
+def _ordered_compare_slot_keys(*sources: Any) -> List[str]:
+    seen = set()
+    ordered: List[str] = []
+    for source in sources:
+        if isinstance(source, dict):
+            keys = source.keys()
+        else:
+            keys = source or []
+        for key in keys:
+            if isinstance(key, str) and _COMPARE_SLOT_RE.match(key) and key not in seen:
+                seen.add(key)
+                ordered.append(key)
+    return sorted(ordered, key=lambda value: int(_COMPARE_SLOT_RE.match(value).group(1)))
+
+
+def _normalize_compare_writer_winner(value: Any, allowed_slot_keys: List[str]) -> Optional[str]:
+    if value == "tie":
+        return "tie"
+    if not isinstance(value, str):
+        return None
+    if value in allowed_slot_keys:
+        return value
+    legacy_map = {
+        "carA": "car_1",
+        "carB": "car_2",
+        "carC": "car_3",
+    }
+    normalized = legacy_map.get(value)
+    if normalized in allowed_slot_keys:
+        return normalized
+    return None
+
+
+def _segment_text_tokens(car_slot: Optional[Dict[str, Any]], grounded_car_data: Optional[Dict[str, Any]]) -> str:
+    car_slot = car_slot or {}
+    grounded_car_data = grounded_car_data or {}
+    facts = (grounded_car_data.get("facts") or {}) if isinstance(grounded_car_data, dict) else {}
+    text_parts = [
+        car_slot.get("make"),
+        car_slot.get("model"),
+        car_slot.get("trim"),
+        car_slot.get("display_name"),
+        car_slot.get("engine_type"),
+        car_slot.get("gearbox"),
+        grounded_car_data.get("car_name") if isinstance(grounded_car_data, dict) else None,
+        facts.get("body_type"),
+        facts.get("fuel_type"),
+        " ".join((grounded_car_data.get("short_notes") or [])[:4]) if isinstance(grounded_car_data, dict) else None,
+    ]
+    return " ".join(str(part).lower() for part in text_parts if part)
+
+
+def _infer_compare_segment_details(
+    car_slot: Optional[Dict[str, Any]],
+    grounded_car_data: Optional[Dict[str, Any]],
+) -> Tuple[str, List[str]]:
+    text = _segment_text_tokens(car_slot, grounded_car_data)
+    facts = ((grounded_car_data or {}).get("facts") or {}) if isinstance(grounded_car_data, dict) else {}
+    body_type = str(facts.get("body_type") or "").lower()
+
+    def _matches(*keywords: str) -> List[str]:
+        return [keyword for keyword in keywords if keyword in text]
+
+    def _body_matches(*keywords: str) -> List[str]:
+        return [keyword for keyword in keywords if keyword in body_type]
+
+    pickup_hits = _matches(
+        "pickup", "pick-up", "truck", "ute", "hilux", "ranger", "navara",
+        "amarok", "d-max", "l200", "triton", "ram ", "f-150", "silverado",
+    ) + _body_matches("pickup", "truck")
+    if pickup_hits:
+        return "pickup_truck", pickup_hits[:3]
+
+    mpv_hits = _matches(
+        "minivan", "mpv", "people carrier", "grand c4 spacetourer", "touran",
+        "carens", "s-max", "galaxy", "berlingo", "doblo", "caddy",
+    ) + _body_matches("minivan", "mpv", "van")
+    if mpv_hits:
+        return "minivan_mpv", mpv_hits[:3]
+
+    offroad_hits = _matches(
+        "land cruiser", "prado", "wrangler", "defender", "jimny", "pajero",
+        "patrol", "grenadier", "g-class", "g wagon", "g-wagon", "4runner",
+    ) + _body_matches("4x4", "off-road", "off road")
+    if offroad_hits:
+        return "hardcore_4x4", offroad_hits[:3]
+
+    family_3row_hits = _matches(
+        "7 seat", "7-seat", "7 seater", "seven seat", "third row", "3 row", "3-row",
+        "highlander", "pilot", "sorento", "palisade", "telluride", "pathfinder",
+        "xc90", "explorer", "everest", "kodiaq",
+    )
+    if family_3row_hits:
+        return "three_row_family_suv", family_3row_hits[:3]
+
+    sporty_hits = _matches(
+        "gti", "type r", "type-r", "sti", "gr86", "86", "brz", "mx-5", "miata",
+        "cupra", "amg", "m sport", " m ", "rs ", "n line", "n ", "vrs", "track",
+        "sportback performance", "hot hatch", "roadster", "coupe",
+    )
+    if sporty_hits:
+        return "sporty_dynamic", sporty_hits[:3]
+
+    executive_hits = _matches(
+        "executive", "luxury", "premium", "5 series", "7 series", "a6", "a8",
+        "e-class", "s-class", "es ", "gs ", "ls ", "g80", "g90", "s90", "xf", "xj",
+    )
+    if executive_hits:
+        return "executive_luxury", executive_hits[:3]
+
+    city_hits = _matches(
+        "city", "mini", "aygo", "i10", "picanto", "up!", "up ", "c1", "108",
+        "spark", "alto", "mii", "ka ", "twingo",
+    )
+    if city_hits:
+        return "city_mini", city_hits[:3]
+
+    supermini_hits = _matches(
+        "supermini", "polo", "ibiza", "fiesta", "yaris", "clio", "corsa", "jazz",
+        "fit", "i20", "rio", "208", "mazda2", "swift", "fabia",
+    )
+    if supermini_hits:
+        return "supermini_hatch", supermini_hits[:3]
+
+    crossover_hits = _matches(
+        "crossover", "cross", "cuv", "suv", "sportage", "qashqai", "cx-5", "cx5",
+        "tucson", "rav4", "cr-v", "crv", "x-trail", "xtrail", "kadjar", "3008",
+    ) + _body_matches("suv", "crossover", "cuv")
+    if crossover_hits:
+        return "crossover_soft_suv", crossover_hits[:3]
+
+    family_body_hits = _matches(
+        "sedan", "saloon", "hatch", "hatchback", "wagon", "estate", "tourer", "fastback", "liftback",
+    ) + _body_matches("sedan", "saloon", "hatch", "wagon", "estate", "fastback", "liftback")
+    if family_body_hits:
+        return "family_sedan_hatch_wagon", family_body_hits[:3]
+
+    return "general_private_car", ["default_private_car"]
+
+
+def infer_compare_segment(car_slot: Optional[Dict[str, Any]], grounded_car_data: Optional[Dict[str, Any]]) -> str:
+    """Infer a lightweight compare segment without relying on a missing taxonomy field."""
+    segment_key, _signals = _infer_compare_segment_details(car_slot, grounded_car_data)
+    return segment_key
+
+
 # ============================================================
 # CONFIGURATION
 # ============================================================
 
-COMPARISON_PROMPT_VERSION = "v3"
+COMPARISON_PROMPT_VERSION = "v4"
 COMPARISON_MODEL_ID = "gemini-3-flash-preview"
 AI_CALL_TIMEOUT_SEC = int(os.environ.get("AI_CALL_TIMEOUT_SEC", "170"))
 COMPARE_STAGE_A_TIMEOUT_SEC = int(os.environ.get("COMPARE_STAGE_A_TIMEOUT_SEC", "30"))
@@ -185,6 +331,200 @@ _LABEL_VALUES = {"low", "medium", "high"}
 # Keep Stage A tiny so the model returns deterministic JSON and the UI stays concise.
 _MAX_STAGE_A_NOTES = 4
 _MAX_STAGE_A_SOURCES = 5
+COMPARE_CATEGORY_NAMES = tuple(CATEGORY_LABELS_HE.keys())
+_COMPARE_SLOT_RE = re.compile(r"^car_(\d+)$")
+
+# Segment inference is intentionally lightweight and deterministic because compare
+# currently has no authoritative taxonomy field. We infer from visible name/body
+# style hints so Stage A can judge each car against its likely mission.
+COMPARE_SEGMENT_PROMPT_RULES = {
+    "city_mini": {
+        "focus_more": [
+            "urban maneuverability",
+            "parking ease",
+            "fuel economy / efficiency",
+            "low routine running costs",
+            "reliability under city use",
+            "visibility",
+        ],
+        "focus_less": [
+            "high-speed performance",
+            "towing",
+            "off-road ability",
+        ],
+    },
+    "supermini_hatch": {
+        "focus_more": [
+            "efficiency",
+            "reliability",
+            "city + intercity usability balance",
+            "hatch practicality",
+            "ease of ownership",
+            "cabin/package efficiency",
+            "value for money",
+        ],
+    },
+    "family_sedan_hatch_wagon": {
+        "focus_more": [
+            "safety",
+            "rear-seat usability",
+            "trunk / cargo usability",
+            "ride comfort",
+            "highway refinement",
+            "fuel economy",
+            "ownership stability / reliability",
+        ],
+        "focus_less": [
+            "sporty handling unless this is a sporty trim",
+        ],
+        "special_note": "If hatchback or wagon hints appear, reward cargo flexibility and easier loading access.",
+    },
+    "crossover_soft_suv": {
+        "focus_more": [
+            "family usability",
+            "seating height / ease of entry",
+            "cargo space",
+            "comfort",
+            "safety tech",
+            "efficiency relative to size",
+            "reliability / ownership simplicity",
+        ],
+        "focus_less": [
+            "hardcore off-road capability unless clearly relevant",
+        ],
+    },
+    "three_row_family_suv": {
+        "focus_more": [
+            "real 3rd-row usability",
+            "passenger space in all rows",
+            "cargo space with seats up/down",
+            "family safety",
+            "comfort on long trips",
+            "ease of child-seat/family use",
+            "efficiency and ownership burden",
+            "practical value",
+        ],
+        "focus_less": [
+            "sporty driving feel unless very relevant",
+        ],
+    },
+    "hardcore_4x4": {
+        "focus_more": [
+            "real 4WD capability",
+            "low range if present",
+            "locking differentials",
+            "ground clearance",
+            "approach / breakover / departure angles",
+            "durability",
+            "tire/underbody readiness",
+            "payload / trail utility",
+            "reliability in rough use",
+        ],
+        "focus_less": [
+            "ride softness penalties when the vehicle is clearly off-road focused",
+        ],
+        "special_note": "Do penalize high ownership burden and chronic durability risks.",
+    },
+    "pickup_truck": {
+        "focus_more": [
+            "towing",
+            "payload",
+            "bed utility",
+            "drivetrain suitability",
+            "work/family mission fit",
+            "durability",
+            "fuel/running cost",
+            "comfort/noise if it is also a daily driver",
+        ],
+        "focus_less": [
+            "family sedan priorities",
+        ],
+    },
+    "minivan_mpv": {
+        "focus_more": [
+            "passenger space",
+            "cargo flexibility",
+            "family ergonomics",
+            "sliding-door practicality if applicable",
+            "comfort",
+            "child-seat friendliness",
+            "low-stress ownership",
+            "value",
+        ],
+        "focus_less": [
+            "sporty styling or handling",
+        ],
+    },
+    "sporty_dynamic": {
+        "focus_more": [
+            "steering response",
+            "steering feedback",
+            "body control",
+            "balance",
+            "braking confidence",
+            "traction",
+            "throttle/power delivery",
+            "driver engagement",
+            "stability at speed",
+        ],
+        "focus_less": [
+            "family-car practicality expectations",
+        ],
+        "special_note": "Still include reliability and running costs, but do not judge it by the same comfort/practicality standard as a family car.",
+    },
+    "executive_luxury": {
+        "focus_more": [
+            "refinement",
+            "cabin isolation",
+            "seat comfort",
+            "material quality",
+            "tech usability",
+            "highway comfort",
+            "prestige-appropriate ownership burden",
+            "reliability risk of complex systems",
+            "resale / ownership cost realism",
+        ],
+    },
+    "general_private_car": {
+        "focus_more": [
+            "safety",
+            "reliability",
+            "ownership cost",
+            "comfort",
+            "practicality",
+            "efficiency",
+            "drivability",
+        ],
+    },
+}
+
+COMPARE_CATEGORY_BEHAVIOR_RULES = {
+    "reliability_risk": (
+        "Use segment-aware reliability expectations. Family cars should emphasize reliability consistency, "
+        "safety-related faults, gearbox/engine risk, and long-term ownership stress. Hardcore 4x4s should "
+        "include drivetrain durability and rugged-use tolerance. Sporty cars should include brake/thermal "
+        "stress, drivetrain complexity, and whether performance hardware raises failure exposure."
+    ),
+    "ownership_cost": (
+        "Use segment-aware cost expectations. City cars should emphasize fuel, tires, routine maintenance, "
+        "and insurance burden. Family SUVs should include fuel, tires, maintenance, and depreciation pressure. "
+        "Sporty/luxury cars should include consumables, tires, brakes, complex systems, and premium repairs. "
+        "Pickups/4x4s should include fuel, tires, suspension wear, and drivetrain/service burden."
+    ),
+    "practicality_comfort": (
+        "Evaluate according to mission. Family cars should emphasize rear seat, trunk, and child/family use. "
+        "Hatches/wagons should reward flexibility and loading ease. 3-row SUVs should emphasize usable third row "
+        "and cargo tradeoffs. Minivans should emphasize family ergonomics and space efficiency. Sporty cars only "
+        "need enough daily usability; do not demand SUV practicality."
+    ),
+    "driving_performance": (
+        "Use segment-aware meaning. Family cars should emphasize confidence, smoothness, stability, and easy "
+        "drivability. Crossovers/SUVs should emphasize predictability, visibility, comfort, and adequate power. "
+        "Sporty cars should emphasize handling precision, balance, response, braking, and engagement. Off-roaders "
+        "should include off-road control plus acceptable on-road competence. Pickups should emphasize loaded "
+        "stability, torque delivery, and towing confidence when relevant."
+    ),
+}
 
 SINGLE_CAR_CATEGORY_TEMPLATE = {
     "reliability": {
@@ -445,6 +785,22 @@ def build_single_car_prompt(car: Dict, region: str = "IL") -> str:
     car_json = json.dumps(sanitized, ensure_ascii=False)
     bounded_car = wrap_user_input_in_boundary(car_json, boundary_tag="car_input")
     data_instruction = create_data_only_instruction()
+    segment_key, segment_signals = _infer_compare_segment_details(sanitized, {})
+    segment_rule = COMPARE_SEGMENT_PROMPT_RULES.get(
+        segment_key,
+        COMPARE_SEGMENT_PROMPT_RULES["general_private_car"],
+    )
+    segment_context = {
+        "segment_key": segment_key,
+        "inference_signals": segment_signals,
+        "focus_more": segment_rule.get("focus_more", []),
+        "focus_less": segment_rule.get("focus_less", []),
+        "special_note": segment_rule.get("special_note"),
+    }
+    category_behavior = {
+        key: COMPARE_CATEGORY_BEHAVIOR_RULES[key]
+        for key in COMPARE_CATEGORY_NAMES
+    }
 
     return f"""{data_instruction}
 
@@ -455,6 +811,12 @@ Return ONLY valid JSON. No markdown. No code fences. No prose outside JSON.
 {bounded_car}
 
 Region: {region}
+
+SEGMENT_CONTEXT (deterministic; use this mission when assigning labels):
+{json.dumps(segment_context, ensure_ascii=False)}
+
+CATEGORY_BEHAVIOR_RULES:
+{json.dumps(category_behavior, ensure_ascii=False)}
 
 Return this exact JSON structure:
 {{
@@ -504,7 +866,9 @@ RULES:
 4. Prefer expert reviews, owner reports, recall/safety sources, and reliable specs.
 5. short_notes must contain at most 4 short items.
 6. sources must contain at most 5 direct http/https URLs.
-7. Return ONLY valid JSON.
+7. Segment-aware labels are required: judge the car against realistic expectations of its inferred mission, not one universal standard.
+8. Keep the 4 main categories unchanged; only the sub-priority logic is segment-aware.
+9. Return ONLY valid JSON.
 """.strip()
 
 
@@ -537,9 +901,22 @@ def build_comparison_prompt(cars: List[Dict[str, str]]) -> str:
     
     # Build slot mapping for stable keys
     slot_mapping = {}
+    segment_context = {}
     for i, car in enumerate(sanitized_cars):
         slot_key = f"car_{i + 1}"
         slot_mapping[slot_key] = build_display_name(car)
+        segment_key, segment_signals = _infer_compare_segment_details(car, {})
+        segment_rule = COMPARE_SEGMENT_PROMPT_RULES.get(
+            segment_key,
+            COMPARE_SEGMENT_PROMPT_RULES["general_private_car"],
+        )
+        segment_context[slot_key] = {
+            "segment_key": segment_key,
+            "inference_signals": segment_signals,
+            "focus_more": segment_rule.get("focus_more", []),
+            "focus_less": segment_rule.get("focus_less", []),
+            "special_note": segment_rule.get("special_note"),
+        }
     
     slot_mapping_text = "\n".join(f"  {k}: {v}" for k, v in slot_mapping.items())
     
@@ -565,6 +942,12 @@ IMPORTANT: Use these EXACT keys in the "cars" object:
 {slot_mapping_text}
 
 Return data for each car using the slot key (car_1, car_2, etc.) NOT the car name.
+
+SEGMENT_CONTEXT_BY_SLOT (deterministic; use this mission when assigning labels):
+{json.dumps(segment_context, ensure_ascii=False, indent=2)}
+
+CATEGORY_BEHAVIOR_RULES:
+{json.dumps(COMPARE_CATEGORY_BEHAVIOR_RULES, ensure_ascii=False, indent=2)}
 
 Return a SINGLE JSON object with this EXACT structure:
 
@@ -731,8 +1114,10 @@ RULES:
 1. Every metric MUST have at least one source with URL, title, and snippet.
 2. If data is not found, set value=null and provide a missing_reason.
 3. Confidence must reflect how reliable the source data is (0.0-1.0).
-4. Do NOT compare cars or state winners - only provide raw data.
-5. Return ONLY valid JSON. No markdown, no explanations.
+4. Segment-aware labels are required: judge each car against realistic expectations of its inferred mission, not one universal standard.
+5. Keep the 4 main categories unchanged; only the sub-priority logic is segment-aware.
+6. Do NOT compare cars or state winners - only provide raw data.
+7. Return ONLY valid JSON. No markdown, no explanations.
 """.strip()
 
 
@@ -741,13 +1126,6 @@ def build_compare_writer_prompt(cars_selected_slots: Dict, computed_result: Dict
     def _truncate_text(value: Any, max_chars: int = 120) -> str:
         raw = str(value or "").strip()
         return raw[:max_chars]
-
-    def _winner_to_public(winner: Optional[str]) -> str:
-        if winner == "car_1":
-            return "carA"
-        if winner == "car_2":
-            return "carB"
-        return "tie"
 
     def _evidence_snapshot(slot_key: str, category_key: str) -> Dict[str, Any]:
         grounded_car = ((grounded_output or {}).get("cars", {}) or {}).get(slot_key, {})
@@ -765,34 +1143,51 @@ def build_compare_writer_prompt(cars_selected_slots: Dict, computed_result: Dict
         }
         return snapshot
 
-    car_a = cars_selected_slots.get("car_1", {}) if isinstance(cars_selected_slots, dict) else {}
-    car_b = cars_selected_slots.get("car_2", {}) if isinstance(cars_selected_slots, dict) else {}
+    slot_keys = _ordered_compare_slot_keys(
+        cars_selected_slots,
+        (computed_result.get("cars") or {}) if isinstance(computed_result, dict) else {},
+        ((grounded_output or {}).get("cars") or {}) if isinstance(grounded_output, dict) else {},
+    )
+    allowed_winners = slot_keys + ["tie"]
 
     model_payload = {
-        "carA": {"label": _truncate_text(car_a.get("display_name") or "car_1")},
-        "carB": {"label": _truncate_text(car_b.get("display_name") or "car_2")},
+        "cars": {
+            slot_key: {
+                "label": _truncate_text(
+                    ((cars_selected_slots or {}).get(slot_key, {}) or {}).get("display_name") or slot_key
+                ),
+            }
+            for slot_key in slot_keys
+        },
         "overall": {
-            "winner": _winner_to_public(computed_result.get("overall_winner")),
+            "winner": _normalize_compare_writer_winner(computed_result.get("overall_winner"), slot_keys) or "tie",
             "scores": {
-                "carA": ((computed_result.get("cars", {}).get("car_1", {}) or {}).get("overall_score")),
-                "carB": ((computed_result.get("cars", {}).get("car_2", {}) or {}).get("overall_score")),
+                slot_key: ((computed_result.get("cars", {}).get(slot_key, {}) or {}).get("overall_score"))
+                for slot_key in slot_keys
             },
             "balanced_comparison": bool(((computed_result.get("comparison_status") or {}).get("balanced", True))),
         },
         "categories": [],
         "sources": ((grounded_output or {}).get("sources") or [])[:_MAX_STAGE_A_SOURCES],
     }
-    for category_key in ("reliability_risk", "ownership_cost", "practicality_comfort", "driving_performance"):
+    for category_key in COMPARE_CATEGORY_NAMES:
         model_payload["categories"].append({
             "name": category_key,
-            "winner": _winner_to_public((computed_result.get("category_winners", {}) or {}).get(category_key)),
+            "winner": _normalize_compare_writer_winner(
+                (computed_result.get("category_winners", {}) or {}).get(category_key),
+                slot_keys,
+            ) or "tie",
             "scores": {
-                "carA": (((computed_result.get("cars", {}).get("car_1", {}) or {}).get("categories", {}) or {}).get(category_key, {}).get("score")),
-                "carB": (((computed_result.get("cars", {}).get("car_2", {}) or {}).get("categories", {}) or {}).get(category_key, {}).get("score")),
+                slot_key: (
+                    (((computed_result.get("cars", {}).get(slot_key, {}) or {}).get("categories", {}) or {})
+                    .get(category_key, {})
+                    .get("score")
+                )
+                for slot_key in slot_keys
             },
             "evidence": {
-                "carA": _evidence_snapshot("car_1", category_key),
-                "carB": _evidence_snapshot("car_2", category_key),
+                slot_key: _evidence_snapshot(slot_key, category_key)
+                for slot_key in slot_keys
             },
         })
 
@@ -800,6 +1195,7 @@ def build_compare_writer_prompt(cars_selected_slots: Dict, computed_result: Dict
     prompt = f"""You are a concise car comparison explainer.
 Write in Hebrew for the end user.
 Use only MODEL_PAYLOAD below. Do not add facts. Do not change any scores.
+The deterministic server output is authoritative.
 
 MODEL_PAYLOAD:
 {payload_json}
@@ -807,11 +1203,11 @@ MODEL_PAYLOAD:
 Return ONLY valid JSON with EXACTLY this schema and no extra keys:
 {{
   "summary": "1-2 sentences, max 40 words",
-  "winner": "carA|carB|tie",
+  "winner": "{'|'.join(allowed_winners)}",
   "categories": [
     {{
       "name": "reliability_risk|ownership_cost|practicality_comfort|driving_performance",
-      "winner": "carA|carB|tie",
+      "winner": "{'|'.join(allowed_winners)}",
       "why": "max 35 words",
       "tips": ["max 3 short tips, each max 12 words"]
     }}
@@ -822,9 +1218,10 @@ Return ONLY valid JSON with EXACTLY this schema and no extra keys:
 RULES:
 1. Explain category winners using the provided deterministic scores plus the compact evidence labels/notes/facts.
 2. If balanced_comparison=false, say clearly that the comparison is partial and avoid overconfident recommendations.
-3. Keep the text practical, short, and user-facing.
-4. Forbidden: long paragraphs, tables, markdown, extra keys, or invented claims.
-5. If unsure, keep it short and say 'אין מספיק מידע' in 4 words max.
+3. If winner is "tie", say the cars are close and do not invent a preference.
+4. Keep the text practical, short, structured, and user-facing in Hebrew.
+5. Forbidden: long paragraphs, tables, markdown, extra keys, or invented claims.
+6. If unsure, keep it short and say 'אין מספיק מידע' in 4 words max.
 """
     if len(prompt) > COMPARE_WRITER_PROMPT_CHAR_CAP:
         prompt = prompt[:COMPARE_WRITER_PROMPT_CHAR_CAP]
@@ -833,20 +1230,29 @@ RULES:
 
 def build_compare_writer_retry_prompt(cars_selected_slots: Dict, computed_result: Dict) -> str:
     """Build a minimal retry prompt for summary+winner only."""
+    slot_keys = _ordered_compare_slot_keys(
+        cars_selected_slots,
+        (computed_result.get("cars") or {}) if isinstance(computed_result, dict) else {},
+    )
+    allowed_winners = slot_keys + ["tie"]
     retry_payload = {
-        "carA": {"label": (cars_selected_slots.get("car_1", {}) or {}).get("display_name", "car_1")},
-        "carB": {"label": (cars_selected_slots.get("car_2", {}) or {}).get("display_name", "car_2")},
+        "cars": {
+            slot_key: {
+                "label": ((cars_selected_slots.get(slot_key, {}) or {}).get("display_name", slot_key)),
+            }
+            for slot_key in slot_keys
+        },
         "overall_winner": computed_result.get("overall_winner"),
         "overall_scores": {
-            "carA": ((computed_result.get("cars", {}).get("car_1", {}) or {}).get("overall_score")),
-            "carB": ((computed_result.get("cars", {}).get("car_2", {}) or {}).get("overall_score")),
+            slot_key: ((computed_result.get("cars", {}).get(slot_key, {}) or {}).get("overall_score"))
+            for slot_key in slot_keys
         },
     }
     prompt = f"""RETRY_MODE_SUMMARY_ONLY
 Return ONLY JSON:
 {{
   "summary": "max 20 words",
-  "winner": "carA|carB|tie",
+  "winner": "{'|'.join(allowed_winners)}",
   "categories": [],
   "caveats": []
 }}
@@ -1319,10 +1725,11 @@ def validate_compare_writer_response(payload: Any) -> Optional[Dict[str, Any]]:
         return compact
 
     summary = _word_cap(payload.get("summary"), 40)
-    winner = payload.get("winner")
     categories = payload.get("categories")
     caveats = payload.get("caveats")
-    if summary is None or winner not in {"carA", "carB", "tie"}:
+    allowed_slot_keys = ["car_1", "car_2", "car_3"]
+    winner = _normalize_compare_writer_winner(payload.get("winner"), allowed_slot_keys)
+    if summary is None or winner is None:
         return None
     if not isinstance(categories, list) or len(categories) > 4:
         return None
@@ -1335,9 +1742,10 @@ def validate_compare_writer_response(payload: Any) -> Optional[Dict[str, Any]]:
             return None
         if set(item.keys()) != {"name", "winner", "why", "tips"}:
             return None
-        if item.get("name") not in {"reliability_risk", "ownership_cost", "practicality_comfort", "driving_performance"}:
+        if item.get("name") not in COMPARE_CATEGORY_NAMES:
             return None
-        if item.get("winner") not in {"carA", "carB", "tie"}:
+        category_winner = _normalize_compare_writer_winner(item.get("winner"), allowed_slot_keys)
+        if category_winner is None:
             return None
         why = _word_cap(item.get("why"), 35)
         if why is None:
@@ -1353,7 +1761,7 @@ def validate_compare_writer_response(payload: Any) -> Optional[Dict[str, Any]]:
             normalized_tips.append(tip_clean)
         validated_categories.append({
             "name": item.get("name"),
-            "winner": item.get("winner"),
+            "winner": category_winner,
             "why": why,
             "tips": normalized_tips,
         })
@@ -1374,9 +1782,12 @@ def validate_compare_writer_response(payload: Any) -> Optional[Dict[str, Any]]:
 
 
 def build_deterministic_fallback_narrative(cars_selected_slots: Dict, computed_result: Dict) -> Dict[str, Any]:
-    car_keys = list((cars_selected_slots or {}).keys())
+    car_keys = _ordered_compare_slot_keys(
+        cars_selected_slots,
+        (computed_result.get("cars") or {}) if isinstance(computed_result, dict) else {},
+    )
     category_explanations = []
-    for cat in ("reliability_risk", "ownership_cost", "practicality_comfort", "driving_performance"):
+    for cat in COMPARE_CATEGORY_NAMES:
         winner = (computed_result.get("category_winners", {}) or {}).get(cat) or "tie"
         explanations = {}
         for car_key in car_keys:
@@ -1384,7 +1795,7 @@ def build_deterministic_fallback_narrative(cars_selected_slots: Dict, computed_r
         category_explanations.append({
             "category_key": cat,
             "title_he": "",
-            "winner": winner if winner in {"car_1", "car_2", "car_3", "tie"} else "tie",
+            "winner": _normalize_compare_writer_winner(winner, car_keys) or "tie",
             "explanations": explanations,
             "why_it_scored_that_way": ["הסבר AI לא זמין כרגע; מוצגת השוואה מספרית."],
         })
@@ -1453,18 +1864,18 @@ def _extract_stage_a_error_code(errors: List[str]) -> str:
 
 
 def _build_stage_a_summary(computed_result: Dict[str, Any]) -> Dict[str, Any]:
-    winner_map = {"car_1": "carA", "car_2": "carB", "tie": "tie"}
+    slot_keys = _ordered_compare_slot_keys((computed_result.get("cars") or {}) if isinstance(computed_result, dict) else {})
     category_winners = []
     for category_name, winner in (computed_result.get("category_winners", {}) or {}).items():
         category_winners.append({
             "name": category_name,
-            "winner": winner_map.get(winner, "tie"),
+            "winner": _normalize_compare_writer_winner(winner, slot_keys) or "tie",
         })
     comparison_status = computed_result.get("comparison_status", {}) or {}
     balanced = bool(comparison_status.get("balanced", True))
     return {
         "summary": "סיכום מספרי של ההשוואה." if balanced else "סיכום מספרי חלקי של ההשוואה.",
-        "winner": winner_map.get(computed_result.get("overall_winner"), "tie"),
+        "winner": _normalize_compare_writer_winner(computed_result.get("overall_winner"), slot_keys) or "tie",
         "category_winners": category_winners,
         "caveats": (
             ["המידע עשוי להשתנות."]
@@ -1501,14 +1912,7 @@ def build_ai_payload(
 
 
 def convert_writer_response_to_narrative(validated_payload: Dict[str, Any], cars_selected_slots: Dict) -> Dict[str, Any]:
-    car_keys = list((cars_selected_slots or {}).keys())
-
-    def _winner_to_slot(value: str) -> str:
-        if value == "carA":
-            return "car_1"
-        if value == "carB":
-            return "car_2"
-        return "tie"
+    car_keys = _ordered_compare_slot_keys(cars_selected_slots)
 
     category_explanations = []
     for cat in validated_payload.get("categories", []):
@@ -1518,7 +1922,7 @@ def convert_writer_response_to_narrative(validated_payload: Dict[str, Any], cars
         category_explanations.append({
             "category_key": cat.get("name"),
             "title_he": "",
-            "winner": _winner_to_slot(cat.get("winner")),
+            "winner": _normalize_compare_writer_winner(cat.get("winner"), car_keys) or "tie",
             "explanations": explanations,
             "why_it_scored_that_way": cat.get("tips", []),
         })
