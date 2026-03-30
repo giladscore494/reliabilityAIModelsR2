@@ -296,6 +296,51 @@ class TestRecallPenalties:
         # Should remain medium/high band and not collapse from stacked duplicate recall semantics
         assert r["score_0_100"] >= 57
 
+    def test_recall_overlap_detected_from_notes_without_keyword(self):
+        v = _default_validated({"model": "RAV4", "year": 2025})
+        rs = _full_risk_signals({
+            "recalls": {
+                "count": 3,
+                "high_severity_count": 1,
+                "notes": "Brake software update due to instrument cluster blackout risk",
+            },
+            "systemic_issue_signals": [
+                {
+                    "system": "brakes",
+                    "issue": "Braking software issue",
+                    "typical_timing": "instrument cluster blackout warning",
+                    "severity": "medium",
+                    "repeat_frequency": "sometimes",
+                },
+            ],
+            "maintenance_cost_pressure": {"level": "medium", "explanation": ""},
+        })
+        r = compute_reliability_score_and_banner(v, rs, overall_reliability_estimate="high")
+        assert r["banner_he"] == "גבוה"
+        assert r["score_0_100"] >= 69
+
+    def test_strong_toyota_recall_heavy_wording_stays_realistic(self):
+        v = _default_validated({"model": "Corolla Cross", "year": 2025})
+        rs = _full_risk_signals({
+            "recalls": {
+                "count": 2,
+                "high_severity_count": 1,
+                "notes": "Brake actuator bolt loosening campaign",
+            },
+            "systemic_issue_signals": [
+                {
+                    "system": "brakes",
+                    "issue": "Bolt loosening risk in braking actuator",
+                    "severity": "medium",
+                    "repeat_frequency": "sometimes",
+                },
+            ],
+            "maintenance_cost_pressure": {"level": "medium", "explanation": ""},
+        })
+        r = compute_reliability_score_and_banner(v, rs, overall_reliability_estimate="high")
+        assert r["banner_he"] == "גבוה"
+        assert r["score_0_100"] >= 70
+
 
 # ---------------------------------------------------------------------------
 # systemic issues (severity × frequency × system tier)
@@ -389,7 +434,7 @@ class TestMaintenanceCostPressure:
             },
         })
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # mcp penalty = 8 * 0.7 = 5.6, no bonus (mcp is high), score = 74 - 6 = 68
+        # mcp penalty = 6 * 0.7 = 4.2, no bonus (mcp is high), score = 74 - 4 = 70
         expected_penalty = _MCP_PENALTY["high"] * 0.7  # Toyota mcp_multiplier
         expected_score = 74 - int(round(expected_penalty))
         assert r["score_0_100"] == expected_score
@@ -401,7 +446,7 @@ class TestMaintenanceCostPressure:
             },
         })
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # mcp penalty = 3 * 0.7 = 2.1, mcp_level is "medium" so no bonus
+        # mcp penalty = 2 * 0.7 = 1.4, mcp_level is "medium" so no bonus
         expected_penalty = _MCP_PENALTY["medium"] * 0.7
         expected_score = 74 - int(round(expected_penalty))
         assert r["score_0_100"] == expected_score

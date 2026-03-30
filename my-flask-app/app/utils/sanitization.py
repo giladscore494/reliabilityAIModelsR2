@@ -165,9 +165,11 @@ def _sanitize_risk_signals(value: Any) -> Dict[str, Any]:
             continue
         signals_out.append({
             "system": _normalize_enum(item.get("system"), _SYSTEM_ALLOWED, "other"),
+            "issue": _escape(item.get("issue") or ""),
             "severity": _normalize_enum(item.get("severity"), _SEVERITY_RS_ALLOWED, "medium"),
             "repeat_frequency": _normalize_enum(item.get("repeat_frequency"), _FREQ_ALLOWED, "rare"),
             "typical_timing": _escape(item.get("typical_timing") or ""),
+            "evidence_text": _escape(item.get("evidence_text") or ""),
             "evidence_strength": _normalize_enum(item.get("evidence_strength"), _EVIDENCE_ALLOWED, "medium"),
         })
     out["systemic_issue_signals"] = signals_out
@@ -585,23 +587,23 @@ def _sanitize_top_risks(value: Any) -> list:
     if len(risks_out) < 3:
         defaults = [
             {
-                "risk_title": "היסטוריית טיפולים לא מלאה",
-                "why_it_matters": "טיפולים שלא בוצעו בזמן מגדילים סיכון לתקלות במנוע ובגיר.",
-                "how_to_check": "בקש חשבוניות טיפולים ומספר בעלים קודמים; ודא טיפול גדול אחרון.",
+                "risk_title": "אימות תיעוד טיפולים ועדכוני יצרן",
+                "why_it_matters": "מסמכים מסודרים עוזרים לוודא שהרכב טופל בזמן ושקמפיינים/קריאות שירות רלוונטיים בוצעו.",
+                "how_to_check": "בקש ספר טיפולים, חשבוניות ואישור ממוסך מורשה על עדכוני תוכנה/קמפיינים שבוצעו.",
                 "severity": "medium",
                 "cost_impact": "medium",
             },
             {
-                "risk_title": "מצב גיר ומנוע",
-                "why_it_matters": "תקלות בגיר/מנוע הן היקרות ביותר ומורידות ערך רכב.",
-                "how_to_check": "בבדיקת מוסך: סריקת מחשב, רעידות, החלקות הילוכים, הדלקת נורות.",
+                "risk_title": "בדיקת מנוע, גיר ומחשב רכב",
+                "why_it_matters": "מערכות הכוח הן מוקד ההוצאה העיקרי ולכן חשוב לוודא שאין קודי תקלה, רעידות או חריגות פעולה.",
+                "how_to_check": "בצע נסיעת מבחן ודרוש סריקת מחשב, בדיקת נזילות ובחינת פעולת ההילוכים בכל מצב.",
                 "severity": "high",
                 "cost_impact": "high",
             },
             {
-                "risk_title": "שחיקת מתלים ובלמים",
-                "why_it_matters": "שחיקה מתקדמת פוגעת בבטיחות וגורמת להוצאות מיידיות.",
-                "how_to_check": "בדוק רעשים, זליגות, רפידות וצלחות; סיבוב גלגלים ובדיקה במוסך.",
+                "risk_title": "בדיקת בלמים, מתלים וצמיגים",
+                "why_it_matters": "שחיקה בשלדה ובמערכות הבטיחות יכולה ליצור הוצאה מיידית ולהשפיע על התנהגות הרכב.",
+                "how_to_check": "בדוק בנסיעה ובמוסך רעשים, בולמים, רפידות, צלחות, תאריך צמיגים וסימני שחיקה לא אחידים.",
                 "severity": "medium",
                 "cost_impact": "medium",
             },

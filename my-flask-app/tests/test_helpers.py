@@ -71,6 +71,7 @@ class ReliabilityReportSanitizationTests(unittest.TestCase):
         self.assertIn("missing_info", sanitized)
         self.assertIn("תת-דגם/תצורה", sanitized["missing_info"])
         self.assertTrue(len(sanitized["top_risks"]) >= 3)
+        self.assertNotIn("היסטוריית טיפולים לא מלאה", [r["risk_title"] for r in sanitized["top_risks"]])
         self.assertEqual(sanitized["expected_ownership_cost"]["maintenance_level"], "medium")
         self.assertIn("&lt;b&gt;טוב", sanitized["one_sentence_verdict"])
 
@@ -102,6 +103,30 @@ class AnalyzeSanitizationTests(unittest.TestCase):
         self.assertIn("overall_reliability_reasoning", sanitized)
         self.assertIn("reliability_factors_summary", sanitized)
         self.assertIn("&lt;b&gt;", sanitized["overall_reliability_reasoning"])
+
+    def test_sanitize_analyze_response_keeps_issue_text_in_risk_signals(self):
+        raw = {
+            "ok": True,
+            "risk_signals": {
+                "vehicle_resolution": {},
+                "recalls": {"count": 2, "high_severity_count": 1, "notes": "<b>Brake campaign</b>"},
+                "systemic_issue_signals": [
+                    {
+                        "system": "brakes",
+                        "issue": "Bolt loosening risk",
+                        "severity": "medium",
+                        "repeat_frequency": "sometimes",
+                        "typical_timing": "early ownership",
+                        "evidence_text": "<i>Grounded source note</i>",
+                    }
+                ],
+                "maintenance_cost_pressure": {"level": "medium"},
+            },
+        }
+        sanitized = sanitize_analyze_response(raw)
+        signal = sanitized["risk_signals"]["systemic_issue_signals"][0]
+        self.assertEqual(signal["issue"], "Bolt loosening risk")
+        self.assertIn("&lt;i&gt;", signal["evidence_text"])
 
 
 if __name__ == "__main__":
