@@ -265,6 +265,8 @@ COMPARE_STAGE_A_TIMEOUT_SEC = int(os.environ.get("COMPARE_STAGE_A_TIMEOUT_SEC", 
 COMPARE_STAGE_A_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_STAGE_A_MAX_OUTPUT_TOKENS", "2048"))
 COMPARE_STAGE_A_TEMPERATURE = float(os.environ.get("COMPARE_STAGE_A_TEMPERATURE", "0.25"))
 COMPARE_WRITER_TIMEOUT_SEC = int(os.environ.get("COMPARE_WRITER_TIMEOUT_SEC", "30"))
+# Stage B returns a full structured narrative in Hebrew; 2500 leaves room for
+# summary + winner + four categories + caveats without truncating to summary-only JSON.
 COMPARE_WRITER_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_WRITER_MAX_OUTPUT_TOKENS", "2500"))
 COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS", "500"))
 COMPARE_WRITER_PROMPT_CHAR_CAP = int(os.environ.get("COMPARE_WRITER_PROMPT_CHAR_CAP", "16000"))
@@ -283,6 +285,7 @@ HORSEPOWER_HIGH_THRESHOLD = 180
 HORSEPOWER_MEDIUM_THRESHOLD = 120
 PARTIAL_COMPARISON_SUMMARY_PREFIX = "השוואה חלקית:"
 PARTIAL_COMPARISON_DISCLAIMER = "ההשוואה חלקית כי לא נמצא מידע מלא על כל הרכבים."
+COMPARE_SCORE_EXPLANATION_TEMPLATE_HE = "ציון: {score}/100"
 
 COMPARE_AI_METRICS = {
     "compare_ai_calls_total": 0,
@@ -1914,8 +1917,13 @@ def _salvage_partial_writer_output(
                 .get(category_key, {})
                 .get("score")
             )
+            # Salvage runs on malformed/partial writer payloads, so keep category score
+            # rendering defensive: booleans can pass isinstance(..., int) but are never
+            # valid 0-100 comparison scores.
             if isinstance(score, (int, float)) and not isinstance(score, bool):
-                explanations[car_key] = f"ציון: {int(score)}/100"
+                explanations[car_key] = COMPARE_SCORE_EXPLANATION_TEMPLATE_HE.format(
+                    score=int(score)
+                )
             else:
                 explanations[car_key] = ""
         category_explanations.append({
@@ -1929,7 +1937,10 @@ def _salvage_partial_writer_output(
     raw_caveats = stage_b_output.get("caveats")
     caveats = []
     if isinstance(raw_caveats, list):
-        caveats = [str(item).strip() for item in raw_caveats[:3] if str(item or "").strip()]
+        for item in raw_caveats[:3]:
+            caveat = str(item or "").strip()
+            if caveat:
+                caveats.append(caveat)
 
     return {
         "overall_summary": summary,
