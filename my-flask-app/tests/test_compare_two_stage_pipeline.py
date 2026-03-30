@@ -492,6 +492,75 @@ def test_compare_ai_regenerate_updates_ai_only(app, logged_in_client, monkeypatc
     assert regen_payload["ai"]["stage_b"] is not None
 
 
+def test_compare_ai_regenerate_keeps_usable_long_narrative(app, logged_in_client, monkeypatch):
+    client, _user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    grounded_output = _grounded_output_fixture()
+    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(grounded_output))
+    monkeypatch.setattr(
+        comparison_service,
+        "call_gemini_compare_writer",
+        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: ({
+            "summary": "סיכום ראשון.",
+            "winner": "carA",
+            "categories": [],
+            "caveats": [],
+        }, None),
+    )
+
+    first = client.post(
+        "/api/compare",
+        json={
+            "cars": [
+                {"make": "Toyota", "model": "Corolla", "year": 2020},
+                {"make": "Honda", "model": "Civic", "year": 2020},
+            ],
+            "legal_confirm": True,
+        },
+        headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+    )
+    assert first.status_code == 200
+    comparison_id = first.get_json()["data"]["comparison_id"]
+
+    monkeypatch.setattr(
+        comparison_service,
+        "call_gemini_compare_writer",
+        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: ({
+            "summary": " ".join(["מעודכן"] * 90),
+            "winner": "carA",
+            "categories": [
+                {
+                    "name": "reliability_risk",
+                    "winner": "carA",
+                    "why": " ".join(["אמינות"] * 65),
+                    "explanations": {
+                        "car_1": " ".join(["לטויוטה"] * 70),
+                        "car_2": " ".join(["להונדה"] * 62),
+                    },
+                    "tips": [" ".join(["בדקו"] * 35)],
+                    "extra_field": "ignored",
+                }
+            ],
+            "caveats": [" ".join(["שימו"] * 40)],
+            "extra_payload_field": True,
+        }, None),
+    )
+
+    regen = client.post(
+        f"/api/compare/ai-regenerate?comparison_id={comparison_id}",
+        json={"legal_confirm": True},
+        headers={"Origin": "http://localhost", "Referer": "http://localhost/compare"},
+        environ_overrides={"HTTP_ORIGIN": "http://localhost", "HTTP_REFERER": "http://localhost/compare"},
+    )
+    assert regen.status_code == 200
+    regen_payload = regen.get_json()["data"]
+    assert regen_payload["ai"]["status"] == "ok"
+    assert regen_payload["narrative"]["overall_summary"]
+    assert len(regen_payload["narrative"]["overall_summary"].split()) == 80
+    assert regen_payload["narrative"]["category_explanations"][0]["explanations"]["car_1"]
+
+
 def test_compare_stage_a_json_invalid_returns_503_without_persisting_success(app, logged_in_client, monkeypatch):
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
@@ -586,6 +655,128 @@ def test_compare_partial_stage_a_failure_returns_200_partial_fallback(app, logge
     assert payload["ai"]["reason"] == "stage_a_partial"
     assert "השוואה חלקית" in payload["narrative"]["overall_summary"]
     assert any("חלקית" in item for item in payload["narrative"]["disclaimers_he"])
+
+
+def test_compare_stage_b_extra_keys_and_long_text_still_render(app, logged_in_client, monkeypatch):
+    client, _user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    grounded_output = _grounded_output_fixture()
+    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(grounded_output))
+    monkeypatch.setattr(
+        comparison_service,
+        "call_gemini_compare_writer",
+        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: ({
+            "summary": " ".join(["טויוטה"] * 90),
+            "winner": "carA",
+            "categories": [
+                {
+                    "name": "reliability_risk",
+                    "winner": "carA",
+                    "why": " ".join(["אמינות"] * 65),
+                    "explanations": {
+                        "car_1": " ".join(["לטויוטה"] * 70),
+                        "car_2": " ".join(["להונדה"] * 62),
+                    },
+                    "tips": [" ".join(["בדקו"] * 35)],
+                    "extra_field": "ignored",
+                }
+            ],
+            "caveats": [" ".join(["שימו"] * 40)],
+            "extra_payload_field": {"ignored": True},
+        }, None),
+    )
+
+    resp = client.post(
+        "/api/compare",
+        json={
+            "cars": [
+                {"make": "Toyota", "model": "Corolla", "year": 2020},
+                {"make": "Honda", "model": "Civic", "year": 2020},
+            ],
+            "legal_confirm": True,
+        },
+        headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+    )
+    assert resp.status_code == 200
+    payload = resp.get_json()["data"]
+    assert payload["ai"]["status"] == "ok"
+    assert payload["ai"]["reason"] is None
+    assert payload["narrative"]["overall_summary"]
+    assert len(payload["narrative"]["overall_summary"].split()) == 80
+    assert payload["narrative"]["category_explanations"][0]["explanations"]["car_1"]
+    assert len(payload["narrative"]["category_explanations"][0]["explanations"]["car_1"].split()) == 60
+    assert payload["ai"]["stage_b"]["narrative"] == payload["narrative"]["overall_summary"]
+
+
+def test_compare_partial_stage_a_usable_stage_b_kept_visible(app, logged_in_client, monkeypatch):
+    client, _user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    def fake_stage_a_parallel(_validated_cars, cars_selected_slots):
+        output = comparison_service._empty_stage_a_output(cars_selected_slots)
+        output["cars"]["car_1"] = {
+            "car_name": "Toyota Corolla 2020",
+            "reliability": {
+                "overall": "high",
+                "issue_frequency": "low",
+                "issue_severity": "low",
+                "repair_cost_risk": "low",
+                "recall_risk": "low",
+                "parts_complexity": "low",
+            },
+            "ownership_cost": {},
+            "comfort_practicality": {},
+            "performance_driving": {},
+            "facts": {},
+            "short_notes": [],
+            "sources": ["https://example.com/toyota"],
+        }
+        sources_index = comparison_service.build_sources_index_from_flat(output)
+        return output, sources_index, ["car_2: MODEL_JSON_INVALID"]
+
+    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", fake_stage_a_parallel)
+    monkeypatch.setattr(
+        comparison_service,
+        "call_gemini_compare_writer",
+        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: ({
+            "summary": "השוואה חלקית אבל מועילה לקונה לפני החלטה.",
+            "winner": "carA",
+            "categories": [
+                {
+                    "name": "reliability_risk",
+                    "winner": "carA",
+                    "why": "הטויוטה נתמכת ביותר ראיות אמינות זמינות ולכן שומרת על יתרון יחסי.",
+                    "explanations": {
+                        "car_1": "לטויוטה יש תמונת אמינות יציבה יותר גם במסלול החלקי.",
+                        "car_2": "להונדה יש פחות מידע מאומת ולכן צריך בדיקה נוספת.",
+                    },
+                    "tips": ["בדקו היסטוריית טיפולים", "אמתו מסמכים"],
+                }
+            ],
+            "caveats": ["חלק מהמידע חסר ולכן צריך להשלים בדיקה."],
+            "extra_payload_field": True,
+        }, None),
+    )
+
+    resp = client.post(
+        "/api/compare",
+        json={
+            "cars": [
+                {"make": "Toyota", "model": "Corolla", "year": 2020},
+                {"make": "Honda", "model": "Civic", "year": 2020},
+            ],
+            "legal_confirm": True,
+        },
+        headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+    )
+    assert resp.status_code == 200
+    payload = resp.get_json()["data"]
+    assert payload["ai"]["status"] == "partial_fallback"
+    assert payload["ai"]["reason"] == "stage_a_partial"
+    assert "השוואה חלקית" in payload["narrative"]["overall_summary"]
+    assert payload["narrative"]["category_explanations"][0]["explanations"]["car_1"]
+    assert payload["ai"]["stage_b"]["categories"]
 
 
 def test_call_stage_a_parallel_error_classification(app, monkeypatch):
