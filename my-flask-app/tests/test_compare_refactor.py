@@ -20,6 +20,9 @@ from app.services.comparison_service import (
     parse_single_car_json,
     TIE_THRESHOLD,
     build_compare_writer_prompt,
+    build_single_car_prompt,
+    convert_writer_response_to_narrative,
+    infer_compare_segment,
     validate_compare_writer_response,
     COMPARE_WRITER_PROMPT_CHAR_CAP,
 )
@@ -425,6 +428,35 @@ class TestCompareWriterPromptAndValidation:
         prompt = build_compare_writer_prompt(cars_selected_slots, computed_result, {"cars": {}, "assumptions": {}})
         assert len(prompt) <= COMPARE_WRITER_PROMPT_CHAR_CAP
 
+    def test_writer_prompt_uses_slot_schema_for_three_cars(self):
+        cars_selected_slots = {
+            "car_1": {"display_name": "Toyota Corolla 2020"},
+            "car_2": {"display_name": "Honda Civic 2020"},
+            "car_3": {"display_name": "Mazda 3 2020"},
+        }
+        computed_result = {
+            "overall_winner": "car_3",
+            "category_winners": {
+                "reliability_risk": "car_1",
+                "ownership_cost": "car_2",
+                "practicality_comfort": "tie",
+                "driving_performance": "car_3",
+            },
+            "cars": {
+                "car_1": {"overall_score": 80, "categories": {"reliability_risk": {"score": 84}}},
+                "car_2": {"overall_score": 79, "categories": {"ownership_cost": {"score": 82}}},
+                "car_3": {"overall_score": 83, "categories": {"driving_performance": {"score": 90}}},
+            },
+            "comparison_status": {"balanced": True},
+        }
+
+        prompt = build_compare_writer_prompt(cars_selected_slots, computed_result, {"cars": {}, "assumptions": {}})
+
+        assert '"cars":{"car_1"' in prompt
+        assert '"car_3":{"label":"Mazda 3 2020"}' in prompt
+        assert '"winner": "car_1|car_2|car_3|tie"' in prompt
+        assert "carA|carB|tie" not in prompt
+
     def test_writer_validator_rejects_non_schema_and_long_fields(self):
         invalid_payload = {
             "summary": " ".join(["too"] * 41),
@@ -448,6 +480,49 @@ class TestCompareWriterPromptAndValidation:
             "caveats": ["Market conditions may vary."],
         }
         assert validate_compare_writer_response(valid_payload) is not None
+
+    def test_writer_validator_accepts_slot_based_third_car_and_converts_narrative(self):
+        payload = {
+            "summary": "המועמד השלישי מוביל בתמונה הכוללת.",
+            "winner": "car_3",
+            "categories": [
+                {
+                    "name": "driving_performance",
+                    "winner": "car_3",
+                    "why": "הוא מציג יתרון דינמי ברור לפי הניקוד.",
+                    "tips": ["בדקו צמיגים", "בדקו בלמים"],
+                }
+            ],
+            "caveats": ["התחזוקה משפיעה מאוד."],
+        }
+
+        validated = validate_compare_writer_response(payload)
+
+        assert validated is not None
+        assert validated["winner"] == "car_3"
+
+        narrative = convert_writer_response_to_narrative(
+            validated,
+            {
+                "car_1": {"display_name": "Toyota Corolla 2020"},
+                "car_2": {"display_name": "Honda Civic 2020"},
+                "car_3": {"display_name": "Mazda 3 2020"},
+            },
+        )
+        assert narrative["category_explanations"][0]["winner"] == "car_3"
+        assert set(narrative["category_explanations"][0]["explanations"].keys()) == {"car_1", "car_2", "car_3"}
+
+
+class TestCompareSegmentInference:
+    def test_infer_compare_segment_city_mini(self):
+        segment = infer_compare_segment({"make": "Kia", "model": "Picanto", "display_name": "Kia Picanto 2020"}, {})
+        assert segment == "city_mini"
+
+    def test_build_single_car_prompt_embeds_segment_context(self):
+        prompt = build_single_car_prompt({"make": "Kia", "model": "Sportage", "year": 2020})
+        assert '"segment_key": "crossover_soft_suv"' in prompt
+        assert "family usability" in prompt
+        assert "CATEGORY_BEHAVIOR_RULES" in prompt
 
 
 # ============================================================

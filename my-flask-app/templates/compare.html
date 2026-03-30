@@ -1413,11 +1413,11 @@
 
     function renderNarrative(result, carKeys) {
         const ai = result?.ai || {};
-        const narrative = ai?.stage_b ? {
+        const narrative = result?.narrative || (ai?.stage_b ? {
             overall_summary: ai.stage_b.narrative,
             category_explanations: ai.stage_b.categories || [],
             disclaimers_he: [],
-        } : (result?.narrative || null);
+        } : null);
         const section = document.getElementById('narrativeSection');
         const aiRetryBtn = document.getElementById('aiRetryBtn');
         if (!section) {
@@ -1426,7 +1426,7 @@
         if (aiRetryBtn) {
             aiRetryBtn.classList.toggle('hidden', !currentComparisonId);
         }
-        if (!narrative || ai?.status !== 'ok') {
+        if (!narrative) {
             section.classList.remove('hidden');
             const summaryEl = document.getElementById('narrativeOverallSummary');
             const disclaimersEl = document.getElementById('narrativeDisclaimers');
@@ -1445,6 +1445,8 @@
         const disclaimersEl = document.getElementById('narrativeDisclaimers');
         if (disclaimersEl && narrative.disclaimers_he) {
             disclaimersEl.innerHTML = narrative.disclaimers_he.map(d => `<span>• ${escapeHtml(d)}</span>`).join(' ');
+        } else if (disclaimersEl) {
+            disclaimersEl.textContent = '';
         }
     }
     
