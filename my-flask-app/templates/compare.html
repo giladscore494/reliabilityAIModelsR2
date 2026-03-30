@@ -1594,8 +1594,8 @@
             aiStatus: ai?.status || null,
             aiReason: ai?.reason || null,
             reason: getNarrativeFailureReason(result),
-            statusGateApplied: false,
-            mobileRenderBranchSkippedExplanation: false,
+            statusGateReason: 'not_applied_in_current_ui',
+            mobileRenderPath: 'shared_desktop_and_mobile_render_path',
         });
         return null;
     }
@@ -1639,8 +1639,8 @@
                 explanationContainerExists: Boolean(categoryContainer),
                 explanationContainerEmpty: !categoryContainer || !String(categoryContainer.innerHTML || '').trim(),
                 sectionHiddenAfterRender: section.classList.contains('hidden'),
-                statusGateApplied: false,
-                mobileRenderBranchSkippedExplanation: false,
+                statusGateReason: 'not_applied_in_current_ui',
+                mobileRenderPath: 'shared_desktop_and_mobile_render_path',
             });
             return;
         }
@@ -1717,8 +1717,8 @@
             explanationContainerExists: Boolean(categoryContainer),
             explanationContainerEmpty: !categoryContainer || !String(categoryContainer.innerHTML || '').trim(),
             sectionHiddenAfterRender: section.classList.contains('hidden'),
-            statusGateApplied: false,
-            mobileRenderBranchSkippedExplanation: false,
+            statusGateReason: 'not_applied_in_current_ui',
+            mobileRenderPath: 'shared_desktop_and_mobile_render_path',
         });
     }
     

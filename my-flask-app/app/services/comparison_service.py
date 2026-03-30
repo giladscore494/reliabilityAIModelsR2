@@ -1833,6 +1833,10 @@ def _validate_compare_writer_response(payload: Any) -> Tuple[Optional[Dict[str, 
                     continue
                 explanation_clean = _truncate_to_word_limit(explanation_text, 60)
                 if explanation_clean is None:
+                    logger.warning(
+                        "[COMPARISON] compare_writer explanation dropped slot_key=%s reason=empty_or_invalid",
+                        slot_key,
+                    )
                     continue
                 normalized_explanations[slot_key] = explanation_clean
         tips = item.get("tips")
@@ -1842,6 +1846,9 @@ def _validate_compare_writer_response(payload: Any) -> Tuple[Optional[Dict[str, 
         for tip in tips:
             tip_clean = _truncate_to_word_limit(tip, 30)
             if tip_clean is None:
+                logger.warning(
+                    "[COMPARISON] compare_writer tip dropped reason=empty_or_invalid"
+                )
                 continue
             normalized_tips.append(tip_clean)
         validated_categories.append({
@@ -1856,6 +1863,9 @@ def _validate_compare_writer_response(payload: Any) -> Tuple[Optional[Dict[str, 
     for caveat in caveats:
         caveat_clean = _truncate_to_word_limit(caveat, 30)
         if caveat_clean is None:
+            logger.warning(
+                "[COMPARISON] compare_writer caveat dropped reason=empty_or_invalid"
+            )
             continue
         normalized_caveats.append(caveat_clean)
 
