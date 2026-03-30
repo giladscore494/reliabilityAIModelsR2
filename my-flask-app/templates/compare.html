@@ -1411,24 +1411,125 @@
         }
     }
 
+    function normalizeNarrativeText(value) {
+        if (value === null || value === undefined) return '';
+        return String(value).trim();
+    }
+
+    function normalizeNarrativeCategoryItem(categoryItem) {
+        if (!categoryItem || typeof categoryItem !== 'object') {
+            return null;
+        }
+        const rawExplanations = categoryItem.explanations && typeof categoryItem.explanations === 'object'
+            ? categoryItem.explanations
+            : {};
+        const fallbackText = normalizeNarrativeText(
+            categoryItem.why || categoryItem.text || categoryItem.summary || ''
+        );
+        const explanations = {};
+        ['car_1', 'car_2', 'car_3'].forEach((carKey) => {
+            const text = normalizeNarrativeText(rawExplanations[carKey] || fallbackText);
+            if (text) {
+                explanations[carKey] = text;
+            }
+        });
+        const whyListSource = Array.isArray(categoryItem.why_it_scored_that_way)
+            ? categoryItem.why_it_scored_that_way
+            : (Array.isArray(categoryItem.tips) ? categoryItem.tips : []);
+        const whyList = whyListSource
+            .map(normalizeNarrativeText)
+            .filter(Boolean);
+        if (!whyList.length && fallbackText) {
+            whyList.push(fallbackText);
+        }
+        return {
+            category_key: normalizeNarrativeText(categoryItem.category_key || categoryItem.name),
+            title_he: normalizeNarrativeText(categoryItem.title_he || ''),
+            winner: normalizeNarrativeText(categoryItem.winner || ''),
+            explanations,
+            why_it_scored_that_way: whyList,
+        };
+    }
+
+    function isNarrativeUsable(candidate) {
+        if (!candidate || typeof candidate !== 'object') {
+            return false;
+        }
+        if (normalizeNarrativeText(candidate.overall_summary)) {
+            return true;
+        }
+        if (Array.isArray(candidate.disclaimers_he) && candidate.disclaimers_he.some(item => normalizeNarrativeText(item))) {
+            return true;
+        }
+        return Array.isArray(candidate.category_explanations) && candidate.category_explanations.some((categoryItem) => {
+            if (!categoryItem || typeof categoryItem !== 'object') {
+                return false;
+            }
+            const explanations = categoryItem.explanations && typeof categoryItem.explanations === 'object'
+                ? categoryItem.explanations
+                : {};
+            if (Object.values(explanations).some(value => normalizeNarrativeText(value))) {
+                return true;
+            }
+            return Array.isArray(categoryItem.why_it_scored_that_way)
+                && categoryItem.why_it_scored_that_way.some(value => normalizeNarrativeText(value));
+        });
+    }
+
+    function normalizeNarrativeCandidate(candidate) {
+        if (!candidate || typeof candidate !== 'object') {
+            return null;
+        }
+        const rawCategories = Array.isArray(candidate.category_explanations)
+            ? candidate.category_explanations
+            : (Array.isArray(candidate.categories) ? candidate.categories : []);
+        const rawDisclaimers = Array.isArray(candidate.disclaimers_he)
+            ? candidate.disclaimers_he
+            : (Array.isArray(candidate.caveats) ? candidate.caveats : []);
+        const normalized = {
+            overall_summary: normalizeNarrativeText(
+                candidate.overall_summary || candidate.narrative || candidate.summary || ''
+            ),
+            category_explanations: rawCategories
+                .map(normalizeNarrativeCategoryItem)
+                .filter(Boolean),
+            disclaimers_he: rawDisclaimers
+                .map(normalizeNarrativeText)
+                .filter(Boolean),
+        };
+        return isNarrativeUsable(normalized) ? normalized : null;
+    }
+
+    function resolveNarrative(result) {
+        const ai = result?.ai || {};
+        const candidates = [
+            result?.narrative,
+            result?.computed_result?.narrative,
+            result,
+            ai?.stage_b,
+        ];
+        for (const candidate of candidates) {
+            const normalized = normalizeNarrativeCandidate(candidate);
+            if (normalized) {
+                return normalized;
+            }
+        }
+        return null;
+    }
+
     function renderNarrative(result, carKeys) {
         const ai = result?.ai || {};
-        const narrative = result?.narrative || (ai?.stage_b ? {
-            overall_summary: ai.stage_b.narrative,
-            category_explanations: ai.stage_b.categories || [],
-            disclaimers_he: [],
-        } : null);
+        const narrative = resolveNarrative(result);
         const section = document.getElementById('narrativeSection');
         const aiRetryBtn = document.getElementById('aiRetryBtn');
         const categoryContainer = document.getElementById('narrativeCategoryExplanations');
-        const isNarrativeUsable = (candidate) => Boolean(
-            candidate && (
-                (typeof candidate.overall_summary === 'string' && candidate.overall_summary.trim()) ||
-                (Array.isArray(candidate.category_explanations) && candidate.category_explanations.length) ||
-                (Array.isArray(candidate.disclaimers_he) && candidate.disclaimers_he.length)
-            )
-        );
         const hasUsableNarrative = isNarrativeUsable(narrative);
+        console.debug('[COMPARE] narrative render decision', {
+            aiStatus: ai?.status || null,
+            aiReason: ai?.reason || null,
+            hasUsableNarrative,
+            narrative,
+        });
         if (!section) {
             return;
         }
