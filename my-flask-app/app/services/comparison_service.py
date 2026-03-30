@@ -1163,6 +1163,32 @@ def _empty_stage_a_output(cars_selected_slots: Dict[str, Dict[str, Any]]) -> Dic
     }
 
 
+def _truncate_error_message(message: Any, max_len: int = 180) -> str:
+    text = " ".join(str(message or "").split())
+    return text[:max_len]
+
+
+def _sanitize_stage_a_errors(errors: List[str], max_items: int = 5) -> List[str]:
+    sanitized: List[str] = []
+    for err in (errors or [])[:max_items]:
+        slot_key, sep, code_or_message = str(err).partition(": ")
+        if sep:
+            sanitized.append(f"{slot_key}: {_truncate_error_message(code_or_message, 96)}")
+        else:
+            sanitized.append(_truncate_error_message(err, 120))
+    return sanitized
+
+
+def _extract_stage_a_error_code(errors: List[str]) -> str:
+    if not errors:
+        return "UNKNOWN"
+    first = str(errors[0])
+    _, sep, code_or_message = first.partition(": ")
+    if not sep:
+        return _truncate_error_message(first, 96) or "UNKNOWN"
+    return _truncate_error_message(code_or_message, 96) or "UNKNOWN"
+
+
 def _build_stage_a_summary(computed_result: Dict[str, Any]) -> Dict[str, Any]:
     winner_map = {"car_1": "carA", "car_2": "carB", "tie": "tie"}
     category_winners = []
@@ -1508,18 +1534,51 @@ def call_stage_a_parallel(validated_cars: List[Dict], cars_selected_slots: Dict)
 
     merged = {"cars": {}, "sources": []}
     errors = []
+    request_id = get_request_id()
     for slot_key, future in futures.items():
         try:
             result, error = future.result(timeout=COMPARE_STAGE_A_TIMEOUT_SEC + PARALLEL_GRACE_SEC)
             if error:
                 errors.append(f"{slot_key}: {error}")
+                current_app.logger.warning(
+                    "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=StageAError error=%s",
+                    request_id,
+                    slot_key,
+                    _truncate_error_message(error),
+                )
                 merged["cars"][slot_key] = {}
             else:
                 car_sources = result.pop("sources", [])
                 merged["cars"][slot_key] = result
                 merged["sources"].extend(car_sources)
+        except concurrent.futures.TimeoutError as e:
+            future.cancel()
+            errors.append(f"{slot_key}: CALL_TIMEOUT")
+            current_app.logger.warning(
+                "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=TimeoutError error=%s",
+                request_id,
+                slot_key,
+                _truncate_error_message(e),
+            )
+            merged["cars"][slot_key] = {}
+        except concurrent.futures.CancelledError as e:
+            errors.append(f"{slot_key}: CALL_CANCELLED")
+            current_app.logger.warning(
+                "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=CancelledError error=%s",
+                request_id,
+                slot_key,
+                _truncate_error_message(e),
+            )
+            merged["cars"][slot_key] = {}
         except Exception as e:
-            errors.append(f"{slot_key}: {type(e).__name__}")
+            errors.append(f"{slot_key}: CALL_FAILED:{type(e).__name__}")
+            current_app.logger.error(
+                "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=%s error=%s",
+                request_id,
+                slot_key,
+                type(e).__name__,
+                _truncate_error_message(e),
+            )
             merged["cars"][slot_key] = {}
 
     return merged, build_sources_index_from_flat(merged), errors
@@ -2199,24 +2258,46 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     model_output, sources_index, stage_a_errors = call_stage_a_parallel(validated_cars, cars_selected_slots)
     duration_ms = int((pytime.perf_counter() - stage_a_start) * 1000)
     ai_ms += duration_ms
-    stage_a_reason = None
     stage_a_error_code = None
+    stage_a_partial = False
     
     if len(stage_a_errors) == len(validated_cars):
-        # All cars failed
-        stage_a_reason = "stage_a_error"
-        stage_a_error_code = stage_a_errors[0].split(": ", 1)[-1] if stage_a_errors else "UNKNOWN"
+        stage_a_error_code = _extract_stage_a_error_code(stage_a_errors)
+        sanitized_errors = _sanitize_stage_a_errors(stage_a_errors)
         logger.warning(
             "[COMPARISON] stage_a_all_failed request_id=%s errors=%s",
             request_id,
-            stage_a_errors,
+            sanitized_errors,
         )
-        _inc_compare_metric("compare_ai_fallback_used_total")
-        model_output = _empty_stage_a_output(cars_selected_slots)
-        sources_index = build_sources_index_from_flat(model_output)
+        total_ms = int((pytime.perf_counter() - total_start) * 1000)
+        logger.info(
+            "[COMPARE_TIMING] request_id=%s total_ms=%s deterministic_ms=%s ai_ms=%s db_ms=%s",
+            request_id,
+            total_ms,
+            deterministic_ms,
+            ai_ms,
+            db_ms,
+        )
+        return api_error(
+            "comparison_ai_unavailable",
+            "שירות ההשוואה אינו זמין כרגע. נסה שוב בעוד רגע.",
+            status=503,
+            details={
+                "stage": "stage_a",
+                "request_id": request_id,
+                "retryable": True,
+                "error_code": stage_a_error_code,
+                "errors": sanitized_errors,
+            },
+        )
     elif stage_a_errors:
         # Partial failure — log but continue with available data
-        logger.warning("[COMPARISON] partial_stage_a request_id=%s errors=%s", request_id, stage_a_errors)
+        stage_a_partial = True
+        logger.warning(
+            "[COMPARISON] partial_stage_a request_id=%s errors=%s",
+            request_id,
+            _sanitize_stage_a_errors(stage_a_errors),
+        )
     
     # Compute scores deterministically (server-side source of truth)
     scoring_start = pytime.perf_counter()
@@ -2228,15 +2309,10 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     stage_b_error = None
     narrative = None
     stage_b_reason = None
-    if stage_a_reason is not None:
-        stage_b_reason = "stage_b_error"
-        _inc_compare_metric("compare_ai_fallback_used_total")
-        narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
-    else:
-        writer_prompt = build_compare_writer_prompt(cars_selected_slots, server_computed_result, model_output)
-        stage_b_start = pytime.perf_counter()
-        stage_b_output, stage_b_error = call_gemini_compare_writer(writer_prompt)
-        ai_ms += int((pytime.perf_counter() - stage_b_start) * 1000)
+    writer_prompt = build_compare_writer_prompt(cars_selected_slots, server_computed_result, model_output)
+    stage_b_start = pytime.perf_counter()
+    stage_b_output, stage_b_error = call_gemini_compare_writer(writer_prompt)
+    ai_ms += int((pytime.perf_counter() - stage_b_start) * 1000)
     if stage_b_error:
         logger.warning(f"[COMPARISON] stage_b call failed request_id={request_id} error={stage_b_error}")
         stage_b_reason = "stage_b_error"
@@ -2274,11 +2350,11 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     computed_result = enforce_authoritative_numbers(server_computed_result, stage_b_output, request_id)
     ai_status = "ok"
     ai_reason = None
-    if stage_a_reason:
-        ai_status = "fallback"
-        ai_reason = stage_a_reason
+    if stage_a_partial:
+        ai_status = "partial_fallback"
+        ai_reason = "stage_a_partial"
     elif stage_b_reason:
-        ai_status = "ok"
+        ai_status = "fallback"
         ai_reason = stage_b_reason
     ai_payload = build_ai_payload(computed_result, narrative, ai_status, ai_reason)
     if stage_a_error_code:

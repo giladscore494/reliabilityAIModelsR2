@@ -168,6 +168,43 @@ class TestComparisonCacheHit:
         # Verify assumptions is a dict, not causing AttributeError
         assert isinstance(data["data"].get("assumptions", {}), dict)
 
+    def test_full_stage_a_failure_not_cached_as_success(self, app, logged_in_client, monkeypatch):
+        from app.services import comparison_service
+
+        client, user_id = logged_in_client
+        client.post("/api/legal/accept", json={"legal_confirm": True})
+
+        def fake_stage_a_parallel(_validated_cars, cars_selected_slots):
+            empty = comparison_service._empty_stage_a_output(cars_selected_slots)
+            sources_index = comparison_service.build_sources_index_from_flat(empty)
+            errors = [f"{k}: CALL_TIMEOUT" for k in cars_selected_slots]
+            return empty, sources_index, errors
+
+        monkeypatch.setattr(comparison_service, "call_stage_a_parallel", fake_stage_a_parallel)
+        monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", lambda *_args, **_kwargs: (None, "CALL_TIMEOUT"))
+
+        cars = [
+            {"make": "Toyota", "model": "Camry", "year": 2020},
+            {"make": "Honda", "model": "Accord", "year": 2020}
+        ]
+        response = client.post(
+            "/api/compare",
+            json={"cars": cars, "legal_confirm": True},
+            headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+        )
+        assert response.status_code == 503
+
+        from app.services.comparison_service import compute_request_hash
+        req_hash = compute_request_hash(cars)
+        with app.app_context():
+            row = (
+                ComparisonHistory.query
+                .filter_by(user_id=user_id, request_hash=req_hash)
+                .order_by(ComparisonHistory.created_at.desc())
+                .first()
+            )
+            assert row is None
+
 
 class TestTimingEstimateCompare:
     """Tests for /api/timing/estimate with kind=compare."""

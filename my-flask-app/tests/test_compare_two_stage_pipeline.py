@@ -3,6 +3,7 @@ import copy
 import time
 from datetime import datetime
 from types import SimpleNamespace
+import concurrent.futures
 
 from app.services import comparison_service
 from app.quota import compute_quota_window, resolve_app_timezone
@@ -190,7 +191,7 @@ def test_compare_stage_b_json_schema_parsed_into_narrative(app, logged_in_client
     assert payload["ai"]["reason"] is None
 
 
-def test_compare_stage_a_timeout_returns_200_with_ai_reason(app, logged_in_client, monkeypatch):
+def test_compare_stage_a_timeout_returns_503_with_retryable_error(app, logged_in_client, monkeypatch):
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
@@ -216,12 +217,13 @@ def test_compare_stage_a_timeout_returns_200_with_ai_reason(app, logged_in_clien
         headers={"Content-Type": "application/json", "Origin": "http://localhost"},
     )
     elapsed = time.perf_counter() - start
-    assert resp.status_code == 200
+    assert resp.status_code == 503
     assert elapsed < 20
-    payload = resp.get_json()["data"]
-    assert payload["computed_result"] is not None
-    assert payload["ai"]["status"] == "fallback"
-    assert payload["ai"]["reason"] == "stage_a_error"
+    body = resp.get_json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == "comparison_ai_unavailable"
+    assert body["error"]["details"]["stage"] == "stage_a"
+    assert body["error"]["details"]["retryable"] is True
 
 
 def test_parse_stage_a_json_handles_fences_and_text():
@@ -332,7 +334,7 @@ def test_compare_ai_regenerate_updates_ai_only(app, logged_in_client, monkeypatc
     assert regen_payload["ai"]["stage_b"] is not None
 
 
-def test_compare_stage_a_json_invalid_returns_200_with_fallback(app, logged_in_client, monkeypatch):
+def test_compare_stage_a_json_invalid_returns_503_without_persisting_success(app, logged_in_client, monkeypatch):
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
@@ -358,12 +360,149 @@ def test_compare_stage_a_json_invalid_returns_200_with_fallback(app, logged_in_c
         headers={"Content-Type": "application/json", "Origin": "http://localhost"},
     )
     elapsed = time.perf_counter() - start
-    assert resp.status_code == 200
+    assert resp.status_code == 503
     assert elapsed < 20
+    body = resp.get_json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == "comparison_ai_unavailable"
+    details = body["error"]["details"]
+    assert details["stage"] == "stage_a"
+    assert details["error_code"] == "MODEL_JSON_INVALID"
+    assert details["retryable"] is True
+    with app.app_context():
+        assert ComparisonHistory.query.count() == 0
+
+
+def test_compare_partial_stage_a_failure_returns_200_partial_fallback(app, logged_in_client, monkeypatch):
+    client, _user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    def fake_stage_a_parallel(_validated_cars, cars_selected_slots):
+        output = comparison_service._empty_stage_a_output(cars_selected_slots)
+        output["cars"]["car_1"] = {
+            "reliability_risk": {"reliability_rating": 84},
+            "ownership_cost": {},
+            "practicality_comfort": {},
+            "driving_performance": {},
+            "sources": [],
+        }
+        sources_index = comparison_service.build_sources_index_from_flat(output)
+        return output, sources_index, ["car_2: CALL_TIMEOUT"]
+
+    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", fake_stage_a_parallel)
+    monkeypatch.setattr(
+        comparison_service,
+        "call_gemini_compare_writer",
+        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: ({
+            "summary": "סיכום חלקי.",
+            "winner": "carA",
+            "categories": [],
+            "caveats": [],
+        }, None),
+    )
+
+    resp = client.post(
+        "/api/compare",
+        json={
+            "cars": [
+                {"make": "Toyota", "model": "Corolla", "year": 2020},
+                {"make": "Honda", "model": "Civic", "year": 2020},
+            ],
+            "legal_confirm": True,
+        },
+        headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+    )
+    assert resp.status_code == 200
     payload = resp.get_json()["data"]
-    assert payload["ai"]["status"] == "fallback"
-    assert payload["ai"]["reason"] == "stage_a_error"
-    assert payload["ai"]["error"] == "MODEL_JSON_INVALID"
+    assert payload["ai"]["status"] == "partial_fallback"
+    assert payload["ai"]["reason"] == "stage_a_partial"
+
+
+def test_call_stage_a_parallel_classifies_timeout_cancelled_and_runtime(app, monkeypatch):
+    class _FakeFuture:
+        def __init__(self, behavior):
+            self.behavior = behavior
+
+        def result(self, timeout=None):
+            if self.behavior == "timeout":
+                raise concurrent.futures.TimeoutError("took too long")
+            if self.behavior == "cancelled":
+                raise concurrent.futures.CancelledError("cancelled")
+            if self.behavior == "runtime":
+                raise RuntimeError("boom")
+            return (
+                {
+                    "reliability_risk": {"reliability_rating": 88},
+                    "ownership_cost": {},
+                    "practicality_comfort": {},
+                    "driving_performance": {},
+                    "sources": [],
+                },
+                None,
+            )
+
+        def cancel(self):
+            return True
+
+    class _FakeExecutor:
+        def __init__(self):
+            self.calls = 0
+            self.behaviors = ["timeout", "cancelled", "runtime", "ok"]
+
+        def submit(self, *_args, **_kwargs):
+            behavior = self.behaviors[self.calls]
+            self.calls += 1
+            return _FakeFuture(behavior)
+
+    fake_executor = _FakeExecutor()
+    with app.app_context():
+        import app.factory as factory
+        monkeypatch.setattr(factory, "AI_EXECUTOR", fake_executor)
+        validated_cars = [
+            {"make": "Toyota", "model": "Corolla", "year": 2020},
+            {"make": "Honda", "model": "Civic", "year": 2020},
+            {"make": "Mazda", "model": "3", "year": 2020},
+            {"make": "Kia", "model": "Sportage", "year": 2020},
+        ]
+        slots = comparison_service.map_cars_to_slots(validated_cars)
+        merged, _sources_index, errors = comparison_service.call_stage_a_parallel(validated_cars, slots)
+
+    assert "car_1: CALL_TIMEOUT" in errors
+    assert "car_2: CALL_CANCELLED" in errors
+    assert "car_3: CALL_FAILED:RuntimeError" in errors
+    assert merged["cars"]["car_4"]["reliability_risk"]["reliability_rating"] == 88
+
+
+def test_compare_quota_released_on_full_stage_a_failure(app, logged_in_client, monkeypatch):
+    client, user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    def fake_stage_a_parallel(_validated_cars, cars_selected_slots):
+        empty = comparison_service._empty_stage_a_output(cars_selected_slots)
+        sources_index = comparison_service.build_sources_index_from_flat(empty)
+        errors = [f"{k}: CALL_TIMEOUT" for k in cars_selected_slots]
+        return empty, sources_index, errors
+
+    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", fake_stage_a_parallel)
+    monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", lambda *_args, **_kwargs: (None, "CALL_TIMEOUT"))
+
+    resp = client.post(
+        "/api/compare",
+        json={
+            "cars": [
+                {"make": "Toyota", "model": "Corolla", "year": 2020},
+                {"make": "Honda", "model": "Civic", "year": 2020},
+            ],
+            "legal_confirm": True,
+        },
+        headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+    )
+    assert resp.status_code == 503
+    with app.app_context():
+        tz, _ = resolve_app_timezone()
+        day_key, *_ = compute_quota_window(tz)
+        quota = DailyQuotaUsage.query.filter_by(user_id=user_id, day=day_key).first()
+        assert quota is None or quota.count == 0
 
 
 def test_compare_ai_regenerate_writer_exception_returns_200_fallback(app, logged_in_client, monkeypatch):
@@ -522,10 +661,11 @@ def test_compare_owner_bypasses_internal_history_gate(app, logged_in_client, mon
             )
         db.session.commit()
 
-    def fake_stage_a(_prompt, timeout_sec=comparison_service.AI_CALL_TIMEOUT_SEC):
-        return _grounded_output_fixture(), None
-
-    monkeypatch.setattr(comparison_service, "call_gemini_comparison", fake_stage_a)
+    monkeypatch.setattr(
+        comparison_service,
+        "call_stage_a_parallel",
+        _fake_stage_a_parallel(_grounded_output_fixture()),
+    )
     monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", lambda _prompt, timeout_sec=60: (None, "CALL_TIMEOUT"))
 
     resp = client.post(
