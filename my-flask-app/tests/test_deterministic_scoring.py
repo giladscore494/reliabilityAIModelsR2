@@ -193,6 +193,9 @@ class TestBaseScore:
         )
         assert r_high["score_0_100"] - r_medium["score_0_100"] == 3
         assert r_medium["score_0_100"] - r_low["score_0_100"] == 3
+        assert 15 <= r_low["score_0_100"] <= 95
+        assert 15 <= r_medium["score_0_100"] <= 95
+        assert 15 <= r_high["score_0_100"] <= 95
 
 
 # ---------------------------------------------------------------------------

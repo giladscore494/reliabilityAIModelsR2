@@ -7,6 +7,7 @@ import hashlib
 import logging
 import traceback
 import time as pytime
+import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
@@ -101,6 +102,28 @@ _OVERALL_RELIABILITY_ADJUSTMENT = {
     "low": -3,
 }
 
+_NEGLECT_MARKERS_LITERAL = (
+    "incomplete service history",
+    "missing service history",
+    "likely neglected by previous owner",
+    "maintenance history is incomplete",
+    "services were skipped",
+    "unresolved recall",
+    "היסטוריית טיפולים חסרה",
+    "היסטוריית טיפולים לא מלאה",
+    "הוזנח",
+    "תחזוקה לקויה",
+    "דילוג על טיפולים",
+    "ריקול לא טופל",
+)
+_NEGLECT_MARKERS_WORD = (
+    "likely neglected",
+    "poor maintenance",
+    "skipped service",
+    "abuse",
+    "neglect",
+)
+
 
 def _safe_int(val: Any, lo: int = 0, hi: int = 1000, default: int = 0) -> int:
     try:
@@ -182,26 +205,9 @@ def _contains_vehicle_specific_neglect_claim(text: Any) -> bool:
     t = text.strip().lower()
     if not t:
         return False
-    markers = (
-        "incomplete service history",
-        "missing service history",
-        "likely neglected",
-        "poor maintenance",
-        "skipped service",
-        "services were skipped",
-        "unresolved recall",
-        "abuse",
-        "neglect",
-        "maintenance history is incomplete",
-        "likely neglected by previous owner",
-        "היסטוריית טיפולים חסרה",
-        "היסטוריית טיפולים לא מלאה",
-        "הוזנח",
-        "תחזוקה לקויה",
-        "דילוג על טיפולים",
-        "ריקול לא טופל",
-    )
-    return any(marker in t for marker in markers)
+    if any(marker in t for marker in _NEGLECT_MARKERS_LITERAL):
+        return True
+    return any(re.search(rf"\b{re.escape(marker)}\b", t) for marker in _NEGLECT_MARKERS_WORD)
 
 
 def _is_recall_like_signal(sig: Dict[str, Any]) -> bool:
@@ -285,6 +291,8 @@ def compute_reliability_score_and_banner(
 
     # De-duplicate when the same recall appears as systemic signal text + recall bucket
     if recall_penalty > 0 and recall_like_systemic_penalty > 0:
+        # Keep overlap impact modest: discount up to 60% of overlap-like systemic penalty,
+        # but never more than 70% of recall bucket penalty (recall bucket should still matter).
         overlap_discount = min(recall_like_systemic_penalty * 0.6, recall_penalty * 0.7)
         systemic_penalty = max(0.0, systemic_penalty - overlap_discount)
 
