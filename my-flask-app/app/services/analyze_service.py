@@ -91,7 +91,7 @@ _MCP_PENALTY = {"low": 0, "medium": 3, "high": 8}
 # ── Clean bonus ──
 _CLEAN_BONUS = 4
 
-# ── Penalty cap: fraction of base that total penalties can consume ──
+# ── Penalty cap: fraction of base that total penalties can consume (0.55 = 55%) ──
 _PENALTY_CAP_FRACTION = 0.55
 
 

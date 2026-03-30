@@ -240,7 +240,7 @@ class TestRecallPenalties:
             "recalls": {"count": 2, "high_severity_count": 0, "notes": ""},
         })
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # base 74, recall low = 1 * 0.7 = 0.7, bonus still applies, score = 74 - 1 + 4 = 77
+        # base 74, recall penalty = round(1 * 0.7) = 1, bonus applies, score = 74 - 1 + 4 = 77
         assert r["score_0_100"] == 77
 
     def test_medium_recalls(self):
@@ -249,7 +249,7 @@ class TestRecallPenalties:
             "recalls": {"count": 3, "high_severity_count": 1, "notes": ""},
         })
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # base 74, recall medium = 5 * 0.7 = 3.5, no bonus (meaningful recalls), score = 74 - 4 = 70
+        # base 74, recall penalty = round(5 * 0.7) = 4, no bonus, score = 74 - 4 = 70
         assert r["score_0_100"] == 70
         assert r["banner_he"] == "גבוה"
 
@@ -423,7 +423,7 @@ class TestCleanBonus:
         """VW (bonus_eligible=False) with no issues gets no bonus."""
         v = _default_validated({"make": "Volkswagen", "model": "Golf"})
         r = compute_reliability_score_and_banner(v, _full_risk_signals())
-        # VW: base_modifier=-5, Golf model_modifier=+2 → base=62-3=59, no bonus
+        # VW: base_modifier=-5, Golf model_modifier=+2, combined=-3 → base=62+(-3)=59, no bonus
         assert r["score_0_100"] == 59
 
     def test_bonus_blocked_by_issues(self):
@@ -435,8 +435,8 @@ class TestCleanBonus:
             ],
         })
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # base=74, penalty=4*1.0*1.25=5, no bonus, score=74-5=69
-        assert r["score_0_100"] < 74
+        # penalty = 4 * 1.0 * 1.25 = 5, no bonus, score = 74 - 5 = 69
+        assert r["score_0_100"] == 69
 
     def test_bonus_blocked_by_meaningful_recalls(self):
         """Toyota with medium+ recalls should not get bonus."""

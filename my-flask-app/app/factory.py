@@ -535,7 +535,7 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
    - estimated_reliability: להחזיר "לא ידוע" (placeholder).
    - reliability_report.overall_score: להחזיר 0 (placeholder).
    - score_breakdown: אפשר להחזיר ערכי placeholder 1..10 (הקוד לא מסתמך על זה).
-   - אסור להחזיר ערכים מספריים עבור confidence, evidence_factor, data_completeness, penalty, או multiplier.
+   - אסור להחזיר ערכים מספריים עבור confidence, data_completeness, penalty, או multiplier.
 4) כן מותר:
    - להחזיר תקלות נפוצות (common_issues) + issues_with_costs + avg_repair_cost_ILS כמו היום.
    - להחזיר מתחרים (common_competitors_brief) כמו היום.
