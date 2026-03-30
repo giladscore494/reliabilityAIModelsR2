@@ -474,6 +474,44 @@ def test_call_stage_a_parallel_error_classification(app, monkeypatch):
     assert merged["cars"]["car_4"]["reliability_risk"]["reliability_rating"] == 88
 
 
+def test_call_stage_a_parallel_real_threads_do_not_require_worker_app_context(app, monkeypatch):
+    class _FakeAuto:
+        def __init__(self, **kwargs):
+            self.disable = kwargs.get("disable")
+            self.maximum_remote_calls = kwargs.get("maximum_remote_calls")
+
+    class _FakeConfig:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    class _FakeModels:
+        def generate_content(self, **_kwargs):
+            return SimpleNamespace(
+                text='{"reliability_risk": {"reliability_rating": 88}, "ownership_cost": {}, "practicality_comfort": {}, "driving_performance": {}, "sources": []}'
+            )
+
+    real_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+    monkeypatch.setattr(comparison_service.extensions, "ai_client", SimpleNamespace(models=_FakeModels()))
+    monkeypatch.setattr(comparison_service.genai_types, "AutomaticFunctionCallingConfig", _FakeAuto)
+    monkeypatch.setattr(comparison_service.genai_types, "GenerateContentConfig", _FakeConfig)
+
+    with app.app_context():
+        import app.factory as factory
+        monkeypatch.setattr(factory, "AI_EXECUTOR", real_executor)
+        validated_cars = [
+            {"make": "Toyota", "model": "Corolla", "year": 2020},
+            {"make": "Honda", "model": "Civic", "year": 2020},
+        ]
+        slots = comparison_service.map_cars_to_slots(validated_cars)
+        merged, _sources_index, errors = comparison_service.call_stage_a_parallel(validated_cars, slots)
+
+    real_executor.shutdown(wait=True)
+
+    assert errors == []
+    assert merged["cars"]["car_1"]["reliability_risk"]["reliability_rating"] == 88
+    assert merged["cars"]["car_2"]["reliability_risk"]["reliability_rating"] == 88
+
+
 def test_compare_quota_released_on_full_stage_a_failure(app, logged_in_client, monkeypatch):
     client, user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})

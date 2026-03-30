@@ -8,6 +8,7 @@ All scoring is computed deterministically in code only.
 import os
 import json
 import hashlib
+import logging
 import re
 import time as pytime
 from datetime import datetime, timedelta
@@ -27,6 +28,8 @@ from app.utils.prompt_defense import (
 import app.extensions as extensions
 from google.genai import types as genai_types
 from app.utils.sanitization import sanitize_comparison_narrative
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -1282,7 +1285,12 @@ def _safe_ai_response_snippet(exc: Exception, max_len: int = 280) -> str:
     return text[:max_len]
 
 
-def _log_ai_client_error(feature: str, exc: Exception) -> None:
+def _log_ai_client_error(
+    feature: str,
+    exc: Exception,
+    request_id: Optional[str] = None,
+    log: Optional[logging.Logger] = None,
+) -> None:
     """Log enriched client error details (status/message/snippet) for diagnosis."""
     status_code = (
         getattr(exc, "status_code", None)
@@ -1292,9 +1300,9 @@ def _log_ai_client_error(feature: str, exc: Exception) -> None:
     message = str(exc)
     reason = "output_too_long" if _is_output_too_long_error(message) else "client_error"
     _inc_compare_metric("compare_ai_failures_total", reason=reason)
-    current_app.logger.error(
+    (log or logger).error(
         "[AI] request_id=%s feature=%s model=%s error_code=%s reason=%s error_type=%s response_snippet=%s",
-        get_request_id(),
+        request_id or "unknown",
         feature,
         COMPARISON_MODEL_ID,
         status_code,
@@ -1413,7 +1421,13 @@ def call_gemini_comparison(prompt: str, timeout_sec: int = COMPARE_STAGE_A_TIMEO
         )
 
 
-def call_gemini_single_car(prompt: str, car_label: str, timeout_sec: int = COMPARE_STAGE_A_TIMEOUT_SEC) -> Tuple[Optional[Dict], Optional[str]]:
+def call_gemini_single_car(
+    prompt: str,
+    car_label: str,
+    timeout_sec: int = COMPARE_STAGE_A_TIMEOUT_SEC,
+    request_id: Optional[str] = None,
+    log: Optional[logging.Logger] = None,
+) -> Tuple[Optional[Dict], Optional[str]]:
     """Call Gemini for a single car. Returns (parsed_dict, error_string)."""
     import concurrent.futures
     from app.factory import AI_EXECUTOR, AI_EXECUTOR_WORKERS
@@ -1422,6 +1436,7 @@ def call_gemini_single_car(prompt: str, car_label: str, timeout_sec: int = COMPA
     prompt_chars = len(prompt or "")
     outcome = "ok"
     outcome_reason = None
+    worker_logger = log or logger
     try:
         if extensions.ai_client is None:
             outcome = "error"
@@ -1474,7 +1489,7 @@ def call_gemini_single_car(prompt: str, car_label: str, timeout_sec: int = COMPA
             outcome_reason = "CALL_TIMEOUT"
             return None, "CALL_TIMEOUT"
         except Exception as e:
-            _log_ai_client_error("comparison_stage_a", e)
+            _log_ai_client_error("comparison_stage_a", e, request_id=request_id, log=worker_logger)
             _inc_compare_metric("compare_stage_a_error_total")
             outcome = "error"
             outcome_reason = type(e).__name__
@@ -1503,7 +1518,7 @@ def call_gemini_single_car(prompt: str, car_label: str, timeout_sec: int = COMPA
 
     finally:
         duration_ms = (pytime.perf_counter() - start_time) * 1000
-        current_app.logger.info(
+        worker_logger.info(
             "[AI] feature=comparison_stage_a_per_car model=%s car=%s duration_ms=%.2f prompt_chars=%s prompt_tokens_est=%s max_output_tokens=%s timeout_ms=%s outcome=%s reason=%s",
             COMPARISON_MODEL_ID,
             car_label,
@@ -1532,20 +1547,26 @@ def call_stage_a_parallel(validated_cars: List[Dict], cars_selected_slots: Dict)
         prompts[slot_key] = build_single_car_prompt(car)
 
     futures = {}
+    request_id = get_request_id()
+    stage_a_logger = current_app.logger
     for slot_key, prompt in prompts.items():
         futures[slot_key] = AI_EXECUTOR.submit(
-            call_gemini_single_car, prompt, slot_key, COMPARE_STAGE_A_TIMEOUT_SEC
+            call_gemini_single_car,
+            prompt,
+            slot_key,
+            COMPARE_STAGE_A_TIMEOUT_SEC,
+            request_id,
+            stage_a_logger,
         )
 
     merged = {"cars": {}, "sources": []}
     errors = []
-    request_id = get_request_id()
     for slot_key, future in futures.items():
         try:
             result, error = future.result(timeout=COMPARE_STAGE_A_TIMEOUT_SEC + PARALLEL_GRACE_SEC)
             if error:
                 errors.append(f"{slot_key}: {error}")
-                current_app.logger.warning(
+                stage_a_logger.warning(
                     "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=StageAError error=%s",
                     request_id,
                     slot_key,
@@ -1559,7 +1580,7 @@ def call_stage_a_parallel(validated_cars: List[Dict], cars_selected_slots: Dict)
         except concurrent.futures.TimeoutError as e:
             future.cancel()
             errors.append(f"{slot_key}: CALL_TIMEOUT")
-            current_app.logger.warning(
+            stage_a_logger.warning(
                 "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=TimeoutError error=%s",
                 request_id,
                 slot_key,
@@ -1568,7 +1589,7 @@ def call_stage_a_parallel(validated_cars: List[Dict], cars_selected_slots: Dict)
             merged["cars"][slot_key] = {}
         except concurrent.futures.CancelledError as e:
             errors.append(f"{slot_key}: CALL_CANCELLED")
-            current_app.logger.warning(
+            stage_a_logger.warning(
                 "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=CancelledError error=%s",
                 request_id,
                 slot_key,
@@ -1577,7 +1598,7 @@ def call_stage_a_parallel(validated_cars: List[Dict], cars_selected_slots: Dict)
             merged["cars"][slot_key] = {}
         except Exception as e:
             errors.append(f"{slot_key}: CALL_FAILED:{type(e).__name__}")
-            current_app.logger.error(
+            stage_a_logger.error(
                 "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=%s error=%s",
                 request_id,
                 slot_key,
