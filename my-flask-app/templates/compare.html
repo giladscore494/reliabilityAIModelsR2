@@ -1420,13 +1420,20 @@
         } : null);
         const section = document.getElementById('narrativeSection');
         const aiRetryBtn = document.getElementById('aiRetryBtn');
+        const hasUsableNarrative = Boolean(
+            narrative && (
+                (typeof narrative.overall_summary === 'string' && narrative.overall_summary.trim()) ||
+                (Array.isArray(narrative.category_explanations) && narrative.category_explanations.length) ||
+                (Array.isArray(narrative.disclaimers_he) && narrative.disclaimers_he.length)
+            )
+        );
         if (!section) {
             return;
         }
         if (aiRetryBtn) {
-            aiRetryBtn.classList.toggle('hidden', !currentComparisonId);
+            aiRetryBtn.classList.toggle('hidden', !currentComparisonId || hasUsableNarrative);
         }
-        if (!narrative) {
+        if (!hasUsableNarrative) {
             section.classList.remove('hidden');
             const summaryEl = document.getElementById('narrativeOverallSummary');
             const disclaimersEl = document.getElementById('narrativeDisclaimers');
@@ -1438,8 +1445,8 @@
         section.classList.remove('hidden');
         
         const summaryEl = document.getElementById('narrativeOverallSummary');
-        if (summaryEl && narrative.overall_summary) {
-            summaryEl.textContent = narrative.overall_summary;
+        if (summaryEl) {
+            summaryEl.textContent = narrative.overall_summary || '';
         }
         
         const disclaimersEl = document.getElementById('narrativeDisclaimers');

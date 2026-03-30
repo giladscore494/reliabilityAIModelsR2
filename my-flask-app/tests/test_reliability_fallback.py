@@ -113,5 +113,7 @@ def test_search_details_returns_estimated_without_numeric(logged_in_client, monk
     payload = resp.get_json()["data"]["data"]
     assert "estimated_reliability" in payload
     assert payload["estimated_reliability"] == "גבוה"
-    assert "base_score_calculated" not in payload
+    assert payload["base_score_calculated"] == 82
+    assert payload["model_reliability_score"] == 82
+    assert payload["model_reliability_label"] == "גבוה"
     assert "reliability_score" not in payload

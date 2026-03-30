@@ -19,7 +19,6 @@ from app.services.analyze_service import (
     _CLEAN_BONUS,
     _PENALTY_CAP_FRACTION,
 )
-from app.services.scoring_baseline import get_exact_model_override
 
 
 # ---------------------------------------------------------------------------
@@ -200,25 +199,28 @@ class TestBaseScore:
 
 
 class TestCalibrationFallback:
-    def test_exact_model_entry_uses_light_calibration_metadata(self):
+    def test_model_json_calibration_is_optional_and_light(self):
+        r = compute_reliability_score_and_banner(
+            _default_validated(),
+            _full_risk_signals(),
+            overall_reliability_estimate="high",
+            model_output={
+                "reliability_bias": "strong",
+                "recall_penalty_sensitivity": "normal",
+                "calibration_confidence": "high",
+            },
+        )
+
+        assert r["calibration_applied"] is True
+        assert r["calibration_source"] == "model_json"
+        assert -2 <= r["calibration_delta"] <= 2
+
+    def test_missing_model_json_calibration_keeps_model_score(self):
         r = compute_reliability_score_and_banner(
             _default_validated(),
             _full_risk_signals(),
             overall_reliability_estimate="high",
         )
-
-        assert get_exact_model_override("Toyota", "Corolla") is not None
-        assert r["calibration_applied"] is True
-        assert r["calibration_source"] == "model_entry"
-        assert -2 <= r["calibration_delta"] <= 2
-
-    def test_no_exact_model_entry_uses_raw_model_score(self):
-        v = _default_validated({"make": "Toyota", "model": "Corolla Mystery Trim"})
-        rs = _full_risk_signals()
-
-        r = compute_reliability_score_and_banner(v, rs, overall_reliability_estimate="high")
-
-        assert get_exact_model_override("Toyota", "Corolla Mystery Trim") is None
         assert r["calibration_applied"] is False
         assert r["calibration_source"] == "none"
         assert r["score_0_100"] == 81
@@ -501,8 +503,7 @@ class TestConfidence:
     def test_medium_confidence(self):
         rs = _full_risk_signals({"analysis_confidence": "medium"})
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # Model override exists for Toyota Corolla, so medium gets boosted to high
-        assert r["confidence_label"] == "high"
+        assert r["confidence_label"] == "medium"
 
     def test_low_confidence(self):
         rs = _full_risk_signals({"analysis_confidence": "low"})
@@ -521,8 +522,7 @@ class TestConfidence:
         rs = _full_risk_signals()
         del rs["analysis_confidence"]
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # Default medium, but model override boosts to high
-        assert r["confidence_label"] == "high"
+        assert r["confidence_label"] == "medium"
 
 
 # ---------------------------------------------------------------------------
@@ -530,16 +530,16 @@ class TestConfidence:
 # ---------------------------------------------------------------------------
 
 class TestCleanBonus:
-    def test_bonus_eligible_clean_gets_bonus(self):
-        """Toyota (bonus_eligible=True) with no issues gets +4."""
+    def test_clean_car_gets_generic_bonus(self):
+        """A clean car with no meaningful issues gets the small generic bonus."""
         r = compute_reliability_score_and_banner(
             _default_validated(), _full_risk_signals()
         )
         # base=74, no penalties, +4 bonus = 78
         assert r["score_0_100"] == 78
 
-    def test_non_bonus_eligible_no_bonus(self):
-        """Without exact model calibration pressure, clean signals keep the raw model score."""
+    def test_clean_score_is_make_agnostic_without_dictionary(self):
+        """Clean signals should not depend on any removed make-level dictionary."""
         v = _default_validated({"make": "Volkswagen", "model": "Golf"})
         r = compute_reliability_score_and_banner(v, _full_risk_signals())
         assert r["score_0_100"] == 78

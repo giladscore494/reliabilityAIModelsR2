@@ -538,14 +538,17 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
    - estimated_reliability: להחזיר "לא ידוע" (placeholder).
    - reliability_report.overall_score: להחזיר 0 (placeholder).
    - score_breakdown: אפשר להחזיר ערכי placeholder 1..10 (הקוד לא מסתמך על זה).
-   - אסור להחזיר ערכים מספריים עבור confidence, data_completeness, penalty, או multiplier.
+    - אסור להחזיר ערכים מספריים עבור confidence, data_completeness, penalty, או multiplier.
 4) כן מותר:
    - להחזיר תקלות נפוצות (common_issues) + issues_with_costs + avg_repair_cost_ILS כמו היום.
    - להחזיר מתחרים (common_competitors_brief) כמו היום.
    - להחזיר דוח טקסטואלי (reliability_report.one_sentence_verdict/top_risks/buyer_checklist וכו') כ"טאץ׳ LLM".
    - להחזיר "לחץ עלות תחזוקה" ברמת low/medium/high (לא מספר), בתוך risk_signals.
     - להחזיר analysis_confidence כ-low/medium/high (לא מספר), בתוך risk_signals.
-     - להחזיר overall_reliability_estimate ברמת high|medium|low כהערכת אמינות כללית של הדגם בשוק.
+      - להחזיר overall_reliability_estimate ברמת high|medium|low כהערכת אמינות כללית של הדגם בשוק.
+      - להחזיר שדות כיול אופציונליים בלבד: reliability_bias, recall_penalty_sensitivity,
+        maintenance_penalty_sensitivity, systemic_penalty_sensitivity,
+        soft_floor_if_no_major_systemic, calibration_confidence.
      - להחזיר overall_reliability_reasoning קצר ו-reliability_factors_summary תמציתי שמסביר את גורמי האמינות.
      - לשמר את כל חלקי חוויית המשתמש הקיימים (סיכומים, תקלות, עלויות, דוח אמינות, מתחרים, בדיקות, מקורות).
 4.1) overall_reliability_estimate והסיכומים הכלליים צריכים לשקף את אמינות הדגם בשוק לאורך זמן - לא רק את עצם קיומם של recalls/campaigns.
@@ -556,6 +559,10 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
      - למקם פעולות אימות ב-buyer_checklist / top_risks בלי לטעון שהרכב הספציפי מוזנח.
 5) עבור כל recall וכל תקלה מערכתית בדרגת חומרה high, ודא שקיים לפחות URL תומך אחד ב-sources.
 6) risk_signals: כל הערכים חייבים להיות קטגוריאליים (low/medium/high, rare/sometimes/common). אסור להחזיר floats או מספרים פנימיים.
+6.1) שדות הכיול הם שדות עזר קלים בלבד:
+     - אם אינך בטוח, אפשר להחזיר null.
+     - אל תגרום לשינויים גדולים בציון רק בגלל הכיול.
+     - אל תמציא כיול אם אין בסיס.
 7) אין להניח מצב רכב ספציפי ללא ראיה מפורשת מהמשתמש:
    - אל תטען שהיסטוריית טיפולים חסרה/חלקית, הזנחה, דילוג על טיפולים, או ריקול לא טופל ברכב הספציפי
      אלא אם המשתמש סיפק ראיה מפורשת לכך.
@@ -570,6 +577,12 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
   "search_queries": ["שאילתות חיפוש בעברית"],
   "sources": ["קישורים או אובייקטים {{title,url,domain}}"],
   "overall_reliability_estimate": "high|medium|low",
+  "reliability_bias": "strong|neutral|weak|null",
+  "recall_penalty_sensitivity": "low|normal|high|null",
+  "maintenance_penalty_sensitivity": "low|normal|high|null",
+  "systemic_penalty_sensitivity": "low|normal|high|null",
+  "soft_floor_if_no_major_systemic": "integer 0-100|null",
+  "calibration_confidence": "low|medium|high|null",
   "overall_reliability_reasoning": "הסבר קצר לרמת האמינות הכללית של הדגם בשוק",
   "reliability_factors_summary": "סיכום קצר של גורמי אמינות: חומרה/שכיחות תקלות, עלות תיקון, אמינות מערכות עיקריות, יחס לקטגוריה, משמעות ריקולים, רגישות תחזוקה, מורכבות טכנולוגית, מוניטין ארוך טווח, התאמה לשוק הישראלי",
   "score_breakdown": {{

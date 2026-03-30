@@ -113,6 +113,9 @@ _TRANS_TYPE_ALLOWED = {"automatic", "manual", "cvt", "dct", "other", "unknown"}
 _MCP_LEVEL_ALLOWED = {"low", "medium", "high", "unknown"}
 _SQ_ALLOWED = {"low", "medium", "high"}
 _OVERALL_RELIABILITY_ALLOWED = {"high", "medium", "low"}
+_MODEL_JSON_BIAS_ALLOWED = {"strong", "neutral", "weak"}
+_MODEL_JSON_SENSITIVITY_ALLOWED = {"low", "normal", "high"}
+_CALIBRATION_SOURCE_ALLOWED = {"model_json", "none"}
 
 
 def _clamp_float(value: Any, lo: float = 0.0, hi: float = 1.0, default: float = 0.0) -> float:
@@ -131,6 +134,14 @@ def _normalize_enum(value: Any, allowed: set, default: str) -> str:
         if v in allowed:
             return v
     return default
+
+
+def _normalize_optional_enum(value: Any, allowed: set) -> Optional[str]:
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in allowed:
+            return v
+    return None
 
 
 def _sanitize_risk_signals(value: Any) -> Dict[str, Any]:
@@ -208,6 +219,10 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
     # numbers
     if "base_score_calculated" in src:
         out["base_score_calculated"] = _clamp_int(src.get("base_score_calculated"), lo=0, hi=100, default=0)
+
+    for score_key in ("model_reliability_score", "deal_risk_score"):
+        if score_key in src:
+            out[score_key] = _clamp_int(src.get(score_key), lo=0, hi=100, default=0)
 
     if "avg_repair_cost_ILS" in src:
         out["avg_repair_cost_ILS"] = _clamp_int(src.get("avg_repair_cost_ILS"), lo=0, hi=1_000_000, default=0)
@@ -296,6 +311,39 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
 
     if "estimated_reliability" in src:
         out["estimated_reliability"] = _escape(src.get("estimated_reliability"))
+
+    for label_key in ("model_reliability_label", "deal_risk_label"):
+        if label_key in src:
+            out[label_key] = _escape(src.get(label_key))
+
+    if "calibration_applied" in src:
+        out["calibration_applied"] = bool(src.get("calibration_applied"))
+
+    if "calibration_source" in src:
+        out["calibration_source"] = _normalize_enum(
+            src.get("calibration_source"),
+            _CALIBRATION_SOURCE_ALLOWED,
+            "none",
+        )
+
+    optional_calibration_fields = {
+        "reliability_bias": _MODEL_JSON_BIAS_ALLOWED,
+        "recall_penalty_sensitivity": _MODEL_JSON_SENSITIVITY_ALLOWED,
+        "maintenance_penalty_sensitivity": _MODEL_JSON_SENSITIVITY_ALLOWED,
+        "systemic_penalty_sensitivity": _MODEL_JSON_SENSITIVITY_ALLOWED,
+        "calibration_confidence": _SQ_ALLOWED,
+    }
+    for field_name, allowed_values in optional_calibration_fields.items():
+        if field_name in src:
+            out[field_name] = _normalize_optional_enum(src.get(field_name), allowed_values)
+
+    if "soft_floor_if_no_major_systemic" in src:
+        raw_soft_floor = src.get("soft_floor_if_no_major_systemic")
+        out["soft_floor_if_no_major_systemic"] = (
+            _clamp_int(raw_soft_floor, lo=0, hi=100, default=0)
+            if raw_soft_floor is not None
+            else None
+        )
 
     if "overall_reliability_estimate" in src:
         out["overall_reliability_estimate"] = _normalize_enum(

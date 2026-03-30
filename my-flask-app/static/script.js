@@ -400,10 +400,14 @@
         resultsContainer.classList.remove('hidden');
         const safe = (v) => escapeHtml(v);
 
-        // אמינות מוערכת (קטגורית בלבד)
+        // Temporary compatibility keeps estimated_reliability/base_score_calculated alive,
+        // while the UI prefers the new dual-score fields when they exist.
         if (scoreContainer) {
             scoreContainer.innerHTML = '';
-            const estimated = data.estimated_reliability || '';
+            const estimated = data.model_reliability_label || data.estimated_reliability || '';
+            const modelScore = data.model_reliability_score ?? data.base_score_calculated;
+            const dealRiskLabel = data.deal_risk_label || '';
+            const dealRiskScore = data.deal_risk_score;
             const sourceTag = data.source_tag || '';
             const mileageNote = data.mileage_note || '';
 
@@ -428,6 +432,23 @@
             headline.className = 'text-xl md:text-2xl font-bold text-white';
             headline.textContent = estimated ? `אמינות מוערכת: ${estimated}` : 'אמינות מוערכת: לא ידוע';
             wrapper.appendChild(headline);
+
+            if (modelScore !== null && modelScore !== undefined && modelScore !== '') {
+                const detail = document.createElement('div');
+                detail.className = 'text-sm text-slate-300';
+                detail.textContent = `ציון אמינות דגם: ${Number(modelScore).toFixed(0)}/100`;
+                wrapper.appendChild(detail);
+            }
+
+            if (dealRiskLabel || dealRiskScore !== null && dealRiskScore !== undefined) {
+                const detail = document.createElement('div');
+                detail.className = 'text-sm text-slate-300';
+                const riskScoreText = (dealRiskScore !== null && dealRiskScore !== undefined && dealRiskScore !== '')
+                    ? ` (${Number(dealRiskScore).toFixed(0)}/100)`
+                    : '';
+                detail.textContent = `סיכון עסקה: ${dealRiskLabel || 'לא ידוע'}${riskScoreText}`;
+                wrapper.appendChild(detail);
+            }
 
             const subtitle = document.createElement('div');
             subtitle.className = 'text-xs text-slate-400';
