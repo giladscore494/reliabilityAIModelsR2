@@ -87,6 +87,46 @@ def _grounded_output_fixture():
     }
 
 
+def _grounded_output_fixture_three_cars():
+    grounded = _grounded_output_fixture()
+    grounded["cars"]["car_3"] = {
+        "car_name": "Mazda 3 2020",
+        "reliability": {
+            "overall": "medium",
+            "issue_frequency": "low",
+            "issue_severity": "low",
+            "repair_cost_risk": "medium",
+            "recall_risk": "low",
+            "parts_complexity": "medium",
+        },
+        "ownership_cost": {
+            "fuel_cost": "medium",
+            "routine_maintenance": "medium",
+            "repair_burden": "medium",
+            "insurance_burden": "medium",
+            "depreciation_risk": "medium",
+        },
+        "comfort_practicality": {
+            "space": "medium",
+            "ride_comfort": "medium",
+            "trunk_usefulness": "medium",
+            "daily_usability": "medium",
+        },
+        "performance_driving": {
+            "power_feel": "high",
+            "power_to_weight": "high",
+            "braking_confidence": "high",
+            "handling_agility": "high",
+            "fun_to_drive": "high",
+        },
+        "facts": {"horsepower": 186, "weight_kg": 1380, "body_type": "hatchback", "fuel_type": "petrol"},
+        "short_notes": ["מרגישה חדה יותר בכביש"],
+        "sources": ["https://example.com/mazda"],
+    }
+    grounded["sources"].append("https://example.com/mazda")
+    return grounded
+
+
 def _fake_stage_a_parallel(grounded_output):
     """Return a fake call_stage_a_parallel that returns the fixture."""
     def _inner(validated_cars, cars_selected_slots):
@@ -248,6 +288,54 @@ def test_compare_stage_b_json_schema_parsed_into_narrative(app, logged_in_client
     assert cat["winner"] == "car_1"
     assert payload["ai"]["status"] == "ok"
     assert payload["ai"]["reason"] is None
+
+
+def test_compare_three_cars_stage_b_slot_schema_parsed_into_narrative(app, logged_in_client, monkeypatch):
+    client, _user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    grounded_output = _grounded_output_fixture_three_cars()
+    expected = comparison_service.compute_comparison_results(grounded_output)
+
+    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(grounded_output))
+
+    def fake_stage_b(_prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC):
+        return {
+            "summary": "מאזדה בולטת בנהיגה, בזמן שהפער הכללי מול האחרות אינו גדול.",
+            "winner": "car_3",
+            "categories": [
+                {
+                    "name": "driving_performance",
+                    "winner": "car_3",
+                    "why": "הניקוד הדינמי הגבוה ביותר שייך לה.",
+                    "tips": ["בדקו מצב צמיגים"],
+                }
+            ],
+            "caveats": ["כדאי לבדוק היסטוריית טיפולים."],
+        }, None
+
+    monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", fake_stage_b)
+
+    resp = client.post(
+        "/api/compare",
+        json={
+            "cars": [
+                {"make": "Toyota", "model": "Corolla", "year": 2020},
+                {"make": "Honda", "model": "Civic", "year": 2020},
+                {"make": "Mazda", "model": "3", "year": 2020},
+            ],
+            "legal_confirm": True,
+        },
+        headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+    )
+
+    assert resp.status_code == 200
+    payload = resp.get_json()["data"]
+    assert payload["computed_result"] == expected
+    assert payload["narrative"]["category_explanations"][0]["winner"] == "car_3"
+    assert set(payload["narrative"]["category_explanations"][0]["explanations"].keys()) == {"car_1", "car_2", "car_3"}
+    assert payload["ai"]["stage_a"]["winner"] == expected["overall_winner"]
+    assert payload["ai"]["status"] == "ok"
 
 
 def test_compare_stage_a_timeout_returns_503_with_retryable_error(app, logged_in_client, monkeypatch):

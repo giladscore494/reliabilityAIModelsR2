@@ -1143,6 +1143,10 @@ def build_compare_writer_prompt(cars_selected_slots: Dict, computed_result: Dict
         }
         return snapshot
 
+    def _category_score_snapshot(slot_key: str, category_key: str) -> Optional[float]:
+        car_categories = (((computed_result.get("cars", {}) or {}).get(slot_key, {}) or {}).get("categories", {}) or {})
+        return ((car_categories.get(category_key, {}) or {}).get("score"))
+
     slot_keys = _ordered_compare_slot_keys(
         cars_selected_slots,
         (computed_result.get("cars") or {}) if isinstance(computed_result, dict) else {},
@@ -1178,11 +1182,7 @@ def build_compare_writer_prompt(cars_selected_slots: Dict, computed_result: Dict
                 slot_keys,
             ) or "tie",
             "scores": {
-                slot_key: (
-                    (((computed_result.get("cars", {}).get(slot_key, {}) or {}).get("categories", {}) or {})
-                    .get(category_key, {})
-                    .get("score")
-                )
+                slot_key: _category_score_snapshot(slot_key, category_key)
                 for slot_key in slot_keys
             },
             "evidence": {
