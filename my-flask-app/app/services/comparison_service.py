@@ -123,6 +123,7 @@ COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_WRITER_RETR
 COMPARE_WRITER_PROMPT_CHAR_CAP = int(os.environ.get("COMPARE_WRITER_PROMPT_CHAR_CAP", "16000"))
 TIE_THRESHOLD = 3  # Score delta below this = "tie" (צמוד)
 PARALLEL_GRACE_SEC = 5  # Extra seconds when collecting parallel futures beyond per-call timeout
+ELLIPSIS_LEN = 3
 
 COMPARE_AI_METRICS = {
     "compare_ai_calls_total": 0,
@@ -1165,10 +1166,13 @@ def _empty_stage_a_output(cars_selected_slots: Dict[str, Dict[str, Any]]) -> Dic
 
 def _truncate_error_message(message: Any, max_len: int = 180) -> str:
     text = " ".join(str(message or "").split())
-    return text[:max_len]
+    if len(text) <= max_len:
+        return text
+    return f"{text[:max_len - ELLIPSIS_LEN]}..."
 
 
 def _sanitize_stage_a_errors(errors: List[str], max_items: int = 5) -> List[str]:
+    """Normalize Stage A slot errors into a bounded, user-safe list."""
     sanitized: List[str] = []
     for err in (errors or [])[:max_items]:
         slot_key, sep, code_or_message = str(err).partition(": ")
@@ -1180,6 +1184,7 @@ def _sanitize_stage_a_errors(errors: List[str], max_items: int = 5) -> List[str]
 
 
 def _extract_stage_a_error_code(errors: List[str]) -> str:
+    """Extract the first Stage A error code from '<slot>: <code>' style entries."""
     if not errors:
         return "UNKNOWN"
     first = str(errors[0])

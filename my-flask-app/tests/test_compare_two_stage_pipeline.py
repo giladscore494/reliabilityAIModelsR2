@@ -109,8 +109,8 @@ def test_compare_two_stage_handles_stage_b_failure_gracefully(app, logged_in_cli
     assert payload["narrative"] is not None
     assert "הסבר ai לא זמין" in payload["narrative"]["overall_summary"].lower()
     assert len(payload["narrative"]["category_explanations"]) == 4
-    assert payload["ai"]["status"] in {"ok", "fallback"}
-    assert "reason" in payload["ai"]
+    assert payload["ai"]["status"] == "fallback"
+    assert payload["ai"]["reason"] == "stage_b_error"
 
 
 def test_compare_stage_b_length_error_returns_fallback_200_fast(app, logged_in_client, monkeypatch):
@@ -144,7 +144,8 @@ def test_compare_stage_b_length_error_returns_fallback_200_fast(app, logged_in_c
     assert payload["narrative"] is not None
     assert "הסבר ai לא זמין" in payload["narrative"]["overall_summary"].lower()
     assert len(payload["narrative"]["category_explanations"]) == 4
-    assert payload["ai"]["status"] in {"ok", "fallback"}
+    assert payload["ai"]["status"] == "fallback"
+    assert payload["ai"]["reason"] == "stage_b_error"
 
 
 def test_compare_stage_b_json_schema_parsed_into_narrative(app, logged_in_client, monkeypatch):
@@ -418,7 +419,7 @@ def test_compare_partial_stage_a_failure_returns_200_partial_fallback(app, logge
     assert payload["ai"]["reason"] == "stage_a_partial"
 
 
-def test_call_stage_a_parallel_classifies_timeout_cancelled_and_runtime(app, monkeypatch):
+def test_call_stage_a_parallel_error_classification(app, monkeypatch):
     class _FakeFuture:
         def __init__(self, behavior):
             self.behavior = behavior
