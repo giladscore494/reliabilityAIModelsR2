@@ -9,7 +9,7 @@ import traceback
 import time as pytime
 import re
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Set
 
 from flask import current_app
 
@@ -274,7 +274,7 @@ def _signal_text(sig: Dict[str, Any]) -> str:
     return " ".join(str(v).lower() for v in fields if isinstance(v, str))
 
 
-def _tokenize_overlap_text(text: str) -> set[str]:
+def _tokenize_overlap_text(text: str) -> Set[str]:
     tokens = set()
     for token in re.findall(r"[a-z0-9א-ת]+", text.lower()):
         if len(token) < 4 or token in _RECALL_LIKE_STOPWORDS or token.isdigit():
@@ -283,7 +283,7 @@ def _tokenize_overlap_text(text: str) -> set[str]:
     return tokens
 
 
-def _is_recall_like_signal(sig: Dict[str, Any], recalls: Dict[str, Any] | None = None) -> bool:
+def _is_recall_like_signal(sig: Dict[str, Any], recalls: Optional[Dict[str, Any]] = None) -> bool:
     joined = _signal_text(sig)
     if not joined:
         return False
