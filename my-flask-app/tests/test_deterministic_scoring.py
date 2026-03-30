@@ -180,6 +180,23 @@ class TestBaseScore:
         )
         assert r["confidence_label"] in ("high", "medium", "low")
 
+    def test_overall_reliability_anchor_is_modest(self):
+        rs = _full_risk_signals()
+        r_high = compute_reliability_score_and_banner(
+            _default_validated(), rs, overall_reliability_estimate="high"
+        )
+        r_medium = compute_reliability_score_and_banner(
+            _default_validated(), rs, overall_reliability_estimate="medium"
+        )
+        r_low = compute_reliability_score_and_banner(
+            _default_validated(), rs, overall_reliability_estimate="low"
+        )
+        assert r_high["score_0_100"] - r_medium["score_0_100"] == 3
+        assert r_medium["score_0_100"] - r_low["score_0_100"] == 3
+        assert 15 <= r_low["score_0_100"] <= 95
+        assert 15 <= r_medium["score_0_100"] <= 95
+        assert 15 <= r_high["score_0_100"] <= 95
+
 
 # ---------------------------------------------------------------------------
 # usage penalties are neutralized (no longer affect score)
@@ -263,6 +280,22 @@ class TestRecallPenalties:
         assert r["score_0_100"] == 67
         assert r["banner_he"] == "גבוה"
 
+    def test_recall_like_systemic_issue_not_double_counted_fully(self):
+        rs = _full_risk_signals({
+            "recalls": {"count": 5, "high_severity_count": 2, "notes": ""},
+            "systemic_issue_signals": [
+                {
+                    "system": "brakes",
+                    "issue": "Official recall campaign for brake booster",
+                    "severity": "high",
+                    "repeat_frequency": "common",
+                },
+            ],
+        })
+        r = compute_reliability_score_and_banner(_default_validated(), rs)
+        # Should remain medium/high band and not collapse from stacked duplicate recall semantics
+        assert r["score_0_100"] >= 57
+
 
 # ---------------------------------------------------------------------------
 # systemic issues (severity × frequency × system tier)
@@ -327,6 +360,21 @@ class TestSystemicIssues:
         r = compute_reliability_score_and_banner(_default_validated(), rs)
         # penalty = 4 * 1.0 * 1.0 = 4, no bonus (has issues), score = 74 - 4 = 70
         assert r["score_0_100"] == 70
+
+    def test_vehicle_specific_neglect_claim_not_penalized(self):
+        rs = _full_risk_signals({
+            "systemic_issue_signals": [
+                {
+                    "system": "engine",
+                    "issue": "Likely neglected by previous owner due to incomplete service history",
+                    "severity": "high",
+                    "repeat_frequency": "common",
+                },
+            ],
+        })
+        r = compute_reliability_score_and_banner(_default_validated(), rs)
+        # Unverified vehicle-specific neglect assumptions should not add penalties
+        assert r["score_0_100"] == 78
 
 
 # ---------------------------------------------------------------------------

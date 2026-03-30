@@ -89,6 +89,20 @@ class AnalyzeSanitizationTests(unittest.TestCase):
         self.assertNotIn("timeline_plan", sanitized)
         self.assertNotIn("sim_model", sanitized)
 
+    def test_sanitize_analyze_response_keeps_new_reliability_fields(self):
+        raw = {
+            "ok": True,
+            "base_score_calculated": 70,
+            "overall_reliability_estimate": "HIGH",
+            "overall_reliability_reasoning": "<b>strong long-term record</b>",
+            "reliability_factors_summary": "<i>severity/frequency moderate</i>",
+        }
+        sanitized = sanitize_analyze_response(raw)
+        self.assertEqual(sanitized["overall_reliability_estimate"], "high")
+        self.assertIn("overall_reliability_reasoning", sanitized)
+        self.assertIn("reliability_factors_summary", sanitized)
+        self.assertIn("&lt;b&gt;", sanitized["overall_reliability_reasoning"])
+
 
 if __name__ == "__main__":
     unittest.main()

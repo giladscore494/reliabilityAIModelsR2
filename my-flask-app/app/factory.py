@@ -541,9 +541,18 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
    - להחזיר מתחרים (common_competitors_brief) כמו היום.
    - להחזיר דוח טקסטואלי (reliability_report.one_sentence_verdict/top_risks/buyer_checklist וכו') כ"טאץ׳ LLM".
    - להחזיר "לחץ עלות תחזוקה" ברמת low/medium/high (לא מספר), בתוך risk_signals.
-   - להחזיר analysis_confidence כ-low/medium/high (לא מספר), בתוך risk_signals.
+    - להחזיר analysis_confidence כ-low/medium/high (לא מספר), בתוך risk_signals.
+    - להחזיר overall_reliability_estimate ברמת high|medium|low כהערכת אמינות כללית של הדגם בשוק.
+    - להחזיר overall_reliability_reasoning קצר ו-reliability_factors_summary תמציתי שמסביר את גורמי האמינות.
+    - לשמר את כל חלקי חוויית המשתמש הקיימים (סיכומים, תקלות, עלויות, דוח אמינות, מתחרים, בדיקות, מקורות).
 5) עבור כל recall וכל תקלה מערכתית בדרגת חומרה high, ודא שקיים לפחות URL תומך אחד ב-sources.
 6) risk_signals: כל הערכים חייבים להיות קטגוריאליים (low/medium/high, rare/sometimes/common). אסור להחזיר floats או מספרים פנימיים.
+7) אין להניח מצב רכב ספציפי ללא ראיה מפורשת מהמשתמש:
+   - אל תטען שהיסטוריית טיפולים חסרה/חלקית, הזנחה, דילוג על טיפולים, או ריקול לא טופל ברכב הספציפי
+     אלא אם המשתמש סיפק ראיה מפורשת לכך.
+   - מותר לציין נקודות כאלה רק כהמלצות בדיקה לקונה.
+8) חובה לבצע חיפוש עדכני ורחב ולהעדיף רלוונטיות לשוק הישראלי כשאפשר
+   (חלפים, עלויות אחזקה מקומיות, תנאי חום/פקקים, גרסאות נפוצות בישראל). אם אין מקור ישראלי חזק — להשתמש במקור גלובלי אמין.
 
 החזר אובייקט JSON יחיד, ללא Markdown או טקסט חופשי:
 {{
@@ -551,6 +560,9 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
   "search_performed": true,
   "search_queries": ["שאילתות חיפוש בעברית"],
   "sources": ["קישורים או אובייקטים {{title,url,domain}}"],
+  "overall_reliability_estimate": "high|medium|low",
+  "overall_reliability_reasoning": "הסבר קצר לרמת האמינות הכללית של הדגם בשוק",
+  "reliability_factors_summary": "סיכום קצר של גורמי אמינות: חומרה/שכיחות תקלות, עלות תיקון, אמינות מערכות עיקריות, יחס לקטגוריה, משמעות ריקולים, רגישות תחזוקה, מורכבות טכנולוגית, מוניטין ארוך טווח, התאמה לשוק הישראלי",
   "score_breakdown": {{
     "engine_transmission_score": "מספר (1-10)",
     "electrical_score": "מספר (1-10)",
