@@ -535,12 +535,15 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
    - estimated_reliability: להחזיר "לא ידוע" (placeholder).
    - reliability_report.overall_score: להחזיר 0 (placeholder).
    - score_breakdown: אפשר להחזיר ערכי placeholder 1..10 (הקוד לא מסתמך על זה).
+   - אסור להחזיר ערכים מספריים עבור confidence, data_completeness, penalty, או multiplier.
 4) כן מותר:
    - להחזיר תקלות נפוצות (common_issues) + issues_with_costs + avg_repair_cost_ILS כמו היום.
    - להחזיר מתחרים (common_competitors_brief) כמו היום.
    - להחזיר דוח טקסטואלי (reliability_report.one_sentence_verdict/top_risks/buyer_checklist וכו') כ"טאץ׳ LLM".
    - להחזיר "לחץ עלות תחזוקה" ברמת low/medium/high (לא מספר), בתוך risk_signals.
+   - להחזיר analysis_confidence כ-low/medium/high (לא מספר), בתוך risk_signals.
 5) עבור כל recall וכל תקלה מערכתית בדרגת חומרה high, ודא שקיים לפחות URL תומך אחד ב-sources.
+6) risk_signals: כל הערכים חייבים להיות קטגוריאליים (low/medium/high, rare/sometimes/common). אסור להחזיר floats או מספרים פנימיים.
 
 החזר אובייקט JSON יחיד, ללא Markdown או טקסט חופשי:
 {{
@@ -593,8 +596,7 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
     "vehicle_resolution": {{
       "generation": "string|null",
       "engine_family": "string|null",
-      "transmission_type": "automatic|manual|cvt|dct|other|unknown",
-      "confidence": 0.0
+      "transmission_type": "automatic|manual|cvt|dct|other|unknown"
     }},
     "recalls": {{
       "count": 0,
@@ -603,23 +605,18 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
     }},
     "systemic_issue_signals": [
       {{
-        "system": "engine|transmission|electrical|cooling|brakes|suspension|other",
+        "system": "engine|transmission|electrical|cooling|brakes|suspension|steering|ac|sensors|infotainment|trim|other",
+        "issue": "short description",
         "severity": "low|medium|high",
-        "repeat_frequency": "rare|sometimes|common",
-        "typical_timing": "string|null",
-        "evidence_strength": "weak|medium|strong"
+        "repeat_frequency": "rare|sometimes|common"
       }}
     ],
     "maintenance_cost_pressure": {{
-      "level": "low|medium|high|unknown",
-      "drivers": ["string"],
-      "evidence_strength": "weak|medium|strong"
+      "level": "low|medium|high",
+      "explanation": "short explanation"
     }},
-    "confidence_meta": {{
-      "data_completeness": 0.0,
-      "source_quality": "low|medium|high",
-      "notes": "string"
-    }}
+    "analysis_confidence": "low|medium|high",
+    "missing_data_flags": ["string"]
   }}
 }}
 

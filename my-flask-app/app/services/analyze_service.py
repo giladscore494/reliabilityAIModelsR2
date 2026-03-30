@@ -48,6 +48,10 @@ logger = logging.getLogger(__name__)
 # Deterministic reliability score & banner
 # ---------------------------------------------------------------------------
 
+# ── Banner thresholds (easy to tune) ──
+_BANNER_HIGH_THRESHOLD = 67
+_BANNER_MEDIUM_THRESHOLD = 45
+
 _BANNER_MAP = {
     "high": "גבוה",
     "medium": "בינוני",
@@ -55,18 +59,40 @@ _BANNER_MAP = {
     "unknown": "לא ידוע",
 }
 
-_EVIDENCE_FACTOR = {"strong": 1.0, "medium": 0.7, "weak": 0.4}
-_MAX_SIGNALS = 50  # cap to prevent abuse
+# ── Severity base penalty ──
+_SEVERITY_PENALTY = {"low": 2, "medium": 4, "high": 7}
 
+# ── Frequency multiplier ──
+_FREQUENCY_MULT = {"rare": 0.7, "sometimes": 1.0, "common": 1.3}
 
-def _safe_float(val: Any, lo: float = 0.0, hi: float = 1.0, default: float = 0.0) -> float:
-    try:
-        if isinstance(val, bool):
-            return default
-        f = float(val)
-    except Exception:
-        return default
-    return max(lo, min(hi, f))
+# ── System tier multiplier (3 tiers: critical=1.25, standard=1.0, minor=0.7) ──
+_SYSTEM_TIER = {
+    # critical
+    "engine": 1.25, "transmission": 1.25, "brakes": 1.25,
+    "hv battery": 1.25, "hv_battery": 1.25,
+    # standard
+    "suspension": 1.0, "steering": 1.0, "ac": 1.0,
+    "electrical": 1.0, "sensors": 1.0, "cooling": 1.0,
+    # minor
+    "infotainment": 0.7, "trim": 0.7, "cosmetic": 0.7,
+}
+_SYSTEM_TIER_DEFAULT = 1.0  # standard tier for unknown systems
+
+# ── Systemic penalty cap ──
+_SYSTEMIC_PENALTY_CAP = 40
+_MAX_SIGNALS = 50
+
+# ── Recall buckets ──
+_RECALL_PENALTY = {"none": 0, "low": 1, "medium": 5, "high": 10}
+
+# ── Maintenance cost pressure ──
+_MCP_PENALTY = {"low": 0, "medium": 3, "high": 8}
+
+# ── Clean bonus ──
+_CLEAN_BONUS = 4
+
+# ── Penalty cap: fraction of base that total penalties can consume (0.55 = 55%) ──
+_PENALTY_CAP_FRACTION = 0.55
 
 
 def _safe_int(val: Any, lo: int = 0, hi: int = 1000, default: int = 0) -> int:
@@ -80,19 +106,61 @@ def _safe_int(val: Any, lo: int = 0, hi: int = 1000, default: int = 0) -> int:
 
 
 def _banner_from_score(score: int) -> str:
-    if score >= 70:
+    if score >= _BANNER_HIGH_THRESHOLD:
         return "גבוה"
-    if score >= 45:
+    if score >= _BANNER_MEDIUM_THRESHOLD:
         return "בינוני"
     return "נמוך"
 
 
-def _confidence_label(c: float) -> str:
-    if c >= 0.8:
+def _confidence_label(c) -> str:
+    """Accept a categorical confidence string (low/medium/high).
+
+    For backward compatibility, also accepts a float and maps it to a label.
+    """
+    if isinstance(c, str) and c.lower() in ("high", "medium", "low"):
+        return c.lower()
+    try:
+        f = float(c)
+    except Exception:
+        return "medium"
+    if f >= 0.8:
         return "high"
-    if c >= 0.6:
+    if f >= 0.6:
         return "medium"
     return "low"
+
+
+def _classify_recall_bucket(count: int, high_severity_count: int) -> str:
+    """Map recall counts into one of 4 deterministic buckets."""
+    if count == 0:
+        return "none"
+    if high_severity_count >= 2 or count >= 5:
+        return "high"
+    if high_severity_count >= 1 or count >= 3:
+        return "medium"
+    return "low"
+
+
+def _compute_confidence_category(risk_signals: dict, has_model_override: bool) -> str:
+    """Derive a simple confidence category from signal quality indicators.
+
+    Returns 'high', 'medium', or 'low'.  Used only for messaging / debug.
+    """
+    ac = risk_signals.get("analysis_confidence")
+    if isinstance(ac, str) and ac.lower() in ("high", "medium", "low"):
+        label = ac.lower()
+    elif isinstance(ac, dict):
+        level = str(ac.get("level", "")).lower()
+        label = level if level in ("high", "medium", "low") else "medium"
+    else:
+        label = "medium"
+
+    # Boost to high if we have a model override (well-known vehicle)
+    if has_model_override and label == "medium":
+        label = "high"
+
+    return label
 
 
 def compute_reliability_score_and_banner(
@@ -101,68 +169,28 @@ def compute_reliability_score_and_banner(
 ) -> Dict[str, Any]:
     """Deterministic score (0-100) and Hebrew banner from risk_signals.
 
-    Returns dict with keys: score_0_100, banner_he, confidence_0_1.
+    Returns dict with keys: score_0_100, banner_he, confidence_label.
     """
     if not isinstance(risk_signals, dict) or not risk_signals:
         return {
             "score_0_100": 0,
             "banner_he": "לא ידוע",
-            "confidence_0_1": 0.25,
+            "confidence_label": "low",
         }
 
-    # --- base ---
+    # ── Step 1: baseline ──
     raw_make = str(validated_input.get("make") or "").strip()
     raw_model = str(validated_input.get("model") or "").strip()
     make_profile = get_make_profile(raw_make)
     model_override = get_model_override(raw_make, raw_model)
-    score_mod, confidence_boost, transmission_default = get_combined_score_modifier(raw_make, raw_model)
+    score_mod, _conf_boost, _trans_default = get_combined_score_modifier(raw_make, raw_model)
     base = 62 + score_mod
     base = max(20, min(90, base))
 
-    # --- usage penalties (0..20) ---
-    usage = validated_input.get("usage_profile") or {}
-    usage_penalty = 0.0
-    annual_km = 0
-    try:
-        annual_km = int(usage.get("annual_km", 15000) or 15000)
-    except Exception:
-        annual_km = 15000
-    if annual_km > 30000:
-        usage_penalty += 6
-    elif annual_km > 20000:
-        usage_penalty += 3
-
-    try:
-        city_pct = int(usage.get("city_pct", 50) or 50)
-    except Exception:
-        city_pct = 50
-    if city_pct > 80:
-        usage_penalty += 4
-    elif city_pct > 60:
-        usage_penalty += 2
-
-    driver_style = str(usage.get("driver_style", "normal") or "normal").lower()
-    if driver_style == "aggressive":
-        usage_penalty += 5
-
-    load = str(usage.get("load", "family") or "family").lower()
-    if load == "heavy":
-        usage_penalty += 5
-    elif load == "light":
-        usage_penalty += 0
-
-    usage_penalty = min(usage_penalty, 20)
-
-    # --- recalls ---
-    recalls = risk_signals.get("recalls") if isinstance(risk_signals.get("recalls"), dict) else {}
-    high_sev = _safe_int(recalls.get("high_severity_count"), lo=0, hi=100)
-    other_recalls = max(0, _safe_int(recalls.get("count"), lo=0, hi=100) - high_sev)
-    raw_recall_penalty = min(high_sev * 8, 24) + min(other_recalls * 2, 10)
-    recall_penalty = raw_recall_penalty * make_profile["recall_multiplier"]
-
-    # --- systemic issue signals (cap -40) ---
+    # ── Step 2: systemic issue penalties ──
     systemic_penalty = 0.0
     signals = risk_signals.get("systemic_issue_signals")
+    has_meaningful_issues = False
     if isinstance(signals, list):
         for sig in signals[:_MAX_SIGNALS]:
             if not isinstance(sig, dict):
@@ -170,83 +198,59 @@ def compute_reliability_score_and_banner(
             system = str(sig.get("system", "")).lower()
             severity = str(sig.get("severity", "")).lower()
             freq = str(sig.get("repeat_frequency", "")).lower()
-            ev = str(sig.get("evidence_strength", "medium")).lower()
-            ev_factor = _EVIDENCE_FACTOR.get(ev, 0.7)
 
-            raw_pen = 0.0
-            if severity == "high" and freq == "common":
-                if system == "transmission":
-                    raw_pen = 18
-                elif system == "engine":
-                    raw_pen = 15
-                elif system in ("electrical", "cooling"):
-                    raw_pen = 8
-                else:
-                    raw_pen = 8
-            elif severity == "medium" and freq == "common":
-                raw_pen = 6
-            elif severity == "low" and freq == "common":
-                raw_pen = 2
-            elif severity == "high" and freq == "sometimes":
-                if system == "transmission":
-                    raw_pen = 12
-                elif system == "engine":
-                    raw_pen = 10
-                else:
-                    raw_pen = 5
-            elif severity == "medium" and freq == "sometimes":
-                raw_pen = 3
-            elif severity == "high" and freq == "rare":
-                raw_pen = 4
-            systemic_penalty += raw_pen * ev_factor
-    systemic_penalty = min(systemic_penalty, 40)
+            sev_val = _SEVERITY_PENALTY.get(severity, 0)
+            freq_mult = _FREQUENCY_MULT.get(freq, 1.0)
+            sys_mult = _SYSTEM_TIER.get(system, _SYSTEM_TIER_DEFAULT)
 
-    # --- maintenance cost pressure ---
+            penalty = sev_val * freq_mult * sys_mult
+            systemic_penalty += penalty
+            if severity in ("medium", "high"):
+                has_meaningful_issues = True
+    systemic_penalty = min(systemic_penalty, _SYSTEMIC_PENALTY_CAP)
+
+    # ── Step 3: recall penalty ──
+    recalls = risk_signals.get("recalls") if isinstance(risk_signals.get("recalls"), dict) else {}
+    recall_count = _safe_int(recalls.get("count"), lo=0, hi=100)
+    high_sev_count = _safe_int(recalls.get("high_severity_count"), lo=0, hi=100)
+    recall_bucket = _classify_recall_bucket(recall_count, high_sev_count)
+    recall_penalty = _RECALL_PENALTY[recall_bucket] * make_profile["recall_multiplier"]
+    has_meaningful_recalls = recall_bucket not in ("none", "low")
+
+    # ── Step 4: maintenance cost pressure ──
     mcp = risk_signals.get("maintenance_cost_pressure")
     mcp_level = ""
     if isinstance(mcp, dict):
         mcp_level = str(mcp.get("level", "unknown")).lower()
-    mcp_penalty = 0
-    if mcp_level == "high":
-        mcp_penalty = 10
-    elif mcp_level == "medium":
-        mcp_penalty = 5
-    mcp_penalty = mcp_penalty * make_profile["mcp_multiplier"]
+    raw_mcp = _MCP_PENALTY.get(mcp_level, 0)
+    mcp_penalty = raw_mcp * make_profile["mcp_multiplier"]
 
-    # --- final score ---
-    total_penalty = usage_penalty + recall_penalty + systemic_penalty + mcp_penalty
-    score = max(0, min(100, int(round(base - total_penalty))))
+    # ── Step 5: total penalty with cap ──
+    total_penalty = systemic_penalty + recall_penalty + mcp_penalty
+    penalty_cap = base * _PENALTY_CAP_FRACTION
+    total_penalty = min(total_penalty, penalty_cap)
+
+    # ── Step 6: clean bonus ──
+    bonus = 0
+    if (
+        make_profile.get("bonus_eligible")
+        and not has_meaningful_issues
+        and not has_meaningful_recalls
+        and mcp_level in ("low", "")
+    ):
+        bonus = _CLEAN_BONUS
+
+    # ── Step 7: final score & banner ──
+    score = max(0, min(100, int(round(base - total_penalty + bonus))))
     banner = _banner_from_score(score)
 
-    # --- confidence ---
-    confidence = 0.85
-    conf_meta = risk_signals.get("confidence_meta")
-    if isinstance(conf_meta, dict):
-        dc = _safe_float(conf_meta.get("data_completeness"), 0.0, 1.0, 0.5)
-        sq = str(conf_meta.get("source_quality", "medium")).lower()
-        if dc < 0.5:
-            confidence -= 0.25
-        elif dc < 0.7:
-            confidence -= 0.15
-        if sq == "low":
-            confidence -= 0.15
-        elif sq == "medium":
-            confidence -= 0.05
-
-    vr = risk_signals.get("vehicle_resolution")
-    if isinstance(vr, dict):
-        vr_conf = _safe_float(vr.get("confidence"), 0.0, 1.0, 0.5)
-        if vr_conf < 0.7:
-            confidence -= 0.10
-    if model_override:
-        confidence += confidence_boost
-
-    confidence = max(0.25, min(0.95, round(confidence, 2)))
+    # ── Step 8: confidence (messaging only, does not affect score) ──
+    confidence = _compute_confidence_category(risk_signals, model_override is not None)
 
     return {
         "score_0_100": score,
         "banner_he": banner,
-        "confidence_0_1": confidence,
+        "confidence_label": confidence,
     }
 
 
@@ -455,7 +459,7 @@ def handle_analyze_request(
         # Sync reliability_report
         if isinstance(ai_output.get("reliability_report"), dict):
             ai_output["reliability_report"]["overall_score"] = adjusted_score
-            ai_output["reliability_report"]["confidence"] = _confidence_label(det["confidence_0_1"])
+            ai_output["reliability_report"]["confidence"] = det["confidence_label"]
 
         sanitized_output: Dict[str, Any] = {}
         try:
