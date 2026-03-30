@@ -38,11 +38,11 @@ logger = logging.getLogger(__name__)
 def _safe_json_obj(value, default):
     """
     Safely decode a JSON value that may be None, already decoded, or double-encoded.
-    
+
     Args:
         value: The value to decode (may be None, str, dict, or list)
         default: The default value to return on any error
-        
+
     Returns:
         The decoded value as dict/list, or default on any failure.
         This function NEVER raises an exception.
@@ -50,19 +50,19 @@ def _safe_json_obj(value, default):
     try:
         if value is None:
             return default
-        
+
         # Already decoded dict or list
         if isinstance(value, (dict, list)):
             return value
-        
+
         if isinstance(value, str):
             stripped = value.strip()
             if not stripped:
                 return default
-            
+
             # First decode attempt
             result = json.loads(stripped)
-            
+
             # Check if result is still a string (double-encoded)
             if isinstance(result, str):
                 try:
@@ -70,12 +70,12 @@ def _safe_json_obj(value, default):
                 except (json.JSONDecodeError, TypeError, ValueError):
                     # Second decode failed, return default
                     return default
-            
+
             # Verify final result is dict or list
             if isinstance(result, (dict, list)):
                 return result
             return default
-        
+
         # Unexpected type
         return default
     except (json.JSONDecodeError, TypeError, ValueError):
@@ -265,7 +265,9 @@ COMPARE_STAGE_A_TIMEOUT_SEC = int(os.environ.get("COMPARE_STAGE_A_TIMEOUT_SEC", 
 COMPARE_STAGE_A_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_STAGE_A_MAX_OUTPUT_TOKENS", "2048"))
 COMPARE_STAGE_A_TEMPERATURE = float(os.environ.get("COMPARE_STAGE_A_TEMPERATURE", "0.25"))
 COMPARE_WRITER_TIMEOUT_SEC = int(os.environ.get("COMPARE_WRITER_TIMEOUT_SEC", "30"))
-COMPARE_WRITER_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_WRITER_MAX_OUTPUT_TOKENS", "1100"))
+# Stage B returns a full structured narrative in Hebrew; 2500 leaves room for
+# summary + winner + four categories + caveats without truncating to summary-only JSON.
+COMPARE_WRITER_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_WRITER_MAX_OUTPUT_TOKENS", "2500"))
 COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS", "500"))
 COMPARE_WRITER_PROMPT_CHAR_CAP = int(os.environ.get("COMPARE_WRITER_PROMPT_CHAR_CAP", "16000"))
 TIE_THRESHOLD = 3  # Score delta below this = "tie" (צמוד)
@@ -283,6 +285,7 @@ HORSEPOWER_HIGH_THRESHOLD = 180
 HORSEPOWER_MEDIUM_THRESHOLD = 120
 PARTIAL_COMPARISON_SUMMARY_PREFIX = "השוואה חלקית:"
 PARTIAL_COMPARISON_DISCLAIMER = "ההשוואה חלקית כי לא נמצא מידע מלא על כל הרכבים."
+COMPARE_SCORE_EXPLANATION_TEMPLATE_HE = "ציון: {score}/100"
 
 COMPARE_AI_METRICS = {
     "compare_ai_calls_total": 0,
@@ -616,34 +619,34 @@ CATEGORY_SCORE_CONFIG = {
 def _safe_parse_json_cached(raw_value: Any, field_name: str = "unknown") -> Tuple[Any, bool]:
     """
     Safely parse possibly double-encoded JSON from cached database rows.
-    
+
     Handles the case where old cached rows stored double-encoded JSON strings,
     e.g., '"{\\\"a\\\": 1}"' which when parsed once returns a string '{"a": 1}'
     that itself needs another json.loads() call.
-    
+
     Args:
         raw_value: The raw value from the database (string, dict, list, or None).
                    Can be a JSON string, already-parsed dict/list (from JSONB), or None.
         field_name: Name of the field (for logging)
-    
+
     Returns:
         Tuple of (parsed_value, was_double_encoded)
         - parsed_value: The parsed dict/list, or the original value if not parseable
         - was_double_encoded: True if double-encoding was detected and unwrapped
-    
+
     Never throws; returns (None, False) for truly invalid data.
     """
     if raw_value is None:
         return None, False
-    
+
     if not isinstance(raw_value, str):
         # Already parsed (e.g., JSONB column returned dict/list directly)
         return raw_value, False
-    
+
     try:
         # First parse attempt
         parsed = json.loads(raw_value)
-        
+
         # Check if result is still a string that looks like JSON
         if isinstance(parsed, str):
             stripped = parsed.strip()
@@ -655,7 +658,7 @@ def _safe_parse_json_cached(raw_value: Any, field_name: str = "unknown") -> Tupl
                 except (json.JSONDecodeError, TypeError):
                     # Inner string wasn't valid JSON, return outer parse
                     return parsed, False
-        
+
         return parsed, False
     except (json.JSONDecodeError, TypeError):
         # Could not parse at all
@@ -872,7 +875,7 @@ RULES:
 
 def build_comparison_prompt(cars: List[Dict[str, str]]) -> str:
     """Build the comparison prompt for Gemini with strict JSON output."""
-    
+
     # Sanitize car inputs including year, engine_type, and gearbox
     sanitized_cars = []
     for car in cars:
@@ -892,11 +895,11 @@ def build_comparison_prompt(cars: List[Dict[str, str]]) -> str:
         if car.get("gearbox"):
             sanitized_car["gearbox"] = escape_prompt_input(car.get("gearbox", ""), max_length=50)
         sanitized_cars.append(sanitized_car)
-    
+
     cars_json = json.dumps(sanitized_cars, ensure_ascii=False, indent=2)
     bounded_cars = wrap_user_input_in_boundary(cars_json, boundary_tag="cars_input")
     data_instruction = create_data_only_instruction()
-    
+
     # Build slot mapping for stable keys
     slot_mapping = {}
     segment_context = {}
@@ -915,9 +918,9 @@ def build_comparison_prompt(cars: List[Dict[str, str]]) -> str:
             "focus_less": segment_rule.get("focus_less", []),
             "special_note": segment_rule.get("special_note"),
         }
-    
+
     slot_mapping_text = "\n".join(f"  {k}: {v}" for k, v in slot_mapping.items())
-    
+
     return f"""
 {data_instruction}
 
@@ -1202,20 +1205,20 @@ MODEL_PAYLOAD:
 
 Return ONLY valid JSON with EXACTLY this schema and no extra keys:
 {{
-  "summary": "1-2 sentences, max 40 words",
+  "summary": "1-2 sentences in Hebrew, max 60 words",
   "winner": "{'|'.join(allowed_winners)}",
   "categories": [
     {{
       "name": "reliability_risk|ownership_cost|practicality_comfort|driving_performance",
       "winner": "{'|'.join(allowed_winners)}",
-      "why": "max 35 words",
+      "why": "1 sentence in Hebrew, max 50 words",
       "explanations": {{
-        {",".join(f'"{slot_key}":"max 18 words"' for slot_key in slot_keys)}
+        {",".join(f'"{slot_key}":"1-2 sentences in Hebrew, max 40 words"' for slot_key in slot_keys)}
       }},
-      "tips": ["max 3 short tips, each max 12 words"]
+      "tips": ["max 3 short tips in Hebrew, each max 20 words"]
     }}
   ],
-  "caveats": ["max 3, each max 14 words"]
+  "caveats": ["max 3 caveats in Hebrew, each max 20 words"]
 }}
 
 RULES:
@@ -1493,7 +1496,7 @@ def compute_comparison_results(model_output: Dict) -> Dict:
     All scoring is done deterministically in code.
     """
     cars_data = model_output.get("cars", {})
-    
+
     requested_cars = len(cars_data)
     evidence_cars = 0
     results = {
@@ -1509,9 +1512,9 @@ def compute_comparison_results(model_output: Dict) -> Dict:
             "balanced": True,
         },
     }
-    
+
     overall_scores = {}
-    
+
     for car_id, car_data in cars_data.items():
         has_evidence = _has_any_stage_a_evidence(car_data)
         if has_evidence:
@@ -1525,9 +1528,9 @@ def compute_comparison_results(model_output: Dict) -> Dict:
                 "note_count": len(car_data.get("short_notes") or []),
             },
         }
-        
+
         category_scores = {}
-        
+
         for cat_name in CATEGORY_SCORE_CONFIG.keys():
             cat_score, metric_scores = compute_category_score(car_data, cat_name)
             car_result["categories"][cat_name] = {
@@ -1535,19 +1538,19 @@ def compute_comparison_results(model_output: Dict) -> Dict:
                 "metrics": metric_scores,
             }
             category_scores[cat_name] = cat_score
-        
+
         # Compute overall score
         car_result["overall_score"] = compute_overall_score(category_scores)
         overall_scores[car_id] = car_result["overall_score"]
-        
+
         results["cars"][car_id] = car_result
-    
+
     # Determine category winners
     for cat_name in CATEGORY_SCORE_CONFIG.keys():
         cat_scores = {car_id: results["cars"][car_id]["categories"][cat_name]["score"] 
                       for car_id in cars_data.keys()}
         results["category_winners"][cat_name] = determine_winner(cat_scores)
-    
+
     # Determine metric winners
     for cat_name, cat_def in CATEGORY_SCORE_CONFIG.items():
         results["metric_winners"][cat_name] = {}
@@ -1557,7 +1560,7 @@ def compute_comparison_results(model_output: Dict) -> Dict:
                 car_metrics = results["cars"][car_id]["categories"].get(cat_name, {}).get("metrics", {})
                 metric_scores[car_id] = car_metrics.get(metric_name)
             results["metric_winners"][cat_name][metric_name] = determine_winner(metric_scores)
-    
+
     # Determine overall winner
     results["overall_winner"] = determine_winner(overall_scores)
     results["comparison_status"] = {
@@ -1882,6 +1885,70 @@ def validate_compare_writer_response(payload: Any) -> Optional[Dict[str, Any]]:
     return validated
 
 
+def _salvage_partial_writer_output(
+    stage_b_output: Any,
+    cars_selected_slots: Dict,
+    server_computed_result: Dict,
+) -> Optional[Dict[str, Any]]:
+    """Build a hybrid narrative from a partial writer response plus deterministic data."""
+    if not isinstance(stage_b_output, dict):
+        return None
+
+    summary = str(stage_b_output.get("summary") or "").strip()
+    if not summary:
+        return None
+
+    computed_cars = (
+        (server_computed_result.get("cars") or {})
+        if isinstance(server_computed_result, dict)
+        else {}
+    )
+    car_keys = _ordered_compare_slot_keys(cars_selected_slots, computed_cars)
+    category_explanations = []
+
+    for category_key in COMPARE_CATEGORY_NAMES:
+        winner = (server_computed_result.get("category_winners", {}) or {}).get(
+            category_key
+        ) or "tie"
+        explanations = {}
+        for car_key in car_keys:
+            score = (
+                ((computed_cars.get(car_key, {}) or {}).get("categories", {}) or {})
+                .get(category_key, {})
+                .get("score")
+            )
+            # Salvage runs on malformed/partial writer payloads, so keep category score
+            # rendering defensive: booleans can pass isinstance(..., int) but are never
+            # valid 0-100 comparison scores.
+            if isinstance(score, (int, float)) and not isinstance(score, bool):
+                explanations[car_key] = COMPARE_SCORE_EXPLANATION_TEMPLATE_HE.format(
+                    score=int(score)
+                )
+            else:
+                explanations[car_key] = ""
+        category_explanations.append({
+            "category_key": category_key,
+            "title_he": "",
+            "winner": _normalize_compare_writer_winner(winner, car_keys) or "tie",
+            "explanations": explanations,
+            "why_it_scored_that_way": [],
+        })
+
+    raw_caveats = stage_b_output.get("caveats")
+    caveats = []
+    if isinstance(raw_caveats, list):
+        for item in raw_caveats[:3]:
+            caveat = str(item or "").strip()
+            if caveat:
+                caveats.append(caveat)
+
+    return {
+        "overall_summary": summary,
+        "category_explanations": category_explanations,
+        "disclaimers_he": caveats,
+    }
+
+
 def build_deterministic_fallback_narrative(cars_selected_slots: Dict, computed_result: Dict) -> Dict[str, Any]:
     car_keys = _ordered_compare_slot_keys(
         cars_selected_slots,
@@ -2200,7 +2267,7 @@ def call_gemini_comparison(prompt: str, timeout_sec: int = COMPARE_STAGE_A_TIMEO
     """
     import concurrent.futures
     from app.factory import AI_EXECUTOR, AI_EXECUTOR_WORKERS
-    
+
     start_time = pytime.perf_counter()
     prompt_chars = len(prompt or "")
     outcome = "ok"
@@ -2210,7 +2277,7 @@ def call_gemini_comparison(prompt: str, timeout_sec: int = COMPARE_STAGE_A_TIMEO
             outcome = "error"
             outcome_reason = "CLIENT_NOT_INITIALIZED"
             return None, "CLIENT_NOT_INITIALIZED"
-        
+
         config_kwargs = {
             "temperature": COMPARE_STAGE_A_TEMPERATURE,
             "top_p": 0.8,
@@ -2219,14 +2286,14 @@ def call_gemini_comparison(prompt: str, timeout_sec: int = COMPARE_STAGE_A_TIMEO
             "response_mime_type": "application/json",
         }
         config = genai_types.GenerateContentConfig(**config_kwargs)
-        
+
         def _invoke():
             return extensions.ai_client.models.generate_content(
                 model=COMPARISON_MODEL_ID,
                 contents=prompt,
                 config=config,
             )
-        
+
         # Check executor availability
         work_queue = getattr(AI_EXECUTOR, "_work_queue", None)
         if work_queue is not None:
@@ -2235,14 +2302,14 @@ def call_gemini_comparison(prompt: str, timeout_sec: int = COMPARE_STAGE_A_TIMEO
                 outcome = "error"
                 outcome_reason = "SERVER_BUSY"
                 return None, "SERVER_BUSY"
-        
+
         try:
             future = AI_EXECUTOR.submit(_invoke)
         except Exception:
             outcome = "error"
             outcome_reason = "EXECUTOR_SATURATED"
             return None, "EXECUTOR_SATURATED"
-        
+
         try:
             resp = future.result(timeout=timeout_sec)
         except concurrent.futures.TimeoutError:
@@ -2260,18 +2327,18 @@ def call_gemini_comparison(prompt: str, timeout_sec: int = COMPARE_STAGE_A_TIMEO
             if _is_output_too_long_error(str(e)):
                 return None, "CALL_FAILED_OUTPUT_TOO_LONG"
             return None, f"CALL_FAILED:{type(e).__name__}"
-        
+
         if resp is None:
             outcome = "error"
             outcome_reason = "CALL_FAILED_EMPTY"
             return None, "CALL_FAILED:EMPTY"
-        
+
         text = (getattr(resp, "text", "") or "").strip()
         if not text:
             outcome = "error"
             outcome_reason = "EMPTY_RESPONSE"
             return None, "EMPTY_RESPONSE"
-        
+
         parsed, parse_error = parse_stage_a_json(text)
         if parse_error:
             outcome = "error"
@@ -2279,7 +2346,7 @@ def call_gemini_comparison(prompt: str, timeout_sec: int = COMPARE_STAGE_A_TIMEO
             _inc_compare_metric("compare_stage_a_json_invalid_total")
             return None, parse_error
         return parsed, None
-    
+
     finally:
         duration_ms = (pytime.perf_counter() - start_time) * 1000
         current_app.logger.info(
@@ -2839,21 +2906,21 @@ def normalize_model_output(parsed: Any, request_id: str) -> Tuple[Optional[Dict[
     """
     Normalize parsed JSON into a dict.
     Handles the case where Gemini returns a JSON array (list) instead of a dict.
-    
+
     Args:
         parsed: The parsed JSON output from the model (can be dict, list, or other)
         request_id: Request ID for logging purposes
-    
+
     Returns:
         Tuple of (normalized_dict, error_code) - error_code is None if successful
     """
     if parsed is None:
         return None, "MODEL_SHAPE_INVALID"
-    
+
     # If already a dict, return as-is
     if isinstance(parsed, dict):
         return parsed, None
-    
+
     # If it's a list, try to extract the dict
     if isinstance(parsed, list):
         if len(parsed) == 1 and isinstance(parsed[0], dict):
@@ -2879,7 +2946,7 @@ def normalize_model_output(parsed: Any, request_id: str) -> Tuple[Optional[Dict[
                 _truncate_log_payload(parsed),
             )
             return None, "MODEL_SHAPE_INVALID"
-    
+
     # Any other type is invalid
     current_app.logger.error(
         "[AI_SCHEMA] unexpected_type=%s request_id=%s payload_sample=%s",
@@ -2907,7 +2974,7 @@ def compute_request_hash(cars: List[Dict]) -> str:
         if year_val is None:
             year_val = c.get('year_start')
         year_str = str(year_val) if year_val is not None else ''
-        
+
         key_parts = [
             c.get('make', ''),
             c.get('model', ''),
@@ -2916,7 +2983,7 @@ def compute_request_hash(cars: List[Dict]) -> str:
             c.get('gearbox', ''),
         ]
         car_keys.append('|'.join(key_parts))
-    
+
     data = {
         "cars": sorted(car_keys),
         "prompt_version": COMPARISON_PROMPT_VERSION,
@@ -2936,31 +3003,31 @@ def validate_comparison_request(data: Dict) -> Tuple[bool, Optional[str], List[D
     Accepts year, engine_type, and gearbox as explicit assumptions.
     """
     cars = data.get("cars")
-    
+
     if not cars:
         return False, "לא נבחרו רכבים להשוואה", []
-    
+
     if not isinstance(cars, list):
         return False, "פורמט רכבים לא תקין", []
-    
+
     if len(cars) < 2:
         return False, "יש לבחור לפחות 2 רכבים להשוואה", []
-    
+
     if len(cars) > 3:
         return False, "ניתן להשוות עד 3 רכבים בלבד", []
-    
+
     validated_cars = []
     seen_keys = set()
     for i, car in enumerate(cars):
         if not isinstance(car, dict):
             return False, f"פורמט רכב {i+1} לא תקין", []
-        
+
         make = car.get("make", "").strip()
         model = car.get("model", "").strip()
-        
+
         if not make or not model:
             return False, f"רכב {i+1}: חובה לציין יצרן ודגם", []
-        
+
         # Extract year (either single year or use year_start for fallback)
         year = car.get("year")
         if year:
@@ -2976,10 +3043,10 @@ def validate_comparison_request(data: Dict) -> Tuple[bool, Optional[str], List[D
                     year = int(year_start)
                 except (ValueError, TypeError):
                     year = None
-        
+
         engine_type = car.get("engine_type", "").strip()
         gearbox = car.get("gearbox", "").strip()
-        
+
         # Check for duplicates (same make, model, year, engine, gearbox)
         # Use empty string for None year to ensure consistent comparison
         year_key = str(year) if year is not None else ""
@@ -2987,7 +3054,7 @@ def validate_comparison_request(data: Dict) -> Tuple[bool, Optional[str], List[D
         if car_key in seen_keys:
             return False, "לא ניתן להשוות רכבים זהים. אנא בחר רכבים שונים.", []
         seen_keys.add(car_key)
-        
+
         validated_car = {
             "make": make,
             "model": model,
@@ -3003,9 +3070,9 @@ def validate_comparison_request(data: Dict) -> Tuple[bool, Optional[str], List[D
             validated_car["year_start"] = car.get("year_start")
         if car.get("year_end"):
             validated_car["year_end"] = car.get("year_end")
-            
+
         validated_cars.append(validated_car)
-    
+
     return True, None, validated_cars
 
 
@@ -3013,7 +3080,7 @@ def validate_grounding(model_output: Dict) -> Tuple[bool, str]:
     """
     Check if grounding was successful based on model output.
     Returns (is_valid, failure_reason).
-    
+
     Enforces:
     1. grounding_successful flag must be True
     2. Each car must have at least some sourced metrics
@@ -3021,21 +3088,21 @@ def validate_grounding(model_output: Dict) -> Tuple[bool, str]:
     """
     if not model_output:
         return False, "Empty model output"
-    
+
     # Check grounding flag
     grounding = model_output.get("grounding_successful", False)
     if not grounding:
         return False, "Model reported grounding_successful=false"
-    
+
     # Check that we have car data
     cars = model_output.get("cars", {})
     if not cars:
         return False, "No car data in model output"
-    
+
     # Check each car has sourced data and validate source requirements
     cars_with_sources = 0
     unsourced_values = []
-    
+
     for car_id, car_data in cars.items():
         car_has_sources = False
         for cat_name, cat_data in car_data.items():
@@ -3044,32 +3111,32 @@ def validate_grounding(model_output: Dict) -> Tuple[bool, str]:
             for metric_name, metric_data in cat_data.items():
                 if not isinstance(metric_data, dict):
                     continue
-                    
+
                 value = metric_data.get("value")
                 sources = metric_data.get("sources", [])
-                
+
                 # Check if non-null value has sources
                 if value is not None and (not sources or len(sources) == 0):
                     unsourced_values.append(f"{car_id}.{cat_name}.{metric_name}")
-                
+
                 if sources and len(sources) > 0:
                     car_has_sources = True
-        
+
         if car_has_sources:
             cars_with_sources += 1
-    
+
     # Warn about unsourced values but don't fail completely
     # (we'll skip scoring those metrics)
     if unsourced_values:
         current_app.logger.warning(
             f"[GROUNDING] Values without sources ({len(unsourced_values)} total): {', '.join(unsourced_values[:5])}..."
         )
-    
+
     # At least half the cars should have sourced data
     min_cars_with_sources = max(1, len(cars) // 2)
     if cars_with_sources < min_cars_with_sources:
         return False, f"Only {cars_with_sources}/{len(cars)} cars have sourced data"
-    
+
     return True, ""
 
 
@@ -3095,7 +3162,7 @@ def build_sources_index(model_output: Dict) -> Dict:
     """Build an index of all sources by car, category, and metric."""
     sources_index = {}
     cars = model_output.get("cars", {})
-    
+
     for car_id, car_data in cars.items():
         sources_index[car_id] = {}
         for cat_name, cat_data in car_data.items():
@@ -3107,7 +3174,7 @@ def build_sources_index(model_output: Dict) -> Dict:
                     continue
                 sources = metric_data.get("sources", [])
                 sources_index[car_id][cat_name][metric_name] = sources
-    
+
     return sources_index
 
 
@@ -3131,46 +3198,46 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     deterministic_ms = 0
     ai_ms = 0
     db_ms = 0
-    
+
     # Validate request
     is_valid, error_msg, validated_cars = validate_comparison_request(data)
     if not is_valid:
         return api_error("validation_error", error_msg, status=400)
-    
+
     # Map cars to stable slots with display_name
     cars_selected_slots = map_cars_to_slots(validated_cars)
-    
+
     # Compute request hash for caching
     request_hash = compute_request_hash(validated_cars)
-    
+
     # Check cache (only for logged-in users)
     if user_id:
         cached = ComparisonHistory.query.filter_by(
             user_id=user_id,
             request_hash=request_hash,
         ).order_by(ComparisonHistory.created_at.desc()).first()
-        
+
         if cached and cached.computed_result:
             logger.info(f"[COMPARISON] cache hit request_id={request_id} hash={request_hash}")
-            
+
             # Safely parse all cached JSON fields, handling double-encoded data
             cars_selected, cars_was_double = _safe_parse_json_cached(cached.cars_selected, "cars_selected")
             computed_result, computed_was_double = _safe_parse_json_cached(cached.computed_result, "computed_result")
             sources_index, sources_was_double = _safe_parse_json_cached(cached.sources_index, "sources_index")
             model_output, model_was_double = _safe_parse_json_cached(cached.model_json_raw, "model_json_raw")
-            
+
             # Validate that required fields parsed to expected types
             cache_valid = (
                 isinstance(cars_selected, list) and
                 isinstance(computed_result, dict)
             )
-            
+
             if cache_valid:
                 # Extract assumptions safely (only if model_output is a dict)
                 assumptions = {}
                 if isinstance(model_output, dict):
                     assumptions = model_output.get("assumptions", {})
-                
+
                 # Self-heal: if any field was double-encoded, update the DB to store normalized JSON
                 # Note: cars_selected and computed_result are required (validated above),
                 # while sources_index and model_json_raw are nullable - hence the extra null checks
@@ -3190,7 +3257,7 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                     except Exception as heal_err:
                         logger.warning(f"[COMPARISON] self-heal commit failed: {heal_err}")
                         db.session.rollback()
-                
+
                 # Reconstruct slots from cached list; guard against corrupted non-list data
                 if isinstance(cars_selected, list):
                     cached_slots = map_cars_to_slots(cars_selected)
@@ -3226,7 +3293,7 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                 except Exception as del_err:
                     logger.warning(f"[COMPARISON] failed to delete corrupted cache row: {del_err}")
                     db.session.rollback()
-    
+
     # Stage A: parallel per-car Gemini calls
     stage_a_start = pytime.perf_counter()
     model_output, sources_index, stage_a_errors = call_stage_a_parallel(validated_cars, cars_selected_slots)
@@ -3234,7 +3301,7 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     ai_ms += duration_ms
     stage_a_error_code = None
     stage_a_partial = False
-    
+
     if len(stage_a_errors) == len(validated_cars):
         stage_a_error_code = _extract_stage_a_error_code(stage_a_errors)
         sanitized_errors = _sanitize_stage_a_errors(stage_a_errors)
@@ -3272,12 +3339,12 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
             request_id,
             _sanitize_stage_a_errors(stage_a_errors),
         )
-    
+
     # Compute scores deterministically (server-side source of truth)
     scoring_start = pytime.perf_counter()
     server_computed_result = compute_comparison_results(model_output)
     deterministic_ms = int((pytime.perf_counter() - scoring_start) * 1000)
-    
+
     # Stage B: non-grounded writer call (full schema + narrative around server results)
     stage_b_output = None
     stage_b_error = None
@@ -3320,13 +3387,26 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                 )
             else:
                 raw_retry_narrative = retry_output.get("narrative") if isinstance(retry_output, dict) else None
+                salvaged_narrative = _salvage_partial_writer_output(
+                    retry_output,
+                    cars_selected_slots,
+                    server_computed_result,
+                )
                 logger.warning(
                     "[COMPARISON] stage_b retry validation failed request_id=%s reason=%s payload_shape=%s",
                     request_id,
                     retry_reason,
                     _summarize_compare_writer_payload(retry_output),
                 )
-                if raw_retry_narrative:
+                if salvaged_narrative:
+                    narrative = sanitize_comparison_narrative(salvaged_narrative)
+                    stage_b_reason = None
+                    logger.info(
+                        "[COMPARISON] narrative salvaged from partial writer output request_id=%s narrative_shape=%s",
+                        request_id,
+                        _summarize_comparison_narrative_shape(narrative),
+                    )
+                elif raw_retry_narrative:
                     narrative = sanitize_comparison_narrative(raw_retry_narrative)
                     stage_b_reason = None
                     logger.info(
@@ -3349,13 +3429,26 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
             stage_b_reason = None
         else:
             raw_narrative = stage_b_output.get("narrative")
+            salvaged_narrative = _salvage_partial_writer_output(
+                stage_b_output,
+                cars_selected_slots,
+                server_computed_result,
+            )
             logger.warning(
                 "[COMPARISON] stage_b validation failed request_id=%s reason=%s payload_shape=%s",
                 request_id,
                 validation_reason,
                 _summarize_compare_writer_payload(stage_b_output),
             )
-            if raw_narrative:
+            if salvaged_narrative:
+                narrative = sanitize_comparison_narrative(salvaged_narrative)
+                logger.info(
+                    "[COMPARISON] narrative salvaged from partial writer output request_id=%s narrative_shape=%s",
+                    request_id,
+                    _summarize_comparison_narrative_shape(narrative),
+                )
+                stage_b_reason = None
+            elif raw_narrative:
                 narrative = sanitize_comparison_narrative(raw_narrative)
                 logger.info(
                     "[COMPARISON] narrative generated request_id=%s mode=legacy_deprecated narrative_shape=%s",
@@ -3401,7 +3494,7 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     if narrative:
         stored_computed["narrative"] = narrative
     stored_computed["ai"] = ai_payload
-    
+
     # Save to database
     try:
         db_start = pytime.perf_counter()
@@ -3438,7 +3531,7 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
             ai_ms,
             db_ms,
         )
-    
+
     return api_ok({
         "cached": False,
         "comparison_id": comparison_id,
@@ -3462,7 +3555,7 @@ def get_comparison_history(user_id: int, limit: int = 10) -> List[Dict]:
         .limit(limit)
         .all()
     )
-    
+
     result = []
     for record in records:
         try:
@@ -3470,11 +3563,11 @@ def get_comparison_history(user_id: int, limit: int = 10) -> List[Dict]:
             cars = _safe_json_obj(record.cars_selected, default=[])
             if not isinstance(cars, list):
                 cars = []
-            
+
             computed = _safe_json_obj(record.computed_result, default={})
             if not isinstance(computed, dict):
                 computed = {}
-            
+
             result.append({
                 "id": record.id,
                 "created_at": record.created_at.isoformat(),
@@ -3487,7 +3580,7 @@ def get_comparison_history(user_id: int, limit: int = 10) -> List[Dict]:
                 f"Skipping corrupted comparison history record id={record.id}: {e}"
             )
             continue
-    
+
     return result
 
 
@@ -3496,7 +3589,7 @@ def get_comparison_detail(comparison_id: int, user_id: Optional[int]) -> Optiona
     query = ComparisonHistory.query.filter_by(id=comparison_id)
     if user_id:
         query = query.filter_by(user_id=user_id)
-    
+
     record = query.first()
     if not record:
         return None
@@ -3506,30 +3599,30 @@ def get_comparison_detail(comparison_id: int, user_id: Optional[int]) -> Optiona
         cars_selected = _safe_json_obj(record.cars_selected, default=[])
         if not isinstance(cars_selected, list):
             cars_selected = []
-        
+
         computed_result = _safe_json_obj(record.computed_result, default={})
         if not isinstance(computed_result, dict):
             computed_result = {}
-        
+
         model_output = _safe_json_obj(record.model_json_raw, default=None)
         if model_output is not None and not isinstance(model_output, dict):
             model_output = None
-        
+
         sources_index = _safe_json_obj(record.sources_index, default={})
         if not isinstance(sources_index, dict):
             sources_index = {}
-        
+
         assumptions = model_output.get("assumptions", {}) if model_output else {}
-        
+
         narrative = resolve_comparison_narrative(computed_result if isinstance(computed_result, dict) else None)
         ai_payload = build_stored_comparison_ai_payload(
             computed_result if isinstance(computed_result, dict) else None,
             narrative,
         )
-        
+
         # Reconstruct stable car slots
         cars_selected_slots = map_cars_to_slots(cars_selected) if isinstance(cars_selected, list) else cars_selected
-        
+
         return {
             "id": record.id,
             "created_at": record.created_at.isoformat(),
@@ -3609,6 +3702,11 @@ def regenerate_comparison_ai(comparison_id: int, user_id: int) -> Optional[Dict[
             )
         else:
             raw_narrative = stage_b_output.get("narrative")
+            salvaged_narrative = _salvage_partial_writer_output(
+                stage_b_output,
+                cars_selected_slots,
+                server_computed_result,
+            )
             current_app.logger.warning(
                 "[COMPARISON] compare_ai_regenerate validation failed request_id=%s comparison_id=%s reason=%s payload_shape=%s",
                 get_request_id(),
@@ -3616,7 +3714,15 @@ def regenerate_comparison_ai(comparison_id: int, user_id: int) -> Optional[Dict[
                 validation_reason,
                 _summarize_compare_writer_payload(stage_b_output),
             )
-            if raw_narrative:
+            if salvaged_narrative:
+                narrative = sanitize_comparison_narrative(salvaged_narrative)
+                current_app.logger.info(
+                    "[COMPARISON] narrative salvaged from partial writer output request_id=%s comparison_id=%s narrative_shape=%s",
+                    get_request_id(),
+                    comparison_id,
+                    _summarize_comparison_narrative_shape(narrative),
+                )
+            elif raw_narrative:
                 narrative = sanitize_comparison_narrative(raw_narrative)
                 current_app.logger.info(
                     "[COMPARISON] compare_ai_regenerate legacy narrative used request_id=%s comparison_id=%s narrative_shape=%s",
