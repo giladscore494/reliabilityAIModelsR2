@@ -255,7 +255,8 @@ def _normalized_reliability_estimate(value: Any) -> Optional[str]:
 
 def _derive_model_estimate_from_signals(risk_signals: Dict[str, Any]) -> str:
     recalls = risk_signals.get("recalls") if isinstance(risk_signals.get("recalls"), dict) else {}
-    recall_items = recalls.get("items") if isinstance(recalls.get("items"), list) else []
+    raw_recall_items = recalls.get("items")
+    recall_items = raw_recall_items if isinstance(raw_recall_items, list) else []
     has_high_recall = False
     has_meaningful_recall = False
     for item in recall_items[:20]:
@@ -556,7 +557,8 @@ def compute_reliability_score_and_banner(
     systemic_penalty = min(systemic_penalty, _SYSTEMIC_PENALTY_CAP)
 
     # ── Step 3: recall penalty (severity-based, not count-based) ──
-    recall_items = recalls.get("items") if isinstance(recalls.get("items"), list) else []
+    raw_recall_items = recalls.get("items")
+    recall_items = raw_recall_items if isinstance(raw_recall_items, list) else []
     recall_penalty = 0.0
     has_meaningful_recalls = False
     for item in recall_items[:20]:
