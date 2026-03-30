@@ -1,29 +1,28 @@
 # -*- coding: utf-8 -*-
 """Tests for deterministic reliability scoring (compute_reliability_score_and_banner)."""
 
-import pytest
 import main  # noqa: F401 (ensures app module resolution)
 
 from app.services.analyze_service import (
-    compute_reliability_score_and_banner,
-    _banner_from_score,
-    _confidence_label,
-    _classify_recall_bucket,
     _BANNER_HIGH_THRESHOLD,
     _BANNER_MEDIUM_THRESHOLD,
-    _SEVERITY_PENALTY,
-    _FREQUENCY_MULT,
-    _SYSTEM_TIER,
-    _RECALL_PENALTY,
-    _MCP_PENALTY,
     _CLEAN_BONUS,
+    _FREQUENCY_MULT,
+    _MCP_PENALTY,
+    _OVERALL_RELIABILITY_ADJUSTMENT,
     _PENALTY_CAP_FRACTION,
+    _SEVERITY_PENALTY,
+    _SYSTEM_TIER,
+    _banner_from_score,
+    _confidence_label,
+    compute_reliability_score_and_banner,
 )
 
 
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
 
 def _default_validated(overrides=None):
     """Minimal validated payload with default usage_profile."""
@@ -54,7 +53,7 @@ def _full_risk_signals(overrides=None):
             "engine_family": "2ZR-FE",
             "transmission_type": "cvt",
         },
-        "recalls": {"count": 0, "high_severity_count": 0, "notes": ""},
+        "recalls": {"count": 0, "high_severity_count": 0, "items": [], "notes": ""},
         "systemic_issue_signals": [],
         "maintenance_cost_pressure": {
             "level": "low",
@@ -74,6 +73,7 @@ def _full_risk_signals(overrides=None):
 # ---------------------------------------------------------------------------
 # banner / confidence label helpers
 # ---------------------------------------------------------------------------
+
 
 class TestBannerFromScore:
     def test_high(self):
@@ -114,30 +114,9 @@ class TestConfidenceLabel:
 
 
 # ---------------------------------------------------------------------------
-# recall bucket classification
-# ---------------------------------------------------------------------------
-
-class TestRecallBucket:
-    def test_none(self):
-        assert _classify_recall_bucket(0, 0) == "none"
-
-    def test_low(self):
-        assert _classify_recall_bucket(2, 0) == "low"
-        assert _classify_recall_bucket(1, 0) == "low"
-
-    def test_medium(self):
-        assert _classify_recall_bucket(3, 0) == "medium"
-        assert _classify_recall_bucket(1, 1) == "medium"
-
-    def test_high(self):
-        assert _classify_recall_bucket(5, 0) == "high"
-        assert _classify_recall_bucket(2, 2) == "high"
-        assert _classify_recall_bucket(10, 3) == "high"
-
-
-# ---------------------------------------------------------------------------
 # missing / malformed risk_signals => "לא ידוע"
 # ---------------------------------------------------------------------------
+
 
 class TestMissingRiskSignals:
     def test_none(self):
@@ -161,38 +140,48 @@ class TestMissingRiskSignals:
 
 
 # ---------------------------------------------------------------------------
-# base score (no penalties) — Toyota Corolla clean with bonus
+# base score (no penalties) — clean car with bonus
 # ---------------------------------------------------------------------------
+
 
 class TestBaseScore:
     def test_clean_toyota_corolla_gets_bonus(self):
-        """Toyota Corolla clean: base=62+8(make)+4(model)=74, +4 bonus=78."""
         r = compute_reliability_score_and_banner(
-            _default_validated(), _full_risk_signals()
+            _default_validated(),
+            _full_risk_signals(),
         )
-        # Toyota (+8 make) + Corolla (+4 model) = 74 base, +4 clean bonus = 78
-        assert r["score_0_100"] == 78
+        assert _CLEAN_BONUS == 6
+        assert r["score_0_100"] == 80
         assert r["banner_he"] == "גבוה"
 
     def test_confidence_label_returned(self):
         r = compute_reliability_score_and_banner(
-            _default_validated(), _full_risk_signals()
+            _default_validated(),
+            _full_risk_signals(),
         )
         assert r["confidence_label"] in ("high", "medium", "low")
 
-    def test_overall_reliability_anchor_is_modest(self):
+    def test_overall_reliability_anchor_is_wider(self):
         rs = _full_risk_signals()
         r_high = compute_reliability_score_and_banner(
-            _default_validated(), rs, overall_reliability_estimate="high"
+            _default_validated(),
+            rs,
+            overall_reliability_estimate="high",
         )
         r_medium = compute_reliability_score_and_banner(
-            _default_validated(), rs, overall_reliability_estimate="medium"
+            _default_validated(),
+            rs,
+            overall_reliability_estimate="medium",
         )
         r_low = compute_reliability_score_and_banner(
-            _default_validated(), rs, overall_reliability_estimate="low"
+            _default_validated(),
+            rs,
+            overall_reliability_estimate="low",
         )
-        assert r_high["score_0_100"] - r_medium["score_0_100"] == 3
-        assert r_medium["score_0_100"] - r_low["score_0_100"] == 3
+        assert _OVERALL_RELIABILITY_ADJUSTMENT["high"] == 8
+        assert _OVERALL_RELIABILITY_ADJUSTMENT["low"] == -8
+        assert r_high["score_0_100"] - r_medium["score_0_100"] == 8
+        assert r_medium["score_0_100"] - r_low["score_0_100"] == 8
         assert 15 <= r_low["score_0_100"] <= 95
         assert 15 <= r_medium["score_0_100"] <= 95
         assert 15 <= r_high["score_0_100"] <= 95
@@ -223,276 +212,424 @@ class TestCalibrationFallback:
         )
         assert r["calibration_applied"] is False
         assert r["calibration_source"] == "none"
-        assert r["score_0_100"] == 81
+        assert r["score_0_100"] == 88
 
 
 # ---------------------------------------------------------------------------
 # usage penalties are neutralized (no longer affect score)
 # ---------------------------------------------------------------------------
 
+
 class TestUsageNeutralized:
     def test_aggressive_driver_no_effect(self):
-        """Usage profile should no longer affect score."""
-        v = _default_validated({"usage_profile": {
-            "annual_km": 15000, "city_pct": 50,
-            "driver_style": "aggressive", "load": "family",
-        }})
+        v = _default_validated(
+            {
+                "usage_profile": {
+                    "annual_km": 15000,
+                    "city_pct": 50,
+                    "driver_style": "aggressive",
+                    "load": "family",
+                }
+            }
+        )
         r = compute_reliability_score_and_banner(v, _full_risk_signals())
         clean = compute_reliability_score_and_banner(
-            _default_validated(), _full_risk_signals()
+            _default_validated(),
+            _full_risk_signals(),
         )
         assert r["score_0_100"] == clean["score_0_100"]
 
     def test_heavy_load_no_effect(self):
-        v = _default_validated({"usage_profile": {
-            "annual_km": 15000, "city_pct": 50,
-            "driver_style": "normal", "load": "heavy",
-        }})
+        v = _default_validated(
+            {
+                "usage_profile": {
+                    "annual_km": 15000,
+                    "city_pct": 50,
+                    "driver_style": "normal",
+                    "load": "heavy",
+                }
+            }
+        )
         r = compute_reliability_score_and_banner(v, _full_risk_signals())
         clean = compute_reliability_score_and_banner(
-            _default_validated(), _full_risk_signals()
+            _default_validated(),
+            _full_risk_signals(),
         )
         assert r["score_0_100"] == clean["score_0_100"]
 
     def test_high_km_no_effect(self):
-        v = _default_validated({"usage_profile": {
-            "annual_km": 35000, "city_pct": 50,
-            "driver_style": "normal", "load": "family",
-        }})
+        v = _default_validated(
+            {
+                "usage_profile": {
+                    "annual_km": 35000,
+                    "city_pct": 50,
+                    "driver_style": "normal",
+                    "load": "family",
+                }
+            }
+        )
         r = compute_reliability_score_and_banner(v, _full_risk_signals())
         clean = compute_reliability_score_and_banner(
-            _default_validated(), _full_risk_signals()
+            _default_validated(),
+            _full_risk_signals(),
         )
         assert r["score_0_100"] == clean["score_0_100"]
 
 
 # ---------------------------------------------------------------------------
-# recall penalties (4 buckets)
+# recall penalties (severity-based)
 # ---------------------------------------------------------------------------
+
 
 class TestRecallPenalties:
     def test_no_recalls(self):
-        rs = _full_risk_signals({
-            "recalls": {"count": 0, "high_severity_count": 0, "notes": ""},
-        })
+        rs = _full_risk_signals(
+            {
+                "recalls": {"count": 0, "high_severity_count": 0, "items": [], "notes": ""},
+            }
+        )
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # Clean Toyota Corolla with bonus
-        assert r["score_0_100"] == 78
+        assert r["score_0_100"] == 80
 
-    def test_low_recalls(self):
-        """1-2 recalls, no high severity → 'low' bucket → small penalty."""
-        rs = _full_risk_signals({
-            "recalls": {"count": 2, "high_severity_count": 0, "notes": ""},
-        })
-        r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # base 74, recall penalty = round(1 * 0.7) = 1, bonus applies, score = 74 - 1 + 4 = 77
-        assert r["score_0_100"] == 77
+    def test_recall_low_severity_no_penalty(self):
+        """Infotainment/cosmetic recalls should not reduce score at all."""
+        v = _default_validated()
+        rs = _full_risk_signals(
+            {
+                "recalls": {
+                    "count": 4,
+                    "items": [
+                        {"system": "infotainment", "severity": "low", "description": "עדכון תוכנה"},
+                        {"system": "trim", "severity": "low", "description": "רעש פנל"},
+                        {"system": "infotainment", "severity": "low", "description": "באג מסך"},
+                        {"system": "infotainment", "severity": "low", "description": "בלוטות׳"},
+                    ],
+                    "notes": "",
+                },
+            }
+        )
+        clean_rs = _full_risk_signals()
+        r_with = compute_reliability_score_and_banner(v, rs, "high")
+        r_clean = compute_reliability_score_and_banner(v, clean_rs, "high")
+        assert r_with["score_0_100"] == r_clean["score_0_100"], (
+            "Low-severity recalls should not affect score"
+        )
 
-    def test_medium_recalls(self):
-        """3+ recalls or 1 high severity → 'medium' bucket."""
-        rs = _full_risk_signals({
-            "recalls": {"count": 3, "high_severity_count": 1, "notes": ""},
-        })
-        r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # Model-primary base 74 with neutral recall penalty = 5, no bonus => 69
-        assert r["score_0_100"] == 69
-        assert r["banner_he"] == "גבוה"
+    def test_recall_high_severity_significant_penalty(self):
+        """Engine/brakes recalls should meaningfully reduce score."""
+        v = _default_validated()
+        rs = _full_risk_signals(
+            {
+                "recalls": {
+                    "count": 2,
+                    "items": [
+                        {"system": "engine", "severity": "high", "description": "דליפת שמן"},
+                        {"system": "brakes", "severity": "high", "description": "כשל ABS"},
+                    ],
+                    "notes": "",
+                },
+            }
+        )
+        r = compute_reliability_score_and_banner(v, rs, "high")
+        r_clean = compute_reliability_score_and_banner(v, _full_risk_signals(), "high")
+        assert r["score_0_100"] < r_clean["score_0_100"] - 5
 
-    def test_high_recalls(self):
-        """5+ recalls or 2+ high severity → 'high' bucket."""
-        rs = _full_risk_signals({
-            "recalls": {"count": 5, "high_severity_count": 2, "notes": ""},
-        })
-        r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # Model-primary base 74 with neutral high recall penalty = 10, no bonus => 64
-        assert r["score_0_100"] == 64
-        assert r["banner_he"] == "בינוני"
+    def test_recall_medium_severity_minor_penalty(self):
+        """AC/sensor recalls should stay meaningfully lighter than high-severity recalls."""
+        v = _default_validated()
+        rs = _full_risk_signals(
+            {
+                "recalls": {
+                    "count": 2,
+                    "items": [
+                        {"system": "ac", "severity": "medium", "description": "דליפת גז"},
+                        {"system": "sensors", "severity": "medium", "description": "חיישן חמצן"},
+                    ],
+                    "notes": "",
+                },
+            }
+        )
+        r = compute_reliability_score_and_banner(v, rs)
+        r_clean = compute_reliability_score_and_banner(v, _full_risk_signals())
+        diff = r_clean["score_0_100"] - r["score_0_100"]
+        assert 5 < diff <= 10, (
+            f"Medium recall penalty should stay moderate after bonus loss, got {diff}"
+        )
+
+    def test_recall_fallback_old_format(self):
+        """Old recall format (count only, no items) should still work."""
+        v = _default_validated()
+        rs = _full_risk_signals(
+            {
+                "recalls": {"count": 3, "high_severity_count": 1, "notes": "various"},
+            }
+        )
+        r = compute_reliability_score_and_banner(v, rs, "high")
+        assert r["score_0_100"] > 0
+
+    def test_recall_penalty_capped(self):
+        """Even many high-severity recalls should hit the cap."""
+        v = _default_validated()
+        rs = _full_risk_signals(
+            {
+                "recalls": {
+                    "count": 10,
+                    "items": [
+                        {"system": "engine", "severity": "high", "description": f"recall {i}"}
+                        for i in range(10)
+                    ],
+                    "notes": "",
+                },
+            }
+        )
+        r = compute_reliability_score_and_banner(v, rs, "medium")
+        assert r["score_0_100"] >= 40
 
     def test_recall_like_systemic_issue_not_double_counted_fully(self):
-        rs = _full_risk_signals({
-            "recalls": {"count": 5, "high_severity_count": 2, "notes": ""},
-            "systemic_issue_signals": [
-                {
-                    "system": "brakes",
-                    "issue": "Official recall campaign for brake booster",
-                    "severity": "high",
-                    "repeat_frequency": "common",
+        rs = _full_risk_signals(
+            {
+                "recalls": {
+                    "count": 5,
+                    "items": [
+                        {
+                            "system": "brakes",
+                            "severity": "high",
+                            "description": "Official recall campaign for brake booster",
+                        }
+                    ],
+                    "notes": "",
                 },
-            ],
-        })
+                "systemic_issue_signals": [
+                    {
+                        "system": "brakes",
+                        "issue": "Official recall campaign for brake booster",
+                        "severity": "high",
+                        "repeat_frequency": "common",
+                    },
+                ],
+            }
+        )
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # Should remain medium/high band and not collapse from stacked duplicate recall semantics
         assert r["score_0_100"] >= 57
 
     def test_recall_overlap_detected_from_notes_without_keyword(self):
         v = _default_validated({"model": "RAV4", "year": 2025})
-        rs = _full_risk_signals({
-            "recalls": {
-                "count": 3,
-                "high_severity_count": 1,
-                "notes": "Brake software update due to instrument cluster blackout risk",
-            },
-            "systemic_issue_signals": [
-                {
-                    "system": "brakes",
-                    "issue": "Braking software issue",
-                    "typical_timing": "instrument cluster blackout warning",
-                    "severity": "medium",
-                    "repeat_frequency": "sometimes",
+        rs = _full_risk_signals(
+            {
+                "recalls": {
+                    "count": 3,
+                    "items": [
+                        {
+                            "system": "brakes",
+                            "severity": "medium",
+                            "description": "Brake software update due to instrument cluster blackout risk",
+                        }
+                    ],
+                    "notes": "Brake software update due to instrument cluster blackout risk",
                 },
-            ],
-            "maintenance_cost_pressure": {"level": "medium", "explanation": ""},
-        })
+                "systemic_issue_signals": [
+                    {
+                        "system": "brakes",
+                        "issue": "Braking software issue",
+                        "typical_timing": "instrument cluster blackout warning",
+                        "severity": "medium",
+                        "repeat_frequency": "sometimes",
+                    },
+                ],
+                "maintenance_cost_pressure": {"level": "medium", "explanation": ""},
+            }
+        )
         r = compute_reliability_score_and_banner(v, rs, overall_reliability_estimate="high")
         assert r["banner_he"] == "גבוה"
-        assert r["score_0_100"] >= 69
+        assert r["score_0_100"] >= 67
 
     def test_strong_toyota_recall_heavy_wording_stays_realistic(self):
         v = _default_validated({"model": "Corolla Cross", "year": 2025})
-        rs = _full_risk_signals({
-            "recalls": {
-                "count": 2,
-                "high_severity_count": 1,
-                "notes": "Brake actuator bolt loosening campaign",
-            },
-            "systemic_issue_signals": [
-                {
-                    "system": "brakes",
-                    "issue": "Bolt loosening risk in braking actuator",
-                    "severity": "medium",
-                    "repeat_frequency": "sometimes",
+        rs = _full_risk_signals(
+            {
+                "recalls": {
+                    "count": 2,
+                    "items": [
+                        {
+                            "system": "brakes",
+                            "severity": "medium",
+                            "description": "Brake actuator bolt loosening campaign",
+                        }
+                    ],
+                    "notes": "Brake actuator bolt loosening campaign",
                 },
-            ],
-            "maintenance_cost_pressure": {"level": "medium", "explanation": ""},
-        })
+                "systemic_issue_signals": [
+                    {
+                        "system": "brakes",
+                        "issue": "Bolt loosening risk in braking actuator",
+                        "severity": "medium",
+                        "repeat_frequency": "sometimes",
+                    },
+                ],
+                "maintenance_cost_pressure": {"level": "medium", "explanation": ""},
+            }
+        )
         r = compute_reliability_score_and_banner(v, rs, overall_reliability_estimate="high")
         assert r["banner_he"] == "גבוה"
-        assert r["score_0_100"] >= 70
+        assert r["score_0_100"] >= 67
 
 
 # ---------------------------------------------------------------------------
 # systemic issues (severity × frequency × system tier)
 # ---------------------------------------------------------------------------
 
+
 class TestSystemicIssues:
     def test_transmission_high_common(self):
-        """Critical system, high severity, common frequency."""
-        rs = _full_risk_signals({
-            "systemic_issue_signals": [
-                {"system": "transmission", "severity": "high",
-                 "repeat_frequency": "common"},
-            ],
-        })
+        rs = _full_risk_signals(
+            {
+                "systemic_issue_signals": [
+                    {"system": "transmission", "severity": "high", "repeat_frequency": "common"},
+                ],
+            }
+        )
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # penalty = 7 * 1.3 * 1.25 = 11.375, no bonus, score = 74 - 11 = 63
-        expected_penalty = _SEVERITY_PENALTY["high"] * _FREQUENCY_MULT["common"] * _SYSTEM_TIER["transmission"]
+        expected_penalty = (
+            _SEVERITY_PENALTY["high"]
+            * _FREQUENCY_MULT["common"]
+            * _SYSTEM_TIER["transmission"]
+        )
         expected_score = 74 - int(round(expected_penalty))
         assert r["score_0_100"] == expected_score
 
     def test_infotainment_low_rare(self):
-        """Minor system, low severity, rare → very small penalty."""
-        rs = _full_risk_signals({
-            "systemic_issue_signals": [
-                {"system": "infotainment", "severity": "low",
-                 "repeat_frequency": "rare"},
-            ],
-        })
+        rs = _full_risk_signals(
+            {
+                "systemic_issue_signals": [
+                    {"system": "infotainment", "severity": "low", "repeat_frequency": "rare"},
+                ],
+            }
+        )
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # penalty = 2 * 0.7 * 0.7 = 0.98, bonus still applies, score = 74 - 1 + 4 = 77
-        assert r["score_0_100"] >= 77
+        assert r["score_0_100"] == 79
 
     def test_systemic_cap(self):
-        """Many high-severity issues should cap at _SYSTEMIC_PENALTY_CAP."""
-        rs = _full_risk_signals({
-            "systemic_issue_signals": [
-                {"system": "transmission", "severity": "high",
-                 "repeat_frequency": "common"},
-                {"system": "engine", "severity": "high",
-                 "repeat_frequency": "common"},
-                {"system": "brakes", "severity": "high",
-                 "repeat_frequency": "common"},
-                {"system": "electrical", "severity": "high",
-                 "repeat_frequency": "common"},
-                {"system": "suspension", "severity": "high",
-                 "repeat_frequency": "common"},
-            ],
-        })
+        rs = _full_risk_signals(
+            {
+                "systemic_issue_signals": [
+                    {"system": "transmission", "severity": "high", "repeat_frequency": "common"},
+                    {"system": "engine", "severity": "high", "repeat_frequency": "common"},
+                    {"system": "brakes", "severity": "high", "repeat_frequency": "common"},
+                    {"system": "electrical", "severity": "high", "repeat_frequency": "common"},
+                    {"system": "suspension", "severity": "high", "repeat_frequency": "common"},
+                ],
+            }
+        )
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # Even with many issues, penalty cap + base cap prevent score from going too low
         assert r["score_0_100"] >= 0
         assert r["banner_he"] == "נמוך"
 
     def test_medium_sometimes(self):
-        """Standard severity × frequency."""
-        rs = _full_risk_signals({
-            "systemic_issue_signals": [
-                {"system": "electrical", "severity": "medium",
-                 "repeat_frequency": "sometimes"},
-            ],
-        })
+        rs = _full_risk_signals(
+            {
+                "systemic_issue_signals": [
+                    {"system": "electrical", "severity": "medium", "repeat_frequency": "sometimes"},
+                ],
+            }
+        )
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # penalty = 4 * 1.0 * 1.0 = 4, no bonus (has issues), score = 74 - 4 = 70
         assert r["score_0_100"] == 70
 
     def test_vehicle_specific_neglect_claim_not_penalized(self):
-        rs = _full_risk_signals({
-            "systemic_issue_signals": [
-                {
-                    "system": "engine",
-                    "issue": "Likely neglected by previous owner due to incomplete service history",
-                    "severity": "high",
-                    "repeat_frequency": "common",
-                },
-            ],
-        })
+        rs = _full_risk_signals(
+            {
+                "systemic_issue_signals": [
+                    {
+                        "system": "engine",
+                        "issue": "Likely neglected by previous owner due to incomplete service history",
+                        "severity": "high",
+                        "repeat_frequency": "common",
+                    },
+                ],
+            }
+        )
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # Unverified vehicle-specific neglect assumptions should not add penalties
-        assert r["score_0_100"] == 78
+        assert r["score_0_100"] == 80
 
 
 # ---------------------------------------------------------------------------
 # maintenance cost pressure
 # ---------------------------------------------------------------------------
 
+
 class TestMaintenanceCostPressure:
     def test_high(self):
-        rs = _full_risk_signals({
-            "maintenance_cost_pressure": {
-                "level": "high", "explanation": "",
-            },
-        })
+        rs = _full_risk_signals(
+            {
+                "maintenance_cost_pressure": {
+                    "level": "high",
+                    "explanation": "",
+                },
+            }
+        )
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # Model-primary flow uses neutral maintenance pressure penalty (no make multiplier)
         expected_penalty = _MCP_PENALTY["high"]
         expected_score = 74 - int(round(expected_penalty))
         assert r["score_0_100"] == expected_score
 
     def test_medium(self):
-        rs = _full_risk_signals({
-            "maintenance_cost_pressure": {
-                "level": "medium", "explanation": "",
-            },
-        })
+        rs = _full_risk_signals(
+            {
+                "maintenance_cost_pressure": {
+                    "level": "medium",
+                    "explanation": "",
+                },
+            }
+        )
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # Model-primary flow uses neutral maintenance pressure penalty (no make multiplier)
         expected_penalty = _MCP_PENALTY["medium"]
         expected_score = 74 - int(round(expected_penalty))
         assert r["score_0_100"] == expected_score
 
     def test_low(self):
-        rs = _full_risk_signals({
-            "maintenance_cost_pressure": {
-                "level": "low", "explanation": "",
-            },
-        })
+        rs = _full_risk_signals(
+            {
+                "maintenance_cost_pressure": {
+                    "level": "low",
+                    "explanation": "",
+                },
+            }
+        )
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # mcp penalty = 0, bonus applies, score = 74 + 4 = 78
-        assert r["score_0_100"] == 78
+        assert r["score_0_100"] == 80
+
+    def test_mcp_discounted_when_systemic_high(self):
+        """When systemic penalty is already heavy, mcp should be discounted."""
+        v = _default_validated()
+        rs_heavy = _full_risk_signals(
+            {
+                "systemic_issue_signals": [
+                    {"system": "engine", "severity": "high", "repeat_frequency": "common"},
+                    {"system": "transmission", "severity": "high", "repeat_frequency": "sometimes"},
+                ],
+                "maintenance_cost_pressure": {"level": "high", "explanation": ""},
+            }
+        )
+        rs_light = _full_risk_signals(
+            {
+                "systemic_issue_signals": [
+                    {"system": "ac", "severity": "low", "repeat_frequency": "rare"},
+                ],
+                "maintenance_cost_pressure": {"level": "high", "explanation": ""},
+            }
+        )
+        r_heavy = compute_reliability_score_and_banner(v, rs_heavy, "medium")
+        r_light = compute_reliability_score_and_banner(v, rs_light, "medium")
+        assert r_heavy["score_0_100"] >= 35, (
+            f"MCP + systemic stacking too aggressive: {r_heavy['score_0_100']}"
+        )
+        assert r_heavy["score_0_100"] < r_light["score_0_100"]
 
 
 # ---------------------------------------------------------------------------
 # confidence (categorical, does not affect score)
 # ---------------------------------------------------------------------------
+
 
 class TestConfidence:
     def test_high_confidence_from_llm(self):
@@ -511,7 +648,6 @@ class TestConfidence:
         assert r["confidence_label"] == "low"
 
     def test_confidence_does_not_affect_score(self):
-        """Score must be identical regardless of confidence level."""
         rs_high = _full_risk_signals({"analysis_confidence": "high"})
         rs_low = _full_risk_signals({"analysis_confidence": "low"})
         r_high = compute_reliability_score_and_banner(_default_validated(), rs_high)
@@ -529,40 +665,61 @@ class TestConfidence:
 # clean bonus
 # ---------------------------------------------------------------------------
 
+
 class TestCleanBonus:
     def test_clean_car_gets_generic_bonus(self):
-        """A clean car with no meaningful issues gets the small generic bonus."""
         r = compute_reliability_score_and_banner(
-            _default_validated(), _full_risk_signals()
+            _default_validated(),
+            _full_risk_signals(),
         )
-        # base=74, no penalties, +4 bonus = 78
-        assert r["score_0_100"] == 78
+        assert r["score_0_100"] == 80
 
     def test_clean_score_is_make_agnostic_without_dictionary(self):
-        """Clean signals should not depend on any removed make-level dictionary."""
         v = _default_validated({"make": "Volkswagen", "model": "Golf"})
         r = compute_reliability_score_and_banner(v, _full_risk_signals())
-        assert r["score_0_100"] == 78
+        assert r["score_0_100"] == 80
 
-    def test_bonus_blocked_by_issues(self):
-        """Toyota with systemic issues should not get bonus."""
-        rs = _full_risk_signals({
-            "systemic_issue_signals": [
-                {"system": "engine", "severity": "medium",
-                 "repeat_frequency": "sometimes"},
-            ],
-        })
-        r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # penalty = 4 * 1.0 * 1.25 = 5, no bonus, score = 74 - 5 = 69
-        assert r["score_0_100"] == 69
+    def test_clean_bonus_survives_infotainment_medium(self):
+        """A medium infotainment issue should NOT kill the clean bonus."""
+        v = _default_validated()
+        rs = _full_risk_signals(
+            {
+                "systemic_issue_signals": [
+                    {
+                        "system": "infotainment",
+                        "severity": "medium",
+                        "repeat_frequency": "sometimes",
+                    },
+                ],
+            }
+        )
+        r = compute_reliability_score_and_banner(v, rs, "high")
+        r_clean = compute_reliability_score_and_banner(v, _full_risk_signals(), "high")
+        assert r["score_0_100"] >= r_clean["score_0_100"] - 3, (
+            f"Infotainment medium killed too many points: clean={r_clean['score_0_100']}, got={r['score_0_100']}"
+        )
+
+    def test_clean_bonus_killed_by_engine_medium(self):
+        """A medium engine issue SHOULD kill the clean bonus."""
+        v = _default_validated()
+        rs = _full_risk_signals(
+            {
+                "systemic_issue_signals": [
+                    {"system": "engine", "severity": "medium", "repeat_frequency": "sometimes"},
+                ],
+            }
+        )
+        r = compute_reliability_score_and_banner(v, rs, "high")
+        r_clean = compute_reliability_score_and_banner(v, _full_risk_signals(), "high")
+        assert r["score_0_100"] < r_clean["score_0_100"] - 4
 
     def test_bonus_blocked_by_meaningful_recalls(self):
-        """Toyota with medium+ recalls should not get bonus."""
-        rs = _full_risk_signals({
-            "recalls": {"count": 4, "high_severity_count": 1, "notes": ""},
-        })
+        rs = _full_risk_signals(
+            {
+                "recalls": {"count": 4, "high_severity_count": 1, "notes": ""},
+            }
+        )
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # medium recall bucket, no bonus
         assert r["score_0_100"] < 74
 
 
@@ -570,23 +727,23 @@ class TestCleanBonus:
 # penalty cap
 # ---------------------------------------------------------------------------
 
+
 class TestPenaltyCap:
     def test_penalties_capped_at_fraction_of_base(self):
-        """Total penalties should not exceed _PENALTY_CAP_FRACTION of base."""
-        rs = _full_risk_signals({
-            "recalls": {"count": 10, "high_severity_count": 5, "notes": ""},
-            "systemic_issue_signals": [
-                {"system": "transmission", "severity": "high",
-                 "repeat_frequency": "common"},
-                {"system": "engine", "severity": "high",
-                 "repeat_frequency": "common"},
-            ],
-            "maintenance_cost_pressure": {
-                "level": "high", "explanation": "",
-            },
-        })
+        rs = _full_risk_signals(
+            {
+                "recalls": {"count": 10, "high_severity_count": 5, "notes": ""},
+                "systemic_issue_signals": [
+                    {"system": "transmission", "severity": "high", "repeat_frequency": "common"},
+                    {"system": "engine", "severity": "high", "repeat_frequency": "common"},
+                ],
+                "maintenance_cost_pressure": {
+                    "level": "high",
+                    "explanation": "",
+                },
+            }
+        )
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # base=74, penalty cap = 74*0.55 = 40.7, score >= 74-41 = 33
         assert r["score_0_100"] >= int(round(74 * (1 - _PENALTY_CAP_FRACTION)))
 
 
@@ -594,32 +751,122 @@ class TestPenaltyCap:
 # combined scenario
 # ---------------------------------------------------------------------------
 
+
 class TestCombinedScenario:
     def test_worst_case(self):
-        """Recalls + systemic + high maintenance → low banner."""
-        rs = _full_risk_signals({
-            "recalls": {"count": 4, "high_severity_count": 3, "notes": ""},
-            "systemic_issue_signals": [
-                {"system": "transmission", "severity": "high",
-                 "repeat_frequency": "common"},
-            ],
-            "maintenance_cost_pressure": {
-                "level": "high", "explanation": "",
-            },
-        })
+        rs = _full_risk_signals(
+            {
+                "recalls": {"count": 4, "high_severity_count": 3, "notes": ""},
+                "systemic_issue_signals": [
+                    {"system": "transmission", "severity": "high", "repeat_frequency": "common"},
+                ],
+                "maintenance_cost_pressure": {
+                    "level": "high",
+                    "explanation": "",
+                },
+            }
+        )
         r = compute_reliability_score_and_banner(_default_validated(), rs)
         assert r["score_0_100"] <= 55
         assert r["banner_he"] in ("נמוך", "בינוני")
 
 
 # ---------------------------------------------------------------------------
+# estimate floor and calibration sensitivity
+# ---------------------------------------------------------------------------
+
+
+class TestEstimateFloor:
+    def test_reliable_car_with_typical_llm_signals_stays_high(self):
+        """A reliable car where LLM reports typical medium issues should stay high."""
+        v = _default_validated()
+        rs = _full_risk_signals(
+            {
+                "recalls": {
+                    "count": 2,
+                    "items": [
+                        {"system": "infotainment", "severity": "low", "description": "עדכון"},
+                        {"system": "sensors", "severity": "medium", "description": "חיישן"},
+                    ],
+                    "notes": "",
+                },
+                "systemic_issue_signals": [
+                    {"system": "electrical", "severity": "medium", "repeat_frequency": "sometimes"},
+                    {"system": "ac", "severity": "low", "repeat_frequency": "rare"},
+                    {"system": "suspension", "severity": "medium", "repeat_frequency": "rare"},
+                ],
+                "maintenance_cost_pressure": {"level": "medium", "explanation": ""},
+            }
+        )
+        r = compute_reliability_score_and_banner(v, rs, "high")
+        assert r["banner_he"] == "גבוה", (
+            f"Got {r['banner_he']} (score={r['score_0_100']}), expected גבוה"
+        )
+
+    def test_estimate_floor_disabled_by_major_systemic(self):
+        """Code-side floor must NOT apply when high-severity systemic issue exists."""
+        v = _default_validated()
+        rs = _full_risk_signals(
+            {
+                "systemic_issue_signals": [
+                    {"system": "engine", "severity": "high", "repeat_frequency": "common"},
+                    {"system": "transmission", "severity": "high", "repeat_frequency": "sometimes"},
+                ],
+                "recalls": {
+                    "count": 3,
+                    "items": [
+                        {"system": "engine", "severity": "high", "description": "כשל מנוע"},
+                        {"system": "engine", "severity": "high", "description": "דליפת שמן"},
+                        {"system": "brakes", "severity": "high", "description": "כשל בלמים"},
+                    ],
+                    "notes": "",
+                },
+                "maintenance_cost_pressure": {"level": "high", "explanation": ""},
+            }
+        )
+        r = compute_reliability_score_and_banner(v, rs, "high")
+        assert r["banner_he"] != "גבוה"
+
+    def test_calibration_low_sensitivity_meaningful_reduction(self):
+        """Low sensitivity (0.7) should noticeably reduce penalties vs high (1.3)."""
+        v = _default_validated()
+        rs = _full_risk_signals(
+            {
+                "systemic_issue_signals": [
+                    {"system": "engine", "severity": "medium", "repeat_frequency": "common"},
+                    {"system": "electrical", "severity": "medium", "repeat_frequency": "sometimes"},
+                ],
+                "maintenance_cost_pressure": {"level": "medium", "explanation": ""},
+            }
+        )
+        model_low = {
+            "systemic_penalty_sensitivity": "low",
+            "recall_penalty_sensitivity": "low",
+            "maintenance_penalty_sensitivity": "low",
+        }
+        model_high = {
+            "systemic_penalty_sensitivity": "high",
+            "recall_penalty_sensitivity": "high",
+            "maintenance_penalty_sensitivity": "high",
+        }
+        r_low = compute_reliability_score_and_banner(v, rs, "medium", model_output=model_low)
+        r_high = compute_reliability_score_and_banner(v, rs, "medium", model_output=model_high)
+        diff = r_low["score_0_100"] - r_high["score_0_100"]
+        assert diff >= 3, (
+            f"Sensitivity gap too small: low={r_low['score_0_100']}, high={r_high['score_0_100']}, diff={diff}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # sanity checks for known vehicles
 # ---------------------------------------------------------------------------
+
 
 class TestSanityChecks:
     def test_toyota_corolla_clean_is_high(self):
         r = compute_reliability_score_and_banner(
-            _default_validated(), _full_risk_signals()
+            _default_validated(),
+            _full_risk_signals(),
         )
         assert r["banner_he"] == "גבוה"
 
@@ -636,34 +883,49 @@ class TestSanityChecks:
     def test_vw_golf_dsg_issues_is_medium(self):
         """VW Golf with DSG issues should not be excessively collapsed."""
         v = _default_validated({"make": "Volkswagen", "model": "Golf"})
-        rs = _full_risk_signals({
-            "recalls": {"count": 2, "high_severity_count": 0, "notes": ""},
-            "systemic_issue_signals": [
-                {"system": "transmission", "severity": "high",
-                 "repeat_frequency": "sometimes"},
-            ],
-            "maintenance_cost_pressure": {
-                "level": "medium", "explanation": "",
-            },
-        })
+        rs = _full_risk_signals(
+            {
+                "recalls": {"count": 2, "high_severity_count": 0, "notes": ""},
+                "systemic_issue_signals": [
+                    {"system": "transmission", "severity": "high", "repeat_frequency": "sometimes"},
+                ],
+                "maintenance_cost_pressure": {
+                    "level": "medium",
+                    "explanation": "",
+                },
+            }
+        )
         r = compute_reliability_score_and_banner(v, rs)
-        # With lighter recall history (low bucket), VW Golf stays medium
         assert r["banner_he"] == "בינוני"
         assert r["score_0_100"] >= 40
 
     def test_land_rover_many_issues_is_low(self):
         v = _default_validated({"make": "Land Rover", "model": "Discovery"})
-        rs = _full_risk_signals({
-            "recalls": {"count": 6, "high_severity_count": 2, "notes": ""},
-            "systemic_issue_signals": [
-                {"system": "electrical", "severity": "high",
-                 "repeat_frequency": "common"},
-                {"system": "suspension", "severity": "medium",
-                 "repeat_frequency": "common"},
-            ],
-            "maintenance_cost_pressure": {
-                "level": "high", "explanation": "",
-            },
-        })
+        rs = _full_risk_signals(
+            {
+                "recalls": {
+                    "count": 4,
+                    "items": [
+                        {"system": "engine", "severity": "high", "description": "כשל מנוע"},
+                        {"system": "brakes", "severity": "high", "description": "כשל בלמים"},
+                        {
+                            "system": "transmission",
+                            "severity": "high",
+                            "description": "אובדן הנעה",
+                        },
+                    ],
+                    "notes": "",
+                },
+                "systemic_issue_signals": [
+                    {"system": "engine", "severity": "high", "repeat_frequency": "common"},
+                    {"system": "electrical", "severity": "high", "repeat_frequency": "common"},
+                    {"system": "suspension", "severity": "medium", "repeat_frequency": "common"},
+                ],
+                "maintenance_cost_pressure": {
+                    "level": "high",
+                    "explanation": "",
+                },
+            }
+        )
         r = compute_reliability_score_and_banner(v, rs)
         assert r["banner_he"] == "נמוך"

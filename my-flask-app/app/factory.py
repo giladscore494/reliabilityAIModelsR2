@@ -563,6 +563,18 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
      - אם אינך בטוח, אפשר להחזיר null.
      - אל תגרום לשינויים גדולים בציון רק בגלל הכיול.
      - אל תמציא כיול אם אין בסיס.
+6.2) סיווג חומרת ריקולים — חובה לפי הקריטריונים הבאים:
+     severity: "high" — ריקול על מערכת שפגיעה בה מסכנת חיים או גורמת לנזק מכני משמעותי:
+       engine, transmission, brakes, cooling, steering, safety_system (כריות אוויר, ABS, ESP, חגורות).
+       גם: דליפת דלק, סיכון שריפה, אובדן הנעה/בלימה פתאומי.
+     severity: "medium" — ריקול על מערכת שפגיעה בה גורמת לאי-נוחות, עלות תיקון, או ירידה בביצועים אבל לא מסכנת חיים:
+       electrical (לא בטיחותי), ac, sensors, suspension (רכות/רעש, לא שבירה), תוכנה שמשפיעה על נסיעה.
+     severity: "low" — ריקול על מערכת שפגיעה בה לא משפיעה על בטיחות, אמינות מכנית או עלות אחזקה שוטפת:
+       infotainment, trim, cosmetic, עדכון תוכנה קוסמטי, תצוגה, בידור, נוחות בלבד.
+     כלל: אם לא בטוח — סווג כ-medium, לא כ-high.
+6.3) overall_reliability_estimate כבר אמור לשקף את תמונת האמינות הכוללת כולל ריקולים.
+     לכן: אל תתן severity: "high" לריקולים שכבר טופלו על ידי היצרן ולא מהווים סיכון מתמשך.
+     ריקול שטופל = low או medium לכל היותר, גם אם המערכת המקורית הייתה קריטית.
 7) אין להניח מצב רכב ספציפי ללא ראיה מפורשת מהמשתמש:
    - אל תטען שהיסטוריית טיפולים חסרה/חלקית, הזנחה, דילוג על טיפולים, או ריקול לא טופל ברכב הספציפי
      אלא אם המשתמש סיפק ראיה מפורשת לכך.
@@ -634,7 +646,14 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
     }},
     "recalls": {{
       "count": 0,
-      "high_severity_count": 0,
+      "items": [
+        {{
+          "system": "engine|transmission|brakes|cooling|steering|suspension|electrical|ac|sensors|infotainment|trim|safety_system|other",
+          "description": "תיאור קצר של הריקול",
+          "severity": "low|medium|high",
+          "source": "URL or source name"
+        }}
+      ],
       "notes": "string"
     }},
     "systemic_issue_signals": [

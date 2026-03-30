@@ -458,35 +458,44 @@ class TestCompareWriterPromptAndValidation:
         assert '"winner": "car_1|car_2|car_3|tie"' in prompt
         assert "carA|carB|tie" not in prompt
 
-    def test_writer_validator_rejects_non_schema_and_long_fields(self):
-        invalid_payload = {
-            "summary": " ".join(["too"] * 41),
-            "winner": "carA",
-            "categories": [],
-            "caveats": [],
-        }
-        assert validate_compare_writer_response(invalid_payload) is None
-
-        valid_payload = {
-            "summary": "Toyota wins slightly on reliability and balanced costs.",
+    def test_writer_validator_accepts_extra_keys_and_truncates_long_fields(self):
+        payload = {
+            "summary": " ".join(["סיכום"] * 90),
             "winner": "carA",
             "categories": [
                 {
                     "name": "reliability_risk",
                     "winner": "carA",
-                    "why": "Lower failure risk and stronger reliability score.",
+                    "why": " ".join(["אמינות"] * 65),
                     "explanations": {
-                        "car_1": "אמינות חזקה יותר לפי הנתונים שנאספו.",
-                        "car_2": "פחות משכנעת באמינות לפי אותם נתונים.",
+                        "car_1": " ".join(["לטויוטה"] * 70),
+                        "car_2": " ".join(["להונדה"] * 62),
                     },
-                    "tips": ["Check service history", "Verify recall completion"],
+                    "tips": [
+                        " ".join(["בדקו"] * 35),
+                        "Verify recall completion",
+                    ],
+                    "extra_field": "ignored",
                 }
             ],
-            "caveats": ["Market conditions may vary."],
+            "caveats": [" ".join(["שימו"] * 40)],
+            "extra_payload_field": {"ignored": True},
         }
-        validated = validate_compare_writer_response(valid_payload)
+        validated = validate_compare_writer_response(payload)
         assert validated is not None
-        assert validated["categories"][0]["explanations"]["car_1"]
+        assert len(validated["summary"].split()) == 80
+        assert len(validated["categories"][0]["why"].split()) == 60
+        assert len(validated["categories"][0]["explanations"]["car_1"].split()) == 60
+        assert len(validated["categories"][0]["tips"][0].split()) == 30
+        assert len(validated["caveats"][0].split()) == 30
+
+    def test_writer_validator_rejects_missing_required_keys(self):
+        invalid_payload = {
+            "summary": "short summary",
+            "winner": "carA",
+            "categories": [],
+        }
+        assert validate_compare_writer_response(invalid_payload) is None
 
     def test_writer_validator_accepts_slot_based_third_car_and_converts_narrative(self):
         payload = {

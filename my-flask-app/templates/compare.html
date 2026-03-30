@@ -1451,6 +1451,41 @@
         };
     }
 
+    function describeNarrativeCandidate(candidate) {
+        if (!candidate || typeof candidate !== 'object') {
+            return {
+                isObject: false,
+                hasSummary: false,
+                hasCategoryExplanations: false,
+                hasPerCarExplanations: false,
+                hasDisclaimers: false,
+                categoryCount: 0,
+            };
+        }
+        const rawCategories = Array.isArray(candidate.category_explanations)
+            ? candidate.category_explanations
+            : (Array.isArray(candidate.categories) ? candidate.categories : []);
+        const rawDisclaimers = Array.isArray(candidate.disclaimers_he)
+            ? candidate.disclaimers_he
+            : (Array.isArray(candidate.caveats) ? candidate.caveats : []);
+        const hasPerCarExplanations = rawCategories.some((item) => {
+            const explanations = item && typeof item === 'object' && item.explanations && typeof item.explanations === 'object'
+                ? item.explanations
+                : {};
+            return Object.values(explanations).some(value => normalizeNarrativeText(value));
+        });
+        return {
+            isObject: true,
+            hasSummary: Boolean(normalizeNarrativeText(
+                candidate.overall_summary || candidate.narrative || candidate.summary || ''
+            )),
+            hasCategoryExplanations: rawCategories.length > 0,
+            hasPerCarExplanations,
+            hasDisclaimers: rawDisclaimers.some(item => normalizeNarrativeText(item)),
+            categoryCount: rawCategories.length,
+        };
+    }
+
     function isNarrativeUsable(candidate) {
         if (!candidate || typeof candidate !== 'object') {
             return false;
@@ -1500,20 +1535,68 @@
         return isNarrativeUsable(normalized) ? normalized : null;
     }
 
+    function getNarrativeFailureReason(result) {
+        if (!result || typeof result !== 'object') {
+            return 'no compare result payload';
+        }
+        const ai = result?.ai || {};
+        const candidateShapes = [
+            ['result.narrative', describeNarrativeCandidate(result?.narrative)],
+            ['result.computed_result.narrative', describeNarrativeCandidate(result?.computed_result?.narrative)],
+            ['result', describeNarrativeCandidate(result)],
+            ['ai.stage_b', describeNarrativeCandidate(ai?.stage_b)],
+        ];
+        const hasObjectCandidate = candidateShapes.some(([, shape]) => shape.isObject);
+        if (!hasObjectCandidate) {
+            return 'no narrative payload';
+        }
+        if (ai?.status === 'partial_fallback') {
+            return 'partial_stage_a fallback path used';
+        }
+        if (!candidateShapes.some(([, shape]) => shape.hasSummary)) {
+            if (!candidateShapes.some(([, shape]) => shape.hasCategoryExplanations)) {
+                return 'summary missing and category explanations missing';
+            }
+            if (!candidateShapes.some(([, shape]) => shape.hasPerCarExplanations)) {
+                return 'summary missing and no usable per-car explanation content after normalization';
+            }
+        }
+        if (!candidateShapes.some(([, shape]) => shape.hasPerCarExplanations)) {
+            return 'per-car explanation blocks were empty';
+        }
+        return 'no usable explanation content after normalization';
+    }
+
     function resolveNarrative(result) {
         const ai = result?.ai || {};
         const candidates = [
-            result?.narrative,
-            result?.computed_result?.narrative,
-            result,
-            ai?.stage_b,
+            { source: 'result.narrative', value: result?.narrative },
+            { source: 'result.computed_result.narrative', value: result?.computed_result?.narrative },
+            { source: 'result', value: result },
+            { source: 'ai.stage_b', value: ai?.stage_b },
         ];
         for (const candidate of candidates) {
-            const normalized = normalizeNarrativeCandidate(candidate);
+            const normalized = normalizeNarrativeCandidate(candidate.value);
+            console.debug('[COMPARE] narrative candidate inspected', {
+                source: candidate.source,
+                shape: describeNarrativeCandidate(candidate.value),
+                normalizedUsable: Boolean(normalized),
+            });
             if (normalized) {
+                console.debug('[COMPARE] narrative candidate selected', {
+                    source: candidate.source,
+                    shape: describeNarrativeCandidate(candidate.value),
+                });
                 return normalized;
             }
         }
+        console.warn('[COMPARE] narrative resolution failed', {
+            aiStatus: ai?.status || null,
+            aiReason: ai?.reason || null,
+            reason: getNarrativeFailureReason(result),
+            statusGateReason: 'not_applied_in_current_ui',
+            mobileRenderPath: 'shared_desktop_and_mobile_render_path',
+        });
         return null;
     }
 
@@ -1531,6 +1614,12 @@
             narrative,
         });
         if (!section) {
+            console.warn('[COMPARE] narrative render skipped', {
+                reason: 'DOM container missing',
+                containerId: 'narrativeSection',
+                aiStatus: ai?.status || null,
+                aiReason: ai?.reason || null,
+            });
             return;
         }
         if (aiRetryBtn) {
@@ -1543,6 +1632,16 @@
             if (categoryContainer) categoryContainer.innerHTML = '';
             if (summaryEl) summaryEl.textContent = 'הסבר AI לא זמין כרגע; מוצגת השוואה מספרית.';
             if (disclaimersEl) disclaimersEl.textContent = 'אפשר לנסות שוב.';
+            console.warn('[COMPARE] narrative hidden fallback', {
+                reason: getNarrativeFailureReason(result),
+                aiStatus: ai?.status || null,
+                aiReason: ai?.reason || null,
+                explanationContainerExists: Boolean(categoryContainer),
+                explanationContainerEmpty: !categoryContainer || !String(categoryContainer.innerHTML || '').trim(),
+                sectionHiddenAfterRender: section.classList.contains('hidden'),
+                statusGateReason: 'not_applied_in_current_ui',
+                mobileRenderPath: 'shared_desktop_and_mobile_render_path',
+            });
             return;
         }
         
@@ -1607,6 +1706,20 @@
 
             categoryContainer.innerHTML = cardsHtml;
         }
+        console.debug('[COMPARE] narrative rendered', {
+            aiStatus: ai?.status || null,
+            aiReason: ai?.reason || null,
+            summaryRendered: Boolean(narrative.overall_summary),
+            categoryExplanationCount: categoryExplanations.length,
+            renderedCardCount: categoryContainer
+                ? categoryContainer.querySelectorAll('.rounded-2xl').length
+                : 0,
+            explanationContainerExists: Boolean(categoryContainer),
+            explanationContainerEmpty: !categoryContainer || !String(categoryContainer.innerHTML || '').trim(),
+            sectionHiddenAfterRender: section.classList.contains('hidden'),
+            statusGateReason: 'not_applied_in_current_ui',
+            mobileRenderPath: 'shared_desktop_and_mobile_render_path',
+        });
     }
     
     // ============================================================

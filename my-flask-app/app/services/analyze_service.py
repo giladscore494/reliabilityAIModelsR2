@@ -78,27 +78,31 @@ _SYSTEM_TIER_DEFAULT = 1.0  # standard tier for unknown systems
 _SYSTEMIC_PENALTY_CAP = 40
 _MAX_SIGNALS = 50
 
-# ── Recall buckets ──
-_RECALL_PENALTY = {"none": 0, "low": 1, "medium": 5, "high": 10}
+# Recall penalty by severity tier:
+# low = infotainment, cosmetic, convenience → zero penalty
+# medium = AC, sensors, non-safety electrical → minor penalty per recall
+# high = engine, transmission, brakes, cooling, steering, safety → significant penalty per recall
+_RECALL_SEVERITY_PENALTY = {"low": 0, "medium": 1.5, "high": 4}
+_RECALL_TOTAL_CAP = 12
 
 # ── Maintenance cost pressure ──
 _MCP_PENALTY = {"low": 0, "medium": 2, "high": 6}
 
 # ── Clean bonus ──
-_CLEAN_BONUS = 4
+_CLEAN_BONUS = 6
 
 # ── Penalty cap: fraction of base that total penalties can consume (0.55 = 55%) ──
 _PENALTY_CAP_FRACTION = 0.55
 
 # ── Overall model-level reliability anchor (modest adjustment) ──
 _OVERALL_RELIABILITY_ADJUSTMENT = {
-    "high": 3,
+    "high": 8,
     "medium": 0,
-    "low": -3,
+    "low": -8,
 }
 _MODEL_PRIMARY_BASE_SCORE = 74
 _MODEL_JSON_RELIABILITY_BIAS = {"strong": 2, "neutral": 0, "weak": -2}
-_MODEL_JSON_SENSITIVITY_SCALE = {"low": 0.9, "normal": 1.0, "high": 1.1}
+_MODEL_JSON_SENSITIVITY_SCALE = {"low": 0.7, "normal": 1.0, "high": 1.3}
 _MODEL_JSON_CONFIDENCE_ALLOWED = {"low", "medium", "high"}
 _MODEL_JSON_BIAS_ALLOWED = set(_MODEL_JSON_RELIABILITY_BIAS.keys())
 _MODEL_JSON_SENSITIVITY_ALLOWED = set(_MODEL_JSON_SENSITIVITY_SCALE.keys())
@@ -219,17 +223,6 @@ def _confidence_label(c) -> str:
     return "low"
 
 
-def _classify_recall_bucket(count: int, high_severity_count: int) -> str:
-    """Map recall counts into one of 4 deterministic buckets."""
-    if count == 0:
-        return "none"
-    if high_severity_count >= 2 or count >= 5:
-        return "high"
-    if high_severity_count >= 1 or count >= 3:
-        return "medium"
-    return "low"
-
-
 def _compute_confidence_category(risk_signals: dict) -> str:
     """Derive a simple confidence category from signal quality indicators.
 
@@ -262,10 +255,26 @@ def _normalized_reliability_estimate(value: Any) -> Optional[str]:
 
 def _derive_model_estimate_from_signals(risk_signals: Dict[str, Any]) -> str:
     recalls = risk_signals.get("recalls") if isinstance(risk_signals.get("recalls"), dict) else {}
-    recall_bucket = _classify_recall_bucket(
-        _safe_int(recalls.get("count"), lo=0, hi=100),
-        _safe_int(recalls.get("high_severity_count"), lo=0, hi=100),
-    )
+    raw_recall_items = recalls.get("items")
+    recall_items = raw_recall_items if isinstance(raw_recall_items, list) else []
+    has_high_recall = False
+    has_meaningful_recall = False
+    for item in recall_items[:20]:
+        if not isinstance(item, dict):
+            continue
+        sev = str(item.get("severity", "")).lower()
+        if sev == "high":
+            has_high_recall = True
+            has_meaningful_recall = True
+            break
+        if sev == "medium":
+            has_meaningful_recall = True
+
+    if not recall_items:
+        recall_count = _safe_int(recalls.get("count"), lo=0, hi=100)
+        high_sev_count = _safe_int(recalls.get("high_severity_count"), lo=0, hi=100)
+        has_high_recall = high_sev_count > 0
+        has_meaningful_recall = high_sev_count > 0 or recall_count >= 3
 
     mcp = risk_signals.get("maintenance_cost_pressure") if isinstance(risk_signals.get("maintenance_cost_pressure"), dict) else {}
     mcp_level = str(mcp.get("level", "")).lower()
@@ -283,17 +292,19 @@ def _derive_model_estimate_from_signals(risk_signals: Dict[str, Any]) -> str:
                 or _contains_vehicle_specific_neglect_claim(sig.get("typical_timing"))
             ):
                 continue
+            system = str(sig.get("system", "")).lower()
             severity = str(sig.get("severity", "")).lower()
+            sys_mult = _SYSTEM_TIER.get(system, _SYSTEM_TIER_DEFAULT)
             if severity == "high":
                 has_high_issue = True
                 has_meaningful_issue = True
                 break
-            if severity == "medium":
+            if severity == "medium" and sys_mult >= 1.0:
                 has_meaningful_issue = True
 
-    if recall_bucket == "high" or has_high_issue or mcp_level == "high":
+    if has_high_recall or has_high_issue or mcp_level == "high":
         return "low"
-    if recall_bucket == "medium" or has_meaningful_issue or mcp_level == "medium":
+    if has_meaningful_recall or has_meaningful_issue or mcp_level == "medium":
         return "medium"
     return "high"
 
@@ -539,18 +550,38 @@ def compute_reliability_score_and_banner(
             systemic_penalty += penalty
             if is_recall_like:
                 recall_like_systemic_penalty += penalty
-            if severity in ("medium", "high"):
+            if severity in ("medium", "high") and sys_mult >= 1.0:
                 has_meaningful_issues = True
             if severity == "high":
                 has_major_systemic_issue = True
     systemic_penalty = min(systemic_penalty, _SYSTEMIC_PENALTY_CAP)
 
-    # ── Step 3: recall penalty ──
-    recall_count = _safe_int(recalls.get("count"), lo=0, hi=100)
-    high_sev_count = _safe_int(recalls.get("high_severity_count"), lo=0, hi=100)
-    recall_bucket = _classify_recall_bucket(recall_count, high_sev_count)
-    recall_penalty = _RECALL_PENALTY[recall_bucket]
-    has_meaningful_recalls = recall_bucket not in ("none", "low")
+    # ── Step 3: recall penalty (severity-based, not count-based) ──
+    raw_recall_items = recalls.get("items")
+    recall_items = raw_recall_items if isinstance(raw_recall_items, list) else []
+    recall_penalty = 0.0
+    has_meaningful_recalls = False
+    for item in recall_items[:20]:
+        if not isinstance(item, dict):
+            continue
+        sev = str(item.get("severity", "")).lower()
+        pen = _RECALL_SEVERITY_PENALTY.get(sev, 0)
+        recall_penalty += pen
+        if sev in ("medium", "high"):
+            has_meaningful_recalls = True
+    recall_penalty = min(recall_penalty, _RECALL_TOTAL_CAP)
+
+    # Fallback: if LLM returned old format (count/high_severity_count) without items
+    if not recall_items:
+        recall_count = _safe_int(recalls.get("count"), lo=0, hi=100)
+        high_sev_count = _safe_int(recalls.get("high_severity_count"), lo=0, hi=100)
+        if recall_count > 0:
+            recall_penalty = min(
+                high_sev_count * _RECALL_SEVERITY_PENALTY["high"]
+                + max(0, recall_count - high_sev_count) * _RECALL_SEVERITY_PENALTY["medium"],
+                _RECALL_TOTAL_CAP,
+            )
+            has_meaningful_recalls = high_sev_count > 0 or recall_count >= 3
 
     # De-duplicate when the same recall appears as systemic signal text + recall bucket
     if recall_penalty > 0 and recall_like_systemic_penalty > 0:
@@ -568,6 +599,13 @@ def compute_reliability_score_and_banner(
         mcp_level = str(mcp.get("level", "unknown")).lower()
     raw_mcp = _MCP_PENALTY.get(mcp_level, 0)
     mcp_penalty = raw_mcp
+
+    # ── MCP ↔ systemic dedup: high systemic penalty already reflects expensive
+    # repairs, so mcp is partially redundant. Discount mcp when systemic > 10. ──
+    _MCP_SYSTEMIC_OVERLAP_THRESHOLD = 10
+    _MCP_OVERLAP_DISCOUNT = 0.5
+    if systemic_penalty > _MCP_SYSTEMIC_OVERLAP_THRESHOLD and mcp_penalty > 0:
+        mcp_penalty = mcp_penalty * _MCP_OVERLAP_DISCOUNT
 
     calibration = _compute_model_json_calibration(
         model_output if isinstance(model_output, dict) else None,
@@ -594,6 +632,12 @@ def compute_reliability_score_and_banner(
     model_reliability_score = _bound_score(base - total_penalty + bonus + calibration["delta"])
     if calibration["soft_floor"] is not None:
         model_reliability_score = max(model_reliability_score, calibration["soft_floor"])
+    # Code-side floor: LLM's overall assessment protects against
+    # accumulated minor/medium penalties dragging a reliable car down.
+    # Disabled when any high-severity systemic issue exists.
+    _ESTIMATE_FLOOR = {"high": _BANNER_HIGH_THRESHOLD, "medium": _BANNER_MEDIUM_THRESHOLD}
+    if estimate_label in _ESTIMATE_FLOOR and not has_major_systemic_issue:
+        model_reliability_score = max(model_reliability_score, _ESTIMATE_FLOOR[estimate_label])
     model_reliability_score = _bound_score(model_reliability_score)
     model_reliability_label = _banner_from_score(model_reliability_score)
 

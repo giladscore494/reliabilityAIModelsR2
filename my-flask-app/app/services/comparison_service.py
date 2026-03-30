@@ -1714,70 +1714,142 @@ def parse_stage_a_json(raw_text: str) -> Tuple[Optional[Dict[str, Any]], Optiona
     return None, "MODEL_JSON_INVALID"
 
 
-def validate_compare_writer_response(payload: Any) -> Optional[Dict[str, Any]]:
-    if not isinstance(payload, dict):
+def _truncate_to_word_limit(value: Any, limit: int) -> Optional[str]:
+    if not isinstance(value, str):
         return None
-    if set(payload.keys()) != {"summary", "winner", "categories", "caveats"}:
+    compact = " ".join(value.split())
+    if not compact:
         return None
-
-    def _word_cap(value: Any, limit: int) -> Optional[str]:
-        if not isinstance(value, str):
-            return None
-        compact = " ".join(value.split())
-        if not compact or len(compact.split()) > limit:
-            return None
+    words = compact.split()
+    if len(words) <= limit:
         return compact
+    return " ".join(words[:limit])
 
-    summary = _word_cap(payload.get("summary"), 40)
+
+def _summarize_compare_writer_payload(payload: Any) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {
+            "is_object": False,
+            "top_level_keys": [],
+        }
+
+    categories = payload.get("categories") if isinstance(payload.get("categories"), list) else []
+    categories_with_explanations = 0
+    for item in categories:
+        if not isinstance(item, dict):
+            continue
+        explanations = item.get("explanations")
+        if isinstance(explanations, dict) and any(str(text or "").strip() for text in explanations.values()):
+            categories_with_explanations += 1
+
+    return {
+        "is_object": True,
+        "top_level_keys": sorted(payload.keys()),
+        "has_summary": bool(str(payload.get("summary") or "").strip()),
+        "has_categories": isinstance(payload.get("categories"), list),
+        "category_count": len(categories),
+        "has_caveats": isinstance(payload.get("caveats"), list),
+        "caveat_count": len(payload.get("caveats") or []) if isinstance(payload.get("caveats"), list) else None,
+        "categories_with_per_car_explanations": categories_with_explanations,
+    }
+
+
+def _summarize_comparison_narrative_shape(narrative: Any) -> Dict[str, Any]:
+    if not isinstance(narrative, dict):
+        return {
+            "exists": False,
+            "overall_summary_exists": False,
+            "category_explanations_exists": False,
+            "per_car_explanations_exist": False,
+            "disclaimers_exist": False,
+            "category_count": 0,
+        }
+
+    categories = narrative.get("category_explanations") if isinstance(narrative.get("category_explanations"), list) else []
+    categories_with_explanations = 0
+    for item in categories:
+        if not isinstance(item, dict):
+            continue
+        explanations = item.get("explanations")
+        if isinstance(explanations, dict) and any(str(text or "").strip() for text in explanations.values()):
+            categories_with_explanations += 1
+
+    disclaimers = narrative.get("disclaimers_he") if isinstance(narrative.get("disclaimers_he"), list) else []
+    summary = str(narrative.get("overall_summary") or "").strip()
+    return {
+        "exists": True,
+        "overall_summary_exists": bool(summary),
+        "category_explanations_exists": bool(categories),
+        "per_car_explanations_exist": categories_with_explanations > 0,
+        "disclaimers_exist": any(str(item or "").strip() for item in disclaimers),
+        "category_count": len(categories),
+        "categories_with_per_car_explanations": categories_with_explanations,
+        "partial_summary": summary.startswith(PARTIAL_COMPARISON_SUMMARY_PREFIX),
+    }
+
+
+def _validate_compare_writer_response(payload: Any) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    if not isinstance(payload, dict):
+        return None, "payload_not_object"
+    required_keys = {"summary", "winner", "categories", "caveats"}
+    if not required_keys.issubset(payload.keys()):
+        return None, "missing_required_keys"
+
+    summary = _truncate_to_word_limit(payload.get("summary"), 80)
     categories = payload.get("categories")
     caveats = payload.get("caveats")
     allowed_slot_keys = ["car_1", "car_2", "car_3"]
     winner = _normalize_compare_writer_winner(payload.get("winner"), allowed_slot_keys)
     if summary is None or winner is None:
-        return None
+        return None, "invalid_summary_or_winner"
     if not isinstance(categories, list) or len(categories) > 4:
-        return None
+        return None, "invalid_categories"
     if not isinstance(caveats, list) or len(caveats) > 3:
-        return None
+        return None, "invalid_caveats"
 
     validated_categories = []
     for item in categories:
         if not isinstance(item, dict):
-            return None
-        if set(item.keys()) not in (
-            {"name", "winner", "why", "tips"},
-            {"name", "winner", "why", "explanations", "tips"},
-        ):
-            return None
+            return None, "invalid_category_item"
+        required_category_keys = {"name", "winner", "why", "tips"}
+        if not required_category_keys.issubset(item.keys()):
+            return None, "missing_category_keys"
         if item.get("name") not in COMPARE_CATEGORY_NAMES:
-            return None
+            return None, "invalid_category_name"
         category_winner = _normalize_compare_writer_winner(item.get("winner"), allowed_slot_keys)
         if category_winner is None:
-            return None
-        why = _word_cap(item.get("why"), 35)
+            return None, "invalid_category_winner"
+        why = _truncate_to_word_limit(item.get("why"), 60)
         if why is None:
-            return None
+            return None, "invalid_category_why"
         explanations = item.get("explanations")
         normalized_explanations = {}
         if explanations is not None:
             if not isinstance(explanations, dict):
-                return None
+                return None, "invalid_explanations"
             for slot_key in allowed_slot_keys:
                 explanation_text = explanations.get(slot_key)
                 if explanation_text is None:
                     continue
-                explanation_clean = _word_cap(explanation_text, 18)
+                explanation_clean = _truncate_to_word_limit(explanation_text, 60)
                 if explanation_clean is None:
-                    return None
+                    logger.warning(
+                        "[COMPARISON] compare_writer explanation dropped slot_key=%s reason=empty_or_invalid",
+                        slot_key,
+                    )
+                    continue
                 normalized_explanations[slot_key] = explanation_clean
         tips = item.get("tips")
         if not isinstance(tips, list) or len(tips) > 3:
-            return None
+            return None, "invalid_tips"
         normalized_tips = []
         for tip in tips:
-            tip_clean = _word_cap(tip, 12)
+            tip_clean = _truncate_to_word_limit(tip, 30)
             if tip_clean is None:
-                return None
+                logger.warning(
+                    "[COMPARISON] compare_writer tip dropped reason=empty_or_invalid"
+                )
+                continue
             normalized_tips.append(tip_clean)
         validated_categories.append({
             "name": item.get("name"),
@@ -1789,9 +1861,12 @@ def validate_compare_writer_response(payload: Any) -> Optional[Dict[str, Any]]:
 
     normalized_caveats = []
     for caveat in caveats:
-        caveat_clean = _word_cap(caveat, 14)
+        caveat_clean = _truncate_to_word_limit(caveat, 30)
         if caveat_clean is None:
-            return None
+            logger.warning(
+                "[COMPARISON] compare_writer caveat dropped reason=empty_or_invalid"
+            )
+            continue
         normalized_caveats.append(caveat_clean)
 
     return {
@@ -1799,7 +1874,12 @@ def validate_compare_writer_response(payload: Any) -> Optional[Dict[str, Any]]:
         "winner": winner,
         "categories": validated_categories,
         "caveats": normalized_caveats,
-    }
+    }, None
+
+
+def validate_compare_writer_response(payload: Any) -> Optional[Dict[str, Any]]:
+    validated, _reason = _validate_compare_writer_response(payload)
+    return validated
 
 
 def build_deterministic_fallback_narrative(cars_selected_slots: Dict, computed_result: Dict) -> Dict[str, Any]:
@@ -3207,34 +3287,81 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     stage_b_start = pytime.perf_counter()
     stage_b_output, stage_b_error = call_gemini_compare_writer(writer_prompt)
     ai_ms += int((pytime.perf_counter() - stage_b_start) * 1000)
+    logger.info(
+        "[COMPARISON] stage_b payload request_id=%s partial_stage_a=%s payload_shape=%s",
+        request_id,
+        stage_a_partial,
+        _summarize_compare_writer_payload(stage_b_output),
+    )
     if stage_b_error:
         logger.warning(f"[COMPARISON] stage_b call failed request_id={request_id} error={stage_b_error}")
         stage_b_reason = "stage_b_error"
         retry_prompt = build_compare_writer_retry_prompt(cars_selected_slots, server_computed_result)
         retry_output, retry_error = call_gemini_compare_writer(retry_prompt)
+        logger.info(
+            "[COMPARISON] stage_b retry payload request_id=%s partial_stage_a=%s payload_shape=%s",
+            request_id,
+            stage_a_partial,
+            _summarize_compare_writer_payload(retry_output),
+        )
         if retry_error:
             logger.warning(f"[COMPARISON] stage_b retry failed request_id={request_id} error={retry_error}")
             _inc_compare_metric("compare_ai_fallback_used_total")
             narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
         else:
-            validated_retry = validate_compare_writer_response(retry_output)
+            validated_retry, retry_reason = _validate_compare_writer_response(retry_output)
             if validated_retry:
                 narrative = sanitize_comparison_narrative(convert_writer_response_to_narrative(validated_retry, cars_selected_slots))
                 stage_b_reason = None
+                logger.info(
+                    "[COMPARISON] stage_b retry accepted request_id=%s narrative_shape=%s",
+                    request_id,
+                    _summarize_comparison_narrative_shape(narrative),
+                )
             else:
-                _inc_compare_metric("compare_ai_fallback_used_total")
-                narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
+                raw_retry_narrative = retry_output.get("narrative") if isinstance(retry_output, dict) else None
+                logger.warning(
+                    "[COMPARISON] stage_b retry validation failed request_id=%s reason=%s payload_shape=%s",
+                    request_id,
+                    retry_reason,
+                    _summarize_compare_writer_payload(retry_output),
+                )
+                if raw_retry_narrative:
+                    narrative = sanitize_comparison_narrative(raw_retry_narrative)
+                    stage_b_reason = None
+                    logger.info(
+                        "[COMPARISON] stage_b retry legacy narrative used request_id=%s narrative_shape=%s",
+                        request_id,
+                        _summarize_comparison_narrative_shape(narrative),
+                    )
+                else:
+                    _inc_compare_metric("compare_ai_fallback_used_total")
+                    narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
     elif isinstance(stage_b_output, dict):
-        validated_writer = validate_compare_writer_response(stage_b_output)
+        validated_writer, validation_reason = _validate_compare_writer_response(stage_b_output)
         if validated_writer:
             narrative = sanitize_comparison_narrative(convert_writer_response_to_narrative(validated_writer, cars_selected_slots))
-            logger.info(f"[COMPARISON] narrative generated request_id={request_id}")
+            logger.info(
+                "[COMPARISON] narrative generated request_id=%s narrative_shape=%s",
+                request_id,
+                _summarize_comparison_narrative_shape(narrative),
+            )
             stage_b_reason = None
         else:
             raw_narrative = stage_b_output.get("narrative")
+            logger.warning(
+                "[COMPARISON] stage_b validation failed request_id=%s reason=%s payload_shape=%s",
+                request_id,
+                validation_reason,
+                _summarize_compare_writer_payload(stage_b_output),
+            )
             if raw_narrative:
                 narrative = sanitize_comparison_narrative(raw_narrative)
-                logger.info(f"[COMPARISON] narrative generated request_id={request_id} mode=legacy_deprecated")
+                logger.info(
+                    "[COMPARISON] narrative generated request_id=%s mode=legacy_deprecated narrative_shape=%s",
+                    request_id,
+                    _summarize_comparison_narrative_shape(narrative),
+                )
                 stage_b_reason = None
             else:
                 stage_b_reason = "stage_b_error"
@@ -3243,6 +3370,11 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
 
     if stage_a_partial:
         narrative = mark_partial_comparison_narrative(narrative)
+        logger.info(
+            "[COMPARISON] partial_stage_a fallback path used request_id=%s narrative_shape=%s",
+            request_id,
+            _summarize_comparison_narrative_shape(narrative),
+        )
 
     computed_result = enforce_authoritative_numbers(server_computed_result, stage_b_output, request_id)
     ai_status = "ok"
@@ -3254,6 +3386,13 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
         ai_status = "fallback"
         ai_reason = stage_b_reason
     ai_payload = build_ai_payload(computed_result, narrative, ai_status, ai_reason)
+    logger.info(
+        "[COMPARISON] response narrative request_id=%s ai_status=%s ai_reason=%s narrative_shape=%s",
+        request_id,
+        ai_status,
+        ai_reason,
+        _summarize_comparison_narrative_shape(narrative),
+    )
     if stage_a_error_code:
         ai_payload["error"] = stage_a_error_code
 
@@ -3453,19 +3592,62 @@ def regenerate_comparison_ai(comparison_id: int, user_id: int) -> Optional[Dict[
         _inc_compare_metric("compare_ai_fallback_used_total")
         narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
     elif isinstance(stage_b_output, dict):
-        validated_writer = validate_compare_writer_response(stage_b_output)
+        current_app.logger.info(
+            "[COMPARISON] compare_ai_regenerate payload request_id=%s comparison_id=%s payload_shape=%s",
+            get_request_id(),
+            comparison_id,
+            _summarize_compare_writer_payload(stage_b_output),
+        )
+        validated_writer, validation_reason = _validate_compare_writer_response(stage_b_output)
         if validated_writer:
             narrative = sanitize_comparison_narrative(convert_writer_response_to_narrative(validated_writer, cars_selected_slots))
+            current_app.logger.info(
+                "[COMPARISON] compare_ai_regenerate accepted request_id=%s comparison_id=%s narrative_shape=%s",
+                get_request_id(),
+                comparison_id,
+                _summarize_comparison_narrative_shape(narrative),
+            )
         else:
-            reason = "stage_b_error"
-            _inc_compare_metric("compare_ai_regenerate_fallback_total")
-            _inc_compare_metric("compare_ai_fallback_used_total")
-            narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
+            raw_narrative = stage_b_output.get("narrative")
+            current_app.logger.warning(
+                "[COMPARISON] compare_ai_regenerate validation failed request_id=%s comparison_id=%s reason=%s payload_shape=%s",
+                get_request_id(),
+                comparison_id,
+                validation_reason,
+                _summarize_compare_writer_payload(stage_b_output),
+            )
+            if raw_narrative:
+                narrative = sanitize_comparison_narrative(raw_narrative)
+                current_app.logger.info(
+                    "[COMPARISON] compare_ai_regenerate legacy narrative used request_id=%s comparison_id=%s narrative_shape=%s",
+                    get_request_id(),
+                    comparison_id,
+                    _summarize_comparison_narrative_shape(narrative),
+                )
+            else:
+                reason = "stage_b_error"
+                _inc_compare_metric("compare_ai_regenerate_fallback_total")
+                _inc_compare_metric("compare_ai_fallback_used_total")
+                narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
 
     if not ((server_computed_result.get("comparison_status") or {}).get("balanced", True)):
         narrative = mark_partial_comparison_narrative(narrative)
+        current_app.logger.info(
+            "[COMPARISON] compare_ai_regenerate partial_stage_a fallback path used request_id=%s comparison_id=%s narrative_shape=%s",
+            get_request_id(),
+            comparison_id,
+            _summarize_comparison_narrative_shape(narrative),
+        )
 
     ai_payload = build_ai_payload(server_computed_result, narrative, "ok" if reason is None else "fallback", reason)
+    current_app.logger.info(
+        "[COMPARISON] compare_ai_regenerate response request_id=%s comparison_id=%s ai_status=%s ai_reason=%s narrative_shape=%s",
+        get_request_id(),
+        comparison_id,
+        ai_payload.get("status"),
+        ai_payload.get("reason"),
+        _summarize_comparison_narrative_shape(narrative),
+    )
     if stage_b_error:
         ai_payload["error"] = stage_b_error
     persisted_computed = dict(server_computed_result)
