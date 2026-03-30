@@ -1421,13 +1421,14 @@
         const section = document.getElementById('narrativeSection');
         const aiRetryBtn = document.getElementById('aiRetryBtn');
         const categoryContainer = document.getElementById('narrativeCategoryExplanations');
-        const hasUsableNarrative = Boolean(
-            narrative && (
-                (typeof narrative.overall_summary === 'string' && narrative.overall_summary.trim()) ||
-                (Array.isArray(narrative.category_explanations) && narrative.category_explanations.length) ||
-                (Array.isArray(narrative.disclaimers_he) && narrative.disclaimers_he.length)
+        const isNarrativeUsable = (candidate) => Boolean(
+            candidate && (
+                (typeof candidate.overall_summary === 'string' && candidate.overall_summary.trim()) ||
+                (Array.isArray(candidate.category_explanations) && candidate.category_explanations.length) ||
+                (Array.isArray(candidate.disclaimers_he) && candidate.disclaimers_he.length)
             )
         );
+        const hasUsableNarrative = isNarrativeUsable(narrative);
         if (!section) {
             return;
         }

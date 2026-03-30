@@ -12,6 +12,9 @@ from app.models import SearchHistory, AdvisorHistory, LeasingAdvisorHistory
 from app.utils.http_helpers import api_ok, api_error, get_request_id
 from app.utils.sanitization import sanitize_analyze_response
 
+_DEAL_RISK_MEDIUM_THRESHOLD = 25
+_DEAL_RISK_HIGH_THRESHOLD = 55
+
 
 def safe_json_obj(value, default=None):
     """Safely decode value into dict/list, including a double-encoded JSON string."""
@@ -149,7 +152,11 @@ def _normalize_reliability_history_payload(raw: Any) -> Dict[str, Any]:
     if deal_risk_score is not None:
         payload["deal_risk_score"] = deal_risk_score
         payload["deal_risk_label"] = payload.get("deal_risk_label") or (
-            "גבוה" if deal_risk_score >= 55 else "בינוני" if deal_risk_score >= 25 else "נמוך"
+            "גבוה"
+            if deal_risk_score >= _DEAL_RISK_HIGH_THRESHOLD
+            else "בינוני"
+            if deal_risk_score >= _DEAL_RISK_MEDIUM_THRESHOLD
+            else "נמוך"
         )
 
     payload["calibration_applied"] = bool(payload.get("calibration_applied", False))
