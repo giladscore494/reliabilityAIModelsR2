@@ -190,13 +190,13 @@ class TestComputeComparisonResultsStableKeys:
                         "daily_usability": "medium",
                     },
                     "performance_driving": {
-                        "power_feel": "medium",
+                        "power_feel": "high",
                         "power_to_weight": None,
                         "braking_confidence": "medium",
                         "handling_agility": "high",
                         "fun_to_drive": "high",
                     },
-                    "facts": {"horsepower": 158, "weight_kg": 1325, "body_type": "sedan", "fuel_type": "petrol"},
+                    "facts": {"horsepower": 210, "weight_kg": 1325, "body_type": "sedan", "fuel_type": "petrol"},
                     "short_notes": ["מהנה יותר"],
                     "sources": ["https://example.com/honda"],
                 },
@@ -214,7 +214,7 @@ class TestComputeComparisonResultsStableKeys:
         assert result["cars"]["car_1"]["categories"]["reliability_risk"]["score"] is not None
         assert result["cars"]["car_2"]["categories"]["reliability_risk"]["score"] is not None
         assert result["comparison_status"]["balanced"] is True
-        assert result["metric_winners"]["driving_performance"]["power_capability"] in {"car_1", "car_2", "tie"}
+        assert result["metric_winners"]["driving_performance"]["power_capability"] == "car_2"
 
     def test_parse_single_car_json_normalizes_compact_stage_a_payload(self):
         raw = """
@@ -239,7 +239,7 @@ class TestComputeComparisonResultsStableKeys:
         assert parsed["reliability"]["issue_frequency"] == "low"
         assert parsed["ownership_cost"]["repair_burden"] is None
         assert parsed["facts"]["horsepower"] == 105.0
-        assert len(parsed["short_notes"]) == 4
+        assert parsed["short_notes"] == ["note 1", "note 2", "note 3", "note 4"]
         assert parsed["sources"] == ["https://example.com/1", "https://example.com/2"]
 
     def test_results_mark_unbalanced_when_one_car_has_no_stage_a_evidence(self):

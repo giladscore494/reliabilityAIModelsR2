@@ -127,6 +127,18 @@ COMPARE_WRITER_PROMPT_CHAR_CAP = int(os.environ.get("COMPARE_WRITER_PROMPT_CHAR_
 TIE_THRESHOLD = 3  # Score delta below this = "tie" (צמוד)
 PARALLEL_GRACE_SEC = 5  # Extra seconds when collecting parallel futures beyond per-call timeout
 ELLIPSIS_LEN = 3
+# Performance heuristics for typical passenger cars. HP_PER_TON_* thresholds are
+# horsepower per metric ton, while HORSEPOWER_* thresholds are absolute engine
+# output bands. They intentionally create coarse low/medium/high buckets rather
+# than precise rankings so code-side scoring stays stable across runs.
+KILOGRAMS_PER_TON = 1000.0
+MIN_REASONABLE_VEHICLE_WEIGHT_KG = 500.0
+HP_PER_TON_HIGH_THRESHOLD = 140
+HP_PER_TON_MEDIUM_THRESHOLD = 95
+HORSEPOWER_HIGH_THRESHOLD = 180
+HORSEPOWER_MEDIUM_THRESHOLD = 120
+PARTIAL_COMPARISON_SUMMARY_PREFIX = "השוואה חלקית:"
+PARTIAL_COMPARISON_DISCLAIMER = "ההשוואה חלקית כי לא נמצא מידע מלא על כל הרכבים."
 
 COMPARE_AI_METRICS = {
     "compare_ai_calls_total": 0,
@@ -170,6 +182,7 @@ CATEGORY_LABELS_HE = {
 }
 
 _LABEL_VALUES = {"low", "medium", "high"}
+# Keep Stage A tiny so the model returns deterministic JSON and the UI stays concise.
 _MAX_STAGE_A_NOTES = 4
 _MAX_STAGE_A_SOURCES = 5
 
@@ -388,12 +401,15 @@ def normalize_single_car_payload(payload: Dict[str, Any], fallback_name: Optiona
         normalized["facts"]["body_type"] = _normalize_short_text(facts.get("body_type"), 60)
         normalized["facts"]["fuel_type"] = _normalize_short_text(facts.get("fuel_type"), 60)
 
-    normalized["short_notes"] = [
-        note for note in (
-            _normalize_short_text(item, 120) for item in (payload.get("short_notes") if isinstance(payload.get("short_notes"), list) else [])
-        )
-        if note
-    ][:_MAX_STAGE_A_NOTES]
+    raw_notes = payload.get("short_notes") if isinstance(payload.get("short_notes"), list) else []
+    normalized_notes: List[str] = []
+    for item in raw_notes:
+        note = _normalize_short_text(item, 120)
+        if note:
+            normalized_notes.append(note)
+        if len(normalized_notes) >= _MAX_STAGE_A_NOTES:
+            break
+    normalized["short_notes"] = normalized_notes
     normalized["sources"] = _normalize_sources(payload.get("sources"))
 
     has_facts = any(value is not None for value in normalized["facts"].values())
@@ -878,13 +894,13 @@ def _derive_power_to_weight_label(car_data: Dict[str, Any]) -> Optional[str]:
     facts = car_data.get("facts", {})
     horsepower = _normalize_number((facts or {}).get("horsepower"))
     weight_kg = _normalize_number((facts or {}).get("weight_kg"))
-    if horsepower is None or weight_kg is None or weight_kg <= 0:
+    if horsepower is None or weight_kg is None or weight_kg < MIN_REASONABLE_VEHICLE_WEIGHT_KG:
         return None
 
-    hp_per_ton = horsepower / (weight_kg / 1000.0)
-    if hp_per_ton >= 140:
+    hp_per_ton = (horsepower * KILOGRAMS_PER_TON) / weight_kg
+    if hp_per_ton >= HP_PER_TON_HIGH_THRESHOLD:
         return "high"
-    if hp_per_ton >= 95:
+    if hp_per_ton >= HP_PER_TON_MEDIUM_THRESHOLD:
         return "medium"
     return "low"
 
@@ -893,9 +909,9 @@ def _derive_horsepower_label(car_data: Dict[str, Any]) -> Optional[str]:
     horsepower = _normalize_number(((car_data.get("facts") or {}).get("horsepower")))
     if horsepower is None:
         return None
-    if horsepower >= 180:
+    if horsepower >= HORSEPOWER_HIGH_THRESHOLD:
         return "high"
-    if horsepower >= 120:
+    if horsepower >= HORSEPOWER_MEDIUM_THRESHOLD:
         return "medium"
     return "low"
 
@@ -1124,7 +1140,12 @@ _SINGLE_CAR_REQUIRED_CATEGORIES = {
 
 
 def _is_valid_single_car_payload(payload):
-    """Validate single car payload for expected compact Stage A sections."""
+    """Validate single car payload for expected compact Stage A sections.
+
+    Stage A is intentionally tolerant: if at least one expected section exists,
+    normalization can fill the rest with nulls. This reduces false negatives from
+    minor model omissions while still rejecting unrelated JSON objects.
+    """
     if not isinstance(payload, dict):
         return False
     return bool(_SINGLE_CAR_REQUIRED_CATEGORIES.intersection(set(payload.keys())))
@@ -1321,12 +1342,11 @@ def mark_partial_comparison_narrative(narrative: Optional[Dict[str, Any]]) -> Op
         return narrative
     patched = dict(narrative)
     summary = str(patched.get("overall_summary") or "").strip()
-    if summary and "השוואה חלקית" not in summary:
-        patched["overall_summary"] = f"השוואה חלקית: {summary}"
+    if summary and not summary.startswith(PARTIAL_COMPARISON_SUMMARY_PREFIX):
+        patched["overall_summary"] = f"{PARTIAL_COMPARISON_SUMMARY_PREFIX} {summary}"
     disclaimers = list(patched.get("disclaimers_he") or [])
-    partial_note = "ההשוואה חלקית כי לא נמצא מידע מלא על כל הרכבים."
-    if partial_note not in disclaimers:
-        disclaimers.append(partial_note)
+    if PARTIAL_COMPARISON_DISCLAIMER not in disclaimers:
+        disclaimers.append(PARTIAL_COMPARISON_DISCLAIMER)
     patched["disclaimers_he"] = disclaimers[:3]
     return patched
 
@@ -1390,7 +1410,7 @@ def _build_stage_a_summary(computed_result: Dict[str, Any]) -> Dict[str, Any]:
         "caveats": (
             ["המידע עשוי להשתנות."]
             if balanced
-            else ["ההשוואה חלקית כי לא נמצא מידע מלא על כל הרכבים."]
+            else [PARTIAL_COMPARISON_DISCLAIMER]
         ),
         "balanced": balanced,
         "cars_with_evidence": int(comparison_status.get("cars_with_evidence", 0)),
@@ -1801,7 +1821,9 @@ def call_stage_a_parallel(validated_cars: List[Dict], cars_selected_slots: Dict)
                 _truncate_error_message(e),
             )
 
-    merged["sources"] = list(dict.fromkeys(merged.get("sources", [])))[: (_MAX_STAGE_A_SOURCES * max(1, len(slot_keys)))]
+    deduped_sources = list(dict.fromkeys(merged.get("sources", [])))
+    source_limit = _MAX_STAGE_A_SOURCES * max(1, len(slot_keys))
+    merged["sources"] = deduped_sources[:source_limit]
     return merged, build_sources_index_from_flat(merged), errors
 
 
