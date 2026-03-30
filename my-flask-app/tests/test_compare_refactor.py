@@ -474,12 +474,18 @@ class TestCompareWriterPromptAndValidation:
                     "name": "reliability_risk",
                     "winner": "carA",
                     "why": "Lower failure risk and stronger reliability score.",
+                    "explanations": {
+                        "car_1": "אמינות חזקה יותר לפי הנתונים שנאספו.",
+                        "car_2": "פחות משכנעת באמינות לפי אותם נתונים.",
+                    },
                     "tips": ["Check service history", "Verify recall completion"],
                 }
             ],
             "caveats": ["Market conditions may vary."],
         }
-        assert validate_compare_writer_response(valid_payload) is not None
+        validated = validate_compare_writer_response(valid_payload)
+        assert validated is not None
+        assert validated["categories"][0]["explanations"]["car_1"]
 
     def test_writer_validator_accepts_slot_based_third_car_and_converts_narrative(self):
         payload = {
@@ -490,6 +496,11 @@ class TestCompareWriterPromptAndValidation:
                     "name": "driving_performance",
                     "winner": "car_3",
                     "why": "הוא מציג יתרון דינמי ברור לפי הניקוד.",
+                    "explanations": {
+                        "car_1": "פחות חד ודינמי לפי הניקוד.",
+                        "car_2": "מאוזן אך לא מוביל בנהיגה.",
+                        "car_3": "מרגיש חד יותר ולכן מוביל.",
+                    },
                     "tips": ["בדקו צמיגים", "בדקו בלמים"],
                 }
             ],
@@ -511,6 +522,7 @@ class TestCompareWriterPromptAndValidation:
         )
         assert narrative["category_explanations"][0]["winner"] == "car_3"
         assert set(narrative["category_explanations"][0]["explanations"].keys()) == {"car_1", "car_2", "car_3"}
+        assert narrative["category_explanations"][0]["explanations"]["car_3"] == "מרגיש חד יותר ולכן מוביל."
 
 
 class TestCompareSegmentInference:

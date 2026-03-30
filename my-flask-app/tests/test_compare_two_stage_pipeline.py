@@ -261,6 +261,10 @@ def test_compare_stage_b_json_schema_parsed_into_narrative(app, logged_in_client
                     "name": "reliability_risk",
                     "winner": "carA",
                     "why": "פחות סיכון לתקלות משמעותיות לפי הניקוד.",
+                    "explanations": {
+                        "car_1": "מראה פחות סיכון לתקלות ולכן קיבל ציון חזק יותר.",
+                        "car_2": "הציון מעט נמוך יותר בגלל סיכון גבוה יותר.",
+                    },
                     "tips": ["בדקו היסטוריית טיפולים", "בצעו בדיקת קנייה"],
                 }
             ],
@@ -286,6 +290,7 @@ def test_compare_stage_b_json_schema_parsed_into_narrative(app, logged_in_client
     cat = payload["narrative"]["category_explanations"][0]
     assert cat["category_key"] == "reliability_risk"
     assert cat["winner"] == "car_1"
+    assert cat["explanations"]["car_1"]
     assert payload["ai"]["status"] == "ok"
     assert payload["ai"]["reason"] is None
 
@@ -308,6 +313,11 @@ def test_compare_three_cars_stage_b_slot_schema_parsed_into_narrative(app, logge
                     "name": "driving_performance",
                     "winner": "car_3",
                     "why": "הניקוד הדינמי הגבוה ביותר שייך לה.",
+                    "explanations": {
+                        "car_1": "פחות חדה מהשלישית בנהיגה.",
+                        "car_2": "מאוזנת אבל לא מובילה בנהיגה.",
+                        "car_3": "הדינמיקה העדיפה נותנת לה יתרון ברור.",
+                    },
                     "tips": ["בדקו מצב צמיגים"],
                 }
             ],
