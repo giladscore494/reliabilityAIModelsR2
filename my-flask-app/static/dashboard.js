@@ -213,21 +213,52 @@
             `);
         }
 
+        const modelReliabilityLabel = data.model_reliability_label || data.estimated_reliability;
+        const modelReliabilityScore = data.model_reliability_score ?? data.base_score_calculated;
+        const dealRiskLabel = data.deal_risk_label;
+        const dealRiskScore = data.deal_risk_score;
+
         // אמינות מוערכת (קטגורית)
-        if (data.estimated_reliability) {
+        if (modelReliabilityLabel) {
             sections.push(`
                 <div class="border border-slate-100 rounded-2xl p-3 bg-slate-50">
                     <div class="flex items-center justify-between">
                         <div class="text-[11px] text-slate-600">
-                            אמינות מוערכת
+                            אמינות דגם
                         </div>
                         <div class="font-semibold text-sm text-slate-900">
-                            ${escapeHtml(data.estimated_reliability)}
+                            ${escapeHtml(modelReliabilityLabel)}
                         </div>
                     </div>
-                    <div class="text-[10px] text-slate-500 mt-1">
-                        מבוסס על ניתוח AI
+                    ${modelReliabilityScore !== undefined && modelReliabilityScore !== null ? `
+                        <div class="text-[10px] text-slate-500 mt-1">
+                            ציון אמינות דגם: ${escapeHtml(modelReliabilityScore)}/100
+                        </div>
+                    ` : `
+                        <div class="text-[10px] text-slate-500 mt-1">
+                            מבוסס על ניתוח AI
+                        </div>
+                    `}
+                </div>
+            `);
+        }
+
+        if (dealRiskLabel || dealRiskScore !== undefined) {
+            sections.push(`
+                <div class="border border-slate-100 rounded-2xl p-3 bg-slate-50">
+                    <div class="flex items-center justify-between">
+                        <div class="text-[11px] text-slate-600">
+                            סיכון עסקה
+                        </div>
+                        <div class="font-semibold text-sm text-slate-900">
+                            ${escapeHtml(dealRiskLabel || 'לא ידוע')}
+                        </div>
                     </div>
+                    ${dealRiskScore !== undefined && dealRiskScore !== null ? `
+                        <div class="text-[10px] text-slate-500 mt-1">
+                            ציון סיכון עסקה: ${escapeHtml(dealRiskScore)}/100
+                        </div>
+                    ` : ''}
                 </div>
             `);
         }

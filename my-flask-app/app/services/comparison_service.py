@@ -1209,6 +1209,9 @@ Return ONLY valid JSON with EXACTLY this schema and no extra keys:
       "name": "reliability_risk|ownership_cost|practicality_comfort|driving_performance",
       "winner": "{'|'.join(allowed_winners)}",
       "why": "max 35 words",
+      "explanations": {{
+        {",".join(f'"{slot_key}":"max 18 words"' for slot_key in slot_keys)}
+      }},
       "tips": ["max 3 short tips, each max 12 words"]
     }}
   ],
@@ -1219,9 +1222,10 @@ RULES:
 1. Explain category winners using the provided deterministic scores plus the compact evidence labels/notes/facts.
 2. If balanced_comparison=false, say clearly that the comparison is partial and avoid overconfident recommendations.
 3. If winner is "tie", say the cars are close and do not invent a preference.
-4. Keep the text practical, short, structured, and user-facing in Hebrew.
-5. Forbidden: long paragraphs, tables, markdown, extra keys, or invented claims.
-6. If unsure, keep it short and say 'אין מספיק מידע' in 4 words max.
+4. For every category, fill explanations per car slot so the UI can show why each car got its score.
+5. Keep the text practical, short, structured, and user-facing in Hebrew.
+6. Forbidden: long paragraphs, tables, markdown, extra keys, or invented claims.
+7. If unsure, keep it short and say 'אין מספיק מידע' in 4 words max.
 """
     if len(prompt) > COMPARE_WRITER_PROMPT_CHAR_CAP:
         prompt = prompt[:COMPARE_WRITER_PROMPT_CHAR_CAP]
@@ -1740,7 +1744,10 @@ def validate_compare_writer_response(payload: Any) -> Optional[Dict[str, Any]]:
     for item in categories:
         if not isinstance(item, dict):
             return None
-        if set(item.keys()) != {"name", "winner", "why", "tips"}:
+        if set(item.keys()) not in (
+            {"name", "winner", "why", "tips"},
+            {"name", "winner", "why", "explanations", "tips"},
+        ):
             return None
         if item.get("name") not in COMPARE_CATEGORY_NAMES:
             return None
@@ -1750,6 +1757,19 @@ def validate_compare_writer_response(payload: Any) -> Optional[Dict[str, Any]]:
         why = _word_cap(item.get("why"), 35)
         if why is None:
             return None
+        explanations = item.get("explanations")
+        normalized_explanations = {}
+        if explanations is not None:
+            if not isinstance(explanations, dict):
+                return None
+            for slot_key in allowed_slot_keys:
+                explanation_text = explanations.get(slot_key)
+                if explanation_text is None:
+                    continue
+                explanation_clean = _word_cap(explanation_text, 18)
+                if explanation_clean is None:
+                    return None
+                normalized_explanations[slot_key] = explanation_clean
         tips = item.get("tips")
         if not isinstance(tips, list) or len(tips) > 3:
             return None
@@ -1763,6 +1783,7 @@ def validate_compare_writer_response(payload: Any) -> Optional[Dict[str, Any]]:
             "name": item.get("name"),
             "winner": category_winner,
             "why": why,
+            "explanations": normalized_explanations,
             "tips": normalized_tips,
         })
 
@@ -1917,8 +1938,9 @@ def convert_writer_response_to_narrative(validated_payload: Dict[str, Any], cars
     category_explanations = []
     for cat in validated_payload.get("categories", []):
         explanations = {}
+        source_explanations = cat.get("explanations") if isinstance(cat.get("explanations"), dict) else {}
         for car_key in car_keys:
-            explanations[car_key] = cat.get("why", "")
+            explanations[car_key] = source_explanations.get(car_key) or cat.get("why", "")
         category_explanations.append({
             "category_key": cat.get("name"),
             "title_he": "",

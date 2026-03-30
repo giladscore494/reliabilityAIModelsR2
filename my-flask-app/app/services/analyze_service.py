@@ -29,16 +29,12 @@ from app.utils.http_helpers import api_ok, api_error, get_request_id, log_reject
 from app.utils.sanitization import sanitize_analyze_response, derive_missing_info
 from app.utils.validation import validate_analyze_request, ValidationError
 from app.factory import (
-    apply_mileage_logic,
     build_combined_prompt,
     get_ai_call_fn,
     current_user_daily_limit,
+    mileage_adjustment,
     normalize_text,
     MAX_CACHE_DAYS,
-)
-from app.services.scoring_baseline import (
-    get_exact_model_override,
-    get_model_override,
 )
 
 logger = logging.getLogger(__name__)
@@ -101,8 +97,13 @@ _OVERALL_RELIABILITY_ADJUSTMENT = {
     "low": -3,
 }
 _MODEL_PRIMARY_BASE_SCORE = 74
-_MODEL_CALIBRATION_DIVISOR = 5.0
-_MODEL_CALIBRATION_MAX_DELTA = 2
+_MODEL_JSON_RELIABILITY_BIAS = {"strong": 2, "neutral": 0, "weak": -2}
+_MODEL_JSON_SENSITIVITY_SCALE = {"low": 0.9, "normal": 1.0, "high": 1.1}
+_MODEL_JSON_CONFIDENCE_ALLOWED = {"low", "medium", "high"}
+_MODEL_JSON_BIAS_ALLOWED = set(_MODEL_JSON_RELIABILITY_BIAS.keys())
+_MODEL_JSON_SENSITIVITY_ALLOWED = set(_MODEL_JSON_SENSITIVITY_SCALE.keys())
+_DEAL_RISK_MEDIUM_THRESHOLD = 25
+_DEAL_RISK_HIGH_THRESHOLD = 55
 
 _RECALL_LIKE_SIGNAL_FACTOR = 0.55
 _RECALL_OVERLAP_DISCOUNT = 0.85
@@ -229,7 +230,7 @@ def _classify_recall_bucket(count: int, high_severity_count: int) -> str:
     return "low"
 
 
-def _compute_confidence_category(risk_signals: dict, has_model_override: bool) -> str:
+def _compute_confidence_category(risk_signals: dict) -> str:
     """Derive a simple confidence category from signal quality indicators.
 
     Returns 'high', 'medium', or 'low'.  Used only for messaging / debug.
@@ -242,11 +243,6 @@ def _compute_confidence_category(risk_signals: dict, has_model_override: bool) -
         label = level if level in ("high", "medium", "low") else "medium"
     else:
         label = "medium"
-
-    # Boost to high if we have a model override (well-known vehicle)
-    if has_model_override and label == "medium":
-        label = "high"
-
     return label
 
 
@@ -302,23 +298,96 @@ def _derive_model_estimate_from_signals(risk_signals: Dict[str, Any]) -> str:
     return "high"
 
 
-def _compute_model_calibration(exact_model_override: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    if not exact_model_override:
-        return {
-            "applied": False,
-            "source": "none",
-            "delta": 0,
-        }
-    raw_modifier = exact_model_override.get("model_modifier", 0)
-    try:
-        delta = int(float(raw_modifier) / _MODEL_CALIBRATION_DIVISOR)
-    except (TypeError, ValueError, ZeroDivisionError):
-        delta = 0
-    delta = max(-_MODEL_CALIBRATION_MAX_DELTA, min(_MODEL_CALIBRATION_MAX_DELTA, delta))
+def _bound_score(value: Any) -> int:
+    return max(0, min(100, int(round(float(value)))))
+
+
+def _normalize_optional_enum(value: Any, allowed: Set[str]) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    return normalized if normalized in allowed else None
+
+
+def _deal_risk_label(score: int) -> str:
+    if score >= _DEAL_RISK_HIGH_THRESHOLD:
+        return "גבוה"
+    if score >= _DEAL_RISK_MEDIUM_THRESHOLD:
+        return "בינוני"
+    return "נמוך"
+
+
+def _compute_model_json_calibration(
+    model_output: Optional[Dict[str, Any]],
+    *,
+    has_major_systemic_issue: bool,
+) -> Dict[str, Any]:
+    """Optional model-JSON calibration only.
+
+    The model output is the primary scoring engine. There is no external baseline
+    dictionary anymore, and missing calibration keys must never penalize or break
+    scoring. Only present, valid calibration fields are used.
+    """
+    payload = model_output if isinstance(model_output, dict) else {}
+    reliability_bias = _normalize_optional_enum(
+        payload.get("reliability_bias"),
+        _MODEL_JSON_BIAS_ALLOWED,
+    )
+    recall_sensitivity = _normalize_optional_enum(
+        payload.get("recall_penalty_sensitivity"),
+        _MODEL_JSON_SENSITIVITY_ALLOWED,
+    )
+    maintenance_sensitivity = _normalize_optional_enum(
+        payload.get("maintenance_penalty_sensitivity"),
+        _MODEL_JSON_SENSITIVITY_ALLOWED,
+    )
+    systemic_sensitivity = _normalize_optional_enum(
+        payload.get("systemic_penalty_sensitivity"),
+        _MODEL_JSON_SENSITIVITY_ALLOWED,
+    )
+    calibration_confidence = _normalize_optional_enum(
+        payload.get("calibration_confidence"),
+        _MODEL_JSON_CONFIDENCE_ALLOWED,
+    )
+
+    raw_soft_floor = payload.get("soft_floor_if_no_major_systemic")
+    soft_floor = None
+    if raw_soft_floor is not None:
+        try:
+            soft_floor = _bound_score(raw_soft_floor)
+        except Exception:
+            soft_floor = None
+
+    used_fields: List[str] = []
+    bias_delta = 0
+    if reliability_bias is not None:
+        bias_delta = _MODEL_JSON_RELIABILITY_BIAS[reliability_bias]
+        used_fields.append("reliability_bias")
+    if recall_sensitivity is not None:
+        used_fields.append("recall_penalty_sensitivity")
+    if maintenance_sensitivity is not None:
+        used_fields.append("maintenance_penalty_sensitivity")
+    if systemic_sensitivity is not None:
+        used_fields.append("systemic_penalty_sensitivity")
+
+    soft_floor_applied = soft_floor is not None and not has_major_systemic_issue
+    if soft_floor_applied:
+        used_fields.append("soft_floor_if_no_major_systemic")
+
     return {
-        "applied": True,
-        "source": "model_entry",
-        "delta": delta,
+        "applied": bool(used_fields),
+        "source": "model_json" if used_fields else "none",
+        "delta": bias_delta,
+        "recall_scale": _MODEL_JSON_SENSITIVITY_SCALE.get(recall_sensitivity, 1.0),
+        "maintenance_scale": _MODEL_JSON_SENSITIVITY_SCALE.get(maintenance_sensitivity, 1.0),
+        "systemic_scale": _MODEL_JSON_SENSITIVITY_SCALE.get(systemic_sensitivity, 1.0),
+        "soft_floor": soft_floor if soft_floor_applied else None,
+        "reliability_bias": reliability_bias,
+        "recall_penalty_sensitivity": recall_sensitivity,
+        "maintenance_penalty_sensitivity": maintenance_sensitivity,
+        "systemic_penalty_sensitivity": systemic_sensitivity,
+        "soft_floor_if_no_major_systemic": soft_floor,
+        "calibration_confidence": calibration_confidence,
     }
 
 
@@ -380,24 +449,60 @@ def compute_reliability_score_and_banner(
     validated_input: Dict[str, Any],
     risk_signals: Any,
     overall_reliability_estimate: Any = None,
+    model_output: Any = None,
+    mileage_range: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Deterministic score (0-100) and Hebrew banner from risk_signals.
+    """Compute dual reliability outputs from model JSON + deterministic penalties.
 
-    Returns dict with keys: score_0_100, banner_he, confidence_label.
+    The model output is the primary engine. No external baseline dictionary remains
+    in active use. Optional calibration comes only from model JSON fields; missing
+    calibration fields never penalize the score and never break analysis.
     """
+    estimate_label = _normalized_reliability_estimate(overall_reliability_estimate)
     if not isinstance(risk_signals, dict) or not risk_signals:
+        if estimate_label:
+            score = _bound_score(_MODEL_PRIMARY_BASE_SCORE + _overall_reliability_adjustment(estimate_label))
+            deal_risk_score = 0
+            deal_risk_label = _deal_risk_label(deal_risk_score)
+            return {
+                "score_0_100": score,
+                "banner_he": _banner_from_score(score),
+                "confidence_label": "low",
+                "model_reliability_score": score,
+                "model_reliability_label": _banner_from_score(score),
+                "deal_risk_score": deal_risk_score,
+                "deal_risk_label": deal_risk_label,
+                "calibration_applied": False,
+                "calibration_source": "none",
+                "calibration_delta": 0,
+                "reliability_bias": None,
+                "recall_penalty_sensitivity": None,
+                "maintenance_penalty_sensitivity": None,
+                "systemic_penalty_sensitivity": None,
+                "soft_floor_if_no_major_systemic": None,
+                "calibration_confidence": None,
+                "mileage_note": None,
+            }
         return {
             "score_0_100": 0,
             "banner_he": "לא ידוע",
             "confidence_label": "low",
+            "model_reliability_score": 0,
+            "model_reliability_label": "לא ידוע",
+            "deal_risk_score": 0,
+            "deal_risk_label": "לא ידוע",
+            "calibration_applied": False,
+            "calibration_source": "none",
+            "calibration_delta": 0,
+            "reliability_bias": None,
+            "recall_penalty_sensitivity": None,
+            "maintenance_penalty_sensitivity": None,
+            "systemic_penalty_sensitivity": None,
+            "soft_floor_if_no_major_systemic": None,
+            "calibration_confidence": None,
+            "mileage_note": None,
         }
 
-    # ── Step 1: model-primary base score ──
-    raw_make = str(validated_input.get("make") or "").strip()
-    raw_model = str(validated_input.get("model") or "").strip()
-    model_override = get_model_override(raw_make, raw_model)
-    exact_model_override = get_exact_model_override(raw_make, raw_model)
-    estimate_label = _normalized_reliability_estimate(overall_reliability_estimate)
     base = _MODEL_PRIMARY_BASE_SCORE + _overall_reliability_adjustment(estimate_label)
     base = max(15, min(95, base))
 
@@ -408,6 +513,7 @@ def compute_reliability_score_and_banner(
     recall_like_systemic_penalty = 0.0
     signals = risk_signals.get("systemic_issue_signals")
     has_meaningful_issues = False
+    has_major_systemic_issue = False
     if isinstance(signals, list):
         for sig in signals[:_MAX_SIGNALS]:
             if not isinstance(sig, dict):
@@ -435,6 +541,8 @@ def compute_reliability_score_and_banner(
                 recall_like_systemic_penalty += penalty
             if severity in ("medium", "high"):
                 has_meaningful_issues = True
+            if severity == "high":
+                has_major_systemic_issue = True
     systemic_penalty = min(systemic_penalty, _SYSTEMIC_PENALTY_CAP)
 
     # ── Step 3: recall penalty ──
@@ -461,6 +569,14 @@ def compute_reliability_score_and_banner(
     raw_mcp = _MCP_PENALTY.get(mcp_level, 0)
     mcp_penalty = raw_mcp
 
+    calibration = _compute_model_json_calibration(
+        model_output if isinstance(model_output, dict) else None,
+        has_major_systemic_issue=has_major_systemic_issue,
+    )
+    systemic_penalty *= calibration["systemic_scale"]
+    recall_penalty *= calibration["recall_scale"]
+    mcp_penalty *= calibration["maintenance_scale"]
+
     # ── Step 5: total penalty with cap ──
     total_penalty = systemic_penalty + recall_penalty + mcp_penalty
     penalty_cap = base * _PENALTY_CAP_FRACTION
@@ -475,22 +591,38 @@ def compute_reliability_score_and_banner(
     ):
         bonus = _CLEAN_BONUS
 
-    calibration = _compute_model_calibration(exact_model_override)
+    model_reliability_score = _bound_score(base - total_penalty + bonus + calibration["delta"])
+    if calibration["soft_floor"] is not None:
+        model_reliability_score = max(model_reliability_score, calibration["soft_floor"])
+    model_reliability_score = _bound_score(model_reliability_score)
+    model_reliability_label = _banner_from_score(model_reliability_score)
 
-    # No calibration entry -> trust model score directly.
-    score = max(0, min(100, int(round(base - total_penalty + bonus + calibration["delta"]))))
-    banner = _banner_from_score(score)
+    mileage_delta, mileage_note = mileage_adjustment(mileage_range or "")
+    mileage_risk = abs(min(mileage_delta, 0))
+    deal_risk_score = _bound_score((systemic_penalty * 2.0) + (recall_penalty * 2.5) + (mcp_penalty * 3.0) + mileage_risk)
+    deal_risk_label = _deal_risk_label(deal_risk_score)
 
-    # ── Step 8: confidence (messaging only, does not affect score) ──
-    confidence = _compute_confidence_category(risk_signals, model_override is not None)
+    # Confidence is messaging only and no longer uses hidden model-entry boosts.
+    confidence = _compute_confidence_category(risk_signals)
 
     return {
-        "score_0_100": score,
-        "banner_he": banner,
+        "score_0_100": model_reliability_score,
+        "banner_he": model_reliability_label,
         "confidence_label": confidence,
+        "model_reliability_score": model_reliability_score,
+        "model_reliability_label": model_reliability_label,
+        "deal_risk_score": deal_risk_score,
+        "deal_risk_label": deal_risk_label,
         "calibration_applied": calibration["applied"],
         "calibration_source": calibration["source"],
         "calibration_delta": calibration["delta"],
+        "reliability_bias": calibration["reliability_bias"],
+        "recall_penalty_sensitivity": calibration["recall_penalty_sensitivity"],
+        "maintenance_penalty_sensitivity": calibration["maintenance_penalty_sensitivity"],
+        "systemic_penalty_sensitivity": calibration["systemic_penalty_sensitivity"],
+        "soft_floor_if_no_major_systemic": calibration["soft_floor_if_no_major_systemic"],
+        "calibration_confidence": calibration["calibration_confidence"],
+        "mileage_note": mileage_note,
     }
 
 
@@ -676,37 +808,43 @@ def handle_analyze_request(
     ai_output.setdefault("sources", [])
 
     try:
-        # --- Deterministic scoring (overrides any LLM-produced values) ---
+        # --- Deterministic scoring (model output is primary; no external baseline dict) ---
         det = compute_reliability_score_and_banner(
             validated,
             ai_output.get("risk_signals"),
             ai_output.get("overall_reliability_estimate"),
+            model_output=ai_output,
+            mileage_range=final_mileage,
         )
-        ai_output["base_score_calculated"] = det["score_0_100"]
-        ai_output["estimated_reliability"] = det["banner_he"]
+        ai_output["model_reliability_score"] = det["model_reliability_score"]
+        ai_output["model_reliability_label"] = det["model_reliability_label"]
+        ai_output["deal_risk_score"] = det["deal_risk_score"]
+        ai_output["deal_risk_label"] = det["deal_risk_label"]
+        ai_output["calibration_applied"] = det["calibration_applied"]
+        ai_output["calibration_source"] = det["calibration_source"]
+        for key in (
+            "reliability_bias",
+            "recall_penalty_sensitivity",
+            "maintenance_penalty_sensitivity",
+            "systemic_penalty_sensitivity",
+            "soft_floor_if_no_major_systemic",
+            "calibration_confidence",
+        ):
+            ai_output[key] = det[key]
 
-        # Apply mileage adjustment (modifies base_score_calculated in-place)
-        ai_output, note = apply_mileage_logic(ai_output, final_mileage)
-
-        # Re-derive banner from the mileage-adjusted score
-        try:
-            adjusted_score = int(round(float(ai_output.get("base_score_calculated", 0))))
-        except Exception:
-            adjusted_score = 0
-        adjusted_score = max(0, min(100, adjusted_score))
-        ai_output["base_score_calculated"] = adjusted_score
-        has_valid_risk_data = det["banner_he"] != "לא ידוע"
-        ai_output["estimated_reliability"] = _banner_from_score(adjusted_score) if has_valid_risk_data else "לא ידוע"
+        # Temporary UI compatibility until the frontend fully migrates to dual scores.
+        ai_output["base_score_calculated"] = det["model_reliability_score"]
+        ai_output["estimated_reliability"] = det["model_reliability_label"]
 
         # Sync reliability_report
         if isinstance(ai_output.get("reliability_report"), dict):
-            ai_output["reliability_report"]["overall_score"] = adjusted_score
+            ai_output["reliability_report"]["overall_score"] = det["model_reliability_score"]
             ai_output["reliability_report"]["confidence"] = det["confidence_label"]
 
         sanitized_output: Dict[str, Any] = {}
         try:
             ai_output['source_tag'] = f"מקור: ניתוח AI חדש (חיפוש {display_quota_count}/{limit_val})"
-            ai_output['mileage_note'] = note
+            ai_output['mileage_note'] = det.get("mileage_note")
             ai_output['km_warn'] = False
             ai_output.pop("reliability_score", None)
             sanitized_output = sanitize_analyze_response(ai_output)

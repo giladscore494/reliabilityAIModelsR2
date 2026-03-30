@@ -2,7 +2,7 @@
 """History service helpers."""
 
 import json
-from typing import List, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional
 from sqlalchemy.exc import SQLAlchemyError
 
 from flask import current_app
@@ -11,6 +11,9 @@ from app.extensions import db
 from app.models import SearchHistory, AdvisorHistory, LeasingAdvisorHistory
 from app.utils.http_helpers import api_ok, api_error, get_request_id
 from app.utils.sanitization import sanitize_analyze_response
+
+_DEAL_RISK_MEDIUM_THRESHOLD = 25
+_DEAL_RISK_HIGH_THRESHOLD = 55
 
 
 def safe_json_obj(value, default=None):
@@ -110,6 +113,59 @@ def build_leasing_data(entries: list) -> list:
     return result
 
 
+def _bounded_score(value: Any) -> Optional[int]:
+    try:
+        if value is None or isinstance(value, bool):
+            return None
+        return max(0, min(100, int(round(float(value)))))
+    except Exception:
+        return None
+
+
+def _derive_label_from_score(score: Optional[int]) -> Optional[str]:
+    if score is None:
+        return None
+    if score >= 80:
+        return "גבוה"
+    if score >= 60:
+        return "בינוני"
+    return "נמוך"
+
+
+def _normalize_reliability_history_payload(raw: Any) -> Dict[str, Any]:
+    payload = dict(raw) if isinstance(raw, dict) else {}
+
+    model_score = _bounded_score(
+        payload.get("model_reliability_score", payload.get("base_score_calculated"))
+    )
+    model_label = payload.get("model_reliability_label") or payload.get("estimated_reliability")
+    if not model_label:
+        model_label = _derive_label_from_score(model_score) or "לא ידוע"
+
+    if model_score is not None:
+        payload["model_reliability_score"] = model_score
+        payload["base_score_calculated"] = model_score
+    payload["model_reliability_label"] = model_label
+    payload["estimated_reliability"] = model_label
+
+    deal_risk_score = _bounded_score(payload.get("deal_risk_score"))
+    if deal_risk_score is not None:
+        payload["deal_risk_score"] = deal_risk_score
+        payload["deal_risk_label"] = payload.get("deal_risk_label") or (
+            "גבוה"
+            if deal_risk_score >= _DEAL_RISK_HIGH_THRESHOLD
+            else "בינוני"
+            if deal_risk_score >= _DEAL_RISK_MEDIUM_THRESHOLD
+            else "נמוך"
+        )
+
+    payload["calibration_applied"] = bool(payload.get("calibration_applied", False))
+    payload["calibration_source"] = payload.get("calibration_source") or (
+        "model_json" if payload["calibration_applied"] else "none"
+    )
+    return payload
+
+
 def build_searches_data(user_searches: List[SearchHistory]) -> list:
     logger = current_app.logger
     searches_data = []
@@ -123,8 +179,7 @@ def build_searches_data(user_searches: List[SearchHistory]) -> list:
                 get_request_id(),
             )
             parsed_result = {}
-        parsed_result.pop("reliability_score", None)
-        parsed_result.pop("base_score_calculated", None)
+        parsed_result = _normalize_reliability_history_payload(parsed_result)
         searches_data.append({
             "id": s.id,
             "timestamp": s.timestamp.strftime('%d/%m/%Y %H:%M'),
@@ -181,7 +236,8 @@ def search_details_response(search_id: int, user_id: int):
         }
         raw = json.loads(s.result_json)
 
-        est = raw.get("estimated_reliability")
+        raw = _normalize_reliability_history_payload(raw)
+        est = raw.get("model_reliability_label") or raw.get("estimated_reliability")
         estimated_map = {
             "low": "נמוך",
             "medium": "בינוני",
@@ -198,7 +254,15 @@ def search_details_response(search_id: int, user_id: int):
         est_norm = str(est).strip().lower() if est is not None else "unknown"
         if estimated_map.get(est_norm) is None or estimated_map.get(est_norm) == "לא ידוע":
             try:
-                if "base_score_calculated" in raw:
+                if "model_reliability_score" in raw:
+                    base_val = float(raw["model_reliability_score"])
+                    if base_val >= 80:
+                        derived = "גבוה"
+                    elif base_val >= 60:
+                        derived = "בינוני"
+                    else:
+                        derived = "נמוך"
+                elif "base_score_calculated" in raw:
                     base_val = float(raw["base_score_calculated"])
                     if base_val >= 80:
                         derived = "גבוה"
@@ -220,8 +284,8 @@ def search_details_response(search_id: int, user_id: int):
         if final_est is None or final_est == "לא ידוע":
             final_est = derived or "לא ידוע"
 
+        raw["model_reliability_label"] = final_est
         raw["estimated_reliability"] = final_est
-        raw.pop("base_score_calculated", None)
         raw.pop("reliability_score", None)
 
         allowed_set = {"נמוך", "בינוני", "גבוה", "לא ידוע"}
@@ -284,6 +348,7 @@ def history_item_response(item_id: int, user_id: int):
             return api_error('NOT_FOUND', 'פריט לא נמצא או אין לך גישה אליו', status=404)
 
         result_data = json.loads(search.result_json) if search.result_json else {}
+        result_data = sanitize_analyze_response(_normalize_reliability_history_payload(result_data))
 
         return api_ok({
             'id': search.id,

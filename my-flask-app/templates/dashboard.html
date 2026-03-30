@@ -206,11 +206,16 @@
                                 </div>
                             </div>
 
-                            {% if s.data.get('estimated_reliability') %}
+                            {% if s.data.get('model_reliability_label') or s.data.get('estimated_reliability') %}
                                 <div class="flex flex-col items-end gap-1">
                                     <div class="text-sm font-bold text-emerald-200">
-                                        אמינות מוערכת: {{ s.data.get('estimated_reliability') }}
+                                        אמינות דגם: {{ s.data.get('model_reliability_label') or s.data.get('estimated_reliability') }}
                                     </div>
+                                    {% if s.data.get('deal_risk_label') %}
+                                        <div class="text-[11px] text-slate-300">
+                                            סיכון עסקה: {{ s.data.get('deal_risk_label') }}
+                                        </div>
+                                    {% endif %}
                                     <div class="text-[10px] text-slate-400">
                                         מבוסס על ניתוח AI
                                     </div>
@@ -477,10 +482,13 @@
 
         detailsMetaEl.textContent = metaBits.join(' • ');
 
-        const baseScore = data.base_score_calculated;
+        const baseScore = data.model_reliability_score ?? data.base_score_calculated;
         const baseScoreText = baseScore !== undefined && baseScore !== null
             ? safeNumber(baseScore, 1)
             : null;
+        const modelReliabilityLabel = data.model_reliability_label || data.estimated_reliability || 'לא ידוע';
+        const dealRiskLabel = data.deal_risk_label || null;
+        const dealRiskScore = data.deal_risk_score;
 
         const scoreBreakdown = data.score_breakdown || {};
         const simpleSummary = data.reliability_summary_simple || '';
@@ -678,11 +686,12 @@
                 <div class="flex items-center justify-between gap-4">
                     <div>
                         <div class="text-xs font-semibold text-slate-400 mb-1">
-                            אמינות מוערכת: ${data.estimated_reliability || 'לא ידוע'}
+                            אמינות דגם: ${modelReliabilityLabel}
                         </div>
                         <div class="text-[11px] text-slate-400 mb-1">
-                            מבוסס על ניתוח AI
+                            ${baseScoreText ? `ציון אמינות דגם: ${baseScoreText}/100` : 'מבוסס על ניתוח AI'}
                         </div>
+                        ${dealRiskLabel ? `<div class="text-[11px] text-slate-300 mb-1">סיכון עסקה: ${dealRiskLabel}${dealRiskScore !== undefined && dealRiskScore !== null ? ` (${safeNumber(dealRiskScore, 0)}/100)` : ''}</div>` : ''}
                         ${mileageNoteHtml}
                     </div>
                 </div>
