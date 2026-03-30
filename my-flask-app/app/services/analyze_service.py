@@ -37,9 +37,8 @@ from app.factory import (
     MAX_CACHE_DAYS,
 )
 from app.services.scoring_baseline import (
-    get_make_profile,
+    get_exact_model_override,
     get_model_override,
-    get_combined_score_modifier,
 )
 
 logger = logging.getLogger(__name__)
@@ -101,6 +100,9 @@ _OVERALL_RELIABILITY_ADJUSTMENT = {
     "medium": 0,
     "low": -3,
 }
+_MODEL_PRIMARY_BASE_SCORE = 74
+_MODEL_CALIBRATION_DIVISOR = 5.0
+_MODEL_CALIBRATION_MAX_DELTA = 2
 
 _RECALL_LIKE_SIGNAL_FACTOR = 0.55
 _RECALL_OVERLAP_DISCOUNT = 0.85
@@ -254,6 +256,72 @@ def _overall_reliability_adjustment(value: Any) -> int:
     return 0
 
 
+def _normalized_reliability_estimate(value: Any) -> Optional[str]:
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ("high", "medium", "low"):
+            return normalized
+    return None
+
+
+def _derive_model_estimate_from_signals(risk_signals: Dict[str, Any]) -> str:
+    recalls = risk_signals.get("recalls") if isinstance(risk_signals.get("recalls"), dict) else {}
+    recall_bucket = _classify_recall_bucket(
+        _safe_int(recalls.get("count"), lo=0, hi=100),
+        _safe_int(recalls.get("high_severity_count"), lo=0, hi=100),
+    )
+
+    mcp = risk_signals.get("maintenance_cost_pressure") if isinstance(risk_signals.get("maintenance_cost_pressure"), dict) else {}
+    mcp_level = str(mcp.get("level", "")).lower()
+
+    has_high_issue = False
+    has_meaningful_issue = False
+    signals = risk_signals.get("systemic_issue_signals")
+    if isinstance(signals, list):
+        for sig in signals[:_MAX_SIGNALS]:
+            if not isinstance(sig, dict):
+                continue
+            if (
+                _contains_vehicle_specific_neglect_claim(sig.get("issue"))
+                or _contains_vehicle_specific_neglect_claim(sig.get("evidence_text"))
+                or _contains_vehicle_specific_neglect_claim(sig.get("typical_timing"))
+            ):
+                continue
+            severity = str(sig.get("severity", "")).lower()
+            if severity == "high":
+                has_high_issue = True
+                has_meaningful_issue = True
+                break
+            if severity == "medium":
+                has_meaningful_issue = True
+
+    if recall_bucket == "high" or has_high_issue or mcp_level == "high":
+        return "low"
+    if recall_bucket == "medium" or has_meaningful_issue or mcp_level == "medium":
+        return "medium"
+    return "high"
+
+
+def _compute_model_calibration(exact_model_override: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not exact_model_override:
+        return {
+            "applied": False,
+            "source": "none",
+            "delta": 0,
+        }
+    raw_modifier = exact_model_override.get("model_modifier", 0)
+    try:
+        delta = int(float(raw_modifier) / _MODEL_CALIBRATION_DIVISOR)
+    except (TypeError, ValueError, ZeroDivisionError):
+        delta = 0
+    delta = max(-_MODEL_CALIBRATION_MAX_DELTA, min(_MODEL_CALIBRATION_MAX_DELTA, delta))
+    return {
+        "applied": True,
+        "source": "model_entry",
+        "delta": delta,
+    }
+
+
 def _contains_vehicle_specific_neglect_claim(text: Any) -> bool:
     if not isinstance(text, str):
         return False
@@ -324,15 +392,13 @@ def compute_reliability_score_and_banner(
             "confidence_label": "low",
         }
 
-    # ── Step 1: baseline ──
+    # ── Step 1: model-primary base score ──
     raw_make = str(validated_input.get("make") or "").strip()
     raw_model = str(validated_input.get("model") or "").strip()
-    make_profile = get_make_profile(raw_make)
     model_override = get_model_override(raw_make, raw_model)
-    score_mod, _conf_boost, _trans_default = get_combined_score_modifier(raw_make, raw_model)
-    base = 62 + score_mod
-    base = max(20, min(90, base))
-    base += _overall_reliability_adjustment(overall_reliability_estimate)
+    exact_model_override = get_exact_model_override(raw_make, raw_model)
+    estimate_label = _normalized_reliability_estimate(overall_reliability_estimate)
+    base = _MODEL_PRIMARY_BASE_SCORE + _overall_reliability_adjustment(estimate_label)
     base = max(15, min(95, base))
 
     recalls = risk_signals.get("recalls") if isinstance(risk_signals.get("recalls"), dict) else {}
@@ -375,7 +441,7 @@ def compute_reliability_score_and_banner(
     recall_count = _safe_int(recalls.get("count"), lo=0, hi=100)
     high_sev_count = _safe_int(recalls.get("high_severity_count"), lo=0, hi=100)
     recall_bucket = _classify_recall_bucket(recall_count, high_sev_count)
-    recall_penalty = _RECALL_PENALTY[recall_bucket] * make_profile["recall_multiplier"]
+    recall_penalty = _RECALL_PENALTY[recall_bucket]
     has_meaningful_recalls = recall_bucket not in ("none", "low")
 
     # De-duplicate when the same recall appears as systemic signal text + recall bucket
@@ -393,7 +459,7 @@ def compute_reliability_score_and_banner(
     if isinstance(mcp, dict):
         mcp_level = str(mcp.get("level", "unknown")).lower()
     raw_mcp = _MCP_PENALTY.get(mcp_level, 0)
-    mcp_penalty = raw_mcp * make_profile["mcp_multiplier"]
+    mcp_penalty = raw_mcp
 
     # ── Step 5: total penalty with cap ──
     total_penalty = systemic_penalty + recall_penalty + mcp_penalty
@@ -403,15 +469,16 @@ def compute_reliability_score_and_banner(
     # ── Step 6: clean bonus ──
     bonus = 0
     if (
-        make_profile.get("bonus_eligible")
-        and not has_meaningful_issues
+        not has_meaningful_issues
         and not has_meaningful_recalls
         and mcp_level in ("low", "")
     ):
         bonus = _CLEAN_BONUS
 
-    # ── Step 7: final score & banner ──
-    score = max(0, min(100, int(round(base - total_penalty + bonus))))
+    calibration = _compute_model_calibration(exact_model_override)
+
+    # No calibration entry -> trust model score directly.
+    score = max(0, min(100, int(round(base - total_penalty + bonus + calibration["delta"]))))
     banner = _banner_from_score(score)
 
     # ── Step 8: confidence (messaging only, does not affect score) ──
@@ -421,6 +488,9 @@ def compute_reliability_score_and_banner(
         "score_0_100": score,
         "banner_he": banner,
         "confidence_label": confidence,
+        "calibration_applied": calibration["applied"],
+        "calibration_source": calibration["source"],
+        "calibration_delta": calibration["delta"],
     }
 
 

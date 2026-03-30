@@ -19,6 +19,7 @@ from app.services.analyze_service import (
     _CLEAN_BONUS,
     _PENALTY_CAP_FRACTION,
 )
+from app.services.scoring_baseline import get_exact_model_override
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +199,31 @@ class TestBaseScore:
         assert 15 <= r_high["score_0_100"] <= 95
 
 
+class TestCalibrationFallback:
+    def test_exact_model_entry_uses_light_calibration_metadata(self):
+        r = compute_reliability_score_and_banner(
+            _default_validated(),
+            _full_risk_signals(),
+            overall_reliability_estimate="high",
+        )
+
+        assert get_exact_model_override("Toyota", "Corolla") is not None
+        assert r["calibration_applied"] is True
+        assert r["calibration_source"] == "model_entry"
+        assert -2 <= r["calibration_delta"] <= 2
+
+    def test_no_exact_model_entry_uses_raw_model_score(self):
+        v = _default_validated({"make": "Toyota", "model": "Corolla Mystery Trim"})
+        rs = _full_risk_signals()
+
+        r = compute_reliability_score_and_banner(v, rs, overall_reliability_estimate="high")
+
+        assert get_exact_model_override("Toyota", "Corolla Mystery Trim") is None
+        assert r["calibration_applied"] is False
+        assert r["calibration_source"] == "none"
+        assert r["score_0_100"] == 81
+
+
 # ---------------------------------------------------------------------------
 # usage penalties are neutralized (no longer affect score)
 # ---------------------------------------------------------------------------
@@ -266,8 +292,8 @@ class TestRecallPenalties:
             "recalls": {"count": 3, "high_severity_count": 1, "notes": ""},
         })
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # base 74, recall penalty = round(5 * 0.7) = 4, no bonus, score = 74 - 4 = 70
-        assert r["score_0_100"] == 70
+        # Model-primary base 74 with neutral recall penalty = 5, no bonus => 69
+        assert r["score_0_100"] == 69
         assert r["banner_he"] == "גבוה"
 
     def test_high_recalls(self):
@@ -276,9 +302,9 @@ class TestRecallPenalties:
             "recalls": {"count": 5, "high_severity_count": 2, "notes": ""},
         })
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # base 74, recall high = 10 * 0.7 = 7, no bonus, score = 74 - 7 = 67
-        assert r["score_0_100"] == 67
-        assert r["banner_he"] == "גבוה"
+        # Model-primary base 74 with neutral high recall penalty = 10, no bonus => 64
+        assert r["score_0_100"] == 64
+        assert r["banner_he"] == "בינוני"
 
     def test_recall_like_systemic_issue_not_double_counted_fully(self):
         rs = _full_risk_signals({
@@ -434,8 +460,8 @@ class TestMaintenanceCostPressure:
             },
         })
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # mcp penalty = 6 * 0.7 = 4.2, no bonus (mcp is high), score = 74 - 4 = 70
-        expected_penalty = _MCP_PENALTY["high"] * 0.7  # Toyota mcp_multiplier
+        # Model-primary flow uses neutral maintenance pressure penalty (no make multiplier)
+        expected_penalty = _MCP_PENALTY["high"]
         expected_score = 74 - int(round(expected_penalty))
         assert r["score_0_100"] == expected_score
 
@@ -446,8 +472,8 @@ class TestMaintenanceCostPressure:
             },
         })
         r = compute_reliability_score_and_banner(_default_validated(), rs)
-        # mcp penalty = 2 * 0.7 = 1.4, mcp_level is "medium" so no bonus
-        expected_penalty = _MCP_PENALTY["medium"] * 0.7
+        # Model-primary flow uses neutral maintenance pressure penalty (no make multiplier)
+        expected_penalty = _MCP_PENALTY["medium"]
         expected_score = 74 - int(round(expected_penalty))
         assert r["score_0_100"] == expected_score
 
@@ -513,11 +539,10 @@ class TestCleanBonus:
         assert r["score_0_100"] == 78
 
     def test_non_bonus_eligible_no_bonus(self):
-        """VW (bonus_eligible=False) with no issues gets no bonus."""
+        """Without exact model calibration pressure, clean signals keep the raw model score."""
         v = _default_validated({"make": "Volkswagen", "model": "Golf"})
         r = compute_reliability_score_and_banner(v, _full_risk_signals())
-        # VW: base_modifier=-5, Golf model_modifier=+2, combined=-3 → base=62+(-3)=59, no bonus
-        assert r["score_0_100"] == 59
+        assert r["score_0_100"] == 78
 
     def test_bonus_blocked_by_issues(self):
         """Toyota with systemic issues should not get bonus."""

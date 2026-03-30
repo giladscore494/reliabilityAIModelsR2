@@ -1005,6 +1005,78 @@ def determine_winner(scores: Dict[str, Optional[float]], tie_threshold: float = 
     return sorted_scores[0][0]
 
 
+def _is_real_winner_id(winner_id: Optional[str], results: Dict[str, Any]) -> bool:
+    cars = (results.get("cars") or {}) if isinstance(results, dict) else {}
+    return isinstance(winner_id, str) and winner_id in cars
+
+
+def _build_single_winner_top_reasons(results: Dict[str, Any], winner_id: str) -> List[str]:
+    winner_cats = (((results.get("cars") or {}).get(winner_id) or {}).get("categories") or {})
+    sorted_cats = sorted(
+        [
+            (cat_name, data.get("score"))
+            for cat_name, data in winner_cats.items()
+            if isinstance(data, dict) and data.get("score") is not None
+        ],
+        key=lambda x: x[1],
+        reverse=True,
+    )
+    return [
+        f"ניקוד גבוה ב{CATEGORY_LABELS_HE.get(cat_name, cat_name)}: {score:.1f}/100"
+        for cat_name, score in sorted_cats[:3]
+    ]
+
+
+def _build_tie_top_reasons(results: Dict[str, Any]) -> List[str]:
+    cars = results.get("cars") or {}
+    category_winners = results.get("category_winners") or {}
+    tie_candidates = []
+    for cat_name, winner in category_winners.items():
+        if winner != "tie":
+            continue
+        scores = []
+        for car_data in cars.values():
+            cat_data = ((car_data or {}).get("categories") or {}).get(cat_name) or {}
+            score = cat_data.get("score")
+            if score is not None:
+                scores.append(score)
+        if not scores:
+            continue
+        avg_score = sum(scores) / len(scores)
+        spread = max(scores) - min(scores) if len(scores) >= 2 else 0.0
+        tie_candidates.append((avg_score, spread, cat_name))
+
+    tie_candidates.sort(key=lambda item: (-item[0], item[1], item[2]))
+
+    reasons = [
+        f"ב{CATEGORY_LABELS_HE.get(cat_name, cat_name)} הפער קטן מאוד בין הרכבים ({spread:.1f} נק')."
+        for _avg_score, spread, cat_name in tie_candidates[:3]
+    ]
+    if reasons:
+        return reasons
+    return ["הציונים הכוללים קרובים מאוד, ולכן אין מנצח ברור בהשוואה."]
+
+
+def _build_safe_top_reasons(results: Dict[str, Any]) -> List[str]:
+    winner_id = results.get("overall_winner")
+    if _is_real_winner_id(winner_id, results):
+        reasons = _build_single_winner_top_reasons(results, winner_id)
+        if reasons:
+            return reasons
+    if winner_id == "tie":
+        return _build_tie_top_reasons(results)
+    return ["לא ניתן לקבוע מנצח ברור על בסיס המידע הזמין."]
+
+
+def _build_overall_winner_message(results: Dict[str, Any]) -> str:
+    winner_id = results.get("overall_winner")
+    if _is_real_winner_id(winner_id, results):
+        return "נמצא יתרון כולל לאחד הרכבים לפי הציון המשוקלל."
+    if winner_id == "tie":
+        return "ההשוואה הכוללת צמודה ולכן הוגדרה כתיקו."
+    return "לא ניתן לקבוע מנצח כולל על בסיס המידע הזמין."
+
+
 def compute_comparison_results(model_output: Dict) -> Dict:
     """
     Compute all scores and determine winners based on model output.
@@ -1019,6 +1091,7 @@ def compute_comparison_results(model_output: Dict) -> Dict:
         "category_winners": {},
         "metric_winners": {},
         "overall_winner": None,
+        "overall_winner_message": "",
         "top_reasons": [],
         "comparison_status": {
             "requested_cars": requested_cars,
@@ -1082,24 +1155,10 @@ def compute_comparison_results(model_output: Dict) -> Dict:
         "cars_with_evidence": evidence_cars,
         "balanced": evidence_cars == requested_cars,
     }
-    
-    # Generate top 3 reasons (based on category scores)
-    if results["overall_winner"]:
-        winner_id = results["overall_winner"]
-        winner_cats = results["cars"][winner_id]["categories"]
-        
-        # Sort categories by score (descending)
-        sorted_cats = sorted(
-            [(cat_name, data["score"]) for cat_name, data in winner_cats.items() if data["score"] is not None],
-            key=lambda x: x[1],
-            reverse=True
-        )
-        
-        # Generate reasons
-        for cat_name, score in sorted_cats[:3]:
-            reason = f"ניקוד גבוה ב{CATEGORY_LABELS_HE.get(cat_name, cat_name)}: {score:.1f}/100"
-            results["top_reasons"].append(reason)
-    
+
+    results["overall_winner_message"] = _build_overall_winner_message(results)
+    results["top_reasons"] = _build_safe_top_reasons(results)
+
     return results
 
 

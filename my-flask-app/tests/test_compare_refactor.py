@@ -216,6 +216,41 @@ class TestComputeComparisonResultsStableKeys:
         assert result["comparison_status"]["balanced"] is True
         assert result["metric_winners"]["driving_performance"]["power_capability"] == "car_2"
 
+    def test_results_handle_tie_without_crashing(self):
+        model_output = {
+            "cars": {
+                "car_1": {
+                    "car_name": "Toyota Corolla 2020",
+                    "reliability": {"overall": "high", "issue_frequency": "low", "issue_severity": "low", "repair_cost_risk": "low", "recall_risk": "low", "parts_complexity": "low"},
+                    "ownership_cost": {"fuel_cost": "low", "routine_maintenance": "low", "repair_burden": "low", "insurance_burden": "low", "depreciation_risk": "low"},
+                    "comfort_practicality": {"space": "medium", "ride_comfort": "medium", "trunk_usefulness": "medium", "daily_usability": "high"},
+                    "performance_driving": {"power_feel": "medium", "power_to_weight": None, "braking_confidence": "medium", "handling_agility": "medium", "fun_to_drive": "medium"},
+                },
+                "car_2": {
+                    "car_name": "Honda Civic 2020",
+                    "reliability": {"overall": "high", "issue_frequency": "low", "issue_severity": "low", "repair_cost_risk": "low", "recall_risk": "low", "parts_complexity": "low"},
+                    "ownership_cost": {"fuel_cost": "low", "routine_maintenance": "low", "repair_burden": "low", "insurance_burden": "low", "depreciation_risk": "low"},
+                    "comfort_practicality": {"space": "medium", "ride_comfort": "medium", "trunk_usefulness": "medium", "daily_usability": "high"},
+                    "performance_driving": {"power_feel": "medium", "power_to_weight": None, "braking_confidence": "medium", "handling_agility": "medium", "fun_to_drive": "medium"},
+                },
+            }
+        }
+
+        result = compute_comparison_results(model_output)
+
+        assert result["overall_winner"] == "tie"
+        assert result["overall_winner_message"]
+        assert isinstance(result["top_reasons"], list)
+        assert result["top_reasons"]
+
+    def test_results_handle_missing_winner_softly(self):
+        result = compute_comparison_results({"cars": {"car_1": {}, "car_2": {}}})
+
+        assert result["overall_winner"] is None
+        assert result["overall_winner_message"]
+        assert isinstance(result["top_reasons"], list)
+        assert result["top_reasons"]
+
     def test_parse_single_car_json_normalizes_compact_stage_a_payload(self):
         raw = """
         {

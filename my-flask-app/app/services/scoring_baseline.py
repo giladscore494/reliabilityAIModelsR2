@@ -1569,6 +1569,30 @@ def get_model_override(make: str, model: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def get_exact_model_override(make: str, model: str) -> Optional[Dict[str, Any]]:
+    """Get a model override only for exact case-insensitive/normalized matches."""
+    make_key = make.strip().lower()
+    model_key = model.strip().lower()
+
+    make_models = MODEL_OVERRIDES.get(make_key)
+    if not make_models or not model_key:
+        return None
+
+    if model_key in make_models:
+        return make_models[model_key]
+
+    clean_q = model_key.replace(" ", "").replace("-", "")
+    if not clean_q:
+        return None
+
+    for known_model, override in make_models.items():
+        clean_k = known_model.replace(" ", "").replace("-", "")
+        if clean_q == clean_k:
+            return override
+
+    return None
+
+
 def get_combined_score_modifier(make: str, model: str) -> Tuple[int, float, Optional[str]]:
     """
     Returns (total_modifier, confidence_boost, transmission_default).
