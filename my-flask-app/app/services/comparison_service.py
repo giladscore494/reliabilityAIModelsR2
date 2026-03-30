@@ -27,7 +27,7 @@ from app.utils.prompt_defense import (
 )
 import app.extensions as extensions
 from google.genai import types as genai_types
-from app.utils.sanitization import sanitize_comparison_narrative
+from app.utils.sanitization import sanitize_comparison_narrative, _sanitize_url
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +114,7 @@ def map_cars_to_slots(validated_cars: List[Dict]) -> Dict[str, Dict]:
 # CONFIGURATION
 # ============================================================
 
-COMPARISON_PROMPT_VERSION = "v2"
+COMPARISON_PROMPT_VERSION = "v3"
 COMPARISON_MODEL_ID = "gemini-3-flash-preview"
 AI_CALL_TIMEOUT_SEC = int(os.environ.get("AI_CALL_TIMEOUT_SEC", "170"))
 COMPARE_STAGE_A_TIMEOUT_SEC = int(os.environ.get("COMPARE_STAGE_A_TIMEOUT_SEC", "30"))
@@ -127,6 +127,18 @@ COMPARE_WRITER_PROMPT_CHAR_CAP = int(os.environ.get("COMPARE_WRITER_PROMPT_CHAR_
 TIE_THRESHOLD = 3  # Score delta below this = "tie" (צמוד)
 PARALLEL_GRACE_SEC = 5  # Extra seconds when collecting parallel futures beyond per-call timeout
 ELLIPSIS_LEN = 3
+# Performance heuristics for typical passenger cars. HP_PER_TON_* thresholds are
+# horsepower per metric ton, while HORSEPOWER_* thresholds are absolute engine
+# output bands. They intentionally create coarse low/medium/high buckets rather
+# than precise rankings so code-side scoring stays stable across runs.
+KILOGRAMS_PER_TON = 1000.0
+MIN_REASONABLE_VEHICLE_WEIGHT_KG = 500.0
+HP_PER_TON_HIGH_THRESHOLD = 140
+HP_PER_TON_MEDIUM_THRESHOLD = 95
+HORSEPOWER_HIGH_THRESHOLD = 180
+HORSEPOWER_MEDIUM_THRESHOLD = 120
+PARTIAL_COMPARISON_SUMMARY_PREFIX = "השוואה חלקית:"
+PARTIAL_COMPARISON_DISCLAIMER = "ההשוואה חלקית כי לא נמצא מידע מלא על כל הרכבים."
 
 COMPARE_AI_METRICS = {
     "compare_ai_calls_total": 0,
@@ -144,13 +156,12 @@ COMPARE_AI_METRICS = {
 
 # Category weights for overall score calculation
 CATEGORY_WEIGHTS = {
-    "reliability_risk": 0.40,
-    "ownership_cost": 0.25,
-    "practicality_comfort": 0.20,
-    "driving_performance": 0.15,
+    "reliability_risk": 40,
+    "ownership_cost": 25,
+    "practicality_comfort": 20,
+    "driving_performance": 15,
 }
 
-# Enum mappings for ordinal values (low = good score, high = bad score for risk metrics)
 ORDINAL_SCORES_NEGATIVE = {
     "low": 100,
     "medium": 60,
@@ -163,59 +174,99 @@ ORDINAL_SCORES_POSITIVE = {
     "high": 100,
 }
 
-SIZE_SCORES = {
-    "small": 30,
-    "medium": 60,
-    "large": 100,
+CATEGORY_LABELS_HE = {
+    "reliability_risk": "אמינות וסיכונים",
+    "ownership_cost": "עלות אחזקה",
+    "practicality_comfort": "נוחות ופרקטיות",
+    "driving_performance": "ביצועים ונהיגה",
 }
 
+_LABEL_VALUES = {"low", "medium", "high"}
+# Keep Stage A tiny so the model returns deterministic JSON and the UI stays concise.
+_MAX_STAGE_A_NOTES = 4
+_MAX_STAGE_A_SOURCES = 5
 
-# ============================================================
-# METRIC DEFINITIONS
-# ============================================================
-
-METRICS_DEFINITION = {
-    "reliability_risk": {
-        "weight": 0.40,
-        "metrics": {
-            "reliability_rating": {"type": "numeric", "min": 0, "max": 100, "weight": 0.25},
-            "major_failure_risk": {"type": "ordinal_negative", "weight": 0.20},
-            "common_failure_patterns": {"type": "list", "weight": 0.10},  # Not scored directly
-            "mileage_sensitivity": {"type": "ordinal_negative", "weight": 0.15},
-            "maintenance_complexity": {"type": "ordinal_negative", "weight": 0.15},
-            "expected_maintenance_cost_level": {"type": "ordinal_negative", "weight": 0.15},
-        }
+SINGLE_CAR_CATEGORY_TEMPLATE = {
+    "reliability": {
+        "overall": None,
+        "issue_frequency": None,
+        "issue_severity": None,
+        "repair_cost_risk": None,
+        "recall_risk": None,
+        "parts_complexity": None,
     },
     "ownership_cost": {
-        "weight": 0.25,
-        "metrics": {
-            "fuel_economy_real_world": {"type": "numeric_lower_better", "min": 5, "max": 25, "weight": 0.25},
-            "insurance_cost_level": {"type": "ordinal_negative", "weight": 0.20},
-            "depreciation_value_retention": {"type": "ordinal_positive", "weight": 0.20},
-            "parts_availability": {"type": "ordinal_positive", "weight": 0.15},
-            "service_network_ease": {"type": "ordinal_positive", "weight": 0.20},
-        }
+        "fuel_cost": None,
+        "routine_maintenance": None,
+        "repair_burden": None,
+        "insurance_burden": None,
+        "depreciation_risk": None,
+    },
+    "comfort_practicality": {
+        "space": None,
+        "ride_comfort": None,
+        "trunk_usefulness": None,
+        "daily_usability": None,
+    },
+    "performance_driving": {
+        "power_feel": None,
+        "power_to_weight": None,
+        "braking_confidence": None,
+        "handling_agility": None,
+        "fun_to_drive": None,
+    },
+}
+
+SINGLE_CAR_FACTS_TEMPLATE = {
+    "horsepower": None,
+    "weight_kg": None,
+    "body_type": None,
+    "fuel_type": None,
+}
+
+CATEGORY_SCORE_CONFIG = {
+    "reliability_risk": {
+        "stage_a_key": "reliability",
+        "weight": 40,
+        "subfactors": {
+            "reliability_reputation": {"weight": 12, "kind": "positive_label", "field": "overall"},
+            "issue_frequency": {"weight": 8, "kind": "negative_label", "field": "issue_frequency"},
+            "issue_severity": {"weight": 8, "kind": "negative_label", "field": "issue_severity"},
+            "repair_cost_risk": {"weight": 5, "kind": "negative_label", "field": "repair_cost_risk"},
+            "recall_risk": {"weight": 4, "kind": "negative_label", "field": "recall_risk"},
+            "parts_complexity": {"weight": 3, "kind": "negative_label", "field": "parts_complexity"},
+        },
+    },
+    "ownership_cost": {
+        "stage_a_key": "ownership_cost",
+        "weight": 25,
+        "subfactors": {
+            "fuel_cost": {"weight": 8, "kind": "negative_label", "field": "fuel_cost"},
+            "routine_maintenance": {"weight": 6, "kind": "negative_label", "field": "routine_maintenance"},
+            "repair_burden": {"weight": 5, "kind": "negative_label", "field": "repair_burden"},
+            "insurance_burden": {"weight": 3, "kind": "negative_label", "field": "insurance_burden"},
+            "depreciation_risk": {"weight": 3, "kind": "negative_label", "field": "depreciation_risk"},
+        },
     },
     "practicality_comfort": {
-        "weight": 0.20,
-        "metrics": {
-            "cabin_space": {"type": "size", "weight": 0.15},
-            "trunk_space_liters": {"type": "numeric", "min": 200, "max": 700, "weight": 0.15},
-            "ride_comfort": {"type": "ordinal_positive", "weight": 0.20},
-            "noise_insulation": {"type": "ordinal_positive", "weight": 0.15},
-            "city_driveability": {"type": "ordinal_positive", "weight": 0.15},
-            "features_value": {"type": "ordinal_positive", "weight": 0.20},
-        }
+        "stage_a_key": "comfort_practicality",
+        "weight": 20,
+        "subfactors": {
+            "space": {"weight": 7, "kind": "positive_label", "field": "space"},
+            "ride_comfort": {"weight": 5, "kind": "positive_label", "field": "ride_comfort"},
+            "trunk_usefulness": {"weight": 4, "kind": "positive_label", "field": "trunk_usefulness"},
+            "daily_usability": {"weight": 4, "kind": "positive_label", "field": "daily_usability"},
+        },
     },
     "driving_performance": {
-        "weight": 0.15,
-        "metrics": {
-            "acceleration_0_100": {"type": "numeric_lower_better", "min": 5, "max": 15, "weight": 0.20},
-            "engine_power_hp": {"type": "numeric", "min": 80, "max": 300, "weight": 0.15},
-            "handling_stability": {"type": "ordinal_positive", "weight": 0.25},
-            "braking_performance": {"type": "ordinal_positive", "weight": 0.20},
-            "highway_stability": {"type": "ordinal_positive", "weight": 0.20},
-        }
+        "stage_a_key": "performance_driving",
+        "weight": 15,
+        "subfactors": {
+            "power_capability": {"weight": 6, "kind": "power_capability"},
+            "braking_confidence": {"weight": 3, "kind": "positive_label", "field": "braking_confidence"},
+            "handling_agility": {"weight": 4, "kind": "positive_label", "field": "handling_agility"},
+            "fun_to_drive": {"weight": 2, "kind": "positive_label", "field": "fun_to_drive"},
+        },
     },
 }
 
@@ -273,6 +324,102 @@ def _safe_parse_json_cached(raw_value: Any, field_name: str = "unknown") -> Tupl
         return None, False
 
 
+def _normalize_label(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = str(value).strip().lower()
+    return normalized if normalized in _LABEL_VALUES else None
+
+
+def _normalize_number(value: Any) -> Optional[float]:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_short_text(value: Any, max_len: int = 120) -> Optional[str]:
+    if value is None:
+        return None
+    text = " ".join(str(value).split()).strip()
+    if not text:
+        return None
+    return text[:max_len]
+
+
+def _empty_single_car_payload() -> Dict[str, Any]:
+    payload = {
+        "car_name": None,
+        "facts": dict(SINGLE_CAR_FACTS_TEMPLATE),
+        "short_notes": [],
+        "sources": [],
+    }
+    for category_name, template in SINGLE_CAR_CATEGORY_TEMPLATE.items():
+        payload[category_name] = dict(template)
+    return payload
+
+
+def _normalize_sources(value: Any) -> List[str]:
+    out: List[str] = []
+    for item in value if isinstance(value, list) else []:
+        if isinstance(item, dict):
+            raw_url = item.get("url")
+        else:
+            raw_url = item
+        clean_url = _sanitize_url(raw_url)
+        if clean_url and clean_url not in out:
+            out.append(clean_url)
+        if len(out) >= _MAX_STAGE_A_SOURCES:
+            break
+    return out
+
+
+def normalize_single_car_payload(payload: Dict[str, Any], fallback_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Normalize Stage A per-car payload into a compact, stable shape."""
+    if not isinstance(payload, dict):
+        return None
+
+    normalized = _empty_single_car_payload()
+    normalized["car_name"] = _normalize_short_text(payload.get("car_name") or fallback_name, 140)
+
+    category_seen = False
+    for category_name, template in SINGLE_CAR_CATEGORY_TEMPLATE.items():
+        source_category = payload.get(category_name)
+        if not isinstance(source_category, dict):
+            continue
+        for field_name in template.keys():
+            label = _normalize_label(source_category.get(field_name))
+            normalized[category_name][field_name] = label
+            category_seen = category_seen or (label is not None)
+
+    facts = payload.get("facts")
+    if isinstance(facts, dict):
+        normalized["facts"]["horsepower"] = _normalize_number(facts.get("horsepower"))
+        normalized["facts"]["weight_kg"] = _normalize_number(facts.get("weight_kg"))
+        normalized["facts"]["body_type"] = _normalize_short_text(facts.get("body_type"), 60)
+        normalized["facts"]["fuel_type"] = _normalize_short_text(facts.get("fuel_type"), 60)
+
+    raw_notes = payload.get("short_notes") if isinstance(payload.get("short_notes"), list) else []
+    normalized_notes: List[str] = []
+    for item in raw_notes:
+        note = _normalize_short_text(item, 120)
+        if note:
+            normalized_notes.append(note)
+        if len(normalized_notes) >= _MAX_STAGE_A_NOTES:
+            break
+    normalized["short_notes"] = normalized_notes
+    normalized["sources"] = _normalize_sources(payload.get("sources"))
+
+    has_facts = any(value is not None for value in normalized["facts"].values())
+    has_notes = bool(normalized["short_notes"])
+    has_sources = bool(normalized["sources"])
+    if not (category_seen or has_facts or has_notes or has_sources):
+        return None
+    return normalized
+
+
 # ============================================================
 # PROMPT BUILDING
 # ============================================================
@@ -283,7 +430,7 @@ def build_compare_grounding_prompt(cars: List[Dict[str, str]], region: str = "IL
 
 
 def build_single_car_prompt(car: Dict, region: str = "IL") -> str:
-    """Build Stage A prompt for a SINGLE car — lean schema, no sources per metric."""
+    """Build Stage A prompt for a SINGLE car using a compact evidence schema."""
     sanitized = {
         "make": escape_prompt_input(car.get("make", ""), max_length=50),
         "model": escape_prompt_input(car.get("model", ""), max_length=100),
@@ -301,8 +448,9 @@ def build_single_car_prompt(car: Dict, region: str = "IL") -> str:
 
     return f"""{data_instruction}
 
-You are a car data retrieval agent. Return factual data for ONE car.
-Return ONLY valid JSON. No markdown. No code fences.
+You are a grounded car research extractor for ONE car.
+Search the web and return ONLY compact evidence in JSON.
+Return ONLY valid JSON. No markdown. No code fences. No prose outside JSON.
 
 {bounded_car}
 
@@ -310,45 +458,53 @@ Region: {region}
 
 Return this exact JSON structure:
 {{
-  "reliability_risk": {{
-    "reliability_rating": <0-100 or null>,
-    "major_failure_risk": "low"|"medium"|"high"|null,
-    "common_failure_patterns": [{{"issue":"...","frequency":"common|rare|occasional"}}] or null,
-    "mileage_sensitivity": "low"|"medium"|"high"|null,
-    "maintenance_complexity": "low"|"medium"|"high"|null,
-    "expected_maintenance_cost_level": "low"|"medium"|"high"|null
+  "car_name": "string",
+  "reliability": {{
+    "overall": "high"|"medium"|"low"|null,
+    "issue_frequency": "low"|"medium"|"high"|null,
+    "issue_severity": "low"|"medium"|"high"|null,
+    "repair_cost_risk": "low"|"medium"|"high"|null,
+    "recall_risk": "low"|"medium"|"high"|null,
+    "parts_complexity": "low"|"medium"|"high"|null
   }},
   "ownership_cost": {{
-    "fuel_economy_real_world": <L/100km number or null>,
-    "insurance_cost_level": "low"|"medium"|"high"|null,
-    "depreciation_value_retention": "low"|"medium"|"high"|null,
-    "parts_availability": "low"|"medium"|"high"|null,
-    "service_network_ease": "low"|"medium"|"high"|null
+    "fuel_cost": "low"|"medium"|"high"|null,
+    "routine_maintenance": "low"|"medium"|"high"|null,
+    "repair_burden": "low"|"medium"|"high"|null,
+    "insurance_burden": "low"|"medium"|"high"|null,
+    "depreciation_risk": "low"|"medium"|"high"|null
   }},
-  "practicality_comfort": {{
-    "cabin_space": "small"|"medium"|"large"|null,
-    "trunk_space_liters": <number or null>,
+  "comfort_practicality": {{
+    "space": "low"|"medium"|"high"|null,
     "ride_comfort": "low"|"medium"|"high"|null,
-    "noise_insulation": "low"|"medium"|"high"|null,
-    "city_driveability": "low"|"medium"|"high"|null,
-    "features_value": "low"|"medium"|"high"|null
+    "trunk_usefulness": "low"|"medium"|"high"|null,
+    "daily_usability": "low"|"medium"|"high"|null
   }},
-  "driving_performance": {{
-    "acceleration_0_100": <seconds number or null>,
-    "engine_power_hp": <hp number or null>,
-    "handling_stability": "low"|"medium"|"high"|null,
-    "braking_performance": "low"|"medium"|"high"|null,
-    "highway_stability": "low"|"medium"|"high"|null
+  "performance_driving": {{
+    "power_feel": "low"|"medium"|"high"|null,
+    "power_to_weight": "low"|"medium"|"high"|null,
+    "braking_confidence": "low"|"medium"|"high"|null,
+    "handling_agility": "low"|"medium"|"high"|null,
+    "fun_to_drive": "low"|"medium"|"high"|null
   }},
-  "sources": [
-    {{"url":"https://...","title":"..."}}
-  ]
+  "facts": {{
+    "horsepower": <number or null>,
+    "weight_kg": <number or null>,
+    "body_type": "string or null",
+    "fuel_type": "string or null"
+  }},
+  "short_notes": ["up to 4 short bullets"],
+  "sources": ["up to 5 source URLs"]
 }}
 
 RULES:
-1. Values must be factual. If unknown, use null.
-2. Sources: list ALL URLs you used, at the bottom in the "sources" array. Not per metric.
-3. Return ONLY valid JSON.
+1. Keep it compact and stable: labels, a few facts, short notes, URLs only.
+2. Do NOT compare against another car. Do NOT score numerically. Do NOT write long explanations.
+3. Use null if unknown. Do not invent trims/specs if they are unclear.
+4. Prefer expert reviews, owner reports, recall/safety sources, and reliable specs.
+5. short_notes must contain at most 4 short items.
+6. sources must contain at most 5 direct http/https URLs.
+7. Return ONLY valid JSON.
 """.strip()
 
 
@@ -593,33 +749,24 @@ def build_compare_writer_prompt(cars_selected_slots: Dict, computed_result: Dict
             return "carB"
         return "tie"
 
-    def _category_feature_snapshot(category_key: str) -> List[Dict[str, Any]]:
-        feature_keys = []
-        if category_key == "reliability_risk":
-            feature_keys = ["reliability_rating", "major_failure_risk", "mileage_sensitivity"]
-        elif category_key == "ownership_cost":
-            feature_keys = ["fuel_economy_real_world", "insurance_cost_level", "depreciation_value_retention"]
-        elif category_key == "practicality_comfort":
-            feature_keys = ["trunk_space_liters", "cabin_space", "ride_comfort"]
-        elif category_key == "driving_performance":
-            feature_keys = ["acceleration_0_100", "engine_power_hp", "handling_stability"]
-        out = []
-        grounded_cars = grounded_output.get("cars", {}) if isinstance(grounded_output, dict) else {}
-        for metric_key in feature_keys:
-            metric_values = {}
-            for slot in ("car_1", "car_2"):
-                value = ((grounded_cars.get(slot) or {}).get(category_key) or {}).get(metric_key)
-                metric_values["carA" if slot == "car_1" else "carB"] = value
-            out.append({"metric": metric_key, "values": metric_values})
-        return out
+    def _evidence_snapshot(slot_key: str, category_key: str) -> Dict[str, Any]:
+        grounded_car = ((grounded_output or {}).get("cars", {}) or {}).get(slot_key, {})
+        category_map = {
+            "reliability_risk": "reliability",
+            "ownership_cost": "ownership_cost",
+            "practicality_comfort": "comfort_practicality",
+            "driving_performance": "performance_driving",
+        }
+        evidence = (grounded_car.get(category_map.get(category_key, "")) or {})
+        snapshot = {
+            "labels": evidence,
+            "notes": (grounded_car.get("short_notes") or [])[:2],
+            "facts": grounded_car.get("facts") or {},
+        }
+        return snapshot
 
     car_a = cars_selected_slots.get("car_1", {}) if isinstance(cars_selected_slots, dict) else {}
     car_b = cars_selected_slots.get("car_2", {}) if isinstance(cars_selected_slots, dict) else {}
-    constraints = {}
-    assumptions = grounded_output.get("assumptions", {}) if isinstance(grounded_output, dict) else {}
-    for k in ("budget", "max_mileage"):
-        if assumptions.get(k):
-            constraints[k] = assumptions.get(k)
 
     model_payload = {
         "carA": {"label": _truncate_text(car_a.get("display_name") or "car_1")},
@@ -630,9 +777,10 @@ def build_compare_writer_prompt(cars_selected_slots: Dict, computed_result: Dict
                 "carA": ((computed_result.get("cars", {}).get("car_1", {}) or {}).get("overall_score")),
                 "carB": ((computed_result.get("cars", {}).get("car_2", {}) or {}).get("overall_score")),
             },
+            "balanced_comparison": bool(((computed_result.get("comparison_status") or {}).get("balanced", True))),
         },
         "categories": [],
-        "constraints": constraints,
+        "sources": ((grounded_output or {}).get("sources") or [])[:_MAX_STAGE_A_SOURCES],
     }
     for category_key in ("reliability_risk", "ownership_cost", "practicality_comfort", "driving_performance"):
         model_payload["categories"].append({
@@ -642,12 +790,16 @@ def build_compare_writer_prompt(cars_selected_slots: Dict, computed_result: Dict
                 "carA": (((computed_result.get("cars", {}).get("car_1", {}) or {}).get("categories", {}) or {}).get(category_key, {}).get("score")),
                 "carB": (((computed_result.get("cars", {}).get("car_2", {}) or {}).get("categories", {}) or {}).get(category_key, {}).get("score")),
             },
-            "key_features": _category_feature_snapshot(category_key),
+            "evidence": {
+                "carA": _evidence_snapshot("car_1", category_key),
+                "carB": _evidence_snapshot("car_2", category_key),
+            },
         })
 
     payload_json = json.dumps(model_payload, ensure_ascii=False, separators=(",", ":"))
     prompt = f"""You are a concise car comparison explainer.
-Use only MODEL_PAYLOAD below. Do not add facts. Do not repeat input values.
+Write in Hebrew for the end user.
+Use only MODEL_PAYLOAD below. Do not add facts. Do not change any scores.
 
 MODEL_PAYLOAD:
 {payload_json}
@@ -667,8 +819,12 @@ Return ONLY valid JSON with EXACTLY this schema and no extra keys:
   "caveats": ["max 3, each max 14 words"]
 }}
 
-Forbidden: long paragraphs, tables, repeated input data, markdown, and any keys outside schema.
-If unsure, keep it short and say 'Not enough data' in 6 words max.
+RULES:
+1. Explain category winners using the provided deterministic scores plus the compact evidence labels/notes/facts.
+2. If balanced_comparison=false, say clearly that the comparison is partial and avoid overconfident recommendations.
+3. Keep the text practical, short, and user-facing.
+4. Forbidden: long paragraphs, tables, markdown, extra keys, or invented claims.
+5. If unsure, keep it short and say 'אין מספיק מידע' in 4 words max.
 """
     if len(prompt) > COMPARE_WRITER_PROMPT_CHAR_CAP:
         prompt = prompt[:COMPARE_WRITER_PROMPT_CHAR_CAP]
@@ -704,34 +860,10 @@ DATA:{json.dumps(retry_payload, ensure_ascii=False, separators=(",", ":"))}
 # SCORING FUNCTIONS (DETERMINISTIC - CODE ONLY)
 # ============================================================
 
-def score_numeric(value: Optional[float], min_val: float, max_val: float, confidence: float = 1.0) -> Optional[float]:
-    """Score a numeric value normalized between 0-100."""
-    if value is None:
-        return None
-    # Clamp value to bounds
-    clamped = max(min_val, min(max_val, value))
-    # Normalize to 0-100
-    score = ((clamped - min_val) / (max_val - min_val)) * 100
-    return round(score * confidence, 1)
-
-
-def score_numeric_lower_better(value: Optional[float], min_val: float, max_val: float, confidence: float = 1.0) -> Optional[float]:
-    """Score a numeric value where lower is better (inverted)."""
-    if value is None:
-        return None
-    # Clamp value to bounds
-    clamped = max(min_val, min(max_val, value))
-    # Invert: lower value = higher score
-    score = ((max_val - clamped) / (max_val - min_val)) * 100
-    return round(score * confidence, 1)
-
-
 def score_ordinal_negative(value: Optional[str], confidence: float = 1.0) -> Optional[float]:
     """Score ordinal value where low is good (e.g., risk: low=good)."""
-    if value is None:
-        return None
-    val_lower = str(value).lower().strip()
-    score = ORDINAL_SCORES_NEGATIVE.get(val_lower)
+    normalized = _normalize_label(value)
+    score = ORDINAL_SCORES_NEGATIVE.get(normalized) if normalized else None
     if score is None:
         return None
     return round(score * confidence, 1)
@@ -739,104 +871,123 @@ def score_ordinal_negative(value: Optional[str], confidence: float = 1.0) -> Opt
 
 def score_ordinal_positive(value: Optional[str], confidence: float = 1.0) -> Optional[float]:
     """Score ordinal value where high is good (e.g., comfort: high=good)."""
-    if value is None:
-        return None
-    val_lower = str(value).lower().strip()
-    score = ORDINAL_SCORES_POSITIVE.get(val_lower)
+    normalized = _normalize_label(value)
+    score = ORDINAL_SCORES_POSITIVE.get(normalized) if normalized else None
     if score is None:
         return None
     return round(score * confidence, 1)
 
 
-def score_size(value: Optional[str], confidence: float = 1.0) -> Optional[float]:
-    """Score size value."""
-    if value is None:
+def _average_scores(scores: List[Optional[float]]) -> Optional[float]:
+    valid = [score for score in scores if score is not None]
+    if not valid:
         return None
-    val_lower = str(value).lower().strip()
-    score = SIZE_SCORES.get(val_lower)
-    if score is None:
-        return None
-    return round(score * confidence, 1)
+    return round(sum(valid) / len(valid), 1)
 
 
-def score_metric(metric_value, metric_def: Dict) -> Optional[float]:
-    """Score a single metric value based on its definition.
-    
-    Args:
-        metric_value: The direct metric value (number, string, list, or None).
-        metric_def: Metric definition dict with 'type', 'min', 'max', 'weight'.
-    """
-    if metric_value is None:
+def _derive_power_to_weight_label(car_data: Dict[str, Any]) -> Optional[str]:
+    performance = car_data.get("performance_driving", {})
+    explicit = _normalize_label((performance or {}).get("power_to_weight"))
+    if explicit:
+        return explicit
+
+    facts = car_data.get("facts", {})
+    horsepower = _normalize_number((facts or {}).get("horsepower"))
+    weight_kg = _normalize_number((facts or {}).get("weight_kg"))
+    if horsepower is None or weight_kg is None or weight_kg < MIN_REASONABLE_VEHICLE_WEIGHT_KG:
         return None
-    
-    metric_type = metric_def.get("type")
-    
-    if metric_type == "numeric":
-        return score_numeric(metric_value, metric_def.get("min", 0), metric_def.get("max", 100))
-    elif metric_type == "numeric_lower_better":
-        return score_numeric_lower_better(metric_value, metric_def.get("min", 0), metric_def.get("max", 100))
-    elif metric_type == "ordinal_negative":
-        return score_ordinal_negative(metric_value)
-    elif metric_type == "ordinal_positive":
-        return score_ordinal_positive(metric_value)
-    elif metric_type == "size":
-        return score_size(metric_value)
-    elif metric_type == "list":
+
+    hp_per_ton = (horsepower * KILOGRAMS_PER_TON) / weight_kg
+    if hp_per_ton >= HP_PER_TON_HIGH_THRESHOLD:
+        return "high"
+    if hp_per_ton >= HP_PER_TON_MEDIUM_THRESHOLD:
+        return "medium"
+    return "low"
+
+
+def _derive_horsepower_label(car_data: Dict[str, Any]) -> Optional[str]:
+    horsepower = _normalize_number(((car_data.get("facts") or {}).get("horsepower")))
+    if horsepower is None:
         return None
+    if horsepower >= HORSEPOWER_HIGH_THRESHOLD:
+        return "high"
+    if horsepower >= HORSEPOWER_MEDIUM_THRESHOLD:
+        return "medium"
+    return "low"
+
+
+def _score_power_capability(car_data: Dict[str, Any]) -> Optional[float]:
+    performance = car_data.get("performance_driving", {})
+    return _average_scores([
+        score_ordinal_positive((performance or {}).get("power_feel")),
+        score_ordinal_positive(_derive_power_to_weight_label(car_data) or _derive_horsepower_label(car_data)),
+    ])
+
+
+def _score_subfactor(car_data: Dict[str, Any], category_name: str, subfactor_def: Dict[str, Any]) -> Optional[float]:
+    stage_a_key = CATEGORY_SCORE_CONFIG[category_name]["stage_a_key"]
+    section = car_data.get(stage_a_key, {})
+    if subfactor_def.get("kind") == "positive_label":
+        return score_ordinal_positive((section or {}).get(subfactor_def.get("field")))
+    if subfactor_def.get("kind") == "negative_label":
+        return score_ordinal_negative((section or {}).get(subfactor_def.get("field")))
+    if subfactor_def.get("kind") == "power_capability":
+        return _score_power_capability(car_data)
     return None
 
 
+def _has_any_stage_a_evidence(car_data: Dict[str, Any]) -> bool:
+    if not isinstance(car_data, dict):
+        return False
+    for category_name in SINGLE_CAR_CATEGORY_TEMPLATE.keys():
+        for value in (car_data.get(category_name) or {}).values():
+            if value is not None:
+                return True
+    if any(value is not None for value in (car_data.get("facts") or {}).values()):
+        return True
+    if car_data.get("short_notes"):
+        return True
+    if car_data.get("sources"):
+        return True
+    return False
+
 
 def compute_category_score(car_data: Dict, category_name: str) -> Tuple[Optional[float], Dict[str, Optional[float]]]:
-    """
-    Compute weighted score for a category.
-    Returns (category_score, metric_scores_dict).
-    """
-    if category_name not in METRICS_DEFINITION:
+    """Compute deterministic weighted score for a category from simplified Stage A evidence."""
+    category_def = CATEGORY_SCORE_CONFIG.get(category_name)
+    if not category_def:
         return None, {}
-    
-    cat_def = METRICS_DEFINITION[category_name]
-    metrics_defs = cat_def.get("metrics", {})
-    
-    category_data = car_data.get(category_name, {})
-    
+
     metric_scores = {}
     total_weighted = 0.0
     total_weights = 0.0
-    
-    for metric_name, metric_def in metrics_defs.items():
-        # NEW: value is directly in category_data[metric_name], not a nested dict
-        metric_value = category_data.get(metric_name)
-        score = score_metric(metric_value, metric_def)
+    for metric_name, metric_def in category_def.get("subfactors", {}).items():
+        score = _score_subfactor(car_data, category_name, metric_def)
         metric_scores[metric_name] = score
-        
-        if score is not None:
-            weight = metric_def.get("weight", 0)
-            total_weighted += score * weight
-            total_weights += weight
-    
-    if total_weights > 0:
-        category_score = round(total_weighted / total_weights, 1)
-    else:
-        category_score = None
-    
-    return category_score, metric_scores
+        if score is None:
+            continue
+        weight = metric_def.get("weight", 0)
+        total_weighted += score * weight
+        total_weights += weight
+
+    if total_weights == 0:
+        return None, metric_scores
+    return round(total_weighted / total_weights, 1), metric_scores
 
 
 def compute_overall_score(category_scores: Dict[str, Optional[float]]) -> Optional[float]:
     """Compute weighted overall score from category scores."""
     total_weighted = 0.0
     total_weights = 0.0
-    
     for cat_name, weight in CATEGORY_WEIGHTS.items():
         score = category_scores.get(cat_name)
-        if score is not None:
-            total_weighted += score * weight
-            total_weights += weight
-    
-    if total_weights > 0:
-        return round(total_weighted / total_weights, 1)
-    return None
+        if score is None:
+            continue
+        total_weighted += score * weight
+        total_weights += weight
+    if total_weights == 0:
+        return None
+    return round(total_weighted / total_weights, 1)
 
 
 def determine_winner(scores: Dict[str, Optional[float]], tie_threshold: float = TIE_THRESHOLD) -> Optional[str]:
@@ -861,25 +1012,40 @@ def compute_comparison_results(model_output: Dict) -> Dict:
     """
     cars_data = model_output.get("cars", {})
     
+    requested_cars = len(cars_data)
+    evidence_cars = 0
     results = {
         "cars": {},
         "category_winners": {},
         "metric_winners": {},
         "overall_winner": None,
         "top_reasons": [],
+        "comparison_status": {
+            "requested_cars": requested_cars,
+            "cars_with_evidence": 0,
+            "balanced": True,
+        },
     }
     
     overall_scores = {}
     
     for car_id, car_data in cars_data.items():
+        has_evidence = _has_any_stage_a_evidence(car_data)
+        if has_evidence:
+            evidence_cars += 1
         car_result = {
             "categories": {},
             "overall_score": None,
+            "evidence_available": has_evidence,
+            "evidence_summary": {
+                "source_count": len(car_data.get("sources") or []),
+                "note_count": len(car_data.get("short_notes") or []),
+            },
         }
         
         category_scores = {}
         
-        for cat_name in METRICS_DEFINITION.keys():
+        for cat_name in CATEGORY_SCORE_CONFIG.keys():
             cat_score, metric_scores = compute_category_score(car_data, cat_name)
             car_result["categories"][cat_name] = {
                 "score": cat_score,
@@ -894,15 +1060,15 @@ def compute_comparison_results(model_output: Dict) -> Dict:
         results["cars"][car_id] = car_result
     
     # Determine category winners
-    for cat_name in METRICS_DEFINITION.keys():
+    for cat_name in CATEGORY_SCORE_CONFIG.keys():
         cat_scores = {car_id: results["cars"][car_id]["categories"][cat_name]["score"] 
                       for car_id in cars_data.keys()}
         results["category_winners"][cat_name] = determine_winner(cat_scores)
     
     # Determine metric winners
-    for cat_name, cat_def in METRICS_DEFINITION.items():
+    for cat_name, cat_def in CATEGORY_SCORE_CONFIG.items():
         results["metric_winners"][cat_name] = {}
-        for metric_name in cat_def.get("metrics", {}).keys():
+        for metric_name in cat_def.get("subfactors", {}).keys():
             metric_scores = {}
             for car_id in cars_data.keys():
                 car_metrics = results["cars"][car_id]["categories"].get(cat_name, {}).get("metrics", {})
@@ -911,6 +1077,11 @@ def compute_comparison_results(model_output: Dict) -> Dict:
     
     # Determine overall winner
     results["overall_winner"] = determine_winner(overall_scores)
+    results["comparison_status"] = {
+        "requested_cars": requested_cars,
+        "cars_with_evidence": evidence_cars,
+        "balanced": evidence_cars == requested_cars,
+    }
     
     # Generate top 3 reasons (based on category scores)
     if results["overall_winner"]:
@@ -925,15 +1096,8 @@ def compute_comparison_results(model_output: Dict) -> Dict:
         )
         
         # Generate reasons
-        cat_names_he = {
-            "reliability_risk": "אמינות וסיכונים",
-            "ownership_cost": "עלות אחזקה",
-            "practicality_comfort": "נוחות ופרקטיות",
-            "driving_performance": "ביצועים ונהיגה",
-        }
-        
         for cat_name, score in sorted_cats[:3]:
-            reason = f"ניקוד גבוה ב{cat_names_he.get(cat_name, cat_name)}: {score:.1f}/100"
+            reason = f"ניקוד גבוה ב{CATEGORY_LABELS_HE.get(cat_name, cat_name)}: {score:.1f}/100"
             results["top_reasons"].append(reason)
     
     return results
@@ -967,14 +1131,24 @@ def _is_output_too_long_error(raw: str) -> bool:
 
 _STAGE_A_REQUIRED_KEYS = {"grounding_successful", "search_queries_used", "assumptions", "cars"}
 
-_SINGLE_CAR_REQUIRED_CATEGORIES = {"reliability_risk", "ownership_cost", "practicality_comfort", "driving_performance"}
+_SINGLE_CAR_REQUIRED_CATEGORIES = {
+    "reliability",
+    "ownership_cost",
+    "comfort_practicality",
+    "performance_driving",
+}
 
 
 def _is_valid_single_car_payload(payload):
-    """Validate single car payload — superset check, not strict equality."""
+    """Validate single car payload for expected compact Stage A sections.
+
+    Stage A is intentionally tolerant: if at least one expected section exists,
+    normalization can fill the rest with nulls. This reduces false negatives from
+    minor model omissions while still rejecting unrelated JSON objects.
+    """
     if not isinstance(payload, dict):
         return False
-    return _SINGLE_CAR_REQUIRED_CATEGORIES.issubset(set(payload.keys()))
+    return bool(_SINGLE_CAR_REQUIRED_CATEGORIES.intersection(set(payload.keys())))
 
 
 def parse_single_car_json(raw_text: str) -> Tuple[Optional[Dict], Optional[str]]:
@@ -988,7 +1162,9 @@ def parse_single_car_json(raw_text: str) -> Tuple[Optional[Dict], Optional[str]]
         except json.JSONDecodeError:
             continue
         if _is_valid_single_car_payload(parsed):
-            return parsed, None
+            normalized = normalize_single_car_payload(parsed)
+            if normalized is not None:
+                return normalized, None
     return None, "MODEL_JSON_INVALID"
 
 
@@ -1160,9 +1336,29 @@ def build_deterministic_fallback_narrative(cars_selected_slots: Dict, computed_r
     }
 
 
+def mark_partial_comparison_narrative(narrative: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Add an explicit disclaimer when Stage A succeeded for only part of the cars."""
+    if not isinstance(narrative, dict):
+        return narrative
+    patched = dict(narrative)
+    summary = str(patched.get("overall_summary") or "").strip()
+    if summary and not summary.startswith(PARTIAL_COMPARISON_SUMMARY_PREFIX):
+        patched["overall_summary"] = f"{PARTIAL_COMPARISON_SUMMARY_PREFIX} {summary}"
+    disclaimers = list(patched.get("disclaimers_he") or [])
+    if PARTIAL_COMPARISON_DISCLAIMER not in disclaimers:
+        disclaimers.append(PARTIAL_COMPARISON_DISCLAIMER)
+    patched["disclaimers_he"] = disclaimers[:3]
+    return patched
+
+
 def _empty_stage_a_output(cars_selected_slots: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    cars = {}
+    for slot_key, slot_data in (cars_selected_slots or {}).items():
+        empty_payload = _empty_single_car_payload()
+        empty_payload["car_name"] = _normalize_short_text((slot_data or {}).get("display_name"), 140)
+        cars[slot_key] = empty_payload
     return {
-        "cars": {slot_key: {} for slot_key in (cars_selected_slots or {}).keys()},
+        "cars": cars,
         "sources": [],
     }
 
@@ -1205,11 +1401,20 @@ def _build_stage_a_summary(computed_result: Dict[str, Any]) -> Dict[str, Any]:
             "name": category_name,
             "winner": winner_map.get(winner, "tie"),
         })
+    comparison_status = computed_result.get("comparison_status", {}) or {}
+    balanced = bool(comparison_status.get("balanced", True))
     return {
-        "summary": "סיכום מספרי של ההשוואה.",
+        "summary": "סיכום מספרי של ההשוואה." if balanced else "סיכום מספרי חלקי של ההשוואה.",
         "winner": winner_map.get(computed_result.get("overall_winner"), "tie"),
         "category_winners": category_winners,
-        "caveats": ["המידע עשוי להשתנות."],
+        "caveats": (
+            ["המידע עשוי להשתנות."]
+            if balanced
+            else [PARTIAL_COMPARISON_DISCLAIMER]
+        ),
+        "balanced": balanced,
+        "cars_with_evidence": int(comparison_status.get("cars_with_evidence", 0)),
+        "requested_cars": int(comparison_status.get("requested_cars", 0)),
     }
 
 
@@ -1559,7 +1764,7 @@ def call_stage_a_parallel(validated_cars: List[Dict], cars_selected_slots: Dict)
             stage_a_logger,
         )
 
-    merged = {"cars": {}, "sources": []}
+    merged = _empty_stage_a_output(cars_selected_slots)
     errors = []
     for slot_key, future in futures.items():
         try:
@@ -1572,10 +1777,22 @@ def call_stage_a_parallel(validated_cars: List[Dict], cars_selected_slots: Dict)
                     slot_key,
                     _truncate_error_message(error),
                 )
-                merged["cars"][slot_key] = {}
             else:
-                car_sources = result.pop("sources", [])
-                merged["cars"][slot_key] = result
+                normalized_result = normalize_single_car_payload(
+                    result,
+                    fallback_name=(cars_selected_slots.get(slot_key, {}) or {}).get("display_name"),
+                )
+                if normalized_result is None:
+                    errors.append(f"{slot_key}: MODEL_JSON_INVALID")
+                    stage_a_logger.warning(
+                        "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=StageAError error=%s",
+                        request_id,
+                        slot_key,
+                        "MODEL_JSON_INVALID",
+                    )
+                    continue
+                car_sources = normalized_result.get("sources", [])
+                merged["cars"][slot_key] = normalized_result
                 merged["sources"].extend(car_sources)
         except concurrent.futures.TimeoutError as e:
             future.cancel()
@@ -1586,7 +1803,6 @@ def call_stage_a_parallel(validated_cars: List[Dict], cars_selected_slots: Dict)
                 slot_key,
                 _truncate_error_message(e),
             )
-            merged["cars"][slot_key] = {}
         except concurrent.futures.CancelledError as e:
             errors.append(f"{slot_key}: CALL_CANCELLED")
             stage_a_logger.warning(
@@ -1595,7 +1811,6 @@ def call_stage_a_parallel(validated_cars: List[Dict], cars_selected_slots: Dict)
                 slot_key,
                 _truncate_error_message(e),
             )
-            merged["cars"][slot_key] = {}
         except Exception as e:
             errors.append(f"{slot_key}: CALL_FAILED:{type(e).__name__}")
             stage_a_logger.error(
@@ -1605,8 +1820,10 @@ def call_stage_a_parallel(validated_cars: List[Dict], cars_selected_slots: Dict)
                 type(e).__name__,
                 _truncate_error_message(e),
             )
-            merged["cars"][slot_key] = {}
 
+    deduped_sources = list(dict.fromkeys(merged.get("sources", [])))
+    source_limit = _MAX_STAGE_A_SOURCES * max(1, len(slot_keys))
+    merged["sources"] = deduped_sources[:source_limit]
     return merged, build_sources_index_from_flat(merged), errors
 
 
@@ -2373,6 +2590,9 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                 _inc_compare_metric("compare_ai_fallback_used_total")
                 narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
 
+    if stage_a_partial:
+        narrative = mark_partial_comparison_narrative(narrative)
+
     computed_result = enforce_authoritative_numbers(server_computed_result, stage_b_output, request_id)
     ai_status = "ok"
     ai_reason = None
@@ -2597,6 +2817,9 @@ def regenerate_comparison_ai(comparison_id: int, user_id: int) -> Optional[Dict[
             _inc_compare_metric("compare_ai_regenerate_fallback_total")
             _inc_compare_metric("compare_ai_fallback_used_total")
             narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
+
+    if not ((server_computed_result.get("comparison_status") or {}).get("balanced", True)):
+        narrative = mark_partial_comparison_narrative(narrative)
 
     ai_payload = build_ai_payload(server_computed_result, narrative, "ok" if reason is None else "fallback", reason)
     if stage_b_error:
