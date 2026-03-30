@@ -315,7 +315,7 @@ def test_stage_a_config_is_bounded_and_tools_disabled(app, monkeypatch):
     class _FakeModels:
         def generate_content(self, *, model, contents, config):
             captured["config"] = config
-            return SimpleNamespace(text='{"car_name":"Toyota Corolla 2020","reliability":{},"ownership_cost":{},"comfort_practicality":{},"performance_driving":{},"facts":{},"short_notes":[],"sources":[]}')
+            return SimpleNamespace(text='{"car_name":"Toyota Corolla 2020","reliability":{"overall":"high"},"ownership_cost":{},"comfort_practicality":{},"performance_driving":{},"facts":{},"short_notes":[],"sources":[]}')
 
     monkeypatch.setattr(comparison_service.extensions, "ai_client", SimpleNamespace(models=_FakeModels()))
     with app.app_context():
