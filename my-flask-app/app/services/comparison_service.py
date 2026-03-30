@@ -122,7 +122,7 @@ COMPARE_WRITER_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_WRITER_MAX_OUTPUT
 COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS", "500"))
 COMPARE_WRITER_PROMPT_CHAR_CAP = int(os.environ.get("COMPARE_WRITER_PROMPT_CHAR_CAP", "16000"))
 TIE_THRESHOLD = 3  # Score delta below this = "tie" (צמוד)
-_PARALLEL_GRACE_SEC = 5  # Extra seconds when collecting parallel futures beyond per-call timeout
+PARALLEL_GRACE_SEC = 5  # Extra seconds when collecting parallel futures beyond per-call timeout
 
 COMPARE_AI_METRICS = {
     "compare_ai_calls_total": 0,
@@ -756,7 +756,12 @@ def score_size(value: Optional[str], confidence: float = 1.0) -> Optional[float]
 
 
 def score_metric(metric_value, metric_def: Dict) -> Optional[float]:
-    """Score a single metric value based on its definition."""
+    """Score a single metric value based on its definition.
+    
+    Args:
+        metric_value: The direct metric value (number, string, list, or None).
+        metric_def: Metric definition dict with 'type', 'min', 'max', 'weight'.
+    """
     if metric_value is None:
         return None
     
@@ -1505,7 +1510,7 @@ def call_stage_a_parallel(validated_cars: List[Dict], cars_selected_slots: Dict)
     errors = []
     for slot_key, future in futures.items():
         try:
-            result, error = future.result(timeout=COMPARE_STAGE_A_TIMEOUT_SEC + _PARALLEL_GRACE_SEC)
+            result, error = future.result(timeout=COMPARE_STAGE_A_TIMEOUT_SEC + PARALLEL_GRACE_SEC)
             if error:
                 errors.append(f"{slot_key}: {error}")
                 merged["cars"][slot_key] = {}
