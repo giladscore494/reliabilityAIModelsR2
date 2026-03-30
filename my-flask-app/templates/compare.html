@@ -78,63 +78,6 @@
             animation: fadeIn 0.3s ease-out;
         }
         
-        /* Metric rows - responsive */
-        .metric-row {
-            display: flex;
-            align-items: flex-start;
-            padding: 0.75rem 0;
-            border-bottom: 1px solid #334155;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-        @media (min-width: 768px) {
-            .metric-row {
-                flex-direction: row;
-                align-items: center;
-            }
-        }
-        .metric-row:last-child {
-            border-bottom: none;
-        }
-        
-        /* Mobile card layout for car values */
-        .metric-values-container {
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-            width: 100%;
-        }
-        @media (min-width: 768px) {
-            .metric-values-container {
-                flex-direction: row;
-                gap: 1rem;
-                width: auto;
-            }
-        }
-        .car-value-card {
-            background: #0F172A;
-            border: 1px solid #334155;
-            border-radius: 0.5rem;
-            padding: 0.75rem;
-            flex: 1;
-        }
-        @media (min-width: 768px) {
-            .car-value-card {
-                background: transparent;
-                border: none;
-                padding: 0;
-                min-width: 80px;
-                text-align: center;
-            }
-        }
-        
-        /* Category header scores - responsive */
-        .category-scores-container {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem 1rem;
-            align-items: center;
-        }
         
         /* Winner badge */
         .winner-badge {
@@ -147,56 +90,7 @@
             white-space: nowrap;
         }
         
-        /* Sources toggle */
-        .sources-toggle {
-            font-size: 0.75rem;
-            color: #94A3B8;
-            cursor: pointer;
-            text-decoration: underline;
-            display: inline-block;
-            margin-top: 0.25rem;
-        }
-        .sources-toggle:hover {
-            color: #CBD5E1;
-        }
-        .sources-list {
-            display: none;
-            margin-top: 0.5rem;
-            padding: 0.5rem;
-            background: #0F172A;
-            border-radius: 0.5rem;
-            font-size: 0.75rem;
-        }
-        .sources-list.open {
-            display: block;
-        }
-        .source-item {
-            margin-bottom: 0.5rem;
-            padding-bottom: 0.5rem;
-            border-bottom: 1px solid #1E293B;
-        }
-        .source-item:last-child {
-            margin-bottom: 0;
-            padding-bottom: 0;
-            border-bottom: none;
-        }
-        .source-link {
-            color: #818CF8;
-            text-decoration: none;
-        }
-        .source-link:hover {
-            text-decoration: underline;
-        }
         
-        /* Metric legend */
-        .metric-legend {
-            background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(236,72,153,0.15));
-            border: 1px solid rgba(99,102,241,0.3);
-        }
-        .legend-item {
-            background: rgba(15,23,42,0.6);
-            border: 1px solid rgba(51,65,85,0.8);
-        }
 
         /* Per-car accent colors */
         .car-accent-1 { --accent: #ef4444; }
@@ -303,13 +197,6 @@
                     בחר עד 3 רכבים להשוואה מקיפה על בסיס נתונים מאומתים מהאינטרנט
                 </p>
             </header>
-            <div id="compareLegalBanner"
-                 class="p-4 rounded-xl border text-sm bg-emerald-500/10 border-emerald-500/30 text-emerald-200">
-                <div id="compareLegalStatusText" class="flex items-center gap-2">
-                    <span>{{ '✅' if legal_accepted else '⚠️' }}</span>
-                    <span>{{ 'Legal consent accepted ✅' if legal_accepted else 'Please confirm Terms & Privacy to submit your request.' }}</span>
-                </div>
-            </div>
 
             <!-- Car Selection -->
             <div id="carSelectionSection" class="bg-dark-lighter/70 border border-slate-700/70 rounded-2xl p-6 md:p-8">
@@ -467,9 +354,31 @@
                     </div>
                 </div>
                 
-                {% set checkbox_id = 'compareLegalConfirm' %}
-                {% set error_id = 'compareLegalError' %}
-                {% include "_legal_submit_consent.html" %}
+                <div class="pt-4 space-y-8">
+                    <label
+                        class="flex items-start gap-4 p-4 rounded-xl bg-slate-800/20 border border-slate-700/50 cursor-pointer group hover:bg-slate-800/40 transition-colors">
+                        <input type="checkbox" id="compareLegalConfirm" name="legal-confirm" required
+                               class="mt-1 w-6 h-6 rounded border-2 border-slate-600 text-primary focus:ring-offset-0 focus:ring-primary bg-slate-900/50 transition-colors">
+                        <span class="text-sm text-slate-300 leading-relaxed">
+                            אני מאשר/ת כי אני מעל גיל 18, וקראתי והסכמתי
+                            <a href="{{ url_for('public.terms') }}" target="_blank" rel="noopener noreferrer"
+                               class="text-primary font-bold hover:underline underline-offset-4">לתנאי השימוש</a>
+                            ו
+                            <a href="{{ url_for('public.privacy') }}" target="_blank" rel="noopener noreferrer"
+                               class="text-primary font-bold hover:underline underline-offset-4">מדיניות הפרטיות</a>
+                            של האתר.
+                        </span>
+                    </label>
+                    <p id="compareLegalError"
+                       class="hidden flex items-center text-red-400 text-sm bg-red-950/30 border border-red-900/50 p-3 rounded-lg">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 ml-2" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd"
+                                  d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                                  clip-rule="evenodd" />
+                        </svg>
+                        אנא אשר/י את תנאי השימוש כדי להמשיך בתהליך.
+                    </p>
+                </div>
                 <div class="flex justify-center mt-6">
                     <button id="compareBtn" type="button"
                             class="px-8 py-3 bg-gradient-to-r from-primary to-secondary text-white font-bold rounded-full hover:from-primary/90 hover:to-secondary/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
@@ -515,87 +424,6 @@
                     </button>
                 </div>
                 
-                <!-- Metric Legend (explains low/medium/high) -->
-                <div class="metric-legend rounded-2xl p-6 md:p-8 space-y-4">
-                    <h3 class="text-xl font-bold text-white flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        הסבר: נמוך / בינוני / גבוה
-                    </h3>
-                    <p class="text-slate-300 text-sm">
-                        כל פרמטר מקבל ציון מ-0 עד 100 ומתורגם לרמה (נמוך/בינוני/גבוה). המשמעות משתנה לפי סוג המדד:
-                    </p>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div class="legend-item rounded-xl p-4">
-                            <h4 class="font-bold text-white mb-2">📉 מדדי סיכון (ככל שנמוך יותר - עדיף)</h4>
-                            <ul class="text-sm text-slate-300 space-y-1">
-                                <li><strong class="text-emerald-400">נמוך (80-100):</strong> סיכון מינימלי / עלות נמוכה</li>
-                                <li><strong class="text-yellow-400">בינוני (40-79):</strong> סיכון ממוצע / עלות בינונית</li>
-                                <li><strong class="text-red-400">גבוה (0-39):</strong> סיכון משמעותי / עלות גבוהה</li>
-                            </ul>
-                            <p class="text-xs text-slate-400 mt-2">דוגמאות: סיכון תקלות, מורכבות תחזוקה, עלות ביטוח</p>
-                        </div>
-                        <div class="legend-item rounded-xl p-4">
-                            <h4 class="font-bold text-white mb-2">📈 מדדי ביצועים (ככל שגבוה יותר - עדיף)</h4>
-                            <ul class="text-sm text-slate-300 space-y-1">
-                                <li><strong class="text-emerald-400">גבוה (80-100):</strong> ביצועים מעולים / נוחות גבוהה</li>
-                                <li><strong class="text-yellow-400">בינוני (40-79):</strong> ביצועים סבירים / נוחות בינונית</li>
-                                <li><strong class="text-red-400">נמוך (0-39):</strong> ביצועים חלשים / נוחות מוגבלת</li>
-                            </ul>
-                            <p class="text-xs text-slate-400 mt-2">דוגמאות: אמינות, נוחות נסיעה, זמינות חלפים, שימור ערך</p>
-                        </div>
-                    </div>
-                    <details class="mt-4 text-sm">
-                        <summary class="cursor-pointer text-primary hover:text-secondary transition-colors font-semibold">
-                            📋 רשימה מפורטת של כל המדדים
-                        </summary>
-                        <div class="mt-3 p-4 bg-slate-900/50 rounded-lg space-y-3 text-xs text-slate-300">
-                            <div>
-                                <strong class="text-white">אמינות וסיכונים (40% מהציון):</strong>
-                                <ul class="mr-4 mt-1 space-y-0.5">
-                                    <li>• דירוג אמינות (📈 גבוה=טוב): 0-100 ניקוד</li>
-                                    <li>• סיכון תקלה משמעותית (📉 נמוך=טוב): נמוך/בינוני/גבוה</li>
-                                    <li>• רגישות לק"מ (📉 נמוך=טוב): נמוך/בינוני/גבוה</li>
-                                    <li>• מורכבות תחזוקה (📉 נמוך=טוב): נמוך/בינוני/גבוה</li>
-                                    <li>• עלות תחזוקה צפויה (📉 נמוך=טוב): נמוך/בינוני/גבוה</li>
-                                </ul>
-                            </div>
-                            <div>
-                                <strong class="text-white">עלויות בעלות (25%):</strong>
-                                <ul class="mr-4 mt-1 space-y-0.5">
-                                    <li>• צריכת דלק בעולם האמיתי (📉 נמוך=טוב): 5-25 ליטר/100 ק"מ</li>
-                                    <li>• עלות ביטוח (📉 נמוך=טוב): נמוך/בינוני/גבוה</li>
-                                    <li>• שימור ערך (📈 גבוה=טוב): נמוך/בינוני/גבוה</li>
-                                    <li>• זמינות חלפים (📈 גבוה=טוב): נמוך/בינוני/גבוה</li>
-                                    <li>• נגישות שירות (📈 גבוה=טוב): נמוך/בינוני/גבוה</li>
-                                </ul>
-                            </div>
-                            <div>
-                                <strong class="text-white">פרקטיות ונוחות (20%):</strong>
-                                <ul class="mr-4 mt-1 space-y-0.5">
-                                    <li>• מרחב תא נוסעים (📈 גבוה=טוב): קטן/בינוני/גדול</li>
-                                    <li>• נפח תא מטען (📈 גבוה=טוב): 200-700 ליטר</li>
-                                    <li>• נוחות נסיעה (📈 גבוה=טוב): נמוך/בינוני/גבוה</li>
-                                    <li>• בידוד רעשים (📈 גבוה=טוב): נמוך/בינוני/גבוה</li>
-                                    <li>• נהיגה עירונית (📈 גבוה=טוב): נמוך/בינוני/גבוה</li>
-                                    <li>• יחס ערך-תכונות (📈 גבוה=טוב): נמוך/בינוני/גבוה</li>
-                                </ul>
-                            </div>
-                            <div>
-                                <strong class="text-white">ביצועי נהיגה (15%):</strong>
-                                <ul class="mr-4 mt-1 space-y-0.5">
-                                    <li>• האצה 0-100 קמ"ש (📉 נמוך=טוב): 5-15 שניות</li>
-                                    <li>• הספק מנוע (📈 גבוה=טוב): 80-300 כ"ס</li>
-                                    <li>• יציבות והנדלינג (📈 גבוה=טוב): נמוך/בינוני/גבוה</li>
-                                    <li>• ביצועי בלימה (📈 גבוה=טוב): נמוך/בינוני/גבוה</li>
-                                    <li>• יציבות בכביש מהיר (📈 גבוה=טוב): נמוך/בינוני/גבוה</li>
-                                </ul>
-                            </div>
-                            <p class="text-slate-400 italic mt-2">* הציונים מחושבים באופן דטרמיניסטי בקוד על בסיס נתונים שנאספו מהאינטרנט</p>
-                        </div>
-                    </details>
-                </div>
                 
                 <!-- Category Comparisons - responsive with overflow for wide content -->
                 <div id="categoriesSection" class="space-y-4 overflow-x-auto">
@@ -743,7 +571,6 @@
 
     const legalConfirmCheckbox = document.getElementById('compareLegalConfirm');
     const legalConfirmError = document.getElementById('compareLegalError');
-    const legalStatusBannerText = document.getElementById('compareLegalStatusText');
 
     function showCompareLegalError(message) {
         if (!legalConfirmError) return;
@@ -767,31 +594,6 @@
         'ownership_cost': 'עלות בעלות',
         'practicality_comfort': 'נוחות ופרקטיות',
         'driving_performance': 'ביצועים ונהיגה'
-    };
-    
-    const METRIC_NAMES = {
-        'reliability_rating': 'דירוג אמינות',
-        'major_failure_risk': 'סיכון לתקלות חמורות',
-        'common_failure_patterns': 'תקלות נפוצות',
-        'mileage_sensitivity': 'רגישות לקילומטראז׳',
-        'maintenance_complexity': 'מורכבות תחזוקה',
-        'expected_maintenance_cost_level': 'עלות תחזוקה צפויה',
-        'fuel_economy_real_world': 'צריכת דלק אמיתית',
-        'insurance_cost_level': 'עלות ביטוח',
-        'depreciation_value_retention': 'שימור ערך',
-        'parts_availability': 'זמינות חלפים',
-        'service_network_ease': 'נגישות שירות',
-        'cabin_space': 'מרחב פנימי',
-        'trunk_space_liters': 'נפח תא מטען (ליטר)',
-        'ride_comfort': 'נוחות נסיעה',
-        'noise_insulation': 'בידוד רעש',
-        'city_driveability': 'נהיגה עירונית',
-        'features_value': 'תמורה לאביזרים',
-        'acceleration_0_100': 'תאוצה 0-100',
-        'engine_power_hp': 'הספק מנוע (כ"ס)',
-        'handling_stability': 'יציבות ואחיזה',
-        'braking_performance': 'ביצועי בלימה',
-        'highway_stability': 'יציבות בכביש מהיר'
     };
     
     // ============================================================
@@ -1321,9 +1123,6 @@
         const data = await res.json();
         if (res.ok && data.ok) {
             window.legalAccepted = true;
-            if (legalStatusBannerText) {
-                legalStatusBannerText.innerHTML = '<span>✅</span><span>Legal consent accepted</span>';
-            }
             return true;
         }
         return false;
@@ -1467,16 +1266,17 @@
     function renderResults(result) {
         const carsSelected = result.cars_selected || {};
         const carKeys = Object.keys(carsSelected).filter(k => k.startsWith('car_'));
+        const computed = result.computed_result || {};
         
-        // Helper to get display name
         const getDisplayName = (carKey) => {
             return carsSelected[carKey]?.display_name || carKey;
         };
 
-        // Render winner
+        // 1. Winner card
         const winnerDisplay = document.getElementById('winnerDisplay');
-        const winner = result.computed_result?.overall_winner;
-        
+        const winner = computed.overall_winner;
+        const winnerScore = winner && winner !== 'tie' ? computed.cars?.[winner]?.overall_score : null;
+
         if (winner === 'tie') {
             winnerDisplay.innerHTML = `
                 <div class="flex items-center gap-4">
@@ -1494,177 +1294,86 @@
                     <div class="text-5xl">🏆</div>
                     <div>
                         <div class="text-3xl font-bold" style="color: ${winnerColor}">${escapeHtml(getDisplayName(winner))}</div>
-                        <div class="text-slate-400">המנצח הכולל</div>
+                        <div class="text-slate-400">המנצח הכולל${winnerScore != null ? ' — ' + winnerScore.toFixed(0) + '/100' : ''}</div>
                     </div>
                 </div>
             `;
         } else {
             winnerDisplay.innerHTML = '<p class="text-slate-400">לא ניתן היה לקבוע מנצח</p>';
         }
-        
-        // Render assumptions
+
+        // 2. Assumptions
         const assumptionsList = document.getElementById('assumptionsList');
         const assumptions = result.assumptions || {};
-        assumptionsList.innerHTML = Object.entries(assumptions).map(([key, val]) => 
-            `<li>• ${escapeHtml(val)}</li>`
-        ).join('') || '<li>אין הנחות מיוחדות</li>';
-        
-        // Render top reasons
+        const assumptionsEntries = Object.entries(assumptions);
+        if (assumptionsEntries.length === 0) {
+            document.getElementById('assumptionsDisplay').classList.add('hidden');
+        } else {
+            document.getElementById('assumptionsDisplay').classList.remove('hidden');
+            assumptionsList.innerHTML = assumptionsEntries.map(([key, val]) =>
+                `<li>• ${escapeHtml(val)}</li>`
+            ).join('');
+        }
+
+        // 3. Top reasons
         const reasonsList = document.getElementById('reasonsList');
-        const reasons = result.computed_result?.top_reasons || [];
+        const reasons = computed.top_reasons || [];
         reasonsList.innerHTML = reasons.map(r => `<li>• ${escapeHtml(r)}</li>`).join('') || '<li>אין נתונים</li>';
-        
-        // Render narrative
+
+        // 4. Narrative
         renderNarrative(result, carKeys);
-        
-        // Render categories
+
+        // 5. Category rows — NO expand, NO sub-metrics
         const categoriesSection = document.getElementById('categoriesSection');
-        categoriesSection.innerHTML = '';
-        
         const categories = ['reliability_risk', 'ownership_cost', 'practicality_comfort', 'driving_performance'];
-        
-        categories.forEach(catName => {
-            const catDiv = document.createElement('div');
-            catDiv.className = 'category-row fade-in';
-            
-            // Category scores per car
-            const catScores = {};
-            carKeys.forEach(carKey => {
-                const catData = result.computed_result?.cars[carKey]?.categories[catName];
-                catScores[carKey] = catData?.score;
-            });
-            
-            const catWinner = result.computed_result?.category_winners[catName];
-            const catWinnerLabel = catWinner === 'tie' ? 'צמוד' : (catWinner ? getDisplayName(catWinner) : '');
-            const catWinnerBadgeClass = catWinner === 'tie' ? 'tie-badge' : 'winner-badge';
-            
-            // Find narrative for this category
-            const catNarrative = (result.ai?.stage_b?.categories || result.narrative?.category_explanations || []).find(c => c.category_key === catName);
-            
-            catDiv.innerHTML = `
-                <div class="category-header" data-category="${catName}">
-                    <div class="flex items-center gap-3">
-                        <span class="text-lg font-bold text-white">${CATEGORY_NAMES[catName] || catName}</span>
-                        ${catWinnerLabel ? `<span class="${catWinnerBadgeClass}">${escapeHtml(catWinnerLabel)}</span>` : ''}
-                    </div>
-                    <div class="category-scores-container">
-                        ${carKeys.map(carKey => {
-                            const accent = ACCENT_COLORS[carKey] || {};
-                            return `
-                                <div class="text-center min-w-[70px]">
-                                    <div class="text-xs" style="color: ${accent.color || '#94A3B8'}">${escapeHtml(getDisplayName(carKey))}</div>
-                                    <div class="text-lg md:text-xl font-bold ${catScores[carKey] != null ? getScoreColor(catScores[carKey]) : 'text-slate-500'}">
-                                        ${catScores[carKey] != null ? catScores[carKey].toFixed(0) : '-'}
-                                    </div>
-                                </div>
-                            `;
-                        }).join('')}
-                        <svg class="expand-icon h-5 w-5 text-slate-400 transition-transform shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                        </svg>
-                    </div>
-                </div>
-                <div class="category-content" id="content-${catName}">
-                    ${catNarrative ? `
-                        <div class="mb-4 p-3 bg-slate-700/20 rounded-lg">
-                            ${carKeys.map(carKey => {
-                                const accent = ACCENT_COLORS[carKey] || {};
-                                const explanation = catNarrative.explanations?.[carKey] || '';
-                                return explanation ? `<p class="text-sm text-slate-300 mb-1"><span style="color: ${accent.color || '#94A3B8'}" class="font-semibold">${escapeHtml(getDisplayName(carKey))}:</span> ${escapeHtml(explanation)}</p>` : '';
-                            }).join('')}
-                            ${(catNarrative.why_it_scored_that_way || []).length > 0 ? `
-                                <ul class="mt-2 text-xs text-slate-400">
-                                    ${catNarrative.why_it_scored_that_way.map(reason => `<li>• ${escapeHtml(reason)}</li>`).join('')}
-                                </ul>
-                            ` : ''}
-                        </div>
-                    ` : ''}
-                    <details class="mt-2">
-                        <summary class="cursor-pointer text-sm text-primary hover:text-secondary font-semibold mb-2">הצג פרטים</summary>
-                        ${renderMetrics(catName, carKeys, result)}
-                    </details>
-                </div>
-            `;
-            
-            categoriesSection.appendChild(catDiv);
-        });
-        
-        // Add click handlers for expand/collapse
-        document.querySelectorAll('.category-header').forEach(header => {
-            header.addEventListener('click', () => {
-                const catName = header.dataset.category;
-                const content = document.getElementById(`content-${catName}`);
-                const icon = header.querySelector('.expand-icon');
-                
-                content.classList.toggle('open');
-                icon.style.transform = content.classList.contains('open') ? 'rotate(180deg)' : '';
-            });
-        });
-    }
-    
-    function renderMetrics(catName, carKeys, result) {
-        const modelOutput = result.model_output?.cars || {};
-        const computedResult = result.computed_result?.cars || {};
-        const metricWinners = result.computed_result?.metric_winners[catName] || {};
-        const carsSelected = result.cars_selected || {};
-        
-        const getDisplayName = (carKey) => {
-            return carsSelected[carKey]?.display_name || carKey;
+        const CATEGORY_WEIGHTS_DISPLAY = {
+            'reliability_risk': '40%',
+            'ownership_cost': '25%',
+            'practicality_comfort': '20%',
+            'driving_performance': '15%'
         };
-        
-        // Get metrics for this category
-        const sampleCar = Object.values(modelOutput)[0];
-        if (!sampleCar || !sampleCar[catName]) return '<p class="text-slate-500">אין נתונים</p>';
-        
-        const metrics = Object.keys(sampleCar[catName]);
-        
-        return metrics.map(metricName => {
-            const metricWinner = metricWinners[metricName];
-            const metricWinnerLabel = metricWinner === 'tie' ? 'צמוד' : (metricWinner ? getDisplayName(metricWinner) : '');
-            const metricBadgeClass = metricWinner === 'tie' ? 'tie-badge' : 'winner-badge';
-            
-            return `
-                <div class="metric-row">
-                    <div class="flex-1 w-full md:w-auto">
-                        <div class="flex items-center gap-2 mb-2 md:mb-0">
-                            <span class="text-slate-300 font-semibold">${METRIC_NAMES[metricName] || metricName}</span>
-                            ${metricWinnerLabel ? `<span class="${metricBadgeClass} text-xs">${escapeHtml(metricWinnerLabel)}</span>` : ''}
+
+        let categoriesHTML = '';
+        categories.forEach(catName => {
+            const catWinner = computed.category_winners?.[catName];
+            const scores = {};
+            carKeys.forEach(ck => {
+                scores[ck] = computed.cars?.[ck]?.categories?.[catName]?.score;
+            });
+
+            let winnerBadge = '';
+            if (catWinner && catWinner !== 'tie') {
+                winnerBadge = `<span class="winner-badge">${escapeHtml(getDisplayName(catWinner))}</span>`;
+            } else if (catWinner === 'tie') {
+                winnerBadge = '<span class="tie-badge">צמוד</span>';
+            }
+
+            categoriesHTML += `
+                <div class="bg-dark-lighter/70 border border-slate-700/70 rounded-xl p-4 md:p-6 fade-in">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center gap-2">
+                            <span class="text-base font-bold text-white">${CATEGORY_NAMES[catName] || catName}</span>
+                            <span class="text-xs text-slate-500">${CATEGORY_WEIGHTS_DISPLAY[catName]} מהציון</span>
                         </div>
+                        ${winnerBadge}
                     </div>
-                    <div class="metric-values-container">
-                        ${carKeys.map(carKey => {
-                            const metricData = modelOutput[carKey]?.[catName]?.[metricName] || {};
-                            const score = computedResult[carKey]?.categories?.[catName]?.metrics?.[metricName];
-                            const value = metricData.value;
-                            const sources = metricData.sources || [];
-                            const accent = ACCENT_COLORS[carKey] || {};
-                            
+                    <div class="flex gap-4">
+                        ${carKeys.map(ck => {
+                            const score = scores[ck];
+                            const accent = ACCENT_COLORS[ck] || {};
                             return `
-                                <div class="car-value-card" style="border-color: ${accent.color || '#334155'}">
-                                    <div class="text-xs mb-1 md:hidden" style="color: ${accent.color || '#94A3B8'}">${escapeHtml(getDisplayName(carKey))}</div>
-                                    <div class="text-sm font-medium ${value !== null ? 'text-white' : 'text-slate-500'}">
-                                        ${formatValue(value)}
-                                    </div>
-                                    ${sources.length > 0 ? `
-                                        <button class="sources-toggle">
-                                            ${sources.length} מקורות
-                                        </button>
-                                        <div class="sources-list">
-                                            ${sources.map(s => `
-                                                <div class="source-item">
-                                                    <a href="${sanitizeUrl(escapeHtml(s.url))}" target="_blank" rel="noopener noreferrer" class="source-link">${escapeHtml(s.title || s.url)}</a>
-                                                    ${s.snippet ? `<p class="text-slate-400 mt-1 text-xs">${escapeHtml(s.snippet)}</p>` : ''}
-                                                </div>
-                                            `).join('')}
-                                        </div>
-                                    ` : ''}
+                                <div class="flex-1 text-center p-3 rounded-lg bg-slate-800/50">
+                                    <div class="text-xs mb-1" style="color:${accent.color || '#94A3B8'}">${escapeHtml(getDisplayName(ck))}</div>
+                                    <div class="text-2xl font-bold ${getScoreColor(score)}">${score != null ? score.toFixed(0) : '-'}</div>
                                 </div>
                             `;
                         }).join('')}
                     </div>
                 </div>
             `;
-        }).join('');
+        });
+
+        categoriesSection.innerHTML = categoriesHTML;
     }
     
     // ============================================================
@@ -1761,23 +1470,6 @@
         return '';
     }
     
-    function formatValue(value) {
-        if (value === null || value === undefined) return '-';
-        if (typeof value === 'number') return value.toFixed(1);
-        if (Array.isArray(value)) {
-            return value.map(v => v.issue || v).slice(0, 2).join(', ');
-        }
-        // Translate ordinal values
-        const translations = {
-            'low': 'נמוך',
-            'medium': 'בינוני',
-            'high': 'גבוה',
-            'small': 'קטן',
-            'large': 'גדול'
-        };
-        const valLower = String(value).toLowerCase();
-        return translations[valLower] || value;
-    }
     
     function getScoreColor(score) {
         if (score >= 75) return 'text-green-400';
@@ -1785,11 +1477,6 @@
         return 'text-red-400';
     }
     
-    // Global function for sources toggle
-    window.toggleSources = function(btn) {
-        const sourcesList = btn.nextElementSibling;
-        sourcesList.classList.toggle('open');
-    };
     
     // ============================================================
     // EVENT LISTENERS
@@ -1820,12 +1507,6 @@
         loadComparisonFromHistory(loadId);
     }
 })();
-
-    // Event delegation for dynamically inserted sources-toggle buttons
-    document.addEventListener('click', function(e) {
-        var toggle = e.target.closest('.sources-toggle');
-        if (toggle) toggleSources(toggle);
-    });
 </script>
 
 {% include "_footer.html" %}

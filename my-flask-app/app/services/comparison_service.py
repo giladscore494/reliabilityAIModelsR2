@@ -111,17 +111,18 @@ def map_cars_to_slots(validated_cars: List[Dict]) -> Dict[str, Dict]:
 # CONFIGURATION
 # ============================================================
 
-COMPARISON_PROMPT_VERSION = "v1"
+COMPARISON_PROMPT_VERSION = "v2"
 COMPARISON_MODEL_ID = "gemini-3-flash-preview"
 AI_CALL_TIMEOUT_SEC = int(os.environ.get("AI_CALL_TIMEOUT_SEC", "170"))
-COMPARE_STAGE_A_TIMEOUT_SEC = int(os.environ.get("COMPARE_STAGE_A_TIMEOUT_SEC", "15"))
-COMPARE_STAGE_A_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_STAGE_A_MAX_OUTPUT_TOKENS", "600"))
+COMPARE_STAGE_A_TIMEOUT_SEC = int(os.environ.get("COMPARE_STAGE_A_TIMEOUT_SEC", "30"))
+COMPARE_STAGE_A_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_STAGE_A_MAX_OUTPUT_TOKENS", "2048"))
 COMPARE_STAGE_A_TEMPERATURE = float(os.environ.get("COMPARE_STAGE_A_TEMPERATURE", "0.25"))
 COMPARE_WRITER_TIMEOUT_SEC = int(os.environ.get("COMPARE_WRITER_TIMEOUT_SEC", "30"))
 COMPARE_WRITER_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_WRITER_MAX_OUTPUT_TOKENS", "1100"))
 COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS", "500"))
 COMPARE_WRITER_PROMPT_CHAR_CAP = int(os.environ.get("COMPARE_WRITER_PROMPT_CHAR_CAP", "16000"))
 TIE_THRESHOLD = 3  # Score delta below this = "tie" (צמוד)
+PARALLEL_GRACE_SEC = 5  # Extra seconds when collecting parallel futures beyond per-call timeout
 
 COMPARE_AI_METRICS = {
     "compare_ai_calls_total": 0,
@@ -275,6 +276,76 @@ def _safe_parse_json_cached(raw_value: Any, field_name: str = "unknown") -> Tupl
 def build_compare_grounding_prompt(cars: List[Dict[str, str]], region: str = "IL", language: str = "he/en") -> str:
     """Build Stage A grounded prompt (sources + factual metrics)."""
     return f"{build_comparison_prompt(cars)}\n\nGrounding scope: region={region}, language={language}."
+
+
+def build_single_car_prompt(car: Dict, region: str = "IL") -> str:
+    """Build Stage A prompt for a SINGLE car — lean schema, no sources per metric."""
+    sanitized = {
+        "make": escape_prompt_input(car.get("make", ""), max_length=50),
+        "model": escape_prompt_input(car.get("model", ""), max_length=100),
+    }
+    if car.get("year"):
+        sanitized["year"] = int(car["year"])
+    if car.get("engine_type"):
+        sanitized["engine_type"] = escape_prompt_input(car["engine_type"], max_length=50)
+    if car.get("gearbox"):
+        sanitized["gearbox"] = escape_prompt_input(car["gearbox"], max_length=50)
+
+    car_json = json.dumps(sanitized, ensure_ascii=False)
+    bounded_car = wrap_user_input_in_boundary(car_json, boundary_tag="car_input")
+    data_instruction = create_data_only_instruction()
+
+    return f"""{data_instruction}
+
+You are a car data retrieval agent. Return factual data for ONE car.
+Return ONLY valid JSON. No markdown. No code fences.
+
+{bounded_car}
+
+Region: {region}
+
+Return this exact JSON structure:
+{{
+  "reliability_risk": {{
+    "reliability_rating": <0-100 or null>,
+    "major_failure_risk": "low"|"medium"|"high"|null,
+    "common_failure_patterns": [{{"issue":"...","frequency":"common|rare|occasional"}}] or null,
+    "mileage_sensitivity": "low"|"medium"|"high"|null,
+    "maintenance_complexity": "low"|"medium"|"high"|null,
+    "expected_maintenance_cost_level": "low"|"medium"|"high"|null
+  }},
+  "ownership_cost": {{
+    "fuel_economy_real_world": <L/100km number or null>,
+    "insurance_cost_level": "low"|"medium"|"high"|null,
+    "depreciation_value_retention": "low"|"medium"|"high"|null,
+    "parts_availability": "low"|"medium"|"high"|null,
+    "service_network_ease": "low"|"medium"|"high"|null
+  }},
+  "practicality_comfort": {{
+    "cabin_space": "small"|"medium"|"large"|null,
+    "trunk_space_liters": <number or null>,
+    "ride_comfort": "low"|"medium"|"high"|null,
+    "noise_insulation": "low"|"medium"|"high"|null,
+    "city_driveability": "low"|"medium"|"high"|null,
+    "features_value": "low"|"medium"|"high"|null
+  }},
+  "driving_performance": {{
+    "acceleration_0_100": <seconds number or null>,
+    "engine_power_hp": <hp number or null>,
+    "handling_stability": "low"|"medium"|"high"|null,
+    "braking_performance": "low"|"medium"|"high"|null,
+    "highway_stability": "low"|"medium"|"high"|null
+  }},
+  "sources": [
+    {{"url":"https://...","title":"..."}}
+  ]
+}}
+
+RULES:
+1. Values must be factual. If unknown, use null.
+2. Sources: list ALL URLs you used, at the bottom in the "sources" array. Not per metric.
+3. Return ONLY valid JSON.
+""".strip()
 
 
 def build_comparison_prompt(cars: List[Dict[str, str]]) -> str:
@@ -533,7 +604,7 @@ def build_compare_writer_prompt(cars_selected_slots: Dict, computed_result: Dict
         for metric_key in feature_keys:
             metric_values = {}
             for slot in ("car_1", "car_2"):
-                value = (((grounded_cars.get(slot) or {}).get(category_key) or {}).get(metric_key) or {}).get("value")
+                value = ((grounded_cars.get(slot) or {}).get(category_key) or {}).get(metric_key)
                 metric_values["carA" if slot == "car_1" else "carB"] = value
             out.append({"metric": metric_key, "values": metric_values})
         return out
@@ -684,47 +755,32 @@ def score_size(value: Optional[str], confidence: float = 1.0) -> Optional[float]
     return round(score * confidence, 1)
 
 
-def score_metric(metric_data: Dict, metric_def: Dict) -> Optional[float]:
+def score_metric(metric_value, metric_def: Dict) -> Optional[float]:
+    """Score a single metric value based on its definition.
+    
+    Args:
+        metric_value: The direct metric value (number, string, list, or None).
+        metric_def: Metric definition dict with 'type', 'min', 'max', 'weight'.
     """
-    Score a single metric based on its definition.
-    IMPORTANT: Only scores metrics that have sources (grounding enforcement).
-    """
-    value = metric_data.get("value")
-    confidence = float(metric_data.get("confidence", 1.0))
+    if metric_value is None:
+        return None
+    
     metric_type = metric_def.get("type")
     
-    if value is None:
-        return None
-    
-    # Enforce source requirement: non-null values without sources are not scored
-    sources = metric_data.get("sources", [])
-    if not sources or len(sources) == 0:
-        # Value exists but no sources - cannot score without grounding
-        return None
-    
     if metric_type == "numeric":
-        return score_numeric(value, metric_def.get("min", 0), metric_def.get("max", 100), confidence)
+        return score_numeric(metric_value, metric_def.get("min", 0), metric_def.get("max", 100))
     elif metric_type == "numeric_lower_better":
-        return score_numeric_lower_better(value, metric_def.get("min", 0), metric_def.get("max", 100), confidence)
+        return score_numeric_lower_better(metric_value, metric_def.get("min", 0), metric_def.get("max", 100))
     elif metric_type == "ordinal_negative":
-        return score_ordinal_negative(value, confidence)
+        return score_ordinal_negative(metric_value)
     elif metric_type == "ordinal_positive":
-        return score_ordinal_positive(value, confidence)
+        return score_ordinal_positive(metric_value)
     elif metric_type == "size":
-        return score_size(value, confidence)
+        return score_size(metric_value)
     elif metric_type == "list":
-        # Lists are not directly scored
         return None
-    
     return None
 
-
-def validate_metric_sources(metric_data: Dict) -> bool:
-    """Check if a metric has valid sources."""
-    if metric_data.get("value") is None:
-        return True  # Null values don't need sources
-    sources = metric_data.get("sources", [])
-    return sources and len(sources) > 0
 
 
 def compute_category_score(car_data: Dict, category_name: str) -> Tuple[Optional[float], Dict[str, Optional[float]]]:
@@ -745,8 +801,9 @@ def compute_category_score(car_data: Dict, category_name: str) -> Tuple[Optional
     total_weights = 0.0
     
     for metric_name, metric_def in metrics_defs.items():
-        metric_data = category_data.get(metric_name, {})
-        score = score_metric(metric_data, metric_def)
+        # NEW: value is directly in category_data[metric_name], not a nested dict
+        metric_value = category_data.get(metric_name)
+        score = score_metric(metric_value, metric_def)
         metric_scores[metric_name] = score
         
         if score is not None:
@@ -905,6 +962,30 @@ def _is_output_too_long_error(raw: str) -> bool:
 
 
 _STAGE_A_REQUIRED_KEYS = {"grounding_successful", "search_queries_used", "assumptions", "cars"}
+
+_SINGLE_CAR_REQUIRED_CATEGORIES = {"reliability_risk", "ownership_cost", "practicality_comfort", "driving_performance"}
+
+
+def _is_valid_single_car_payload(payload):
+    """Validate single car payload — superset check, not strict equality."""
+    if not isinstance(payload, dict):
+        return False
+    return _SINGLE_CAR_REQUIRED_CATEGORIES.issubset(set(payload.keys()))
+
+
+def parse_single_car_json(raw_text: str) -> Tuple[Optional[Dict], Optional[str]]:
+    """Parse and validate single-car JSON response."""
+    candidate = _extract_first_json_object(_strip_json_code_fences(raw_text))
+    for current in (candidate, _repair_json_once(candidate) if candidate else None):
+        if not current:
+            continue
+        try:
+            parsed = json.loads(current)
+        except json.JSONDecodeError:
+            continue
+        if _is_valid_single_car_payload(parsed):
+            return parsed, None
+    return None, "MODEL_JSON_INVALID"
 
 
 def _strip_json_code_fences(text: str) -> str:
@@ -1077,10 +1158,8 @@ def build_deterministic_fallback_narrative(cars_selected_slots: Dict, computed_r
 
 def _empty_stage_a_output(cars_selected_slots: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     return {
-        "grounding_successful": False,
-        "search_queries_used": [],
-        "assumptions": {},
         "cars": {slot_key: {} for slot_key in (cars_selected_slots or {}).keys()},
+        "sources": [],
     }
 
 
@@ -1301,6 +1380,149 @@ def call_gemini_comparison(prompt: str, timeout_sec: int = COMPARE_STAGE_A_TIMEO
             outcome,
             outcome_reason,
         )
+
+
+def call_gemini_single_car(prompt: str, car_label: str, timeout_sec: int = COMPARE_STAGE_A_TIMEOUT_SEC) -> Tuple[Optional[Dict], Optional[str]]:
+    """Call Gemini for a single car. Returns (parsed_dict, error_string)."""
+    import concurrent.futures
+    from app.factory import AI_EXECUTOR, AI_EXECUTOR_WORKERS
+
+    start_time = pytime.perf_counter()
+    prompt_chars = len(prompt or "")
+    outcome = "ok"
+    outcome_reason = None
+    try:
+        if extensions.ai_client is None:
+            outcome = "error"
+            outcome_reason = "CLIENT_NOT_INITIALIZED"
+            return None, "CLIENT_NOT_INITIALIZED"
+
+        config_kwargs = {
+            "temperature": COMPARE_STAGE_A_TEMPERATURE,
+            "top_p": 0.8,
+            "top_k": 20,
+            "max_output_tokens": COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
+            "response_mime_type": "application/json",
+        }
+        if hasattr(genai_types, "AutomaticFunctionCallingConfig"):
+            config_kwargs["automatic_function_calling"] = genai_types.AutomaticFunctionCallingConfig(
+                disable=True,
+                maximum_remote_calls=0,
+            )
+        config = genai_types.GenerateContentConfig(**config_kwargs)
+
+        def _invoke():
+            return extensions.ai_client.models.generate_content(
+                model=COMPARISON_MODEL_ID,
+                contents=prompt,
+                config=config,
+            )
+
+        work_queue = getattr(AI_EXECUTOR, "_work_queue", None)
+        if work_queue is not None:
+            queued = work_queue.qsize()
+            if queued >= AI_EXECUTOR_WORKERS:
+                outcome = "error"
+                outcome_reason = "SERVER_BUSY"
+                return None, "SERVER_BUSY"
+
+        try:
+            future = AI_EXECUTOR.submit(_invoke)
+        except Exception:
+            outcome = "error"
+            outcome_reason = "EXECUTOR_SATURATED"
+            return None, "EXECUTOR_SATURATED"
+
+        try:
+            resp = future.result(timeout=timeout_sec)
+        except concurrent.futures.TimeoutError:
+            future.cancel()
+            _inc_compare_metric("compare_ai_failures_total", reason="timeout")
+            _inc_compare_metric("compare_stage_a_timeout_total")
+            outcome = "timeout"
+            outcome_reason = "CALL_TIMEOUT"
+            return None, "CALL_TIMEOUT"
+        except Exception as e:
+            _log_ai_client_error("comparison_stage_a", e)
+            _inc_compare_metric("compare_stage_a_error_total")
+            outcome = "error"
+            outcome_reason = type(e).__name__
+            if _is_output_too_long_error(str(e)):
+                return None, "CALL_FAILED_OUTPUT_TOO_LONG"
+            return None, f"CALL_FAILED:{type(e).__name__}"
+
+        if resp is None:
+            outcome = "error"
+            outcome_reason = "CALL_FAILED_EMPTY"
+            return None, "CALL_FAILED:EMPTY"
+
+        text = (getattr(resp, "text", "") or "").strip()
+        if not text:
+            outcome = "error"
+            outcome_reason = "EMPTY_RESPONSE"
+            return None, "EMPTY_RESPONSE"
+
+        parsed, parse_error = parse_single_car_json(text)
+        if parse_error:
+            outcome = "error"
+            outcome_reason = parse_error
+            _inc_compare_metric("compare_stage_a_json_invalid_total")
+            return None, parse_error
+        return parsed, None
+
+    finally:
+        duration_ms = (pytime.perf_counter() - start_time) * 1000
+        current_app.logger.info(
+            "[AI] feature=comparison_stage_a_per_car model=%s car=%s duration_ms=%.2f prompt_chars=%s prompt_tokens_est=%s max_output_tokens=%s timeout_ms=%s outcome=%s reason=%s",
+            COMPARISON_MODEL_ID,
+            car_label,
+            duration_ms,
+            prompt_chars,
+            _estimate_token_count(prompt),
+            COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
+            int(timeout_sec * 1000),
+            outcome,
+            outcome_reason,
+        )
+
+
+def call_stage_a_parallel(validated_cars: List[Dict], cars_selected_slots: Dict) -> Tuple[Dict, Dict, List[str]]:
+    """
+    Run Stage A for each car in parallel.
+    Returns (merged_model_output, sources_index, errors_list).
+    """
+    import concurrent.futures
+    from app.factory import AI_EXECUTOR
+
+    slot_keys = list(cars_selected_slots.keys())
+    prompts = {}
+    for i, car in enumerate(validated_cars):
+        slot_key = slot_keys[i]
+        prompts[slot_key] = build_single_car_prompt(car)
+
+    futures = {}
+    for slot_key, prompt in prompts.items():
+        futures[slot_key] = AI_EXECUTOR.submit(
+            call_gemini_single_car, prompt, slot_key, COMPARE_STAGE_A_TIMEOUT_SEC
+        )
+
+    merged = {"cars": {}, "sources": []}
+    errors = []
+    for slot_key, future in futures.items():
+        try:
+            result, error = future.result(timeout=COMPARE_STAGE_A_TIMEOUT_SEC + PARALLEL_GRACE_SEC)
+            if error:
+                errors.append(f"{slot_key}: {error}")
+                merged["cars"][slot_key] = {}
+            else:
+                car_sources = result.pop("sources", [])
+                merged["cars"][slot_key] = result
+                merged["sources"].extend(car_sources)
+        except Exception as e:
+            errors.append(f"{slot_key}: {type(e).__name__}")
+            merged["cars"][slot_key] = {}
+
+    return merged, build_sources_index_from_flat(merged), errors
 
 
 def call_gemini_compare_writer(prompt: str, timeout_sec: int = COMPARE_WRITER_TIMEOUT_SEC) -> Tuple[Optional[Dict], Optional[str]]:
@@ -1853,6 +2075,11 @@ def build_sources_index(model_output: Dict) -> Dict:
     return sources_index
 
 
+def build_sources_index_from_flat(merged_output: Dict) -> Dict:
+    """Build sources index from flat sources array."""
+    return {"all_sources": merged_output.get("sources", [])}
+
+
 # ============================================================
 # MAIN HANDLER
 # ============================================================
@@ -1967,55 +2194,33 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                     logger.warning(f"[COMPARISON] failed to delete corrupted cache row: {del_err}")
                     db.session.rollback()
     
-    # Stage A: grounded extraction prompt
-    prompt = build_compare_grounding_prompt(validated_cars)
-
-    # Stage A: grounded Gemini call
+    # Stage A: parallel per-car Gemini calls
     stage_a_start = pytime.perf_counter()
-    model_output, error = call_gemini_comparison(prompt, timeout_sec=COMPARE_STAGE_A_TIMEOUT_SEC)
+    model_output, sources_index, stage_a_errors = call_stage_a_parallel(validated_cars, cars_selected_slots)
     duration_ms = int((pytime.perf_counter() - stage_a_start) * 1000)
     ai_ms += duration_ms
     stage_a_reason = None
     stage_a_error_code = None
     
-    if error:
-        stage_a_reason = "stage_a_timeout" if error == "CALL_TIMEOUT" else "stage_a_error"
-        stage_a_error_code = error
+    if len(stage_a_errors) == len(validated_cars):
+        # All cars failed
+        stage_a_reason = "stage_a_error"
+        stage_a_error_code = stage_a_errors[0].split(": ", 1)[-1] if stage_a_errors else "UNKNOWN"
         logger.warning(
-            "[COMPARISON] stage_a_unavailable request_id=%s reason=%s error=%s",
+            "[COMPARISON] stage_a_all_failed request_id=%s errors=%s",
             request_id,
-            stage_a_reason,
-            error,
+            stage_a_errors,
         )
         _inc_compare_metric("compare_ai_fallback_used_total")
         model_output = _empty_stage_a_output(cars_selected_slots)
-    
-    # Normalize model output shape (handles list vs dict mismatch)
-    if stage_a_reason is None:
-        model_output, shape_error = normalize_model_output(model_output, request_id)
-        if shape_error:
-            stage_a_reason = "stage_a_error"
-            logger.warning(
-                "[COMPARISON] stage_a_invalid_shape request_id=%s error=%s",
-                request_id,
-                shape_error,
-            )
-            _inc_compare_metric("compare_ai_fallback_used_total")
-            model_output = _empty_stage_a_output(cars_selected_slots)
-    
-    # Validate grounding
-    if stage_a_reason is None:
-        grounding_valid, grounding_reason = validate_grounding(model_output)
-        if not grounding_valid:
-            stage_a_reason = "stage_a_error"
-            logger.warning(f"[COMPARISON] grounding failed request_id={request_id} reason={grounding_reason}")
-            _inc_compare_metric("compare_ai_fallback_used_total")
-            model_output = _empty_stage_a_output(cars_selected_slots)
+        sources_index = build_sources_index_from_flat(model_output)
+    elif stage_a_errors:
+        # Partial failure — log but continue with available data
+        logger.warning("[COMPARISON] partial_stage_a request_id=%s errors=%s", request_id, stage_a_errors)
     
     # Compute scores deterministically (server-side source of truth)
     scoring_start = pytime.perf_counter()
     server_computed_result = compute_comparison_results(model_output)
-    sources_index = build_sources_index(model_output)
     deterministic_ms = int((pytime.perf_counter() - scoring_start) * 1000)
     
     # Stage B: non-grounded writer call (full schema + narrative around server results)
@@ -2131,7 +2336,7 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
         "computed_result": computed_result,
         "narrative": narrative,
         "sources_index": sources_index,
-        "assumptions": model_output.get("assumptions", {}),
+        "assumptions": {},
         "ai": ai_payload,
     })
 

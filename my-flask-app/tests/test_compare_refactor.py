@@ -130,16 +130,15 @@ class TestComputeComparisonResultsStableKeys:
     def test_results_use_car_slot_keys(self):
         """Results should use car_1/car_2 as keys when model output uses them."""
         model_output = {
-            "grounding_successful": True,
             "cars": {
                 "car_1": {
                     "reliability_risk": {
-                        "reliability_rating": {"value": 80, "confidence": 0.9, "sources": [{"url": "http://example.com", "title": "Test", "snippet": "Test"}]},
-                        "major_failure_risk": {"value": "low", "confidence": 0.8, "sources": [{"url": "http://example.com", "title": "Test", "snippet": "Test"}]},
-                        "common_failure_patterns": {"value": None, "confidence": 0, "sources": []},
-                        "mileage_sensitivity": {"value": "medium", "confidence": 0.7, "sources": [{"url": "http://example.com", "title": "Test", "snippet": "Test"}]},
-                        "maintenance_complexity": {"value": "low", "confidence": 0.8, "sources": [{"url": "http://example.com", "title": "Test", "snippet": "Test"}]},
-                        "expected_maintenance_cost_level": {"value": "low", "confidence": 0.8, "sources": [{"url": "http://example.com", "title": "Test", "snippet": "Test"}]},
+                        "reliability_rating": 80,
+                        "major_failure_risk": "low",
+                        "common_failure_patterns": None,
+                        "mileage_sensitivity": "medium",
+                        "maintenance_complexity": "low",
+                        "expected_maintenance_cost_level": "low",
                     },
                     "ownership_cost": {},
                     "practicality_comfort": {},
@@ -147,18 +146,19 @@ class TestComputeComparisonResultsStableKeys:
                 },
                 "car_2": {
                     "reliability_risk": {
-                        "reliability_rating": {"value": 75, "confidence": 0.85, "sources": [{"url": "http://example.com", "title": "Test", "snippet": "Test"}]},
-                        "major_failure_risk": {"value": "medium", "confidence": 0.7, "sources": [{"url": "http://example.com", "title": "Test", "snippet": "Test"}]},
-                        "common_failure_patterns": {"value": None, "confidence": 0, "sources": []},
-                        "mileage_sensitivity": {"value": "high", "confidence": 0.6, "sources": [{"url": "http://example.com", "title": "Test", "snippet": "Test"}]},
-                        "maintenance_complexity": {"value": "medium", "confidence": 0.7, "sources": [{"url": "http://example.com", "title": "Test", "snippet": "Test"}]},
-                        "expected_maintenance_cost_level": {"value": "medium", "confidence": 0.7, "sources": [{"url": "http://example.com", "title": "Test", "snippet": "Test"}]},
+                        "reliability_rating": 75,
+                        "major_failure_risk": "medium",
+                        "common_failure_patterns": None,
+                        "mileage_sensitivity": "high",
+                        "maintenance_complexity": "medium",
+                        "expected_maintenance_cost_level": "medium",
                     },
                     "ownership_cost": {},
                     "practicality_comfort": {},
                     "driving_performance": {},
                 },
-            }
+            },
+            "sources": [],
         }
         
         result = compute_comparison_results(model_output)

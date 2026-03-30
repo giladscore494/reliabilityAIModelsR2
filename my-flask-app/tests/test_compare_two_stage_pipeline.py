@@ -11,24 +11,31 @@ from main import db
 
 
 def _grounded_output_fixture():
-    src = [{"url": "https://example.com", "title": "example", "snippet": "snippet"}]
     return {
-        "grounding_successful": True,
-        "assumptions": {"year_assumption": "2020"},
-        "search_queries_used": ["toyota corolla reliability"],
         "cars": {
             "car_1": {
                 "reliability_risk": {
-                    "reliability_rating": {"value": 85, "sources": src},
+                    "reliability_rating": 85,
                 },
             },
             "car_2": {
                 "reliability_risk": {
-                    "reliability_rating": {"value": 70, "sources": src},
+                    "reliability_rating": 70,
                 },
             },
         },
+        "sources": [{"url": "https://example.com", "title": "example"}],
     }
+
+
+def _fake_stage_a_parallel(grounded_output):
+    """Return a fake call_stage_a_parallel that returns the fixture."""
+    def _inner(validated_cars, cars_selected_slots):
+        import copy
+        merged = copy.deepcopy(grounded_output)
+        sources_index = comparison_service.build_sources_index_from_flat(merged)
+        return merged, sources_index, []
+    return _inner
 
 
 def test_compare_two_stage_keeps_server_authoritative_numbers(app, logged_in_client, monkeypatch):
@@ -38,14 +45,9 @@ def test_compare_two_stage_keeps_server_authoritative_numbers(app, logged_in_cli
     grounded_output = _grounded_output_fixture()
     expected = comparison_service.compute_comparison_results(grounded_output)
 
-    calls = {"stage_a": 0, "stage_b": 0}
-
-    def fake_stage_a(_prompt, timeout_sec=comparison_service.AI_CALL_TIMEOUT_SEC):
-        calls["stage_a"] += 1
-        return copy.deepcopy(grounded_output), None
+    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(grounded_output))
 
     def fake_stage_b(_prompt, timeout_sec=60):
-        calls["stage_b"] += 1
         drifted = copy.deepcopy(expected)
         drifted["cars"]["car_1"]["overall_score"] = 1.0
         return {
@@ -57,7 +59,6 @@ def test_compare_two_stage_keeps_server_authoritative_numbers(app, logged_in_cli
             },
         }, None
 
-    monkeypatch.setattr(comparison_service, "call_gemini_comparison", fake_stage_a)
     monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", fake_stage_b)
 
     resp = client.post(
@@ -73,7 +74,6 @@ def test_compare_two_stage_keeps_server_authoritative_numbers(app, logged_in_cli
     )
     assert resp.status_code == 200
     payload = resp.get_json()["data"]
-    assert calls == {"stage_a": 1, "stage_b": 1}
     assert payload["computed_result"] == expected
     assert payload["narrative"]["overall_summary"] == "סיכום בדיקה"
 
@@ -83,17 +83,12 @@ def test_compare_two_stage_handles_stage_b_failure_gracefully(app, logged_in_cli
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
     grounded_output = _grounded_output_fixture()
-    calls = {"stage_a": 0, "stage_b": 0}
 
-    def fake_stage_a(_prompt, timeout_sec=comparison_service.AI_CALL_TIMEOUT_SEC):
-        calls["stage_a"] += 1
-        return copy.deepcopy(grounded_output), None
+    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(grounded_output))
 
     def fake_stage_b(_prompt, timeout_sec=60):
-        calls["stage_b"] += 1
         return None, "CALL_TIMEOUT"
 
-    monkeypatch.setattr(comparison_service, "call_gemini_comparison", fake_stage_a)
     monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", fake_stage_b)
 
     resp = client.post(
@@ -109,7 +104,6 @@ def test_compare_two_stage_handles_stage_b_failure_gracefully(app, logged_in_cli
     )
     assert resp.status_code == 200
     payload = resp.get_json()["data"]
-    assert calls == {"stage_a": 1, "stage_b": 2}
     assert payload["computed_result"]["overall_winner"] == "car_1"
     assert payload["narrative"] is not None
     assert "הסבר ai לא זמין" in payload["narrative"]["overall_summary"].lower()
@@ -122,13 +116,11 @@ def test_compare_stage_b_length_error_returns_fallback_200_fast(app, logged_in_c
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
-    def fake_stage_a(_prompt, timeout_sec=comparison_service.AI_CALL_TIMEOUT_SEC):
-        return copy.deepcopy(_grounded_output_fixture()), None
+    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(_grounded_output_fixture()))
 
     def fake_stage_b(_prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC):
         return None, "CALL_FAILED_OUTPUT_TOO_LONG"
 
-    monkeypatch.setattr(comparison_service, "call_gemini_comparison", fake_stage_a)
     monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", fake_stage_b)
 
     start = time.perf_counter()
@@ -158,8 +150,7 @@ def test_compare_stage_b_json_schema_parsed_into_narrative(app, logged_in_client
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
-    def fake_stage_a(_prompt, timeout_sec=comparison_service.AI_CALL_TIMEOUT_SEC):
-        return copy.deepcopy(_grounded_output_fixture()), None
+    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(_grounded_output_fixture()))
 
     def fake_stage_b(_prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC):
         return {
@@ -176,7 +167,6 @@ def test_compare_stage_b_json_schema_parsed_into_narrative(app, logged_in_client
             "caveats": ["הנתונים עשויים להשתנות לפי רמת תחזוקה."],
         }, None
 
-    monkeypatch.setattr(comparison_service, "call_gemini_comparison", fake_stage_a)
     monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", fake_stage_b)
 
     resp = client.post(
@@ -204,14 +194,14 @@ def test_compare_stage_a_timeout_returns_200_with_ai_reason(app, logged_in_clien
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
-    def fake_stage_a(_prompt, timeout_sec=comparison_service.COMPARE_STAGE_A_TIMEOUT_SEC):
-        return None, "CALL_TIMEOUT"
+    def fake_stage_a_parallel(validated_cars, cars_selected_slots):
+        empty = comparison_service._empty_stage_a_output(cars_selected_slots)
+        sources_index = comparison_service.build_sources_index_from_flat(empty)
+        errors = [f"{k}: CALL_TIMEOUT" for k in cars_selected_slots]
+        return empty, sources_index, errors
 
-    def fake_stage_b(_prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC):
-        return None, "CALL_TIMEOUT"
-
-    monkeypatch.setattr(comparison_service, "call_gemini_comparison", fake_stage_a)
-    monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", fake_stage_b)
+    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", fake_stage_a_parallel)
+    monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: (None, "CALL_TIMEOUT"))
 
     start = time.perf_counter()
     resp = client.post(
@@ -231,7 +221,7 @@ def test_compare_stage_a_timeout_returns_200_with_ai_reason(app, logged_in_clien
     payload = resp.get_json()["data"]
     assert payload["computed_result"] is not None
     assert payload["ai"]["status"] == "fallback"
-    assert payload["ai"]["reason"] == "stage_a_timeout"
+    assert payload["ai"]["reason"] == "stage_a_error"
 
 
 def test_parse_stage_a_json_handles_fences_and_text():
@@ -264,15 +254,15 @@ def test_stage_a_config_is_bounded_and_tools_disabled(app, monkeypatch):
     class _FakeModels:
         def generate_content(self, *, model, contents, config):
             captured["config"] = config
-            return SimpleNamespace(text='{"grounding_successful": true, "search_queries_used": [], "assumptions": {}, "cars": {}}')
+            return SimpleNamespace(text='{"reliability_risk": {}, "ownership_cost": {}, "practicality_comfort": {}, "driving_performance": {}, "sources": []}')
 
     monkeypatch.setattr(comparison_service.extensions, "ai_client", SimpleNamespace(models=_FakeModels()))
     with app.app_context():
-        out, err = comparison_service.call_gemini_comparison("{}", timeout_sec=1)
+        out, err = comparison_service.call_gemini_single_car("{}", "car_1", timeout_sec=1)
     assert err is None
     assert isinstance(out, dict)
     cfg = captured["config"]
-    assert 450 <= int(getattr(cfg, "max_output_tokens", 0)) <= 700
+    assert int(getattr(cfg, "max_output_tokens", 0)) == 2048
     assert not getattr(cfg, "tools", None)
 
 
@@ -293,7 +283,7 @@ def test_compare_ai_regenerate_updates_ai_only(app, logged_in_client, monkeypatc
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
     grounded_output = _grounded_output_fixture()
-    monkeypatch.setattr(comparison_service, "call_gemini_comparison", lambda _prompt, timeout_sec=comparison_service.COMPARE_STAGE_A_TIMEOUT_SEC: (copy.deepcopy(grounded_output), None))
+    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(grounded_output))
     monkeypatch.setattr(
         comparison_service,
         "call_gemini_compare_writer",
@@ -346,7 +336,13 @@ def test_compare_stage_a_json_invalid_returns_200_with_fallback(app, logged_in_c
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
-    monkeypatch.setattr(comparison_service, "call_gemini_comparison", lambda _prompt, timeout_sec=comparison_service.COMPARE_STAGE_A_TIMEOUT_SEC: (None, "MODEL_JSON_INVALID"))
+    def fake_stage_a_parallel(validated_cars, cars_selected_slots):
+        empty = comparison_service._empty_stage_a_output(cars_selected_slots)
+        sources_index = comparison_service.build_sources_index_from_flat(empty)
+        errors = [f"{k}: MODEL_JSON_INVALID" for k in cars_selected_slots]
+        return empty, sources_index, errors
+
+    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", fake_stage_a_parallel)
     monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: (None, "CALL_TIMEOUT"))
 
     start = time.perf_counter()
@@ -375,7 +371,7 @@ def test_compare_ai_regenerate_writer_exception_returns_200_fallback(app, logged
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
     grounded_output = _grounded_output_fixture()
-    monkeypatch.setattr(comparison_service, "call_gemini_comparison", lambda _prompt, timeout_sec=comparison_service.COMPARE_STAGE_A_TIMEOUT_SEC: (copy.deepcopy(grounded_output), None))
+    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(grounded_output))
     monkeypatch.setattr(
         comparison_service,
         "call_gemini_compare_writer",
