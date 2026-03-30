@@ -11,7 +11,6 @@ import hashlib
 import logging
 import re
 import time as pytime
-from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from flask import current_app
@@ -19,7 +18,6 @@ from flask import current_app
 from app.extensions import db
 from app.models import ComparisonHistory
 from app.utils.http_helpers import api_ok, api_error, get_request_id, _utcnow
-from app.quota import log_access_decision
 from app.utils.prompt_defense import (
     escape_prompt_input,
     wrap_user_input_in_boundary,
@@ -1118,6 +1116,8 @@ RULES:
 5. Keep the 4 main categories unchanged; only the sub-priority logic is segment-aware.
 6. Do NOT compare cars or state winners - only provide raw data.
 7. Return ONLY valid JSON. No markdown, no explanations.
+8. Do not wrap the response in an array; return one object that starts with {{ and ends with }}.
+9. If a required field is unknown, keep the key and use null instead of omitting it.
 """.strip()
 
 
@@ -1918,6 +1918,117 @@ def _build_stage_b_payload(narrative: Optional[Dict[str, Any]]) -> Optional[Dict
     }
 
 
+def _has_usable_comparison_narrative(narrative: Optional[Dict[str, Any]]) -> bool:
+    if not isinstance(narrative, dict):
+        return False
+    if str(narrative.get("overall_summary") or "").strip():
+        return True
+    if any(str(item or "").strip() for item in (narrative.get("disclaimers_he") or [])):
+        return True
+    for category in (narrative.get("category_explanations") or []):
+        if not isinstance(category, dict):
+            continue
+        explanations = category.get("explanations") if isinstance(category.get("explanations"), dict) else {}
+        if any(str(value or "").strip() for value in explanations.values()):
+            return True
+        if any(str(value or "").strip() for value in (category.get("why_it_scored_that_way") or [])):
+            return True
+    return False
+
+
+def _normalize_stage_b_category_for_narrative(category: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(category, dict):
+        return None
+    fallback_text = str(
+        category.get("why")
+        or category.get("text")
+        or category.get("summary")
+        or ""
+    ).strip()
+    source_explanations = category.get("explanations") if isinstance(category.get("explanations"), dict) else {}
+    explanations = {}
+    for car_key in ("car_1", "car_2", "car_3"):
+        text = str(source_explanations.get(car_key) or fallback_text or "").strip()
+        if text:
+            explanations[car_key] = text
+    why_list = category.get("why_it_scored_that_way")
+    if not isinstance(why_list, list):
+        why_list = category.get("tips")
+    if not isinstance(why_list, list):
+        why_list = [fallback_text] if fallback_text else []
+    return {
+        "category_key": category.get("category_key") or category.get("name") or "",
+        "title_he": category.get("title_he") or "",
+        "winner": category.get("winner") or "",
+        "explanations": explanations,
+        "why_it_scored_that_way": why_list,
+    }
+
+
+def resolve_comparison_narrative(
+    computed_result: Optional[Dict[str, Any]],
+    ai_payload: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    candidates: List[Dict[str, Any]] = []
+    if isinstance(computed_result, dict):
+        stored_narrative = computed_result.get("narrative")
+        if isinstance(stored_narrative, dict):
+            candidates.append(stored_narrative)
+        if any(key in computed_result for key in ("overall_summary", "category_explanations", "disclaimers_he")):
+            candidates.append({
+                "overall_summary": computed_result.get("overall_summary"),
+                "category_explanations": computed_result.get("category_explanations"),
+                "disclaimers_he": computed_result.get("disclaimers_he"),
+            })
+        if ai_payload is None and isinstance(computed_result.get("ai"), dict):
+            ai_payload = computed_result.get("ai")
+    if isinstance(ai_payload, dict):
+        stage_b = ai_payload.get("stage_b")
+        if isinstance(stage_b, dict):
+            raw_categories = stage_b.get("categories")
+            if not isinstance(raw_categories, list):
+                raw_categories = stage_b.get("category_explanations")
+            normalized_categories = [
+                item
+                for item in (
+                    _normalize_stage_b_category_for_narrative(category)
+                    for category in (raw_categories or [])
+                )
+                if item
+            ]
+            candidates.append({
+                "overall_summary": (
+                    stage_b.get("narrative")
+                    or stage_b.get("summary")
+                    or stage_b.get("overall_summary")
+                    or ""
+                ),
+                "category_explanations": normalized_categories,
+                "disclaimers_he": stage_b.get("disclaimers_he") or stage_b.get("caveats") or [],
+            })
+    for candidate in candidates:
+        sanitized = sanitize_comparison_narrative(candidate)
+        if _has_usable_comparison_narrative(sanitized):
+            return sanitized
+    return None
+
+
+def build_stored_comparison_ai_payload(
+    computed_result: Optional[Dict[str, Any]],
+    narrative: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    raw_ai = computed_result.get("ai") if isinstance(computed_result, dict) and isinstance(computed_result.get("ai"), dict) else None
+    ai_payload = build_ai_payload(
+        computed_result if isinstance(computed_result, dict) else {},
+        narrative,
+        (raw_ai or {}).get("status") or ("ok" if narrative else "fallback"),
+        (raw_ai or {}).get("reason") if raw_ai else (None if narrative else "stage_b_error"),
+    )
+    if raw_ai and raw_ai.get("error"):
+        ai_payload["error"] = raw_ai["error"]
+    return ai_payload
+
+
 def build_ai_payload(
     computed_result: Dict[str, Any],
     narrative: Optional[Dict[str, Any]],
@@ -2027,11 +2138,6 @@ def call_gemini_comparison(prompt: str, timeout_sec: int = COMPARE_STAGE_A_TIMEO
             "max_output_tokens": COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
             "response_mime_type": "application/json",
         }
-        if hasattr(genai_types, "AutomaticFunctionCallingConfig"):
-            config_kwargs["automatic_function_calling"] = genai_types.AutomaticFunctionCallingConfig(
-                disable=True,
-                maximum_remote_calls=0,
-            )
         config = genai_types.GenerateContentConfig(**config_kwargs)
         
         def _invoke():
@@ -2140,11 +2246,6 @@ def call_gemini_single_car(
             "max_output_tokens": COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
             "response_mime_type": "application/json",
         }
-        if hasattr(genai_types, "AutomaticFunctionCallingConfig"):
-            config_kwargs["automatic_function_calling"] = genai_types.AutomaticFunctionCallingConfig(
-                disable=True,
-                maximum_remote_calls=0,
-            )
         config = genai_types.GenerateContentConfig(**config_kwargs)
 
         def _invoke():
@@ -2236,6 +2337,29 @@ def call_stage_a_parallel(validated_cars: List[Dict], cars_selected_slots: Dict)
         slot_key = slot_keys[i]
         prompts[slot_key] = build_single_car_prompt(car)
 
+    def _retry_prompt_for(slot_key: str) -> str:
+        base_prompt = prompts.get(slot_key, "")
+        return (
+            f"{base_prompt}\n\n"
+            "FINAL JSON REMINDER:\n"
+            "- Return EXACTLY one JSON object.\n"
+            "- The response must start with { and end with }.\n"
+            "- Do not wrap the object in an array.\n"
+            "- If data is missing, keep the key and use null instead of omitting it.\n"
+        )
+
+    def _store_slot_result(slot_key: str, result: Optional[Dict[str, Any]]) -> bool:
+        normalized_result = normalize_single_car_payload(
+            result,
+            fallback_name=(cars_selected_slots.get(slot_key, {}) or {}).get("display_name"),
+        )
+        if normalized_result is None:
+            return False
+        car_sources = normalized_result.get("sources", [])
+        merged["cars"][slot_key] = normalized_result
+        merged["sources"].extend(car_sources)
+        return True
+
     futures = {}
     request_id = get_request_id()
     stage_a_logger = current_app.logger
@@ -2251,34 +2375,24 @@ def call_stage_a_parallel(validated_cars: List[Dict], cars_selected_slots: Dict)
 
     merged = _empty_stage_a_output(cars_selected_slots)
     errors = []
+    retry_slots = {}
     for slot_key, future in futures.items():
         try:
             result, error = future.result(timeout=COMPARE_STAGE_A_TIMEOUT_SEC + PARALLEL_GRACE_SEC)
             if error:
-                errors.append(f"{slot_key}: {error}")
-                stage_a_logger.warning(
-                    "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=StageAError error=%s",
-                    request_id,
-                    slot_key,
-                    _truncate_error_message(error),
-                )
-            else:
-                normalized_result = normalize_single_car_payload(
-                    result,
-                    fallback_name=(cars_selected_slots.get(slot_key, {}) or {}).get("display_name"),
-                )
-                if normalized_result is None:
-                    errors.append(f"{slot_key}: MODEL_JSON_INVALID")
+                if error == "MODEL_JSON_INVALID":
+                    retry_slots[slot_key] = _retry_prompt_for(slot_key)
+                else:
+                    errors.append(f"{slot_key}: {error}")
                     stage_a_logger.warning(
                         "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=StageAError error=%s",
                         request_id,
                         slot_key,
-                        "MODEL_JSON_INVALID",
+                        _truncate_error_message(error),
                     )
-                    continue
-                car_sources = normalized_result.get("sources", [])
-                merged["cars"][slot_key] = normalized_result
-                merged["sources"].extend(car_sources)
+            else:
+                if not _store_slot_result(slot_key, result):
+                    retry_slots[slot_key] = _retry_prompt_for(slot_key)
         except concurrent.futures.TimeoutError as e:
             future.cancel()
             errors.append(f"{slot_key}: CALL_TIMEOUT")
@@ -2305,6 +2419,61 @@ def call_stage_a_parallel(validated_cars: List[Dict], cars_selected_slots: Dict)
                 type(e).__name__,
                 _truncate_error_message(e),
             )
+
+    if retry_slots:
+        stage_a_logger.info(
+            "[COMPARISON] stage_a_retrying_json_invalid request_id=%s slot_keys=%s",
+            request_id,
+            sorted(retry_slots.keys()),
+        )
+        retry_futures = {}
+        for slot_key, prompt in retry_slots.items():
+            retry_futures[slot_key] = AI_EXECUTOR.submit(
+                call_gemini_single_car,
+                prompt,
+                slot_key,
+                COMPARE_STAGE_A_TIMEOUT_SEC,
+                request_id,
+                stage_a_logger,
+            )
+        for slot_key, future in retry_futures.items():
+            try:
+                result, error = future.result(timeout=COMPARE_STAGE_A_TIMEOUT_SEC + PARALLEL_GRACE_SEC)
+                if error or not _store_slot_result(slot_key, result):
+                    final_error = error or "MODEL_JSON_INVALID"
+                    errors.append(f"{slot_key}: {final_error}")
+                    stage_a_logger.warning(
+                        "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=StageAError error=%s retry=1",
+                        request_id,
+                        slot_key,
+                        _truncate_error_message(final_error),
+                    )
+            except concurrent.futures.TimeoutError as e:
+                future.cancel()
+                errors.append(f"{slot_key}: CALL_TIMEOUT")
+                stage_a_logger.warning(
+                    "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=TimeoutError error=%s retry=1",
+                    request_id,
+                    slot_key,
+                    _truncate_error_message(e),
+                )
+            except concurrent.futures.CancelledError as e:
+                errors.append(f"{slot_key}: CALL_CANCELLED")
+                stage_a_logger.warning(
+                    "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=CancelledError error=%s retry=1",
+                    request_id,
+                    slot_key,
+                    _truncate_error_message(e),
+                )
+            except Exception as e:
+                errors.append(f"{slot_key}: CALL_FAILED:{type(e).__name__}")
+                stage_a_logger.error(
+                    "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=%s error=%s retry=1",
+                    request_id,
+                    slot_key,
+                    type(e).__name__,
+                    _truncate_error_message(e),
+                )
 
     deduped_sources = list(dict.fromkeys(merged.get("sources", [])))
     source_limit = _MAX_STAGE_A_SOURCES * max(1, len(slot_keys))
@@ -2438,7 +2607,7 @@ def generate_narrative(cars_selected_slots: Dict, computed_result: Dict, timeout
     Returns strict JSON narrative or None on failure.
     """
     import concurrent.futures
-    from app.factory import AI_EXECUTOR, AI_EXECUTOR_WORKERS
+    from app.factory import AI_EXECUTOR
 
     try:
         if extensions.ai_client is None:
@@ -2949,6 +3118,9 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                     logger.warning(f"[COMPARISON] cars_selected not a list in cache row {cached.id}, using as-is")
                     cached_slots = cars_selected if isinstance(cars_selected, dict) else {}
 
+                narrative = resolve_comparison_narrative(
+                    computed_result if isinstance(computed_result, dict) else None
+                )
                 return api_ok({
                     "cached": True,
                     "comparison_id": cached.id,
@@ -2956,18 +3128,12 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                     "cars_selected_list": cars_selected if isinstance(cars_selected, list) else [],
                     "model_output": model_output,
                     "computed_result": computed_result,
-                    "narrative": computed_result.get("narrative") if isinstance(computed_result, dict) else None,
+                    "narrative": narrative,
                     "sources_index": sources_index if sources_index else {},
                     "assumptions": assumptions,
-                    "ai": (
-                        computed_result.get("ai")
-                        if isinstance(computed_result, dict) and isinstance(computed_result.get("ai"), dict)
-                        else build_ai_payload(
-                            computed_result if isinstance(computed_result, dict) else {},
-                            computed_result.get("narrative") if isinstance(computed_result, dict) else None,
-                            status="ok" if isinstance(computed_result, dict) and computed_result.get("narrative") else "fallback",
-                            reason=None if isinstance(computed_result, dict) and computed_result.get("narrative") else "stage_b_error",
-                        )
+                    "ai": build_stored_comparison_ai_payload(
+                        computed_result if isinstance(computed_result, dict) else None,
+                        narrative,
                     ),
                 })
             else:
@@ -3216,17 +3382,10 @@ def get_comparison_detail(comparison_id: int, user_id: Optional[int]) -> Optiona
         
         assumptions = model_output.get("assumptions", {}) if model_output else {}
         
-        # Extract narrative from computed_result if stored there
-        narrative = computed_result.get("narrative") if isinstance(computed_result, dict) else None
-        ai_payload = (
-            computed_result.get("ai")
-            if isinstance(computed_result, dict) and isinstance(computed_result.get("ai"), dict)
-            else build_ai_payload(
-                computed_result if isinstance(computed_result, dict) else {},
-                narrative if isinstance(narrative, dict) else None,
-                status="ok" if narrative else "fallback",
-                reason=None if narrative else "stage_b_error",
-            )
+        narrative = resolve_comparison_narrative(computed_result if isinstance(computed_result, dict) else None)
+        ai_payload = build_stored_comparison_ai_payload(
+            computed_result if isinstance(computed_result, dict) else None,
+            narrative,
         )
         
         # Reconstruct stable car slots

@@ -10,8 +10,8 @@ Tests for the Car Comparison refactor:
 
 import json
 import pytest
-from datetime import datetime
 
+from app.models import ComparisonHistory
 from app.services.comparison_service import (
     build_display_name,
     map_cars_to_slots,
@@ -27,6 +27,7 @@ from app.services.comparison_service import (
     COMPARE_WRITER_PROMPT_CHAR_CAP,
 )
 from app.utils.sanitization import sanitize_comparison_narrative
+from main import create_app, db, User
 
 
 # ============================================================
@@ -541,9 +542,6 @@ class TestCompareSegmentInference:
 # Integration: history detail with narrative
 # ============================================================
 
-from main import create_app, db, User
-from app.models import ComparisonHistory
-
 
 @pytest.fixture
 def app(monkeypatch):
@@ -632,6 +630,53 @@ class TestCompareDetailWithNarrative:
         data = resp.get_json()
         assert data["ok"] is True
         assert data["data"]["narrative"] is None
+
+    def test_detail_recovers_legacy_stage_b_narrative_shape(self, app, logged_in_client):
+        client, user_id = logged_in_client
+
+        computed = {
+            "overall_winner": "car_1",
+            "cars": {},
+            "ai": {
+                "status": "ok",
+                "reason": None,
+                "stage_b": {
+                    "summary": "Legacy summary from stored AI payload.",
+                    "categories": [
+                        {
+                            "name": "reliability_risk",
+                            "winner": "car_1",
+                            "why": "Legacy explanation text.",
+                            "tips": ["Legacy tip"],
+                        }
+                    ],
+                    "caveats": ["Legacy caveat"],
+                },
+            },
+        }
+
+        with app.app_context():
+            record = ComparisonHistory(
+                user_id=user_id,
+                cars_selected=json.dumps([
+                    {"make": "Toyota", "model": "Corolla", "year": 2020},
+                    {"make": "Honda", "model": "Civic", "year": 2021},
+                ]),
+                computed_result=json.dumps(computed),
+                model_name="gemini-3.1-flash",
+                prompt_version="v1",
+            )
+            db.session.add(record)
+            db.session.commit()
+            record_id = record.id
+
+        resp = client.get(f"/api/compare/{record_id}")
+        assert resp.status_code == 200
+        data = resp.get_json()["data"]
+        assert data["narrative"]["overall_summary"] == "Legacy summary from stored AI payload."
+        assert data["narrative"]["category_explanations"][0]["category_key"] == "reliability_risk"
+        assert data["narrative"]["category_explanations"][0]["explanations"]["car_1"] == "Legacy explanation text."
+        assert data["ai"]["stage_b"]["narrative"] == "Legacy summary from stored AI payload."
 
     def test_detail_returns_cars_selected_as_dict(self, app, logged_in_client):
         """cars_selected should be returned as dict with car_1/car_2 keys."""

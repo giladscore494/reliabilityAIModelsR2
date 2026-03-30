@@ -423,6 +423,7 @@ def test_stage_a_config_is_bounded_and_tools_disabled(app, monkeypatch):
     cfg = captured["config"]
     assert int(getattr(cfg, "max_output_tokens", 0)) == 2048
     assert not getattr(cfg, "tools", None)
+    assert getattr(cfg, "automatic_function_calling", None) is None
 
 
 def test_call_gemini_compare_writer_exception_path_returns_error(app, monkeypatch):
@@ -679,6 +680,40 @@ def test_call_stage_a_parallel_real_threads_do_not_require_worker_app_context(ap
     assert errors == []
     assert merged["cars"]["car_1"]["reliability"]["overall"] == "high"
     assert merged["cars"]["car_2"]["reliability"]["overall"] == "high"
+
+
+def test_call_stage_a_parallel_retries_json_invalid_once(app, monkeypatch):
+    calls = []
+
+    def fake_single_car(prompt, car_label, timeout_sec, request_id, log):
+        calls.append((prompt, car_label))
+        if len(calls) == 1:
+            return None, "MODEL_JSON_INVALID"
+        return {
+            "car_name": "Toyota Corolla 2020",
+            "reliability": {"overall": "high"},
+            "ownership_cost": {},
+            "comfort_practicality": {},
+            "performance_driving": {},
+            "facts": {},
+            "short_notes": [],
+            "sources": ["https://example.com/toyota"],
+        }, None
+
+    monkeypatch.setattr(comparison_service, "call_gemini_single_car", fake_single_car)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as real_executor:
+        with app.app_context():
+            import app.factory as factory
+            monkeypatch.setattr(factory, "AI_EXECUTOR", real_executor)
+            validated_cars = [{"make": "Toyota", "model": "Corolla", "year": 2020}]
+            slots = comparison_service.map_cars_to_slots(validated_cars)
+            merged, _sources_index, errors = comparison_service.call_stage_a_parallel(validated_cars, slots)
+
+    assert errors == []
+    assert len(calls) == 2
+    assert "FINAL JSON REMINDER" in calls[1][0]
+    assert merged["cars"]["car_1"]["reliability"]["overall"] == "high"
 
 
 def test_compare_quota_released_on_full_stage_a_failure(app, logged_in_client, monkeypatch):
