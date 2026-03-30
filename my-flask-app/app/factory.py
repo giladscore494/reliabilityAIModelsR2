@@ -398,6 +398,9 @@ def build_reliability_report_prompt(payload: dict, missing_info: list[str]) -> s
 - אל תנחש מידע חסר; פרט אותו ב-missing_info.
 - אם מציינים סיכון, חובה לכלול how_to_check.
 - דגש על פעולות בטוחות לקונה לפני רכישה.
+- אל תציג חוסר היסטוריית טיפולים, הזנחה, או ריקול שלא טופל כעובדה על הרכב הספציפי בלי ראיה מהמשתמש.
+- אם יש recall / campaign / software update, להציג אותו כפריט לאימות ותיעוד - לא כהוכחה אוטומטית לאמינות חלשה של הדגם.
+- top_risks צריכים להבחין בין חולשת אמינות רחבה של הדגם לבין בדיקות קנייה כלליות/אימות תיעוד.
 
 נתוני הקלט:
 {bounded_user_data}
@@ -542,9 +545,15 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
    - להחזיר דוח טקסטואלי (reliability_report.one_sentence_verdict/top_risks/buyer_checklist וכו') כ"טאץ׳ LLM".
    - להחזיר "לחץ עלות תחזוקה" ברמת low/medium/high (לא מספר), בתוך risk_signals.
     - להחזיר analysis_confidence כ-low/medium/high (לא מספר), בתוך risk_signals.
-    - להחזיר overall_reliability_estimate ברמת high|medium|low כהערכת אמינות כללית של הדגם בשוק.
-    - להחזיר overall_reliability_reasoning קצר ו-reliability_factors_summary תמציתי שמסביר את גורמי האמינות.
-    - לשמר את כל חלקי חוויית המשתמש הקיימים (סיכומים, תקלות, עלויות, דוח אמינות, מתחרים, בדיקות, מקורות).
+     - להחזיר overall_reliability_estimate ברמת high|medium|low כהערכת אמינות כללית של הדגם בשוק.
+     - להחזיר overall_reliability_reasoning קצר ו-reliability_factors_summary תמציתי שמסביר את גורמי האמינות.
+     - לשמר את כל חלקי חוויית המשתמש הקיימים (סיכומים, תקלות, עלויות, דוח אמינות, מתחרים, בדיקות, מקורות).
+4.1) overall_reliability_estimate והסיכומים הכלליים צריכים לשקף את אמינות הדגם בשוק לאורך זמן - לא רק את עצם קיומם של recalls/campaigns.
+     recall, service campaign, ועדכון תוכנה הם לעיתים פריטי אימות/טיפול נקודתיים; אין לדרג דגם כאמין פחות אוטומטית רק בגלל קיומם.
+4.2) כאשר תקלה נראית כמו recall/campaign/official fix:
+     - לציין אותה כפריט מבוסס-מקור עם sources.
+     - להבדיל בין "חולשת אמינות מערכתית כרונית" לבין "קמפיין/עדכון/בדיקה שהקונה צריך לאמת".
+     - למקם פעולות אימות ב-buyer_checklist / top_risks בלי לטעון שהרכב הספציפי מוזנח.
 5) עבור כל recall וכל תקלה מערכתית בדרגת חומרה high, ודא שקיים לפחות URL תומך אחד ב-sources.
 6) risk_signals: כל הערכים חייבים להיות קטגוריאליים (low/medium/high, rare/sometimes/common). אסור להחזיר floats או מספרים פנימיים.
 7) אין להניח מצב רכב ספציפי ללא ראיה מפורשת מהמשתמש:
@@ -620,7 +629,9 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
         "system": "engine|transmission|electrical|cooling|brakes|suspension|steering|ac|sensors|infotainment|trim|other",
         "issue": "short description",
         "severity": "low|medium|high",
-        "repeat_frequency": "rare|sometimes|common"
+        "repeat_frequency": "rare|sometimes|common",
+        "typical_timing": "short timing/context note",
+        "evidence_text": "short source-grounded evidence note"
       }}
     ],
     "maintenance_cost_pressure": {{

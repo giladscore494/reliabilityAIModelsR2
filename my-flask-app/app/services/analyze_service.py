@@ -9,7 +9,7 @@ import traceback
 import time as pytime
 import re
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Set
 
 from flask import current_app
 
@@ -87,7 +87,7 @@ _MAX_SIGNALS = 50
 _RECALL_PENALTY = {"none": 0, "low": 1, "medium": 5, "high": 10}
 
 # ── Maintenance cost pressure ──
-_MCP_PENALTY = {"low": 0, "medium": 3, "high": 8}
+_MCP_PENALTY = {"low": 0, "medium": 2, "high": 6}
 
 # ── Clean bonus ──
 _CLEAN_BONUS = 4
@@ -101,6 +101,61 @@ _OVERALL_RELIABILITY_ADJUSTMENT = {
     "medium": 0,
     "low": -3,
 }
+
+_RECALL_LIKE_SIGNAL_FACTOR = 0.55
+_RECALL_OVERLAP_DISCOUNT = 0.85
+_RECALL_NOTES_TOKEN_MIN = 2
+_RECALL_LIKE_STOPWORDS = {
+    "the", "and", "with", "from", "that", "this", "issue", "issues", "problem",
+    "problems", "risk", "failure", "failures", "system", "official", "vehicle",
+    "vehicles", "models", "owner", "owners", "service", "campaign", "recall",
+    "notice", "update", "software", "dealer", "repair", "replace", "inspection",
+    "warning", "common", "sometimes", "rare", "בעיה", "בעיות", "תקלה", "תקלות",
+    "סיכון", "כשל", "מערכת", "רכב", "רכבים", "בעלים", "שירות", "קמפיין", "ריקול",
+    "עדכון", "תוכנה", "בדיקה", "החלפה", "אזהרה",
+}
+_RECALL_LIKE_MARKERS = (
+    "recall",
+    "ריקול",
+    "campaign",
+    "service campaign",
+    "customer satisfaction program",
+    "service action",
+    "field action",
+    "safety notice",
+    "safety campaign",
+    "קמפיין שירות",
+    "קריאת שירות",
+    "הודעת בטיחות",
+)
+_RECALL_REMEDY_MARKERS = (
+    "software update",
+    "software fix",
+    "dealer update",
+    "dealer inspection",
+    "ota update",
+    "reprogram",
+    "reflash",
+    "remedy",
+    "factory fix",
+    "עדכון תוכנה",
+    "תכנות מחדש",
+    "בדיקת יצרן",
+)
+_RECALL_PATTERN_HINTS = (
+    r"\bbolt (loosening|loose)\b",
+    r"\b(cluster|instrument).{0,20}\bblackout\b",
+    r"\bblackout\b.{0,20}\b(cluster|instrument)\b",
+    r"\b(inverter|dc-?dc).{0,20}\b(failure|risk)\b",
+    r"\b(failure|risk)\b.{0,20}\b(inverter|dc-?dc)\b",
+    r"\b(brake|braking|abs).{0,20}\bsoftware\b",
+    r"\bsoftware\b.{0,20}\b(brake|braking|abs)\b",
+    r"\b(loss of braking|loss of drive|fire risk)\b",
+    r"ברגים משתחררים",
+    r"כשל אינוורטר",
+    r"עדכון תוכנה",
+    r"לוח מחוונים.{0,20}כבה",
+)
 
 _NEGLECT_MARKERS_LITERAL = (
     "incomplete service history",
@@ -210,17 +265,47 @@ def _contains_vehicle_specific_neglect_claim(text: Any) -> bool:
     return any(re.search(rf"\b{re.escape(marker)}\b", t) for marker in _NEGLECT_MARKERS_WORD)
 
 
-def _is_recall_like_signal(sig: Dict[str, Any]) -> bool:
+def _signal_text(sig: Dict[str, Any]) -> str:
     fields = [
         sig.get("issue"),
         sig.get("evidence_text"),
         sig.get("typical_timing"),
     ]
-    joined = " ".join(str(v).lower() for v in fields if isinstance(v, str))
-    return any(
-        kw in joined
-        for kw in ("recall", "ריקול", "campaign", "safety notice", "service campaign")
-    )
+    return " ".join(str(v).lower() for v in fields if isinstance(v, str))
+
+
+def _tokenize_overlap_text(text: str) -> Set[str]:
+    tokens = set()
+    for token in re.findall(r"[a-z0-9א-ת]+", text.lower()):
+        if len(token) < 4 or token in _RECALL_LIKE_STOPWORDS or token.isdigit():
+            continue
+        tokens.add(token)
+    return tokens
+
+
+def _is_recall_like_signal(sig: Dict[str, Any], recalls: Optional[Dict[str, Any]] = None) -> bool:
+    joined = _signal_text(sig)
+    if not joined:
+        return False
+    if any(marker in joined for marker in _RECALL_LIKE_MARKERS):
+        return True
+    if any(marker in joined for marker in _RECALL_REMEDY_MARKERS):
+        return True
+
+    recall_count = 0
+    recall_notes = ""
+    if isinstance(recalls, dict):
+        recall_count = _safe_int(recalls.get("count"), lo=0, hi=100)
+        recall_notes = str(recalls.get("notes") or "").lower()
+
+    if recall_notes:
+        overlap = _tokenize_overlap_text(joined) & _tokenize_overlap_text(recall_notes)
+        if len(overlap) >= _RECALL_NOTES_TOKEN_MIN:
+            return True
+
+    if recall_count > 0:
+        return any(re.search(pattern, joined) for pattern in _RECALL_PATTERN_HINTS)
+    return False
 
 
 def compute_reliability_score_and_banner(
@@ -250,6 +335,8 @@ def compute_reliability_score_and_banner(
     base += _overall_reliability_adjustment(overall_reliability_estimate)
     base = max(15, min(95, base))
 
+    recalls = risk_signals.get("recalls") if isinstance(risk_signals.get("recalls"), dict) else {}
+
     # ── Step 2: systemic issue penalties ──
     systemic_penalty = 0.0
     recall_like_systemic_penalty = 0.0
@@ -274,15 +361,17 @@ def compute_reliability_score_and_banner(
             sys_mult = _SYSTEM_TIER.get(system, _SYSTEM_TIER_DEFAULT)
 
             penalty = sev_val * freq_mult * sys_mult
+            is_recall_like = _is_recall_like_signal(sig, recalls)
+            if is_recall_like:
+                penalty *= _RECALL_LIKE_SIGNAL_FACTOR
             systemic_penalty += penalty
-            if _is_recall_like_signal(sig):
+            if is_recall_like:
                 recall_like_systemic_penalty += penalty
             if severity in ("medium", "high"):
                 has_meaningful_issues = True
     systemic_penalty = min(systemic_penalty, _SYSTEMIC_PENALTY_CAP)
 
     # ── Step 3: recall penalty ──
-    recalls = risk_signals.get("recalls") if isinstance(risk_signals.get("recalls"), dict) else {}
     recall_count = _safe_int(recalls.get("count"), lo=0, hi=100)
     high_sev_count = _safe_int(recalls.get("high_severity_count"), lo=0, hi=100)
     recall_bucket = _classify_recall_bucket(recall_count, high_sev_count)
@@ -291,9 +380,11 @@ def compute_reliability_score_and_banner(
 
     # De-duplicate when the same recall appears as systemic signal text + recall bucket
     if recall_penalty > 0 and recall_like_systemic_penalty > 0:
-        # Keep overlap impact modest: discount up to 60% of overlap-like systemic penalty,
-        # but never more than 70% of recall bucket penalty (recall bucket should still matter).
-        overlap_discount = min(recall_like_systemic_penalty * 0.6, recall_penalty * 0.7)
+        # Recall/campaign phrasing should not stack too aggressively against the recall bucket.
+        overlap_discount = min(
+            recall_like_systemic_penalty * _RECALL_OVERLAP_DISCOUNT,
+            recall_penalty * _RECALL_OVERLAP_DISCOUNT,
+        )
         systemic_penalty = max(0.0, systemic_penalty - overlap_discount)
 
     # ── Step 4: maintenance cost pressure ──
