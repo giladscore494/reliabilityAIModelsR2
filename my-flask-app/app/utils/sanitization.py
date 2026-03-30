@@ -112,6 +112,7 @@ _EVIDENCE_ALLOWED = {"weak", "medium", "strong"}
 _TRANS_TYPE_ALLOWED = {"automatic", "manual", "cvt", "dct", "other", "unknown"}
 _MCP_LEVEL_ALLOWED = {"low", "medium", "high", "unknown"}
 _SQ_ALLOWED = {"low", "medium", "high"}
+_OVERALL_RELIABILITY_ALLOWED = {"high", "medium", "low"}
 
 
 def _clamp_float(value: Any, lo: float = 0.0, hi: float = 1.0, default: float = 0.0) -> float:
@@ -210,7 +211,14 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
         out["avg_repair_cost_ILS"] = _clamp_int(src.get("avg_repair_cost_ILS"), lo=0, hi=1_000_000, default=0)
 
     # strings
-    for k in ("source_tag", "mileage_note", "reliability_summary", "reliability_summary_simple"):
+    for k in (
+        "source_tag",
+        "mileage_note",
+        "reliability_summary",
+        "reliability_summary_simple",
+        "overall_reliability_reasoning",
+        "reliability_factors_summary",
+    ):
         if k in src:
             out[k] = _escape(src.get(k))
 
@@ -286,6 +294,13 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
 
     if "estimated_reliability" in src:
         out["estimated_reliability"] = _escape(src.get("estimated_reliability"))
+
+    if "overall_reliability_estimate" in src:
+        out["overall_reliability_estimate"] = _normalize_enum(
+            src.get("overall_reliability_estimate"),
+            _OVERALL_RELIABILITY_ALLOWED,
+            "medium",
+        )
 
     if "risk_signals" in src:
         out["risk_signals"] = _sanitize_risk_signals(src.get("risk_signals"))

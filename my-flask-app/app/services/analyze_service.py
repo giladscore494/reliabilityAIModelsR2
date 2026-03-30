@@ -94,6 +94,13 @@ _CLEAN_BONUS = 4
 # ── Penalty cap: fraction of base that total penalties can consume (0.55 = 55%) ──
 _PENALTY_CAP_FRACTION = 0.55
 
+# ── Overall model-level reliability anchor (modest adjustment) ──
+_OVERALL_RELIABILITY_ADJUSTMENT = {
+    "high": 3,
+    "medium": 0,
+    "low": -3,
+}
+
 
 def _safe_int(val: Any, lo: int = 0, hi: int = 1000, default: int = 0) -> int:
     try:
@@ -163,9 +170,57 @@ def _compute_confidence_category(risk_signals: dict, has_model_override: bool) -
     return label
 
 
+def _overall_reliability_adjustment(value: Any) -> int:
+    if isinstance(value, str):
+        return _OVERALL_RELIABILITY_ADJUSTMENT.get(value.strip().lower(), 0)
+    return 0
+
+
+def _contains_vehicle_specific_neglect_claim(text: Any) -> bool:
+    if not isinstance(text, str):
+        return False
+    t = text.strip().lower()
+    if not t:
+        return False
+    markers = (
+        "incomplete service history",
+        "missing service history",
+        "likely neglected",
+        "poor maintenance",
+        "skipped service",
+        "services were skipped",
+        "unresolved recall",
+        "abuse",
+        "neglect",
+        "maintenance history is incomplete",
+        "likely neglected by previous owner",
+        "היסטוריית טיפולים חסרה",
+        "היסטוריית טיפולים לא מלאה",
+        "הוזנח",
+        "תחזוקה לקויה",
+        "דילוג על טיפולים",
+        "ריקול לא טופל",
+    )
+    return any(marker in t for marker in markers)
+
+
+def _is_recall_like_signal(sig: Dict[str, Any]) -> bool:
+    fields = [
+        sig.get("issue"),
+        sig.get("evidence_text"),
+        sig.get("typical_timing"),
+    ]
+    joined = " ".join(str(v).lower() for v in fields if isinstance(v, str))
+    return any(
+        kw in joined
+        for kw in ("recall", "ריקול", "campaign", "safety notice", "service campaign")
+    )
+
+
 def compute_reliability_score_and_banner(
     validated_input: Dict[str, Any],
     risk_signals: Any,
+    overall_reliability_estimate: Any = None,
 ) -> Dict[str, Any]:
     """Deterministic score (0-100) and Hebrew banner from risk_signals.
 
@@ -186,14 +241,23 @@ def compute_reliability_score_and_banner(
     score_mod, _conf_boost, _trans_default = get_combined_score_modifier(raw_make, raw_model)
     base = 62 + score_mod
     base = max(20, min(90, base))
+    base += _overall_reliability_adjustment(overall_reliability_estimate)
+    base = max(15, min(95, base))
 
     # ── Step 2: systemic issue penalties ──
     systemic_penalty = 0.0
+    recall_like_systemic_penalty = 0.0
     signals = risk_signals.get("systemic_issue_signals")
     has_meaningful_issues = False
     if isinstance(signals, list):
         for sig in signals[:_MAX_SIGNALS]:
             if not isinstance(sig, dict):
+                continue
+            if (
+                _contains_vehicle_specific_neglect_claim(sig.get("issue"))
+                or _contains_vehicle_specific_neglect_claim(sig.get("evidence_text"))
+                or _contains_vehicle_specific_neglect_claim(sig.get("typical_timing"))
+            ):
                 continue
             system = str(sig.get("system", "")).lower()
             severity = str(sig.get("severity", "")).lower()
@@ -205,6 +269,8 @@ def compute_reliability_score_and_banner(
 
             penalty = sev_val * freq_mult * sys_mult
             systemic_penalty += penalty
+            if _is_recall_like_signal(sig):
+                recall_like_systemic_penalty += penalty
             if severity in ("medium", "high"):
                 has_meaningful_issues = True
     systemic_penalty = min(systemic_penalty, _SYSTEMIC_PENALTY_CAP)
@@ -216,6 +282,11 @@ def compute_reliability_score_and_banner(
     recall_bucket = _classify_recall_bucket(recall_count, high_sev_count)
     recall_penalty = _RECALL_PENALTY[recall_bucket] * make_profile["recall_multiplier"]
     has_meaningful_recalls = recall_bucket not in ("none", "low")
+
+    # De-duplicate when the same recall appears as systemic signal text + recall bucket
+    if recall_penalty > 0 and recall_like_systemic_penalty > 0:
+        overlap_discount = min(recall_like_systemic_penalty * 0.6, recall_penalty * 0.7)
+        systemic_penalty = max(0.0, systemic_penalty - overlap_discount)
 
     # ── Step 4: maintenance cost pressure ──
     mcp = risk_signals.get("maintenance_cost_pressure")
@@ -438,7 +509,9 @@ def handle_analyze_request(
     try:
         # --- Deterministic scoring (overrides any LLM-produced values) ---
         det = compute_reliability_score_and_banner(
-            validated, ai_output.get("risk_signals"),
+            validated,
+            ai_output.get("risk_signals"),
+            ai_output.get("overall_reliability_estimate"),
         )
         ai_output["base_score_calculated"] = det["score_0_100"]
         ai_output["estimated_reliability"] = det["banner_he"]
