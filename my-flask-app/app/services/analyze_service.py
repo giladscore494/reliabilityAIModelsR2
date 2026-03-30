@@ -312,7 +312,7 @@ def _compute_model_calibration(exact_model_override: Optional[Dict[str, Any]]) -
     raw_modifier = exact_model_override.get("model_modifier", 0)
     try:
         delta = int(float(raw_modifier) / _MODEL_CALIBRATION_DIVISOR)
-    except Exception:
+    except (TypeError, ValueError, ZeroDivisionError):
         delta = 0
     delta = max(-_MODEL_CALIBRATION_MAX_DELTA, min(_MODEL_CALIBRATION_MAX_DELTA, delta))
     return {
