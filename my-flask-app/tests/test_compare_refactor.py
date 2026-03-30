@@ -17,6 +17,7 @@ from app.services.comparison_service import (
     map_cars_to_slots,
     determine_winner,
     compute_comparison_results,
+    parse_single_car_json,
     TIE_THRESHOLD,
     build_compare_writer_prompt,
     validate_compare_writer_response,
@@ -132,33 +133,75 @@ class TestComputeComparisonResultsStableKeys:
         model_output = {
             "cars": {
                 "car_1": {
-                    "reliability_risk": {
-                        "reliability_rating": 80,
-                        "major_failure_risk": "low",
-                        "common_failure_patterns": None,
-                        "mileage_sensitivity": "medium",
-                        "maintenance_complexity": "low",
-                        "expected_maintenance_cost_level": "low",
+                    "car_name": "Toyota Corolla 2020",
+                    "reliability": {
+                        "overall": "high",
+                        "issue_frequency": "low",
+                        "issue_severity": "low",
+                        "repair_cost_risk": "low",
+                        "recall_risk": "low",
+                        "parts_complexity": "low",
                     },
-                    "ownership_cost": {},
-                    "practicality_comfort": {},
-                    "driving_performance": {},
+                    "ownership_cost": {
+                        "fuel_cost": "low",
+                        "routine_maintenance": "low",
+                        "repair_burden": "low",
+                        "insurance_burden": "medium",
+                        "depreciation_risk": "low",
+                    },
+                    "comfort_practicality": {
+                        "space": "medium",
+                        "ride_comfort": "medium",
+                        "trunk_usefulness": "medium",
+                        "daily_usability": "high",
+                    },
+                    "performance_driving": {
+                        "power_feel": "medium",
+                        "power_to_weight": None,
+                        "braking_confidence": "medium",
+                        "handling_agility": "medium",
+                        "fun_to_drive": "medium",
+                    },
+                    "facts": {"horsepower": 138, "weight_kg": 1310, "body_type": "sedan", "fuel_type": "petrol"},
+                    "short_notes": ["אמינות חזקה"],
+                    "sources": ["https://example.com/toyota"],
                 },
                 "car_2": {
-                    "reliability_risk": {
-                        "reliability_rating": 75,
-                        "major_failure_risk": "medium",
-                        "common_failure_patterns": None,
-                        "mileage_sensitivity": "high",
-                        "maintenance_complexity": "medium",
-                        "expected_maintenance_cost_level": "medium",
+                    "car_name": "Honda Civic 2020",
+                    "reliability": {
+                        "overall": "medium",
+                        "issue_frequency": "medium",
+                        "issue_severity": "medium",
+                        "repair_cost_risk": "medium",
+                        "recall_risk": "low",
+                        "parts_complexity": "medium",
                     },
-                    "ownership_cost": {},
-                    "practicality_comfort": {},
-                    "driving_performance": {},
+                    "ownership_cost": {
+                        "fuel_cost": "medium",
+                        "routine_maintenance": "medium",
+                        "repair_burden": "medium",
+                        "insurance_burden": "medium",
+                        "depreciation_risk": "medium",
+                    },
+                    "comfort_practicality": {
+                        "space": "medium",
+                        "ride_comfort": "medium",
+                        "trunk_usefulness": "medium",
+                        "daily_usability": "medium",
+                    },
+                    "performance_driving": {
+                        "power_feel": "medium",
+                        "power_to_weight": None,
+                        "braking_confidence": "medium",
+                        "handling_agility": "high",
+                        "fun_to_drive": "high",
+                    },
+                    "facts": {"horsepower": 158, "weight_kg": 1325, "body_type": "sedan", "fuel_type": "petrol"},
+                    "short_notes": ["מהנה יותר"],
+                    "sources": ["https://example.com/honda"],
                 },
             },
-            "sources": [],
+            "sources": ["https://example.com/toyota", "https://example.com/honda"],
         }
         
         result = compute_comparison_results(model_output)
@@ -170,6 +213,65 @@ class TestComputeComparisonResultsStableKeys:
         # car_1 should have higher score
         assert result["cars"]["car_1"]["categories"]["reliability_risk"]["score"] is not None
         assert result["cars"]["car_2"]["categories"]["reliability_risk"]["score"] is not None
+        assert result["comparison_status"]["balanced"] is True
+        assert result["metric_winners"]["driving_performance"]["power_capability"] in {"car_1", "car_2", "tie"}
+
+    def test_parse_single_car_json_normalizes_compact_stage_a_payload(self):
+        raw = """
+        {
+          "car_name": "Seat Ibiza 2011",
+          "reliability": {"overall": "medium", "issue_frequency": "low"},
+          "ownership_cost": {"fuel_cost": "low"},
+          "comfort_practicality": {"space": "medium"},
+          "performance_driving": {"power_feel": "medium"},
+          "facts": {"horsepower": "105", "weight_kg": "1100", "body_type": "hatchback", "fuel_type": "petrol"},
+          "short_notes": ["note 1", "note 2", "note 3", "note 4", "note 5"],
+          "sources": [
+            "https://example.com/1",
+            {"url": "https://example.com/2"},
+            "javascript:alert(1)"
+          ]
+        }
+        """
+        parsed, err = parse_single_car_json(raw)
+        assert err is None
+        assert parsed["car_name"] == "Seat Ibiza 2011"
+        assert parsed["reliability"]["issue_frequency"] == "low"
+        assert parsed["ownership_cost"]["repair_burden"] is None
+        assert parsed["facts"]["horsepower"] == 105.0
+        assert len(parsed["short_notes"]) == 4
+        assert parsed["sources"] == ["https://example.com/1", "https://example.com/2"]
+
+    def test_results_mark_unbalanced_when_one_car_has_no_stage_a_evidence(self):
+        model_output = {
+            "cars": {
+                "car_1": {
+                    "car_name": "Fiat Bravo 2008",
+                    "reliability": {"overall": "medium"},
+                    "ownership_cost": {},
+                    "comfort_practicality": {},
+                    "performance_driving": {},
+                    "facts": {},
+                    "short_notes": [],
+                    "sources": ["https://example.com/fiat"],
+                },
+                "car_2": {
+                    "car_name": "Seat Ibiza 2011",
+                    "reliability": {},
+                    "ownership_cost": {},
+                    "comfort_practicality": {},
+                    "performance_driving": {},
+                    "facts": {},
+                    "short_notes": [],
+                    "sources": [],
+                },
+            },
+            "sources": ["https://example.com/fiat"],
+        }
+        result = compute_comparison_results(model_output)
+        assert result["comparison_status"]["balanced"] is False
+        assert result["comparison_status"]["cars_with_evidence"] == 1
+        assert result["cars"]["car_2"]["evidence_available"] is False
 
 
 # ============================================================

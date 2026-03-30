@@ -15,17 +15,75 @@ def _grounded_output_fixture():
     return {
         "cars": {
             "car_1": {
-                "reliability_risk": {
-                    "reliability_rating": 85,
+                "car_name": "Toyota Corolla 2020",
+                "reliability": {
+                    "overall": "high",
+                    "issue_frequency": "low",
+                    "issue_severity": "low",
+                    "repair_cost_risk": "low",
+                    "recall_risk": "low",
+                    "parts_complexity": "low",
                 },
+                "ownership_cost": {
+                    "fuel_cost": "low",
+                    "routine_maintenance": "low",
+                    "repair_burden": "low",
+                    "insurance_burden": "medium",
+                    "depreciation_risk": "low",
+                },
+                "comfort_practicality": {
+                    "space": "medium",
+                    "ride_comfort": "medium",
+                    "trunk_usefulness": "medium",
+                    "daily_usability": "high",
+                },
+                "performance_driving": {
+                    "power_feel": "medium",
+                    "power_to_weight": "medium",
+                    "braking_confidence": "medium",
+                    "handling_agility": "medium",
+                    "fun_to_drive": "medium",
+                },
+                "facts": {"horsepower": 138, "weight_kg": 1310, "body_type": "sedan", "fuel_type": "petrol"},
+                "short_notes": ["מוניטין אמינות חזק", "אחזקה צפויה ונפוצה"],
+                "sources": ["https://example.com/toyota"],
             },
             "car_2": {
-                "reliability_risk": {
-                    "reliability_rating": 70,
+                "car_name": "Honda Civic 2020",
+                "reliability": {
+                    "overall": "medium",
+                    "issue_frequency": "medium",
+                    "issue_severity": "medium",
+                    "repair_cost_risk": "medium",
+                    "recall_risk": "low",
+                    "parts_complexity": "medium",
                 },
+                "ownership_cost": {
+                    "fuel_cost": "medium",
+                    "routine_maintenance": "medium",
+                    "repair_burden": "medium",
+                    "insurance_burden": "medium",
+                    "depreciation_risk": "medium",
+                },
+                "comfort_practicality": {
+                    "space": "medium",
+                    "ride_comfort": "medium",
+                    "trunk_usefulness": "medium",
+                    "daily_usability": "medium",
+                },
+                "performance_driving": {
+                    "power_feel": "medium",
+                    "power_to_weight": "medium",
+                    "braking_confidence": "medium",
+                    "handling_agility": "high",
+                    "fun_to_drive": "high",
+                },
+                "facts": {"horsepower": 158, "weight_kg": 1325, "body_type": "sedan", "fuel_type": "petrol"},
+                "short_notes": ["קצת יותר מהנה לנהיגה"],
+                "sources": ["https://example.com/honda"],
             },
         },
-        "sources": [{"url": "https://example.com", "title": "example"}],
+        "sources": ["https://example.com/toyota", "https://example.com/honda"],
     }
 
 
@@ -257,7 +315,7 @@ def test_stage_a_config_is_bounded_and_tools_disabled(app, monkeypatch):
     class _FakeModels:
         def generate_content(self, *, model, contents, config):
             captured["config"] = config
-            return SimpleNamespace(text='{"reliability_risk": {}, "ownership_cost": {}, "practicality_comfort": {}, "driving_performance": {}, "sources": []}')
+            return SimpleNamespace(text='{"car_name":"Toyota Corolla 2020","reliability":{},"ownership_cost":{},"comfort_practicality":{},"performance_driving":{},"facts":{},"short_notes":[],"sources":[]}')
 
     monkeypatch.setattr(comparison_service.extensions, "ai_client", SimpleNamespace(models=_FakeModels()))
     with app.app_context():
@@ -381,11 +439,21 @@ def test_compare_partial_stage_a_failure_returns_200_partial_fallback(app, logge
     def fake_stage_a_parallel(_validated_cars, cars_selected_slots):
         output = comparison_service._empty_stage_a_output(cars_selected_slots)
         output["cars"]["car_1"] = {
-            "reliability_risk": {"reliability_rating": 84},
+            "car_name": "Toyota Corolla 2020",
+            "reliability": {
+                "overall": "high",
+                "issue_frequency": "low",
+                "issue_severity": "low",
+                "repair_cost_risk": "low",
+                "recall_risk": "low",
+                "parts_complexity": "low",
+            },
             "ownership_cost": {},
-            "practicality_comfort": {},
-            "driving_performance": {},
-            "sources": [],
+            "comfort_practicality": {},
+            "performance_driving": {},
+            "facts": {},
+            "short_notes": [],
+            "sources": ["https://example.com/toyota"],
         }
         sources_index = comparison_service.build_sources_index_from_flat(output)
         return output, sources_index, ["car_2: CALL_TIMEOUT"]
@@ -417,6 +485,8 @@ def test_compare_partial_stage_a_failure_returns_200_partial_fallback(app, logge
     payload = resp.get_json()["data"]
     assert payload["ai"]["status"] == "partial_fallback"
     assert payload["ai"]["reason"] == "stage_a_partial"
+    assert "השוואה חלקית" in payload["narrative"]["overall_summary"]
+    assert any("חלקית" in item for item in payload["narrative"]["disclaimers_he"])
 
 
 def test_call_stage_a_parallel_error_classification(app, monkeypatch):
@@ -433,11 +503,14 @@ def test_call_stage_a_parallel_error_classification(app, monkeypatch):
                 raise RuntimeError("boom")
             return (
                 {
-                    "reliability_risk": {"reliability_rating": 88},
+                    "car_name": "Kia Sportage 2020",
+                    "reliability": {"overall": "high"},
                     "ownership_cost": {},
-                    "practicality_comfort": {},
-                    "driving_performance": {},
-                    "sources": [],
+                    "comfort_practicality": {},
+                    "performance_driving": {},
+                    "facts": {},
+                    "short_notes": [],
+                    "sources": ["https://example.com/kia"],
                 },
                 None,
             )
@@ -471,7 +544,7 @@ def test_call_stage_a_parallel_error_classification(app, monkeypatch):
     assert "car_1: CALL_TIMEOUT" in errors
     assert "car_2: CALL_CANCELLED" in errors
     assert "car_3: CALL_FAILED:RuntimeError" in errors
-    assert merged["cars"]["car_4"]["reliability_risk"]["reliability_rating"] == 88
+    assert merged["cars"]["car_4"]["reliability"]["overall"] == "high"
 
 
 def test_call_stage_a_parallel_real_threads_do_not_require_worker_app_context(app, monkeypatch):
@@ -487,7 +560,7 @@ def test_call_stage_a_parallel_real_threads_do_not_require_worker_app_context(ap
     class _FakeModels:
         def generate_content(self, **_kwargs):
             return SimpleNamespace(
-                text='{"reliability_risk": {"reliability_rating": 88}, "ownership_cost": {}, "practicality_comfort": {}, "driving_performance": {}, "sources": []}'
+                text='{"car_name":"Toyota Corolla 2020","reliability":{"overall":"high"},"ownership_cost":{},"comfort_practicality":{},"performance_driving":{},"facts":{},"short_notes":[],"sources":["https://example.com/toyota"]}'
             )
 
     monkeypatch.setattr(comparison_service.extensions, "ai_client", SimpleNamespace(models=_FakeModels()))
@@ -506,8 +579,8 @@ def test_call_stage_a_parallel_real_threads_do_not_require_worker_app_context(ap
             merged, _sources_index, errors = comparison_service.call_stage_a_parallel(validated_cars, slots)
 
     assert errors == []
-    assert merged["cars"]["car_1"]["reliability_risk"]["reliability_rating"] == 88
-    assert merged["cars"]["car_2"]["reliability_risk"]["reliability_rating"] == 88
+    assert merged["cars"]["car_1"]["reliability"]["overall"] == "high"
+    assert merged["cars"]["car_2"]["reliability"]["overall"] == "high"
 
 
 def test_compare_quota_released_on_full_stage_a_failure(app, logged_in_client, monkeypatch):
