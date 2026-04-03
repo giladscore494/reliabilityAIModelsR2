@@ -50,7 +50,7 @@
                 כדי להשתמש במנוע ההמלצות האוטומטי, יש להתחבר עם חשבון Google.
             </p>
             <a href="{{ url_for('public.login') }}"
-               class="inline-flex items-center justify-center px-8 py-3 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold text-sm hover:from-primary/90 hover:to-secondary/90 transition-all">
+               class="inline-flex items-center justify-center px-8 py-3 rounded-full bg-primary text-white font-semibold text-sm hover:bg-indigo-500 transition-colors shadow-lg shadow-primary/20">
                 התחברות מהירה עם Google
             </a>
         </div>
@@ -58,8 +58,9 @@
         {% if is_owner %}
             <!-- === גרסת בעלים – השאלון המלא === -->
             <section class="relative z-10 max-w-5xl mx-auto space-y-10">
-                <header class="text-center space-y-4">
-                    <h1 class="text-3xl md:text-4xl font-extrabold text-white">
+                <header class="text-center space-y-4 max-w-3xl mx-auto">
+                    <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase">מנוע ההמלצות</p>
+                    <h1 class="text-3xl md:text-[2.85rem] font-extrabold text-white">
                         מנוע המלצות רכב חכם
                     </h1>
                     <p class="text-slate-400 text-sm md:text-base max-w-2xl mx-auto">
@@ -70,7 +71,7 @@
                     </p>
                 </header>
 
-                <form id="advisor-form" class="bg-dark-lighter/70 border border-slate-700/70 rounded-3xl p-6 md:p-8 space-y-8">
+                <form id="advisor-form" class="bg-dark-lighter/70 border border-slate-700/70 rounded-[1.75rem] p-6 md:p-8 space-y-8">
                     <!-- בלוק 1 – תקציב ושנותון -->
                     <div class="space-y-4">
                         <h2 class="text-lg font-bold text-white flex items-center gap-2">

@@ -182,15 +182,16 @@
                 כדי להשתמש בכלי השוואת הרכבים, יש להתחבר עם חשבון Google.
             </p>
             <a href="{{ url_for('public.login') }}"
-               class="inline-flex items-center justify-center px-8 py-3 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold text-sm hover:from-primary/90 hover:to-secondary/90 transition-all">
+               class="inline-flex items-center justify-center px-8 py-3 rounded-full bg-primary text-white font-semibold text-sm hover:bg-indigo-500 transition-colors shadow-lg shadow-primary/20">
                 התחברות מהירה עם Google
             </a>
         </div>
     {% else %}
         <section class="relative z-10 max-w-6xl mx-auto space-y-8">
             <!-- Header -->
-            <header class="text-center space-y-4">
-                <h2 class="text-4xl md:text-5xl font-extrabold text-white">
+            <header class="text-center space-y-4 max-w-3xl mx-auto">
+                <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase">השוואת רכבים</p>
+                <h2 class="text-4xl md:text-[3.2rem] font-extrabold text-white">
                     השוואת רכבים
                 </h2>
                 <p class="text-slate-400 max-w-2xl mx-auto">
@@ -199,7 +200,7 @@
             </header>
 
             <!-- Car Selection -->
-            <div id="carSelectionSection" class="bg-dark-lighter/70 border border-slate-700/70 rounded-2xl p-6 md:p-8">
+            <div id="carSelectionSection" class="bg-dark-lighter/70 border border-slate-700/70 rounded-[1.75rem] p-6 md:p-8">
                 <h3 class="text-xl font-bold text-white mb-6">בחר רכבים להשוואה</h3>
 
                 <div class="space-y-6">

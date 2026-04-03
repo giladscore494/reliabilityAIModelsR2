@@ -928,14 +928,14 @@ def test_service_prices_history_list_includes_duration(logged_in_client, app):
 
 
 # ============================================
-# DASHBOARD INCLUDES SERVICE PRICES HISTORY
+# DASHBOARD EXCLUDES SERVICE PRICES HISTORY
 # ============================================
 
-def test_dashboard_shows_service_prices_tab(logged_in_client, app):
-    """Dashboard page should include service prices history tab."""
+def test_dashboard_hides_service_prices_tab(logged_in_client, app):
+    """Dashboard page should not include service prices history UI."""
     client, user_id = logged_in_client
     resp = client.get("/dashboard")
     assert resp.status_code == 200
     html = resp.data.decode("utf-8")
-    assert "בדיקת מחירי טיפול" in html
-    assert "tab-service_prices" in html
+    assert "בדיקת מחירי טיפול" not in html
+    assert "tab-service_prices" not in html

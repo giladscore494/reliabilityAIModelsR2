@@ -71,6 +71,71 @@
         .overlay-open {
             animation: fadeInOverlay 0.25s ease-out;
         }
+
+        .dashboard-tab {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 0.8rem 1rem;
+            border-radius: 9999px;
+            border: 1px solid rgba(51, 65, 85, 0.85);
+            background: rgba(15, 23, 42, 0.55);
+            color: #94A3B8;
+            font-size: 0.85rem;
+            font-weight: 700;
+            transition: all 0.2s ease;
+        }
+
+        .dashboard-tab:hover {
+            background: rgba(30, 41, 59, 0.9);
+            color: #E2E8F0;
+        }
+
+        .dashboard-tab.is-active {
+            background: rgba(51, 65, 85, 0.88);
+            border-color: rgba(99, 102, 241, 0.4);
+            color: #FFFFFF;
+            box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.12) inset;
+        }
+
+        .history-card {
+            background: rgba(30, 41, 59, 0.78);
+            border: 1px solid rgba(71, 85, 105, 0.45);
+            border-radius: 1.25rem;
+            padding: 1.1rem 1.25rem;
+        }
+
+        .history-empty {
+            background: rgba(30, 41, 59, 0.38);
+            border: 1px solid rgba(51, 65, 85, 0.75);
+            border-radius: 1.5rem;
+            padding: 2.5rem 1.5rem;
+        }
+
+        .detail-nav-btn {
+            border-radius: 9999px;
+            border: 1px solid rgba(71, 85, 105, 0.7);
+            background: rgba(30, 41, 59, 0.78);
+            color: #CBD5E1;
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 0.45rem 0.85rem;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .detail-nav-btn:hover {
+            background: rgba(51, 65, 85, 0.95);
+            color: #FFFFFF;
+        }
+
+        .detail-section {
+            background: rgba(30, 41, 59, 0.72);
+            border: 1px solid rgba(51, 65, 85, 0.75);
+            border-radius: 1.25rem;
+            padding: 1rem;
+        }
     </style>
 </head>
 <body class="bg-dark text-slate-200 min-h-screen flex flex-col antialiased">
@@ -78,12 +143,22 @@
 {% set active_page = 'dashboard' %}
 {% include '_navbar.html' %}
 
-<main class="flex-grow relative container mx-auto px-4 py-8 pb-24">
+<main class="flex-grow relative container mx-auto max-w-6xl px-4 py-10 pb-24">
 
-    <div class="mb-8">
-        <h2 class="text-2xl md:text-3xl font-extrabold text-white mb-2">
-            החיפושים שלי
-        </h2>
+    <section class="mb-10 space-y-5">
+        <div class="space-y-3">
+            <p class="text-xs font-semibold tracking-[0.18em] text-slate-500 uppercase">
+                לוח בקרה / היסטוריה
+            </p>
+            <div class="space-y-2">
+                <h2 class="text-3xl md:text-4xl font-extrabold text-white">
+                    ההיסטוריה שלך במקום אחד
+                </h2>
+                <p class="max-w-2xl text-sm md:text-base leading-7 text-slate-400">
+                    גישה מהירה לבדיקות האמינות, להשוואות ולשאלוני ההמלצות האחרונים — עם פחות רעש ויותר מיקוד בתוכן.
+                </p>
+            </div>
+        </div>
 
         {% if history_error %}
             <div class="mb-4 p-3 rounded-lg bg-amber-900/40 border border-amber-700 text-amber-200 text-sm">
@@ -91,37 +166,35 @@
             </div>
         {% endif %}
 
-        <div class="flex gap-2 overflow-x-auto no-scrollbar pb-2">
+        <div class="flex flex-wrap gap-3 overflow-x-auto no-scrollbar pb-2">
             <button type="button" data-tab="reliability" id="tab-reliability"
-                    class="tab-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-800 text-slate-100 border border-slate-600 cursor-pointer transition-colors">
-                היסטוריית בדיקות אמינות
+                    class="dashboard-tab is-active whitespace-nowrap">
+                <span>בודק אמינות</span>
             </button>
             <button type="button" data-tab="comparisons" id="tab-comparisons"
-                    class="tab-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50 cursor-pointer transition-colors hover:bg-slate-800 hover:text-slate-300">
-                השוואות
+                    class="dashboard-tab whitespace-nowrap">
+                <span>השוואת רכבים</span>
             </button>
             <button type="button" data-tab="advisor" id="tab-advisor"
-                    class="tab-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50 cursor-pointer transition-colors hover:bg-slate-800 hover:text-slate-300">
-                היסטוריית המלצות ({{ advisor_count or 0 }})
-            </button>
-            <button type="button" data-tab="leasing" id="tab-leasing"
-                    class="tab-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50 cursor-pointer transition-colors hover:bg-slate-800 hover:text-slate-300">
-                יועץ ליסינג ({{ leasing_history|default([])|length }})
-            </button>
-            <button type="button" data-tab="service_prices" id="tab-service_prices"
-                    class="tab-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50 cursor-pointer transition-colors hover:bg-slate-800 hover:text-slate-300">
-                בדיקת מחירי טיפול
+                    class="dashboard-tab whitespace-nowrap">
+                <span>מנוע ההמלצות</span>
             </button>
         </div>
-    </div>
+    </section>
 
     <!-- Reliability History Tab -->
-    <div id="tab-content-reliability" class="relative z-10">
+    <section id="tab-content-reliability" data-tab-panel="reliability" class="relative z-10 space-y-4">
+        <div class="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+            <div>
+                <h3 class="text-xl font-bold text-white">בדיקות אמינות אחרונות</h3>
+                <p class="text-sm text-slate-400">כל חיפוש שומר את עיקרי התוצאה כדי שתוכל לחזור להחלטות קודמות במהירות.</p>
+            </div>
+        </div>
         {% if searches and searches|length > 0 %}
             <div class="grid gap-4">
                 {% for s in searches %}
                     <article
-                        class="bg-dark-lighter/80 border border-slate-700/60 rounded-xl p-4 active:scale-[0.98] transition-transform cursor-pointer shadow-lg"
+                        class="history-card active:scale-[0.99] transition-transform cursor-pointer"
                         data-search-id="{{ s.id }}"
                     >
                         <div class="flex justify-between items-start">
@@ -176,7 +249,7 @@
                 {% endfor %}
             </div>
         {% else %}
-            <div class="text-center py-12 bg-dark-lighter/40 rounded-2xl border border-slate-800">
+            <div class="history-empty text-center">
                 <p class="text-slate-400 mb-4">
                     אין היסטוריה עדיין.
                 </p>
@@ -186,21 +259,29 @@
                 </a>
             </div>
         {% endif %}
-    </div>
+    </section>
 
     <!-- Comparisons History Tab -->
-    <div id="tab-content-comparisons" class="relative z-10 hidden">
+    <section id="tab-content-comparisons" data-tab-panel="comparisons" class="relative z-10 hidden space-y-4">
+        <div>
+            <h3 class="text-xl font-bold text-white">השוואות רכבים</h3>
+            <p class="text-sm text-slate-400">טעינה לפי דרישה כדי לשמור על הדשבורד מהיר ונקי.</p>
+        </div>
         <div id="comparisons-list" class="grid gap-4">
             <div class="text-center py-8 text-slate-400">טוען היסטוריית השוואות...</div>
         </div>
-    </div>
+    </section>
 
     <!-- Advisor History Tab -->
-    <div id="tab-content-advisor" class="relative z-10 hidden">
+    <section id="tab-content-advisor" data-tab-panel="advisor" class="relative z-10 hidden space-y-4">
+        <div>
+            <h3 class="text-xl font-bold text-white">היסטוריית מנוע ההמלצות</h3>
+            <p class="text-sm text-slate-400">גישה מהירה לשאלונים קודמים ולרכב המוביל שהוצע בהם.</p>
+        </div>
         {% if advisor_history and advisor_history|length > 0 %}
             <div class="grid gap-4">
                 {% for item in advisor_history %}
-                    <article class="bg-dark-lighter/80 border border-slate-700/60 rounded-xl p-4 shadow-lg">
+                    <article class="history-card">
                         <div class="flex justify-between items-start gap-3">
                             <div>
                                 <h3 class="text-lg font-bold text-white">{{ item.top_recommendation or 'שאלון המלצות' }}</h3>
@@ -218,28 +299,14 @@
                 {% endfor %}
             </div>
         {% else %}
-            <div class="text-center py-12 bg-dark-lighter/40 rounded-2xl border border-slate-800">
+            <div class="history-empty text-center">
                 <p class="text-slate-400 mb-4">אין היסטוריית המלצות עדיין.</p>
                 <a href="/recommendations" class="px-6 py-2 rounded-full bg-primary text-white font-bold text-sm">
                     הפעל מנוע המלצות
                 </a>
             </div>
         {% endif %}
-    </div>
-
-    <!-- Service Prices History Tab -->
-    <div id="tab-content-service_prices" class="relative z-10 hidden">
-        <div id="service-prices-list" class="grid gap-4">
-            <div class="text-center py-8 text-slate-400">טוען היסטוריית בדיקות מחירים...</div>
-        </div>
-    </div>
-
-    <!-- Leasing Advisor History Tab -->
-    <div id="tab-content-leasing" class="relative z-10 hidden">
-        <div id="leasing-list" class="grid gap-4">
-            <div class="text-center py-8 text-slate-400">טוען היסטוריית יועץ ליסינג...</div>
-        </div>
-    </div>
+    </section>
 
     <!-- Delete Account Section -->
     <div class="mt-12 pt-8 border-t border-slate-800">
@@ -611,28 +678,18 @@
         // --- NEW BUTTONS NAVIGATION (MODIFIED SECTION) ---
         const navButtons = `
           <div class="sticky top-0 z-30 bg-dark/95 backdrop-blur py-3 border-b border-slate-700/50 mb-6 flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4" id="detail-nav">
-              <button data-scroll-to="sec-competitors" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded flex items-center gap-2 text-xs text-slate-200 transition-colors shrink-0">
-                  <span>מתחרים</span> <span class="bg-orange-500 text-white rounded px-1 text-[10px] font-bold">VS</span>
-              </button>
-              <button data-scroll-to="sec-costs" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded flex items-center gap-2 text-xs text-slate-200 transition-colors shrink-0">
-                  <span>עלויות</span>
-              </button>
-              <button data-scroll-to="sec-issues" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded flex items-center gap-2 text-xs text-slate-200 transition-colors shrink-0">
-                  <span>תקלות</span>
-              </button>
-              <button data-scroll-to="sec-summary" class="px-3 py-1.5 bg-slate-600/80 border-b-2 border-primary text-white rounded-t flex items-center gap-2 text-xs transition-colors shrink-0">
-                 <span>סיכום</span>
-              </button>
-               <button data-scroll-to="sec-sources" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded flex items-center gap-2 text-xs text-slate-200 transition-colors shrink-0">
-                  <span>מקורות</span> <span class="text-slate-400">קישור</span>
-              </button>
+              <button data-scroll-to="sec-summary" class="detail-nav-btn shrink-0">סיכום</button>
+              <button data-scroll-to="sec-costs" class="detail-nav-btn shrink-0">ציונים ועלויות</button>
+              <button data-scroll-to="sec-issues" class="detail-nav-btn shrink-0">תקלות</button>
+              <button data-scroll-to="sec-competitors" class="detail-nav-btn shrink-0">מתחרים</button>
+              <button data-scroll-to="sec-sources" class="detail-nav-btn shrink-0">מקורות</button>
           </div>
         `;
 
         detailsContentEl.innerHTML = `
             ${navButtons}
 
-            <section class="bg-dark-lighter/80 border border-slate-700 rounded-2xl p-4 mb-4">
+            <section class="detail-section mb-4">
                 <div class="flex items-center justify-between gap-4">
                     <div>
                         <div class="text-xs font-semibold text-slate-400 mb-1">
@@ -647,14 +704,14 @@
                 </div>
             </section>
 
-            <section id="sec-summary" class="bg-dark-lighter/70 border border-slate-800 rounded-2xl p-4 space-y-2 scroll-mt-32">
+            <section id="sec-summary" class="detail-section space-y-2 scroll-mt-32">
                 <h4 class="text-sm font-bold text-slate-100">
                     סיכום פשוט לנהג שלא מבין ברכבים
                 </h4>
                 ${simpleSummaryHtml}
             </section>
 
-            <section id="sec-costs" class="bg-dark-lighter/70 border border-slate-800 rounded-2xl p-4 space-y-3 scroll-mt-32">
+            <section id="sec-costs" class="detail-section space-y-3 scroll-mt-32">
                 <h4 class="text-sm font-bold text-slate-100">
                     פירוט ציונים ועלויות
                 </h4>
@@ -669,7 +726,7 @@
                 ${avgRepairHtml}
             </section>
 
-            <section id="sec-issues" class="bg-dark-lighter/70 border border-slate-800 rounded-2xl p-4 space-y-3 scroll-mt-32">
+            <section id="sec-issues" class="detail-section space-y-3 scroll-mt-32">
                 <h4 class="text-sm font-bold text-slate-100">
                     תקלות נפוצות ועלויות משוערות
                 </h4>
@@ -677,35 +734,35 @@
                 ${issuesCostsHtml}
             </section>
 
-            <section class="bg-dark-lighter/70 border border-slate-800 rounded-2xl p-4 space-y-2">
+            <section class="detail-section space-y-2">
                 <h4 class="text-sm font-bold text-slate-100">
                     סיכום מקצועי מפורט
                 </h4>
                 ${fullSummaryHtml}
             </section>
 
-            <section class="bg-dark-lighter/70 border border-slate-800 rounded-2xl p-4 space-y-2">
+            <section class="detail-section space-y-2">
                 <h4 class="text-sm font-bold text-slate-100">
                     מה חשוב לבדוק לפני סגירת עסקה
                 </h4>
                 ${checksHtml || '<p class="text-xs text-slate-400">אין רשימת בדיקות ייעודית.</p>'}
             </section>
 
-            <section id="sec-competitors" class="bg-dark-lighter/70 border border-slate-800 rounded-2xl p-4 space-y-2 scroll-mt-32">
+            <section id="sec-competitors" class="detail-section space-y-2 scroll-mt-32">
                 <h4 class="text-sm font-bold text-slate-100">
                     מתחרים באותה קטגוריה
                 </h4>
                 ${competitorsHtml || '<p class="text-xs text-slate-400">אין רשימת מתחרים.</p>'}
             </section>
 
-            <section class="bg-dark-lighter/70 border border-slate-800 rounded-2xl p-4 space-y-2 scroll-mt-32">
+            <section class="detail-section space-y-2 scroll-mt-32">
                 <h4 class="text-sm font-bold text-slate-100">
                     דוח אמינות מורחב
                 </h4>
                 ${reportHtml}
             </section>
 
-            <section id="sec-sources" class="bg-dark-lighter/70 border border-slate-800 rounded-2xl p-4 space-y-2 mb-4 scroll-mt-32">
+            <section id="sec-sources" class="detail-section space-y-2 mb-4 scroll-mt-32">
                 <h4 class="text-sm font-bold text-slate-100">
                     מקורות מידע
                 </h4>
@@ -800,77 +857,22 @@
     // TAB SWITCHING & COMPARISON HISTORY
     // ============================================================
     
-    let currentTab = 'reliability';
     let comparisonsLoaded = false;
-    let leasingLoaded = false;
+    const tabButtons = Array.from(document.querySelectorAll('[data-tab]'));
+    const tabPanels = Array.from(document.querySelectorAll('[data-tab-panel]'));
     
     function showTab(tabName) {
-        currentTab = tabName;
-        
-        // Update tab buttons
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.classList.remove('bg-slate-800', 'text-slate-100', 'border-slate-600');
-            btn.classList.add('bg-slate-900/50', 'text-slate-500', 'border-slate-700/50');
+        tabButtons.forEach(btn => {
+            const isActive = btn.dataset.tab === tabName;
+            btn.classList.toggle('is-active', isActive);
         });
-        const activeBtn = document.getElementById(`tab-${tabName}`);
-        if (activeBtn) {
-            activeBtn.classList.remove('bg-slate-900/50', 'text-slate-500', 'border-slate-700/50');
-            activeBtn.classList.add('bg-slate-800', 'text-slate-100', 'border-slate-600');
-        }
+
+        tabPanels.forEach(panel => {
+            panel.classList.toggle('hidden', panel.dataset.tabPanel !== tabName);
+        });
         
-        // Show/hide content
-        document.getElementById('tab-content-reliability').classList.toggle('hidden', tabName !== 'reliability');
-        document.getElementById('tab-content-comparisons').classList.toggle('hidden', tabName !== 'comparisons');
-        document.getElementById('tab-content-advisor').classList.toggle('hidden', tabName !== 'advisor');
-        document.getElementById('tab-content-service_prices').classList.toggle('hidden', tabName !== 'service_prices');
-        document.getElementById('tab-content-leasing').classList.toggle('hidden', tabName !== 'leasing');
-        
-        // Load comparisons if switching to that tab for the first time
         if (tabName === 'comparisons' && !comparisonsLoaded) {
             loadComparisonsHistory();
-        }
-        if (tabName === 'leasing' && !leasingLoaded) {
-            loadLeasingHistory();
-        }
-        // Load service prices history if switching to that tab
-        if (tabName === 'service_prices') {
-            loadServicePricesHistory();
-        }
-    }
-    
-    async function loadServicePricesHistory() {
-        const container = document.getElementById('service-prices-list');
-        try {
-            const response = await fetch('/api/service-prices/history?per_page=20', {
-                headers: { 'Accept': 'application/json' },
-                credentials: 'same-origin'
-            });
-            const data = await response.json();
-            if (!response.ok || !data.ok) {
-                container.innerHTML = `<div class="text-center py-8 text-red-400">שגיאה בטעינת היסטוריית בדיקות מחירים</div>`;
-                return;
-            }
-            const invoices = data.data.invoices || [];
-            if (invoices.length === 0) {
-                container.innerHTML = '<div class="text-center py-8 text-slate-400">אין בדיקות מחירים קודמות</div>';
-                return;
-            }
-            container.innerHTML = invoices.map(inv => `
-                <div class="bg-dark-lighter/80 border border-slate-700/60 rounded-xl p-4 shadow-lg">
-                    <div class="flex justify-between items-start">
-                        <div>
-                            <h3 class="text-lg font-bold text-white">${escapeHtml(inv.make || '')} ${escapeHtml(inv.model || '')} ${escapeHtml(String(inv.year || ''))}</h3>
-                            <div class="text-sm text-slate-400 mt-1">
-                                ${new Date(inv.created_at).toLocaleDateString('he-IL')} ·
-                                ${inv.total_price_ils ? '₪' + inv.total_price_ils.toLocaleString() : 'לא צוין סכום'}
-                            </div>
-                        </div>
-                        <a href="/api/service-prices/download/${inv.id}" class="text-primary hover:underline text-sm">הורד דוח</a>
-                    </div>
-                </div>
-            `).join('');
-        } catch (err) {
-            container.innerHTML = '<div class="text-center py-8 text-red-400">שגיאה בטעינת היסטוריית בדיקות מחירים</div>';
         }
     }
 
@@ -894,7 +896,7 @@
             
             if (history.length === 0) {
                 container.innerHTML = `
-                    <div class="text-center py-12 bg-dark-lighter/40 rounded-2xl border border-slate-800">
+                    <div class="history-empty text-center">
                         <p class="text-slate-400 mb-4">אין היסטוריית השוואות עדיין.</p>
                         <a href="/compare" class="px-6 py-2 rounded-full bg-primary text-white font-bold text-sm">
                             התחל השוואה
@@ -913,7 +915,7 @@
                 });
                 
                 return `
-                    <article class="bg-dark-lighter/80 border border-slate-700/60 rounded-xl p-4 shadow-lg">
+                    <article class="history-card">
                         <div class="flex justify-between items-start">
                             <div>
                                 <h3 class="text-lg font-bold text-white flex items-center gap-2">
@@ -939,55 +941,8 @@
         }
     }
 
-    async function loadLeasingHistory() {
-        const container = document.getElementById('leasing-list');
-        try {
-            const response = await fetch('/api/leasing/history?limit=20', {
-                headers: { 'Accept': 'application/json' },
-                credentials: 'same-origin'
-            });
-            const data = await response.json();
-            if (!response.ok || !data.ok) {
-                container.innerHTML = `<div class="text-center py-8 text-red-400">${escapeHtml(data.error?.message || data.message || 'שגיאה בטעינת היסטוריית יועץ ליסינג')}</div>`;
-                return;
-            }
-            const history = data.data?.history || [];
-            leasingLoaded = true;
-            if (history.length === 0) {
-                container.innerHTML = `
-                    <div class="text-center py-12 bg-dark-lighter/40 rounded-2xl border border-slate-800">
-                        <p class="text-slate-400 mb-4">עדיין אין היסטוריית יועץ ליסינג</p>
-                        <a href="/leasing" class="px-6 py-2 rounded-full bg-primary text-white font-bold text-sm">
-                            התחל שימוש ביועץ ליסינג
-                        </a>
-                    </div>
-                `;
-                return;
-            }
-            container.innerHTML = history.map(item => `
-                <article class="bg-dark-lighter/80 border border-slate-700/60 rounded-xl p-4 shadow-lg">
-                    <div class="flex justify-between items-start gap-3">
-                        <div>
-                            <h3 class="text-lg font-bold text-white">${escapeHtml(item.top_recommendation || 'יועץ ליסינג')}</h3>
-                            <p class="text-sm text-slate-400 mt-1">${escapeHtml(item.frame_summary || '')}</p>
-                            ${item.duration_ms ? `<span class="text-xs text-slate-500 mt-2 block">⏱️ ${item.duration_ms}ms</span>` : ''}
-                        </div>
-                        <div class="text-left">
-                            <span class="text-xs text-slate-500 block">${escapeHtml(item.created_at || '')}</span>
-                            <a href="/leasing?load=${item.id}" aria-label="צפה בפרטים עבור ${escapeHtml(item.top_recommendation || 'רשומת ליסינג')}" class="inline-block mt-2 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg text-white transition-colors">
-                                צפה בפרטים
-                            </a>
-                        </div>
-                    </div>
-                </article>
-            `).join('');
-        } catch (err) {
-            container.innerHTML = '<div class="text-center py-8 text-red-400">שגיאה בטעינת היסטוריית יועץ ליסינג</div>';
-        }
-    }
-
     // --- Event listeners replacing inline handlers ---
-    document.querySelectorAll('[data-tab]').forEach(function(btn) {
+    tabButtons.forEach(function(btn) {
         btn.addEventListener('click', function() {
             showTab(this.dataset.tab);
         });

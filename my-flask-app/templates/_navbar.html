@@ -34,7 +34,7 @@
       <nav class="hidden md:flex items-center gap-2 sm:gap-3 text-sm font-medium">
         {% for item in nav_items %}
           <a href="{{ url_for(item.endpoint) }}"
-             class="px-4 sm:px-5 py-2.5 rounded-full border transition-all {{ 'bg-gradient-to-r from-primary to-secondary text-white border-transparent font-bold shadow-lg' if active_page == item.active else 'bg-slate-800/80 hover:bg-slate-700 text-white border-slate-700/50 hover:-translate-y-0.5' }}">
+             class="px-4 sm:px-5 py-2.5 rounded-full border transition-all {{ 'bg-primary/15 text-white border-primary/35 font-semibold shadow-lg shadow-primary/10' if active_page == item.active else 'bg-slate-800/80 hover:bg-slate-700 text-white border-slate-700/50 hover:-translate-y-0.5' }}">
             {{ item.label }}
           </a>
         {% endfor %}
@@ -85,7 +85,7 @@
     <nav class="flex flex-col gap-2 text-sm font-medium">
       {% for item in nav_items %}
         <a href="{{ url_for(item.endpoint) }}"
-           class="nav-drawer-link w-full px-4 py-3 rounded-xl border text-right transition {{ 'bg-gradient-to-r from-primary to-secondary text-white border-transparent font-bold' if active_page == item.active else 'bg-slate-900/70 text-slate-100 border-slate-700 hover:bg-slate-800' }}">
+           class="nav-drawer-link w-full px-4 py-3 rounded-xl border text-right transition {{ 'bg-primary/15 text-white border-primary/35 font-semibold' if active_page == item.active else 'bg-slate-900/70 text-slate-100 border-slate-700 hover:bg-slate-800' }}">
           {{ item.label }}
         </a>
       {% endfor %}

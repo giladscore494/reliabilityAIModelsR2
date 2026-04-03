@@ -418,6 +418,20 @@ def test_dashboard_shows_clickable_advisor_history(app, logged_in_client):
     assert "/recommendations/history/" in html
 
 
+def test_dashboard_keeps_only_core_history_tabs(logged_in_client):
+    client, _ = logged_in_client
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert 'id="tab-reliability"' in html
+    assert 'id="tab-comparisons"' in html
+    assert 'id="tab-advisor"' in html
+    assert 'id="tab-leasing"' not in html
+    assert 'id="tab-service_prices"' not in html
+    assert "/api/leasing/history" not in html
+    assert "/api/service-prices/history" not in html
+
+
 def test_recommendations_history_route_prefills_data(app, logged_in_client):
     client, user_id = logged_in_client
     app.config["OWNER_EMAILS"] = {"tester@example.com"}
