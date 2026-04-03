@@ -16,6 +16,15 @@ from main import (
 )
 
 
+SHARED_NAV_ITEMS = (
+    ("/", "בית"),
+    ("/app", "בודק אמינות"),
+    ("/compare", "השוואת רכבים"),
+    ("/recommendations", "מנוע ההמלצות"),
+    ("/dashboard", "היסטוריית חיפושים"),
+)
+
+
 def _valid_payload():
     return {
         "make": "Toyota",
@@ -26,6 +35,46 @@ def _valid_payload():
         "transmission": "אוטומטית",
         "sub_model": "",
     }
+
+
+def _assert_shared_nav(html):
+    for href, label in SHARED_NAV_ITEMS:
+        assert html.count(f'href="{href}"') >= 2
+        assert html.count(label) >= 2
+
+
+@pytest.mark.parametrize(
+    ("path", "requires_login"),
+    [
+        ("/", False),
+        ("/app", False),
+        ("/compare", True),
+        ("/recommendations", True),
+        ("/dashboard", True),
+    ],
+)
+def test_main_pages_render_shared_nav(client, logged_in_client, path, requires_login):
+    request_client = logged_in_client[0] if requires_login else client
+    resp = request_client.get(path)
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    _assert_shared_nav(html)
+
+
+def test_landing_preview_uses_verbal_reliability_demo(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "אמינות מוערכת: גבוהה" in html
+    assert "רמת סיכון: בינונית" in html
+    assert "בדיקות חשובות לפני קנייה:" in html
+    assert "/100" not in html
+
+
+def test_dashboard_requires_login(client):
+    resp = client.get("/dashboard")
+    assert resp.status_code == 302
+    assert urlparse(resp.headers["Location"]).path == "/login"
 
 
 def test_redirect_www_to_apex(client):
