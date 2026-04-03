@@ -45,7 +45,7 @@ def _assert_shared_nav(html):
 
 
 @pytest.mark.parametrize(
-    ("path", "requires_login"),
+    ("path", "requires_auth"),
     [
         ("/", False),
         ("/app", False),
@@ -54,10 +54,10 @@ def _assert_shared_nav(html):
         ("/dashboard", True),
     ],
 )
-def test_main_pages_render_shared_nav(client, logged_in_client, path, requires_login):
+def test_main_pages_render_shared_nav(client, logged_in_client, path, requires_auth):
     if path == "/recommendations":
         logged_in_client[0].application.config["ADVISOR_OWNER_ONLY"] = False
-    request_client = logged_in_client[0] if requires_login else client
+    request_client = logged_in_client[0] if requires_auth else client
     resp = request_client.get(path)
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
