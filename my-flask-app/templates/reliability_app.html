@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>yedaarechevAI - בדיקת אמינות רכב ב-AI</title>
+    <title>yedaarechevAI - בודק אמינות רכב</title>
     <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
 
     <script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio"></script>
@@ -71,7 +71,7 @@
 </head>
 <body class="bg-dark text-slate-200 min-h-screen flex flex-col antialiased selection:bg-primary/30 selection:text-white">
 
-    {% set active_page = 'reliability' %}
+    {% set active_page = 'app' %}
     {% include '_navbar.html' %}
 
     <main class="flex-grow relative container mx-auto px-4 sm:px-6 lg:px-8 py-16 md:py-24 flex flex-col items-center overflow-hidden">
@@ -509,7 +509,7 @@
         {{ car_models_data | tojson }}
     </script>
 
-    <script src="/static/script.js"></script>
+        <script src="{{ url_for('static', filename='script.js') }}"></script>
     <script nonce="{{ csp_nonce }}">
     document.addEventListener('DOMContentLoaded', function() {
         var historyBtn = document.querySelector('[data-action="load-history"]');
