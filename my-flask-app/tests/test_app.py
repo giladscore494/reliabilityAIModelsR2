@@ -18,7 +18,7 @@ from main import (
 )
 
 
-EXPECTED_SHARED_NAV_OCCURRENCES = 2
+MIN_SHARED_NAV_OCCURRENCES = 2
 
 
 def _valid_payload():
@@ -79,7 +79,7 @@ def _assert_shared_nav(app, html):
     parser = _NavLinkParser()
     parser.feed(html)
     for item in _shared_nav_items(app):
-        assert parser.links.count(item) >= EXPECTED_SHARED_NAV_OCCURRENCES
+        assert parser.links.count(item) >= MIN_SHARED_NAV_OCCURRENCES
 
 
 @pytest.mark.parametrize(
@@ -92,11 +92,11 @@ def _assert_shared_nav(app, html):
         ("/dashboard", True),
     ],
 )
-def test_main_pages_render_shared_nav(client, logged_in_client, path, requires_auth):
+def test_main_pages_render_shared_nav(client, logged_in_client, monkeypatch, path, requires_auth):
     if path == "/recommendations":
         # Recommendations defaults to owner-only outside tests, so disable that gate
         # here to verify the shared navbar on the page itself.
-        logged_in_client[0].application.config["ADVISOR_OWNER_ONLY"] = False
+        monkeypatch.setitem(logged_in_client[0].application.config, "ADVISOR_OWNER_ONLY", False)
     request_client = logged_in_client[0] if requires_auth else client
     resp = request_client.get(path)
     assert resp.status_code == 200
