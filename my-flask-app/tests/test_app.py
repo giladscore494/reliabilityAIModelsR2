@@ -54,6 +54,8 @@ def _assert_shared_nav(html):
     ],
 )
 def test_main_pages_render_shared_nav(client, logged_in_client, path, requires_login):
+    if path == "/recommendations":
+        logged_in_client[0].application.config["ADVISOR_OWNER_ONLY"] = False
     request_client = logged_in_client[0] if requires_login else client
     resp = request_client.get(path)
     assert resp.status_code == 200
