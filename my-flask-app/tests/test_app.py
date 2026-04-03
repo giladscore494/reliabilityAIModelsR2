@@ -1,8 +1,10 @@
 import pytest
 from datetime import datetime
+from html.parser import HTMLParser
 from urllib.parse import urlparse
 
 import main
+from flask import url_for
 from app.models import LeasingAdvisorHistory, AdvisorHistory
 from main import (
     DailyQuotaUsage,
@@ -16,6 +18,9 @@ from main import (
 )
 
 
+MIN_SHARED_NAV_OCCURRENCES = 2
+
+
 def _valid_payload():
     return {
         "make": "Toyota",
@@ -26,6 +31,93 @@ def _valid_payload():
         "transmission": "אוטומטית",
         "sub_model": "",
     }
+
+
+class _NavLinkParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self._nav_depth = 0
+        self._current_href = None
+        self._current_text = []
+        self.links = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "nav":
+            self._nav_depth += 1
+            return
+        if self._nav_depth and tag == "a":
+            self._current_href = dict(attrs).get("href")
+            self._current_text = []
+
+    def handle_data(self, data):
+        if self._nav_depth and self._current_href:
+            self._current_text.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self._nav_depth and self._current_href:
+            label = " ".join(part.strip() for part in self._current_text if part.strip())
+            self.links.append((self._current_href, label))
+            self._current_href = None
+            self._current_text = []
+            return
+        if tag == "nav" and self._nav_depth:
+            self._nav_depth -= 1
+
+
+def _shared_nav_items(app):
+    with app.test_request_context():
+        return (
+            (url_for("public.index"), "בית"),
+            (url_for("public.app_page"), "בודק אמינות"),
+            (url_for("comparison.compare_page"), "השוואת רכבים"),
+            (url_for("advisor.recommendations"), "מנוע ההמלצות"),
+            (url_for("dashboard.dashboard"), "היסטוריית חיפושים"),
+        )
+
+
+def _assert_shared_nav(app, html):
+    parser = _NavLinkParser()
+    parser.feed(html)
+    for item in _shared_nav_items(app):
+        assert parser.links.count(item) >= MIN_SHARED_NAV_OCCURRENCES
+
+
+@pytest.mark.parametrize(
+    ("path", "requires_auth"),
+    [
+        ("/", False),
+        ("/app", False),
+        ("/compare", True),
+        ("/recommendations", True),
+        ("/dashboard", True),
+    ],
+)
+def test_main_pages_render_shared_nav(client, logged_in_client, monkeypatch, path, requires_auth):
+    if path == "/recommendations":
+        # Recommendations defaults to owner-only outside tests, so disable that gate
+        # here to verify the shared navbar on the page itself.
+        monkeypatch.setitem(logged_in_client[0].application.config, "ADVISOR_OWNER_ONLY", False)
+    request_client = logged_in_client[0] if requires_auth else client
+    resp = request_client.get(path)
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    _assert_shared_nav(request_client.application, html)
+
+
+def test_landing_preview_uses_verbal_reliability_demo(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "אמינות מוערכת: גבוהה" in html
+    assert "רמת סיכון: בינונית" in html
+    assert "בדיקות חשובות לפני קנייה:" in html
+    assert "/100" not in html
+
+
+def test_dashboard_requires_login(client):
+    resp = client.get("/dashboard")
+    assert resp.status_code == 302
+    assert urlparse(resp.headers["Location"]).path == "/login"
 
 
 def test_redirect_www_to_apex(client):

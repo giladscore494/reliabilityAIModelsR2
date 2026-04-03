@@ -3,6 +3,13 @@
 {% set owner_flag = is_owner|default(false) %}
 {% set active_page = active_page|default('') %}
 {% set display_name = (user_obj.name.split(' ')[0] if user_obj and user_obj.name else ('אורח' if is_authenticated else '')) %}
+{% set nav_items = [
+  {'label': 'בית', 'endpoint': 'public.index', 'active': 'landing'},
+  {'label': 'בודק אמינות', 'endpoint': 'public.app_page', 'active': 'app'},
+  {'label': 'השוואת רכבים', 'endpoint': 'comparison.compare_page', 'active': 'compare'},
+  {'label': 'מנוע ההמלצות', 'endpoint': 'advisor.recommendations', 'active': 'advisor'},
+  {'label': 'היסטוריית חיפושים', 'endpoint': 'dashboard.dashboard', 'active': 'dashboard'},
+] %}
 
 <meta name="csrf-token" content="{{ csrf_token }}">
 
@@ -25,16 +32,14 @@
       {% endif %}
 
       <nav class="hidden md:flex items-center gap-2 sm:gap-3 text-sm font-medium">
-        <a href="{{ url_for('comparison.compare_page') }}"
-           class="px-4 sm:px-5 py-2.5 rounded-full border transition-all {{ 'bg-gradient-to-r from-primary to-secondary text-white border-transparent font-bold shadow-lg' if active_page=='compare' else 'bg-slate-800/80 hover:bg-slate-700 text-white border-slate-700/50 hover:-translate-y-0.5' }}">
-          השוואת רכבים
-        </a>
+        {% for item in nav_items %}
+          <a href="{{ url_for(item.endpoint) }}"
+             class="px-4 sm:px-5 py-2.5 rounded-full border transition-all {{ 'bg-gradient-to-r from-primary to-secondary text-white border-transparent font-bold shadow-lg' if active_page == item.active else 'bg-slate-800/80 hover:bg-slate-700 text-white border-slate-700/50 hover:-translate-y-0.5' }}">
+            {{ item.label }}
+          </a>
+        {% endfor %}
 
         {% if is_authenticated %}
-          <a href="{{ url_for('dashboard.dashboard') }}"
-             class="px-4 sm:px-5 py-2.5 rounded-full border transition-all {{ 'bg-gradient-to-r from-primary to-secondary text-white border-transparent font-bold shadow-lg' if active_page=='dashboard' else 'bg-slate-800/80 hover:bg-slate-700 text-white border-slate-700/50 hover:-translate-y-0.5' }}">
-            החיפושים שלי
-          </a>
           <a href="{{ url_for('public.logout') }}" class="px-4 py-2 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition-all flex items-center gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -48,11 +53,6 @@
             התחברות
           </a>
         {% endif %}
-
-        <a href="{{ url_for('public.app_page') }}"
-           class="px-6 py-2.5 rounded-full font-bold transition-all text-white shadow-lg shadow-primary/25 hover:shadow-primary/40 hover:-translate-y-0.5 active:translate-y-0 bg-gradient-to-r from-primary to-secondary">
-          {{ 'התחל בדיקה' if active_page != 'app' else 'בודק האמינות' }}
-        </a>
       </nav>
 
       <button id="navbar-toggle" type="button" class="md:hidden inline-flex items-center justify-center w-11 h-11 rounded-full border border-slate-700/70 text-slate-200 hover:bg-slate-800 transition"
@@ -83,19 +83,13 @@
     </div>
 
     <nav class="flex flex-col gap-2 text-sm font-medium">
-      <a href="{{ url_for('public.app_page') }}"
-         class="nav-drawer-link w-full px-4 py-3 rounded-xl border text-right transition bg-gradient-to-r from-primary to-secondary text-white border-transparent font-bold">
-        {{ 'התחל בדיקה' if active_page != 'app' else 'בודק האמינות' }}
-      </a>
-      <a href="{{ url_for('comparison.compare_page') }}"
-         class="nav-drawer-link w-full px-4 py-3 rounded-xl border text-right transition {{ 'bg-gradient-to-r from-primary to-secondary text-white border-transparent font-bold' if active_page=='compare' else 'bg-slate-900/70 text-slate-100 border-slate-700 hover:bg-slate-800' }}">
-        השוואת רכבים
-      </a>
-      {% if is_authenticated %}
-        <a href="{{ url_for('dashboard.dashboard') }}"
-           class="nav-drawer-link w-full px-4 py-3 rounded-xl border text-right transition {{ 'bg-gradient-to-r from-primary to-secondary text-white border-transparent font-bold' if active_page=='dashboard' else 'bg-slate-900/70 text-slate-100 border-slate-700 hover:bg-slate-800' }}">
-          החיפושים שלי
+      {% for item in nav_items %}
+        <a href="{{ url_for(item.endpoint) }}"
+           class="nav-drawer-link w-full px-4 py-3 rounded-xl border text-right transition {{ 'bg-gradient-to-r from-primary to-secondary text-white border-transparent font-bold' if active_page == item.active else 'bg-slate-900/70 text-slate-100 border-slate-700 hover:bg-slate-800' }}">
+          {{ item.label }}
         </a>
+      {% endfor %}
+      {% if is_authenticated %}
         <a href="{{ url_for('public.logout') }}"
            class="nav-drawer-link w-full px-4 py-3 rounded-xl border text-right transition bg-slate-900/70 text-slate-100 border-slate-700 hover:bg-slate-800">
           התנתק
@@ -106,10 +100,6 @@
           התחברות
         </a>
       {% endif %}
-      <a href="{{ url_for('public.index') }}"
-         class="nav-drawer-link w-full px-4 py-3 rounded-xl border text-right transition {{ 'bg-gradient-to-r from-primary to-secondary text-white border-transparent font-bold' if active_page=='landing' else 'bg-slate-900/70 text-slate-100 border-slate-700 hover:bg-slate-800' }}">
-        דף הבית
-      </a>
     </nav>
   </div>
 </div>
