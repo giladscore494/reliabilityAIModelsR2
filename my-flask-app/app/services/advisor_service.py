@@ -4,7 +4,6 @@
 import json
 import logging
 import time
-from datetime import datetime
 
 from flask import current_app
 
@@ -86,23 +85,38 @@ def handle_advisor_logic(payload, user, user_id):
         trim_level = payload.get("trim_level", "סטנדרטי") or "סטנדרטי"
 
         consider_supply = payload.get("consider_supply", "כן") or "כן"
-        consider_market_supply = (consider_supply == "כן")
+        consider_market_supply = consider_supply == "כן"
 
         fuel_price = float(payload.get("fuel_price", 7.0))
         electricity_price = float(payload.get("electricity_price", 0.65))
 
     except Exception:
-        logger.exception("[ADVISOR] payload parse failed request_id=%s", get_request_id())
-        log_access_decision('/advisor_api', user_id, 'rejected', 'validation error: invalid payload')
-        return api_error("validation_error", "שגיאת קלט: נא לוודא שכל הנתונים הוזנו כראוי.", status=400, details={"field": "payload"})
+        logger.exception(
+            "[ADVISOR] payload parse failed request_id=%s", get_request_id()
+        )
+        log_access_decision(
+            "/advisor_api", user_id, "rejected", "validation error: invalid payload"
+        )
+        return api_error(
+            "validation_error",
+            "שגיאת קלט: נא לוודא שכל הנתונים הוזנו כראוי.",
+            status=400,
+            details={"field": "payload"},
+        )
 
     # --- מיפוי דלק/גיר/טורבו מהעברית לערכים לוגיים ---
-    fuels = [fuel_map.get(f, "gasoline") for f in fuels_he] if fuels_he else ["gasoline"]
+    fuels = (
+        [fuel_map.get(f, "gasoline") for f in fuels_he] if fuels_he else ["gasoline"]
+    )
 
     if "חשמלי" in fuels_he:
         gears = ["automatic"]
     else:
-        gears = [gear_map.get(g, "automatic") for g in gears_he] if gears_he else ["automatic"]
+        gears = (
+            [gear_map.get(g, "automatic") for g in gears_he]
+            if gears_he
+            else ["automatic"]
+        )
 
     turbo_choice = turbo_map.get(turbo_choice_he, "any")
 
@@ -141,7 +155,8 @@ def handle_advisor_logic(payload, user, user_id):
         "actual_consumption": payload.get("research_actual_consumption") or "",
         "sale_timeline_bucket": payload.get("research_sale_timeline") or "",
         "ask_to_sale_gap_bucket": payload.get("research_sale_gap") or "",
-        "purchase_reference_type": payload.get("research_purchase_reference_type") or "",
+        "purchase_reference_type": payload.get("research_purchase_reference_type")
+        or "",
         "purchase_delta_bucket": payload.get("research_purchase_delta_bucket") or "",
         "charging_cost_ils_per_kwh": payload.get("research_charging_cost") or "",
         "charging_location": payload.get("research_charging_location") or "",
@@ -153,10 +168,20 @@ def handle_advisor_logic(payload, user, user_id):
     model_duration_ms = int((time.perf_counter() - start_time) * 1000)
     if parsed.get("_error"):
         error_reason = parsed.get("_error")
-        log_access_decision('/advisor_api', user_id, 'error', f'AI error: {error_reason}')
+        log_access_decision(
+            "/advisor_api", user_id, "error", f"AI error: {error_reason}"
+        )
         if error_reason == "CALL_TIMEOUT":
-            return api_error("advisor_timeout", "זמן העיבוד חרג מהמותר. נסה שוב מאוחר יותר.", status=504)
-        return api_error("advisor_ai_error", "שגיאת AI במנוע ההמלצות. נסה שוב מאוחר יותר.", status=502)
+            return api_error(
+                "advisor_timeout",
+                "זמן העיבוד חרג מהמותר. נסה שוב מאוחר יותר.",
+                status=504,
+            )
+        return api_error(
+            "advisor_ai_error",
+            "שגיאת AI במנוע ההמלצות. נסה שוב מאוחר יותר.",
+            status=502,
+        )
 
     result = car_advisor_postprocess(user_profile, parsed)
     sanitized_result = sanitize_advisor_response(result)

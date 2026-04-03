@@ -16,10 +16,28 @@ _ENUMS = {
     "reliability.ownership_status": {"owner", "pre_purchase_research"},
     "reliability.garage_type": {"authorized", "independent", "both"},
     "compare.subject_vehicle_slot": {"car_1", "car_2", "car_3", "unknown"},
-    "advisor.sale_timeline_bucket": {"under_14_days", "14_to_30_days", "31_to_60_days", "over_60_days", "not_sold"},
-    "advisor.ask_to_sale_gap_bucket": {"under_5_pct", "5_to_10_pct", "10_to_15_pct", "over_15_pct", "not_sold"},
+    "advisor.sale_timeline_bucket": {
+        "under_14_days",
+        "14_to_30_days",
+        "31_to_60_days",
+        "over_60_days",
+        "not_sold",
+    },
+    "advisor.ask_to_sale_gap_bucket": {
+        "under_5_pct",
+        "5_to_10_pct",
+        "10_to_15_pct",
+        "over_15_pct",
+        "not_sold",
+    },
     "advisor.purchase_reference_type": {"price_list", "published_ad"},
-    "advisor.purchase_delta_bucket": {"below_5_pct", "within_5_pct", "5_to_10_pct", "over_10_pct", "unknown"},
+    "advisor.purchase_delta_bucket": {
+        "below_5_pct",
+        "within_5_pct",
+        "5_to_10_pct",
+        "over_10_pct",
+        "unknown",
+    },
     "advisor.charging_location": {"home", "work", "public", "mixed"},
 }
 
@@ -50,17 +68,23 @@ def _require_int(field: str, value: Any, *, min_value: int, max_value: int) -> i
     except (TypeError, ValueError):
         raise ValidationError(field, "Field must be a whole number")
     if number < min_value or number > max_value:
-        raise ValidationError(field, f"Field must be between {min_value} and {max_value}")
+        raise ValidationError(
+            field, f"Field must be between {min_value} and {max_value}"
+        )
     return number
 
 
-def _require_float(field: str, value: Any, *, min_value: float, max_value: float) -> float:
+def _require_float(
+    field: str, value: Any, *, min_value: float, max_value: float
+) -> float:
     try:
         number = float(value)
     except (TypeError, ValueError):
         raise ValidationError(field, "Field must be a number")
     if number < min_value or number > max_value:
-        raise ValidationError(field, f"Field must be between {min_value} and {max_value}")
+        raise ValidationError(
+            field, f"Field must be between {min_value} and {max_value}"
+        )
     return round(number, 2)
 
 
@@ -69,7 +93,9 @@ def _require_enum(field: str, value: Any, allowed: set[str]) -> str:
         raise ValidationError(field, "Field must be a string")
     normalized = value.strip()
     if normalized not in allowed:
-        raise ValidationError(field, f"Field must be one of: {', '.join(sorted(allowed))}")
+        raise ValidationError(
+            field, f"Field must be one of: {', '.join(sorted(allowed))}"
+        )
     return normalized
 
 
@@ -92,7 +118,9 @@ def _vehicle_context_json(vehicle_context: Any) -> str:
             json.loads(vehicle_context)
             return vehicle_context
         except json.JSONDecodeError as exc:
-            raise ValidationError("vehicle_context", "vehicle_context must be valid JSON") from exc
+            raise ValidationError(
+                "vehicle_context", "vehicle_context must be valid JSON"
+            ) from exc
     if not isinstance(vehicle_context, dict):
         raise ValidationError("vehicle_context", "vehicle_context must be an object")
     return json.dumps(vehicle_context, ensure_ascii=False)
@@ -108,10 +136,15 @@ def charging_question_required(vehicle_context: dict[str, Any]) -> bool:
     if isinstance(preferred_fuels, str):
         preferred_fuels = [preferred_fuels]
     normalized = " ".join(str(item).lower() for item in preferred_fuels)
-    return any(token in normalized for token in ("חשמ", "היבריד", "electric", "hybrid", "phev", "ev"))
+    return any(
+        token in normalized
+        for token in ("חשמ", "היבריד", "electric", "hybrid", "phev", "ev")
+    )
 
 
-def validate_research_payload(flow_type: str, responses: Any, vehicle_context: Any) -> tuple[dict[str, Any], str, list[dict[str, Any]]]:
+def validate_research_payload(
+    flow_type: str, responses: Any, vehicle_context: Any
+) -> tuple[dict[str, Any], str, list[dict[str, Any]]]:
     normalized_flow = (flow_type or "").strip().lower()
     if normalized_flow not in RESEARCH_FLOW_TYPES:
         raise ValidationError("flow_type", "Unsupported research flow")
@@ -127,7 +160,9 @@ def validate_research_payload(flow_type: str, responses: Any, vehicle_context: A
         if not question_code:
             raise ValidationError("question_code", "question_code is required")
         if question_code in response_map:
-            raise ValidationError("question_code", f"Duplicate question_code: {question_code}")
+            raise ValidationError(
+                "question_code", f"Duplicate question_code: {question_code}"
+            )
         response_map[question_code] = item
 
     if normalized_flow == "reliability":
@@ -149,7 +184,10 @@ def _validate_reliability(responses: dict[str, dict[str, Any]]) -> list[dict[str
     }
     missing = required_codes - set(responses.keys())
     if missing:
-        raise ValidationError("responses", f"Missing required research answers: {', '.join(sorted(missing))}")
+        raise ValidationError(
+            "responses",
+            f"Missing required research answers: {', '.join(sorted(missing))}",
+        )
 
     ownership_value = responses["ownership_status"].get("response")
     ownership_status = _require_enum(
@@ -177,13 +215,17 @@ def _validate_reliability(responses: dict[str, dict[str, Any]]) -> list[dict[str
     )
     out_of_warranty_repairs = _require_bool(
         "out_of_warranty_repairs",
-        (responses["out_of_warranty_repairs"].get("response") or {}).get("out_of_warranty_repairs"),
+        (responses["out_of_warranty_repairs"].get("response") or {}).get(
+            "out_of_warranty_repairs"
+        ),
     )
 
     return [
         {
             "question_code": "ownership_status",
-            "response_json": json.dumps({"ownership_status": ownership_status}, ensure_ascii=False),
+            "response_json": json.dumps(
+                {"ownership_status": ownership_status}, ensure_ascii=False
+            ),
             "is_required": True,
         },
         {
@@ -199,12 +241,16 @@ def _validate_reliability(responses: dict[str, dict[str, Any]]) -> list[dict[str
         },
         {
             "question_code": "first_test_pass",
-            "response_json": json.dumps({"first_test_pass": first_test_pass}, ensure_ascii=False),
+            "response_json": json.dumps(
+                {"first_test_pass": first_test_pass}, ensure_ascii=False
+            ),
             "is_required": True,
         },
         {
             "question_code": "out_of_warranty_repairs",
-            "response_json": json.dumps({"out_of_warranty_repairs": out_of_warranty_repairs}, ensure_ascii=False),
+            "response_json": json.dumps(
+                {"out_of_warranty_repairs": out_of_warranty_repairs}, ensure_ascii=False
+            ),
             "is_required": True,
         },
     ]
@@ -219,22 +265,31 @@ def _validate_compare(responses: dict[str, dict[str, Any]]) -> list[dict[str, An
     }
     missing = required_codes - set(responses.keys())
     if missing:
-        raise ValidationError("responses", f"Missing required research answers: {', '.join(sorted(missing))}")
+        raise ValidationError(
+            "responses",
+            f"Missing required research answers: {', '.join(sorted(missing))}",
+        )
 
     subject_vehicle = _require_enum(
         "subject_vehicle.subject_vehicle_slot",
-        (responses["subject_vehicle"].get("response") or {}).get("subject_vehicle_slot"),
+        (responses["subject_vehicle"].get("response") or {}).get(
+            "subject_vehicle_slot"
+        ),
         _ENUMS["compare.subject_vehicle_slot"],
     )
     annual_insurance_ils = _require_int(
         "annual_insurance.annual_insurance_ils",
-        (responses["annual_insurance"].get("response") or {}).get("annual_insurance_ils"),
+        (responses["annual_insurance"].get("response") or {}).get(
+            "annual_insurance_ils"
+        ),
         min_value=0,
         max_value=50000,
     )
     annual_total_cost_ils = _require_int(
         "annual_total_cost.annual_total_cost_ils",
-        (responses["annual_total_cost"].get("response") or {}).get("annual_total_cost_ils"),
+        (responses["annual_total_cost"].get("response") or {}).get(
+            "annual_total_cost_ils"
+        ),
         min_value=0,
         max_value=200000,
     )
@@ -253,17 +308,23 @@ def _validate_compare(responses: dict[str, dict[str, Any]]) -> list[dict[str, An
     return [
         {
             "question_code": "subject_vehicle",
-            "response_json": json.dumps({"subject_vehicle_slot": subject_vehicle}, ensure_ascii=False),
+            "response_json": json.dumps(
+                {"subject_vehicle_slot": subject_vehicle}, ensure_ascii=False
+            ),
             "is_required": True,
         },
         {
             "question_code": "annual_insurance",
-            "response_json": json.dumps({"annual_insurance_ils": annual_insurance_ils}, ensure_ascii=False),
+            "response_json": json.dumps(
+                {"annual_insurance_ils": annual_insurance_ils}, ensure_ascii=False
+            ),
             "is_required": True,
         },
         {
             "question_code": "annual_total_cost",
-            "response_json": json.dumps({"annual_total_cost_ils": annual_total_cost_ils}, ensure_ascii=False),
+            "response_json": json.dumps(
+                {"annual_total_cost_ils": annual_total_cost_ils}, ensure_ascii=False
+            ),
             "is_required": True,
         },
         {
@@ -294,7 +355,10 @@ def _validate_advisor(
         required_codes.add("charging_profile")
     missing = required_codes - set(responses.keys())
     if missing:
-        raise ValidationError("responses", f"Missing required research answers: {', '.join(sorted(missing))}")
+        raise ValidationError(
+            "responses",
+            f"Missing required research answers: {', '.join(sorted(missing))}",
+        )
 
     current_vehicle = _require_text(
         "current_vehicle.current_vehicle",
@@ -328,7 +392,9 @@ def _validate_advisor(
 
     actual_fuel_consumption = _require_float(
         "actual_fuel_consumption.actual_consumption",
-        (responses["actual_fuel_consumption"].get("response") or {}).get("actual_consumption"),
+        (responses["actual_fuel_consumption"].get("response") or {}).get(
+            "actual_consumption"
+        ),
         min_value=0,
         max_value=50,
     )
@@ -336,7 +402,9 @@ def _validate_advisor(
     validated = [
         {
             "question_code": "current_vehicle",
-            "response_json": json.dumps({"current_vehicle": current_vehicle}, ensure_ascii=False),
+            "response_json": json.dumps(
+                {"current_vehicle": current_vehicle}, ensure_ascii=False
+            ),
             "is_required": True,
         },
         {
@@ -363,7 +431,9 @@ def _validate_advisor(
         },
         {
             "question_code": "actual_fuel_consumption",
-            "response_json": json.dumps({"actual_consumption": actual_fuel_consumption}, ensure_ascii=False),
+            "response_json": json.dumps(
+                {"actual_consumption": actual_fuel_consumption}, ensure_ascii=False
+            ),
             "is_required": True,
         },
     ]

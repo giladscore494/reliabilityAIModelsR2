@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import desc, event
+from sqlalchemy import desc
 from sqlalchemy.orm import relationship, validates
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import TypeDecorator, Text
@@ -430,14 +430,14 @@ class ResearchConsent(db.Model):
             "user_id",
             "consent_type",
             "research_notice_version",
-            desc("accepted_at"),
+            "accepted_at",
         ),
         db.Index(
             "ix_research_consent_lookup_anon",
             "anon_id",
             "consent_type",
             "research_notice_version",
-            desc("accepted_at"),
+            "accepted_at",
         ),
     )
 
@@ -482,7 +482,7 @@ class ResearchResponseSession(db.Model):
             "user_id",
             "anon_id",
             "flow_type",
-            desc("created_at"),
+            "created_at",
         ),
     )
 
@@ -508,7 +508,7 @@ class ResearchResponse(db.Model):
             "ix_research_response_flow_question_answered",
             "flow_type",
             "question_code",
-            desc("answered_at"),
+            "answered_at",
         ),
     )
 

@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """Legal acceptance routes blueprint."""
 
-from datetime import datetime
-
 from flask import Blueprint, current_app, jsonify, request, session
 from flask_login import login_required, current_user
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -46,10 +44,14 @@ def _research_subject():
 def _find_research_consent(*, consent_id=None):
     terms_version = current_app.config.get("TERMS_VERSION")
     privacy_version = current_app.config.get("PRIVACY_VERSION")
-    research_notice_version = current_app.config.get("RESEARCH_NOTICE_VERSION", RESEARCH_NOTICE_VERSION)
+    research_notice_version = current_app.config.get(
+        "RESEARCH_NOTICE_VERSION", RESEARCH_NOTICE_VERSION
+    )
     user_id, anon_id = _research_subject()
     query = ResearchConsent.query.filter_by(
-        consent_type=current_app.config.get("RESEARCH_CONSENT_TYPE", RESEARCH_CONSENT_TYPE),
+        consent_type=current_app.config.get(
+            "RESEARCH_CONSENT_TYPE", RESEARCH_CONSENT_TYPE
+        ),
         terms_version=terms_version,
         privacy_version=privacy_version,
         research_notice_version=research_notice_version,
@@ -67,7 +69,7 @@ def accept_legal():
     """
     Accept Terms of Use and Privacy Policy.
     Optionally includes feature-specific consents.
-    
+
     Payload:
     {
       "legal_confirm": true,
@@ -80,21 +82,23 @@ def accept_legal():
     """
     data = request.get_json(silent=True) or {}
     if not parse_legal_confirm(data.get("legal_confirm")):
-        return _legal_error("TERMS_NOT_ACCEPTED", "Please accept Terms & Privacy to continue.")
+        return _legal_error(
+            "TERMS_NOT_ACCEPTED", "Please accept Terms & Privacy to continue."
+        )
 
     terms_version = data.get("terms_version") or current_app.config.get("TERMS_VERSION")
-    privacy_version = data.get("privacy_version") or current_app.config.get("PRIVACY_VERSION")
-    
+    privacy_version = data.get("privacy_version") or current_app.config.get(
+        "PRIVACY_VERSION"
+    )
+
     existing = LegalAcceptance.query.filter_by(
         user_id=current_user.id,
         terms_version=terms_version,
         privacy_version=privacy_version,
     ).first()
-    
-    terms_acceptance_recorded = existing is not None
-    
+
     if not existing:
-        # Store a normalized IP (reduced precision) to limit PII while keeping auditability.
+        # Store a normalized IP to limit PII while preserving auditability.
         raw_ip = get_client_ip()
         acceptance = LegalAcceptance(
             user_id=current_user.id,
@@ -108,7 +112,6 @@ def accept_legal():
         db.session.add(acceptance)
         try:
             db.session.commit()
-            terms_acceptance_recorded = True
         except IntegrityError:
             db.session.rollback()
             existing = LegalAcceptance.query.filter_by(
@@ -116,18 +119,20 @@ def accept_legal():
                 terms_version=terms_version,
                 privacy_version=privacy_version,
             ).first()
-            if existing:
-                terms_acceptance_recorded = True
-            else:
-                return _legal_error("LEGAL_ACCEPT_FAILED", "Unable to record acceptance.", status=500)
+            if not existing:
+                return _legal_error(
+                    "LEGAL_ACCEPT_FAILED", "Unable to record acceptance.", status=500
+                )
         except SQLAlchemyError:
             db.session.rollback()
-            return _legal_error("LEGAL_ACCEPT_FAILED", "Unable to record acceptance.", status=500)
+            return _legal_error(
+                "LEGAL_ACCEPT_FAILED", "Unable to record acceptance.", status=500
+            )
 
     # Process feature consents if provided
     feature_consents = data.get("feature_consents") or []
     processed_features = []
-    
+
     for consent in feature_consents:
         if not isinstance(consent, dict):
             continue
@@ -136,19 +141,26 @@ def accept_legal():
         if feature_key and version:
             try:
                 record_feature_acceptance(current_user.id, feature_key, version)
-                processed_features.append({"feature_key": feature_key, "version": version})
+                processed_features.append(
+                    {"feature_key": feature_key, "version": version}
+                )
             except Exception:
                 # Log but don't fail the entire request
                 current_app.logger.warning(
-                    f"Failed to record feature consent: {feature_key}={version} for user={current_user.id}"
+                    "Failed to record feature consent: %s=%s for user=%s",
+                    feature_key,
+                    version,
+                    current_user.id,
                 )
 
-    return jsonify({
-        "ok": True,
-        "terms_version": terms_version,
-        "privacy_version": privacy_version,
-        "feature_consents": processed_features,
-    })
+    return jsonify(
+        {
+            "ok": True,
+            "terms_version": terms_version,
+            "privacy_version": privacy_version,
+            "feature_consents": processed_features,
+        }
+    )
 
 
 @bp.route("/api/legal/status", methods=["GET"])
@@ -158,17 +170,22 @@ def legal_status():
     terms_version = current_app.config.get("TERMS_VERSION")
     privacy_version = current_app.config.get("PRIVACY_VERSION")
 
-    accepted = LegalAcceptance.query.filter_by(
-        user_id=current_user.id,
-        terms_version=terms_version,
-        privacy_version=privacy_version,
-    ).first() is not None
+    accepted = (
+        LegalAcceptance.query.filter_by(
+            user_id=current_user.id,
+            terms_version=terms_version,
+            privacy_version=privacy_version,
+        ).first()
+        is not None
+    )
 
-    return jsonify({
-        "accepted": accepted,
-        "terms_version": terms_version,
-        "privacy_version": privacy_version,
-    })
+    return jsonify(
+        {
+            "accepted": accepted,
+            "terms_version": terms_version,
+            "privacy_version": privacy_version,
+        }
+    )
 
 
 @bp.route("/api/research/status", methods=["GET"])
@@ -180,7 +197,9 @@ def research_status():
             "consent_id": consent.id if consent else None,
             "terms_version": current_app.config.get("TERMS_VERSION"),
             "privacy_version": current_app.config.get("PRIVACY_VERSION"),
-            "research_notice_version": current_app.config.get("RESEARCH_NOTICE_VERSION", RESEARCH_NOTICE_VERSION),
+            "research_notice_version": current_app.config.get(
+                "RESEARCH_NOTICE_VERSION", RESEARCH_NOTICE_VERSION
+            ),
         }
     )
 
@@ -196,8 +215,12 @@ def accept_research_consent():
 
     terms_version = current_app.config.get("TERMS_VERSION")
     privacy_version = current_app.config.get("PRIVACY_VERSION")
-    research_notice_version = current_app.config.get("RESEARCH_NOTICE_VERSION", RESEARCH_NOTICE_VERSION)
-    consent_type = current_app.config.get("RESEARCH_CONSENT_TYPE", RESEARCH_CONSENT_TYPE)
+    research_notice_version = current_app.config.get(
+        "RESEARCH_NOTICE_VERSION", RESEARCH_NOTICE_VERSION
+    )
+    consent_type = current_app.config.get(
+        "RESEARCH_CONSENT_TYPE", RESEARCH_CONSENT_TYPE
+    )
     user_id, anon_id = _research_subject()
     existing = _find_research_consent()
     if existing:
@@ -234,10 +257,18 @@ def accept_research_consent():
         db.session.rollback()
         consent = _find_research_consent()
         if not consent:
-            return _legal_error("RESEARCH_CONSENT_SAVE_FAILED", "לא הצלחנו לשמור את הסכמת המחקר.", status=500)
+            return _legal_error(
+                "RESEARCH_CONSENT_SAVE_FAILED",
+                "לא הצלחנו לשמור את הסכמת המחקר.",
+                status=500,
+            )
     except SQLAlchemyError:
         db.session.rollback()
-        return _legal_error("RESEARCH_CONSENT_SAVE_FAILED", "לא הצלחנו לשמור את הסכמת המחקר.", status=500)
+        return _legal_error(
+            "RESEARCH_CONSENT_SAVE_FAILED",
+            "לא הצלחנו לשמור את הסכמת המחקר.",
+            status=500,
+        )
 
     return jsonify(
         {
@@ -254,7 +285,9 @@ def accept_research_consent():
 @bp.route("/api/research/responses", methods=["POST"])
 def save_research_responses():
     if not request.is_json:
-        return _legal_error("INVALID_CONTENT_TYPE", "Content-Type must be application/json.", status=415)
+        return _legal_error(
+            "INVALID_CONTENT_TYPE", "Content-Type must be application/json.", status=415
+        )
 
     data = request.get_json(silent=True) or {}
     consent = _find_research_consent(consent_id=data.get("consent_id"))
@@ -275,18 +308,30 @@ def save_research_responses():
         return _legal_error("VALIDATION_ERROR", exc.message, status=400)
 
     source_analysis_type = (data.get("source_analysis_type") or "").strip()
-    if source_analysis_type not in {"search_history", "comparison_history", "advisor_history"}:
-        return _legal_error("VALIDATION_ERROR", "source_analysis_type לא נתמך.", status=400)
+    if source_analysis_type not in {
+        "search_history",
+        "comparison_history",
+        "advisor_history",
+    }:
+        return _legal_error(
+            "VALIDATION_ERROR", "source_analysis_type לא נתמך.", status=400
+        )
 
     source_record_id = data.get("source_record_id")
     if source_record_id is None:
-        return _legal_error("VALIDATION_ERROR", "source_record_id is required.", status=400)
+        return _legal_error(
+            "VALIDATION_ERROR", "source_record_id is required.", status=400
+        )
     try:
         source_record_id = int(source_record_id)
     except (TypeError, ValueError):
-        return _legal_error("VALIDATION_ERROR", "source_record_id must be an integer.", status=400)
+        return _legal_error(
+            "VALIDATION_ERROR", "source_record_id must be an integer.", status=400
+        )
     if source_record_id <= 0:
-        return _legal_error("VALIDATION_ERROR", "source_record_id must be positive.", status=400)
+        return _legal_error(
+            "VALIDATION_ERROR", "source_record_id must be positive.", status=400
+        )
 
     user_id, anon_id = _research_subject()
     session_query = ResearchResponseSession.query.filter_by(
@@ -341,7 +386,9 @@ def save_research_responses():
         db.session.commit()
     except SQLAlchemyError:
         db.session.rollback()
-        return _legal_error("RESEARCH_SAVE_FAILED", "לא הצלחנו לשמור את תשובות המחקר.", status=500)
+        return _legal_error(
+            "RESEARCH_SAVE_FAILED", "לא הצלחנו לשמור את תשובות המחקר.", status=500
+        )
 
     return jsonify(
         {
