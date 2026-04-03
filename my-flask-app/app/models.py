@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import desc, event
+from sqlalchemy import desc
 from sqlalchemy.orm import relationship, validates
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import TypeDecorator, Text
@@ -89,6 +89,18 @@ class User(db.Model, UserMixin):
     )
     feature_acceptances = relationship(
         "LegalFeatureAcceptance",
+        cascade="all, delete-orphan",
+        backref="user",
+        lazy=True,
+    )
+    research_consents = relationship(
+        "ResearchConsent",
+        cascade="all, delete-orphan",
+        backref="user",
+        lazy=True,
+    )
+    research_response_sessions = relationship(
+        "ResearchResponseSession",
         cascade="all, delete-orphan",
         backref="user",
         lazy=True,
@@ -374,6 +386,130 @@ class LegalFeatureAcceptance(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint("user_id", "feature_key", "version", name="uq_feature_acceptance"),
+    )
+
+
+class ResearchConsent(db.Model):
+    __tablename__ = "research_consent"
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=True, index=True)
+    anon_id = db.Column(db.String(64), nullable=True, index=True)
+    consent_type = db.Column(db.String(32), nullable=False, default="research_questions", index=True)
+    terms_version = db.Column(db.String(32), nullable=False)
+    privacy_version = db.Column(db.String(32), nullable=False)
+    research_notice_version = db.Column(db.String(32), nullable=False)
+    accepted_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), index=True)
+    accepted_ip = db.Column(db.String(64), nullable=False)
+    accepted_user_agent = db.Column(db.String(512), nullable=True)
+    accepted_lang = db.Column(db.String(32), nullable=True)
+    accepted_source = db.Column(db.String(64), nullable=False, default="web")
+    is_explicit = db.Column(db.Boolean, nullable=False, default=True)
+    is_informed = db.Column(db.Boolean, nullable=False, default=True)
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "user_id",
+            "consent_type",
+            "terms_version",
+            "privacy_version",
+            "research_notice_version",
+            name="uq_research_consent_user_version",
+        ),
+        db.UniqueConstraint(
+            "anon_id",
+            "consent_type",
+            "terms_version",
+            "privacy_version",
+            "research_notice_version",
+            name="uq_research_consent_anon_version",
+        ),
+        db.Index(
+            "ix_research_consent_lookup_user",
+            "user_id",
+            "consent_type",
+            "research_notice_version",
+            "accepted_at",
+        ),
+        db.Index(
+            "ix_research_consent_lookup_anon",
+            "anon_id",
+            "consent_type",
+            "research_notice_version",
+            "accepted_at",
+        ),
+    )
+
+
+class ResearchResponseSession(db.Model):
+    __tablename__ = "research_response_session"
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), index=True)
+    updated_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=True, index=True)
+    anon_id = db.Column(db.String(64), nullable=True, index=True)
+    flow_type = db.Column(db.String(32), nullable=False, index=True)
+    source_analysis_type = db.Column(db.String(64), nullable=False, index=True)
+    source_record_id = db.Column(db.Integer, nullable=True, index=True)
+    vehicle_context_json = db.Column(JSONEncodedText, nullable=True)
+    consent_id = db.Column(db.Integer, db.ForeignKey("research_consent.id", ondelete="CASCADE"), nullable=False, index=True)
+    status = db.Column(db.String(32), nullable=False, default="submitted", index=True)
+
+    consent = relationship("ResearchConsent", lazy=True)
+    responses = relationship(
+        "ResearchResponse",
+        cascade="all, delete-orphan",
+        backref="session",
+        lazy=True,
+    )
+
+    __table_args__ = (
+        db.Index(
+            "ix_research_session_flow_source",
+            "flow_type",
+            "source_analysis_type",
+            "source_record_id",
+        ),
+        db.Index(
+            "ix_research_session_subject_flow_created",
+            "user_id",
+            "anon_id",
+            "flow_type",
+            "created_at",
+        ),
+    )
+
+
+class ResearchResponse(db.Model):
+    __tablename__ = "research_response"
+
+    id = db.Column(db.Integer, primary_key=True)
+    session_id = db.Column(db.Integer, db.ForeignKey("research_response_session.id", ondelete="CASCADE"), nullable=False, index=True)
+    question_code = db.Column(db.String(64), nullable=False, index=True)
+    flow_type = db.Column(db.String(32), nullable=False, index=True)
+    response_json = db.Column(JSONEncodedText, nullable=False)
+    answered_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), index=True)
+    is_required = db.Column(db.Boolean, nullable=False, default=False)
+    question_version = db.Column(db.String(32), nullable=False)
+    consent_id = db.Column(db.Integer, db.ForeignKey("research_consent.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    consent = relationship("ResearchConsent", lazy=True)
+
+    __table_args__ = (
+        db.UniqueConstraint("session_id", "question_code", name="uq_research_response_session_question"),
+        db.Index(
+            "ix_research_response_flow_question_answered",
+            "flow_type",
+            "question_code",
+            "answered_at",
+        ),
     )
 
 

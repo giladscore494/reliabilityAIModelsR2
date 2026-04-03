@@ -690,6 +690,7 @@ def handle_analyze_request(
     quota_used_after = consumed_count
     display_quota_count = quota_used_after
     model_duration_ms = 0
+    history_id = None
 
     analyze_allowed_fields = {
         "make",
@@ -907,6 +908,7 @@ def handle_analyze_request(
             )
             db.session.add(new_log)
             db.session.commit()
+            history_id = new_log.id
             logger.info(
                 "[CACHE] stored cache_key=%s user_id=%s request_id=%s",
                 cache_key,
@@ -943,4 +945,6 @@ def handle_analyze_request(
         f"limit={limit_val} resets_at={resets_at.isoformat()} request_id={get_request_id()}"
     )
 
-    return api_ok(sanitized_output)
+    response_payload = dict(sanitized_output)
+    response_payload["history_id"] = history_id
+    return api_ok(response_payload)

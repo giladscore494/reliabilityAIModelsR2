@@ -79,9 +79,15 @@ from app.models import (
     QuotaReservation,
     IpRateLimit,
     LegalAcceptance,
+    ResearchConsent,
     LeasingAdvisorHistory,
 )
 from app.legal import CONTACT_EMAIL, TERMS_VERSION, PRIVACY_VERSION, parse_legal_confirm
+from app.research import (
+    RESEARCH_CONSENT_TYPE,
+    RESEARCH_NOTICE_VERSION,
+    ensure_anon_id,
+)
 from app.quota import (
     resolve_app_timezone,
     compute_quota_window,
@@ -1542,6 +1548,8 @@ def create_app():
     app.config['QUOTA_RESERVATION_TTL_SECONDS'] = QUOTA_RESERVATION_TTL_SECONDS
     app.config["TERMS_VERSION"] = TERMS_VERSION
     app.config["PRIVACY_VERSION"] = PRIVACY_VERSION
+    app.config["RESEARCH_CONSENT_TYPE"] = RESEARCH_CONSENT_TYPE
+    app.config["RESEARCH_NOTICE_VERSION"] = RESEARCH_NOTICE_VERSION
     app.config["CONTACT_EMAIL"] = CONTACT_EMAIL
 
     # Helper functions (is_owner_user, api_ok, api_error, get_request_id, get_redirect_uri)
@@ -1558,6 +1566,7 @@ def create_app():
             g.request_id = str(uuid.uuid4())
         g.start_time = pytime.perf_counter()
         g.csp_nonce = secrets.token_urlsafe(16)
+        ensure_anon_id(session)
 
         host = (request.host or "").lower()
         # Preserve port if present (e.g., local dev)
@@ -1574,23 +1583,49 @@ def create_app():
     def inject_template_globals():
         from flask import g
         legal_accepted = False
+        research_consent_accepted = False
+        terms_version = app.config.get("TERMS_VERSION", TERMS_VERSION)
+        privacy_version = app.config.get("PRIVACY_VERSION", PRIVACY_VERSION)
+        research_notice_version = app.config.get("RESEARCH_NOTICE_VERSION", RESEARCH_NOTICE_VERSION)
         if current_user.is_authenticated:
             try:
-                tv = app.config.get("TERMS_VERSION", TERMS_VERSION)
-                pv = app.config.get("PRIVACY_VERSION", PRIVACY_VERSION)
                 legal_accepted = LegalAcceptance.query.filter_by(
                     user_id=current_user.id,
-                    terms_version=tv,
-                    privacy_version=pv,
+                    terms_version=terms_version,
+                    privacy_version=privacy_version,
+                ).first() is not None
+                research_consent_accepted = ResearchConsent.query.filter_by(
+                    user_id=current_user.id,
+                    consent_type=RESEARCH_CONSENT_TYPE,
+                    terms_version=terms_version,
+                    privacy_version=privacy_version,
+                    research_notice_version=research_notice_version,
                 ).first() is not None
             except Exception:
                 legal_accepted = False
+                research_consent_accepted = False
+        else:
+            try:
+                research_consent_accepted = ResearchConsent.query.filter_by(
+                    anon_id=session.get("anon_id"),
+                    consent_type=RESEARCH_CONSENT_TYPE,
+                    terms_version=terms_version,
+                    privacy_version=privacy_version,
+                    research_notice_version=research_notice_version,
+                ).first() is not None
+            except Exception:
+                research_consent_accepted = False
         return {
             "is_logged_in": current_user.is_authenticated,
             "current_user": current_user,
             "is_owner": is_owner_user(),
             "contact_email": app.config.get("CONTACT_EMAIL", CONTACT_EMAIL),
             "legal_accepted": legal_accepted,
+            "research_consent_accepted": research_consent_accepted,
+            "research_consent_type": app.config.get("RESEARCH_CONSENT_TYPE", RESEARCH_CONSENT_TYPE),
+            "research_notice_version": research_notice_version,
+            "terms_version": terms_version,
+            "privacy_version": privacy_version,
             "csp_nonce": getattr(g, "csp_nonce", ""),
             "csrf_token": session.get("csrf_token", ""),
         }
