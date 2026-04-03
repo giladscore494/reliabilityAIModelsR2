@@ -121,6 +121,17 @@
     const legalCheckbox = document.getElementById('legal-confirm');
     const legalError = document.getElementById('legal-error');
     let legalAccepted = false;
+    const reliabilityResearchSection = document.getElementById('reliabilityResearchSection');
+    const reliabilityResearchForm = document.getElementById('reliabilityResearchForm');
+    const reliabilityResearchMessage = document.getElementById('reliabilityResearchMessage');
+    const researchClient = window.YedaResearch
+        ? window.YedaResearch.createClient({
+            accepted: document.getElementById('researchConsentModal')?.dataset.accepted === 'true',
+            defaultSource: 'reliability_results'
+        })
+        : null;
+    let currentReliabilityHistoryId = null;
+    let lastAnalyzePayload = null;
 
     const summarySimpleEl = document.getElementById('summary-simple-text');
     const summaryDetailedEl = document.getElementById('summary-detailed-text');
@@ -625,6 +636,11 @@
             reportContainer.innerHTML = html;
         }
 
+        currentReliabilityHistoryId = data.history_id || null;
+        if (reliabilityResearchSection) {
+            reliabilityResearchSection.classList.remove('hidden');
+        }
+
         resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
@@ -681,7 +697,8 @@
         if (!validateLegal()) return;
         if (!(await ensureLegalAcceptance())) return;
 
-        const payload = { ...collectFormData(), legal_confirm: true };
+        lastAnalyzePayload = collectFormData();
+        const payload = { ...lastAnalyzePayload, legal_confirm: true };
         if (!payload.make || !payload.model || !payload.year) {
             alert('נא למלא יצרן, דגם ושנתון.');
             return;
@@ -756,6 +773,64 @@
 
         if (form) {
             form.addEventListener('submit', handleSubmit);
+        }
+
+        if (reliabilityResearchForm && researchClient) {
+            reliabilityResearchForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                if (!currentReliabilityHistoryId || !lastAnalyzePayload) {
+                    showRequestAwareError('קודם צריך להפיק תוצאת אמינות לפני שמירת תשובות המחקר.', null);
+                    return;
+                }
+                if (!(await researchClient.ensureConsent('reliability_results'))) {
+                    return;
+                }
+
+                try {
+                    await researchClient.saveResponses({
+                        flow_type: 'reliability',
+                        source_analysis_type: 'search_history',
+                        source_record_id: currentReliabilityHistoryId,
+                        vehicle_context: {
+                            ...lastAnalyzePayload,
+                            analysis_history_id: currentReliabilityHistoryId,
+                        },
+                        responses: [
+                            {
+                                question_code: 'ownership_status',
+                                response: {
+                                    ownership_status: reliabilityResearchForm.querySelector('input[name="ownership_status"]:checked')?.value || 'owner',
+                                },
+                            },
+                            {
+                                question_code: 'maintenance_profile',
+                                response: {
+                                    garage_type: document.getElementById('reliabilityGarageType')?.value || 'authorized',
+                                    last_service_cost_ils: document.getElementById('reliabilityLastServiceCost')?.value || '',
+                                },
+                            },
+                            {
+                                question_code: 'first_test_pass',
+                                response: {
+                                    first_test_pass: reliabilityResearchForm.querySelector('input[name="first_test_pass"]:checked')?.value === 'true',
+                                },
+                            },
+                            {
+                                question_code: 'out_of_warranty_repairs',
+                                response: {
+                                    out_of_warranty_repairs: reliabilityResearchForm.querySelector('input[name="out_of_warranty_repairs"]:checked')?.value === 'true',
+                                },
+                            },
+                        ],
+                    });
+                    if (reliabilityResearchMessage) {
+                        reliabilityResearchMessage.textContent = 'תודה, תשובות המחקר נשמרו.';
+                        reliabilityResearchMessage.classList.remove('hidden');
+                    }
+                } catch (err) {
+                    showRequestAwareError(err.message || 'לא הצלחנו לשמור את תשובות המחקר.', err.requestId || null);
+                }
+            });
         }
         
         // Load history list only for authenticated sessions

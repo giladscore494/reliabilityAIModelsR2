@@ -431,6 +431,8 @@
                     <!-- Categories will be rendered here -->
                 </div>
             </div>
+
+            {% include '_research_compare_panel.html' %}
             
             <!-- Error Section -->
             <div id="errorSection" class="hidden bg-red-900/30 border border-red-700/50 rounded-2xl p-6 text-center">
@@ -485,7 +487,9 @@
 <script type="application/json" id="car-data">
     {{ car_models_data | tojson }}
 </script>
+{% include '_research_consent_modal.html' %}
 
+<script src="{{ url_for('static', filename='research.js') }}"></script>
 <script nonce="{{ csp_nonce }}">
 (function() {
     'use strict';
@@ -588,6 +592,24 @@
         legalConfirmError.classList.add('hidden');
         return { ok: true };
     }
+
+    function syncCompareResearchContext(carsList) {
+        currentComparedCars = Array.isArray(carsList) ? carsList : [];
+        if (compareResearchSection) {
+            compareResearchSection.classList.remove('hidden');
+        }
+        if (!compareSubjectVehicle) return;
+        ['car_1', 'car_2', 'car_3'].forEach((slotValue, index) => {
+            const option = compareSubjectVehicle.querySelector(`option[value="${slotValue}"]`);
+            if (!option) return;
+            const car = currentComparedCars[index];
+            option.textContent = car
+                ? `${car.make || ''} ${car.model || ''}`.trim()
+                : `רכב ${index + 1}`;
+            option.disabled = !car;
+        });
+        compareSubjectVehicle.value = currentComparedCars[0] ? 'car_1' : 'unknown';
+    }
     
     // Category names in Hebrew
     const CATEGORY_NAMES = {
@@ -620,6 +642,17 @@
     let compareInFlight = false;
     let compareIdempotencyKey = null;
     let currentComparisonId = null;
+    let currentComparedCars = [];
+    const compareResearchSection = document.getElementById('compareResearchSection');
+    const compareResearchForm = document.getElementById('compareResearchForm');
+    const compareResearchMessage = document.getElementById('compareResearchMessage');
+    const compareSubjectVehicle = document.getElementById('compareSubjectVehicle');
+    const researchClient = window.YedaResearch
+        ? window.YedaResearch.createClient({
+            accepted: document.getElementById('researchConsentModal')?.dataset.accepted === 'true',
+            defaultSource: 'compare_results'
+        })
+        : null;
     
     // ============================================================
     // TIMING BANNER FUNCTIONS
@@ -1017,6 +1050,7 @@
             currentComparisonId = resultCompat.comparison_id || null;
             renderResults(resultCompat);
             resultsSection.classList.remove('hidden');
+            syncCompareResearchContext(carsList);
             
             // Scroll to results section
             setTimeout(() => {
@@ -1226,6 +1260,7 @@
             compareIdempotencyKey = null;
             renderResults(comparisonResult);
             resultsSection.classList.remove('hidden');
+            syncCompareResearchContext(comparisonResult?.cars_selected_list || []);
             
         } catch (err) {
             console.error('[COMPARE] Error:', err);
@@ -1756,6 +1791,62 @@
     // ============================================================
     // EVENT LISTENERS
     // ============================================================
+
+    if (compareResearchForm && researchClient) {
+        compareResearchForm.addEventListener('submit', async function (event) {
+            event.preventDefault();
+            if (!currentComparisonId) {
+                alert('צריך קודם להשלים השוואה כדי לשמור תשובות מחקר.');
+                return;
+            }
+            if (!(await researchClient.ensureConsent('compare_results'))) {
+                return;
+            }
+            try {
+                await researchClient.saveResponses({
+                    flow_type: 'compare',
+                    source_analysis_type: 'comparison_history',
+                    source_record_id: currentComparisonId,
+                    vehicle_context: {
+                        cars: currentComparedCars,
+                    },
+                    responses: [
+                        {
+                            question_code: 'subject_vehicle',
+                            response: {
+                                subject_vehicle_slot: compareSubjectVehicle ? compareSubjectVehicle.value : 'unknown',
+                            },
+                        },
+                        {
+                            question_code: 'annual_insurance',
+                            response: {
+                                annual_insurance_ils: document.getElementById('compareAnnualInsurance')?.value || '',
+                            },
+                        },
+                        {
+                            question_code: 'annual_total_cost',
+                            response: {
+                                annual_total_cost_ils: document.getElementById('compareAnnualTotalCost')?.value || '',
+                            },
+                        },
+                        {
+                            question_code: 'owner_satisfaction',
+                            response: {
+                                satisfaction_score: document.getElementById('compareSatisfactionScore')?.value || '8',
+                                would_buy_again: compareResearchForm.querySelector('input[name="compare_would_buy_again"]:checked')?.value === 'true',
+                            },
+                        },
+                    ],
+                });
+                if (compareResearchMessage) {
+                    compareResearchMessage.textContent = 'תודה, תשובות המחקר נשמרו.';
+                    compareResearchMessage.classList.remove('hidden');
+                }
+            } catch (err) {
+                alert(err.message || 'לא הצלחנו לשמור את תשובות המחקר.');
+            }
+        });
+    }
     
     compareBtn.addEventListener('click', runComparison);
     

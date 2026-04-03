@@ -136,6 +136,16 @@ def handle_advisor_logic(payload, user, user_id):
     user_profile["fuel_price_nis_per_liter"] = fuel_price
     user_profile["electricity_price_nis_per_kwh"] = electricity_price
     user_profile["seats"] = seats_choice
+    user_profile["market_research_context"] = {
+        "current_vehicle": payload.get("research_current_vehicle") or "",
+        "actual_consumption": payload.get("research_actual_consumption") or "",
+        "sale_timeline_bucket": payload.get("research_sale_timeline") or "",
+        "ask_to_sale_gap_bucket": payload.get("research_sale_gap") or "",
+        "purchase_reference_type": payload.get("research_purchase_reference_type") or "",
+        "purchase_delta_bucket": payload.get("research_purchase_delta_bucket") or "",
+        "charging_cost_ils_per_kwh": payload.get("research_charging_cost") or "",
+        "charging_location": payload.get("research_charging_location") or "",
+    }
 
     profile_for_storage = sanitize_profile_for_prompt(user_profile)
     start_time = time.perf_counter()
@@ -150,6 +160,7 @@ def handle_advisor_logic(payload, user, user_id):
 
     result = car_advisor_postprocess(user_profile, parsed)
     sanitized_result = sanitize_advisor_response(result)
+    history_id = None
 
     # 🔴 שמירת היסטוריית המלצות למאגר
     try:
@@ -161,8 +172,11 @@ def handle_advisor_logic(payload, user, user_id):
         )
         db.session.add(rec_log)
         db.session.commit()
+        history_id = rec_log.id
     except Exception as e:
         logger.warning("[DB] failed to save advisor history: %s", e)
         db.session.rollback()
 
-    return api_ok(sanitized_result)
+    response_payload = dict(sanitized_result)
+    response_payload["history_id"] = history_id
+    return api_ok(response_payload)

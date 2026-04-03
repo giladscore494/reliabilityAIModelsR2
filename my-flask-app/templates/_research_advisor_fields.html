@@ -1,0 +1,85 @@
+<div class="space-y-4 rounded-3xl border border-primary/20 bg-primary/5 p-5">
+    <div class="space-y-2">
+        <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase">שאלות מחקר משולבות</p>
+        <h2 class="text-lg font-bold text-white">עוד קצת הקשר מהשוק האמיתי</h2>
+        <p class="text-xs leading-6 text-slate-400">
+            השדות הבאים עוזרים לחדד את ההמלצה ומיועדים גם למחקר מוצר. התשובות יישמרו רק לאחר אישור מחקר ייעודי.
+        </p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+            <label for="research_current_vehicle" class="block text-xs font-semibold text-slate-300 mb-1">מה הרכב הנוכחי?</label>
+            <input id="research_current_vehicle" name="research_current_vehicle" type="text" maxlength="120"
+                   placeholder="לדוגמה: Mazda 3 2018 / אין רכב כרגע"
+                   class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm focus:ring-primary focus:border-primary">
+        </div>
+        <div>
+            <label for="research_actual_consumption" class="block text-xs font-semibold text-slate-300 mb-1">צריכת דלק בפועל</label>
+            <input id="research_actual_consumption" name="research_actual_consumption" type="number" min="0" max="50" step="0.1"
+                   placeholder="ק״מ לליטר / קוט״ש מקביל"
+                   class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm focus:ring-primary focus:border-primary">
+        </div>
+        <div>
+            <label for="research_sale_timeline" class="block text-xs font-semibold text-slate-300 mb-1">תוך כמה זמן הרכב האחרון נמכר?</label>
+            <select id="research_sale_timeline" name="research_sale_timeline"
+                    class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm">
+                <option value="under_14_days">עד שבועיים</option>
+                <option value="14_to_30_days">שבועיים עד חודש</option>
+                <option value="31_to_60_days">חודש עד חודשיים</option>
+                <option value="over_60_days">מעל חודשיים</option>
+                <option value="not_sold">לא מכרתי עדיין</option>
+            </select>
+        </div>
+        <div>
+            <label for="research_sale_gap" class="block text-xs font-semibold text-slate-300 mb-1">פער בין מחיר מבוקש למחיר סגירה</label>
+            <select id="research_sale_gap" name="research_sale_gap"
+                    class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm">
+                <option value="under_5_pct">עד 5%</option>
+                <option value="5_to_10_pct">5%–10%</option>
+                <option value="10_to_15_pct">10%–15%</option>
+                <option value="over_15_pct">מעל 15%</option>
+                <option value="not_sold">לא מכרתי עדיין</option>
+            </select>
+        </div>
+        <div>
+            <label for="research_purchase_reference_type" class="block text-xs font-semibold text-slate-300 mb-1">מחיר הרכישה הושווה למה?</label>
+            <select id="research_purchase_reference_type" name="research_purchase_reference_type"
+                    class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm">
+                <option value="price_list">מחירון</option>
+                <option value="published_ad">מחיר שפורסם במודעה</option>
+            </select>
+        </div>
+        <div>
+            <label for="research_purchase_delta_bucket" class="block text-xs font-semibold text-slate-300 mb-1">מה היה הפער?</label>
+            <select id="research_purchase_delta_bucket" name="research_purchase_delta_bucket"
+                    class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm">
+                <option value="below_5_pct">עד 5% מתחת</option>
+                <option value="within_5_pct">עד 5% סביב המחיר</option>
+                <option value="5_to_10_pct">5%–10% מעל</option>
+                <option value="over_10_pct">מעל 10% מעל</option>
+                <option value="unknown">לא יודע/ת</option>
+            </select>
+        </div>
+    </div>
+
+    <div id="advisorChargingResearchBlock" class="hidden grid grid-cols-1 md:grid-cols-2 gap-4 rounded-2xl border border-slate-700 bg-slate-900/40 p-4">
+        <div>
+            <label for="research_charging_cost" class="block text-xs font-semibold text-slate-300 mb-1">עלות טעינה משוערת (₪ לקוט״ש)</label>
+            <input id="research_charging_cost" name="research_charging_cost" type="number" min="0" max="10" step="0.01"
+                   class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm focus:ring-primary focus:border-primary">
+        </div>
+        <div>
+            <label for="research_charging_location" class="block text-xs font-semibold text-slate-300 mb-1">איפה מטעינים בדרך כלל?</label>
+            <select id="research_charging_location" name="research_charging_location"
+                    class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm">
+                <option value="home">בבית</option>
+                <option value="work">בעבודה</option>
+                <option value="public">עמדה ציבורית</option>
+                <option value="mixed">משולב</option>
+            </select>
+        </div>
+    </div>
+
+    <p id="advisorResearchMessage" class="hidden text-xs text-emerald-300"></p>
+</div>

@@ -488,10 +488,13 @@
                 <div id="report" class="tab-content prose prose-invert max-w-none"></div>
                 <div id="competitors" class="tab-content prose prose-invert max-w-none"></div>
             </div>
+
+            {% include '_research_reliability_panel.html' %}
         </div>
     </main>
 
     {% include "_footer.html" %}
+    {% include '_research_consent_modal.html' %}
 
     <!-- דגלים לסקריפט -->
     <script type="application/json" id="auth-data">
@@ -501,6 +504,7 @@
         {{ car_models_data | tojson }}
     </script>
 
+        <script src="{{ url_for('static', filename='research.js') }}"></script>
         <script src="{{ url_for('static', filename='script.js') }}"></script>
     <script nonce="{{ csp_nonce }}">
     document.addEventListener('DOMContentLoaded', function() {

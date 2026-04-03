@@ -11,6 +11,15 @@
     const tableWrapper = document.getElementById('advisor-table-wrapper');
     const errorEl = document.getElementById('advisor-error');
     const consentCheckbox = document.getElementById('advisor-consent');
+    const researchMessageEl = document.getElementById('advisorResearchMessage');
+    const chargingResearchBlock = document.getElementById('advisorChargingResearchBlock');
+    const researchClient = window.YedaResearch
+        ? window.YedaResearch.createClient({
+            accepted: document.getElementById('researchConsentModal')?.dataset.accepted === 'true',
+            defaultSource: 'advisor_pre_result'
+        })
+        : null;
+    let currentAdvisorHistoryId = null;
     let legalAccepted = false;
 
     const profileSummaryEl = document.getElementById('advisor-profile-summary');
@@ -377,6 +386,14 @@
             consider_supply,
             fuel_price: parseFloat(form.fuel_price.value || '7.0'),
             electricity_price: parseFloat(form.electricity_price.value || '0.65'),
+            research_current_vehicle: form.research_current_vehicle ? form.research_current_vehicle.value || '' : '',
+            research_actual_consumption: form.research_actual_consumption ? form.research_actual_consumption.value || '' : '',
+            research_sale_timeline: form.research_sale_timeline ? form.research_sale_timeline.value || '' : '',
+            research_sale_gap: form.research_sale_gap ? form.research_sale_gap.value || '' : '',
+            research_purchase_reference_type: form.research_purchase_reference_type ? form.research_purchase_reference_type.value || '' : '',
+            research_purchase_delta_bucket: form.research_purchase_delta_bucket ? form.research_purchase_delta_bucket.value || '' : '',
+            research_charging_cost: form.research_charging_cost ? form.research_charging_cost.value || '' : '',
+            research_charging_location: form.research_charging_location ? form.research_charging_location.value || '' : '',
 
             excluded_colors: form.excluded_colors.value || '',
 
@@ -391,6 +408,19 @@
         };
 
         return payload;
+    }
+
+    function advisorResearchNeedsCharging() {
+        const fuels = getCheckedValues('fuels_he');
+        return fuels.some((fuel) => {
+            const normalized = String(fuel || '').toLowerCase();
+            return normalized.includes('חשמל') || normalized.includes('היבריד') || normalized.includes('electric') || normalized.includes('hybrid');
+        });
+    }
+
+    function syncAdvisorResearchVisibility() {
+        if (!chargingResearchBlock) return;
+        chargingResearchBlock.classList.toggle('hidden', !advisorResearchNeedsCharging());
     }
 
     function formatPriceRange(range) {
@@ -977,7 +1007,25 @@
             return;
         }
 
+        if (researchClient && !(await researchClient.ensureConsent('advisor_pre_result'))) {
+            return;
+        }
+
         const payload = { ...buildPayload(), legal_confirm: true };
+        if (!payload.research_current_vehicle || !payload.research_actual_consumption) {
+            if (errorEl) {
+                errorEl.textContent = 'נא להשלים את שאלות המחקר על הרכב הנוכחי וצריכת הדלק בפועל לפני המשך.';
+                errorEl.classList.remove('hidden');
+            }
+            return;
+        }
+        if (advisorResearchNeedsCharging() && (!payload.research_charging_cost || !payload.research_charging_location)) {
+            if (errorEl) {
+                errorEl.textContent = 'לרכב חשמלי או היברידי צריך להשלים גם עלות טעינה ומיקום טעינה.';
+                errorEl.classList.remove('hidden');
+            }
+            return;
+        }
 
         if (!payload.budget_max || payload.budget_max <= 0 || payload.budget_min > payload.budget_max) {
             if (errorEl) {
@@ -1014,10 +1062,60 @@
             }
 
             const payloadFromApi = res.data || {};
+            currentAdvisorHistoryId = payloadFromApi.history_id || null;
             renderResults(payloadFromApi);
+            if (currentAdvisorHistoryId && researchClient) {
+                await researchClient.saveResponses({
+                    flow_type: 'advisor',
+                    source_analysis_type: 'advisor_history',
+                    source_record_id: currentAdvisorHistoryId,
+                    vehicle_context: {
+                        preferred_fuels: payload.fuels_he,
+                        budget_min: payload.budget_min,
+                        budget_max: payload.budget_max,
+                    },
+                    responses: [
+                        {
+                            question_code: 'current_vehicle',
+                            response: { current_vehicle: payload.research_current_vehicle },
+                        },
+                        {
+                            question_code: 'sale_experience',
+                            response: {
+                                sale_timeline_bucket: payload.research_sale_timeline,
+                                ask_to_sale_gap_bucket: payload.research_sale_gap,
+                            },
+                        },
+                        {
+                            question_code: 'purchase_reference',
+                            response: {
+                                purchase_reference_type: payload.research_purchase_reference_type,
+                                purchase_delta_bucket: payload.research_purchase_delta_bucket,
+                            },
+                        },
+                        {
+                            question_code: 'actual_fuel_consumption',
+                            response: {
+                                actual_consumption: payload.research_actual_consumption,
+                            },
+                        },
+                        ...(advisorResearchNeedsCharging() ? [{
+                            question_code: 'charging_profile',
+                            response: {
+                                charging_cost_ils_per_kwh: payload.research_charging_cost,
+                                charging_location: payload.research_charging_location,
+                            },
+                        }] : []),
+                    ],
+                });
+                if (researchMessageEl) {
+                    researchMessageEl.textContent = 'תשובות המחקר נשמרו יחד עם הבקשה.';
+                    researchMessageEl.classList.remove('hidden');
+                }
+            }
         } catch (err) {
             console.error(err);
-            showRequestAwareError('שגיאה כללית בחיבור לשרת. נסה שוב מאוחר יותר.', null);
+            showRequestAwareError(err.message || 'שגיאה כללית בחיבור לשרת. נסה שוב מאוחר יותר.', err.requestId || null);
         } finally {
             hideTimingBanner(true);
             setSubmitting(false);
@@ -1025,9 +1123,14 @@
     }
 
     form.addEventListener('submit', handleSubmit);
+    form.querySelectorAll('input[name="fuels_he"]').forEach((checkbox) => {
+        checkbox.addEventListener('change', syncAdvisorResearchVisibility);
+    });
+    syncAdvisorResearchVisibility();
 
     if (window.advisorHistoryProfile && window.advisorHistoryResult) {
         applyHistoryProfile(window.advisorHistoryProfile);
         renderResults(window.advisorHistoryResult);
+        syncAdvisorResearchVisibility();
     }
 })();

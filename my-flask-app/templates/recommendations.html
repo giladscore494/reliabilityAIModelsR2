@@ -385,6 +385,8 @@
                         </div>
                     </details>
 
+                    {% include '_research_advisor_fields.html' %}
+
                     <!-- הסכמה מעל גיל 18 + תנאים -->
                     <div class="mt-4 mb-2 flex items-start gap-2 text-xs text-slate-300">
                         <input
@@ -500,6 +502,7 @@
 </main>
 
 {% include "_footer.html" %}
+{% include '_research_consent_modal.html' %}
 
 {% if user and user.is_authenticated and is_owner %}
 <script id="advisor-history-profile" type="application/json">{{ advisor_history_profile|default(None)|tojson }}</script>
@@ -508,6 +511,7 @@
     window.advisorHistoryProfile = JSON.parse(document.getElementById('advisor-history-profile').textContent);
     window.advisorHistoryResult = JSON.parse(document.getElementById('advisor-history-result').textContent);
 </script>
+<script src="/static/research.js"></script>
 <script src="/static/recommendations.js"></script>
 {% endif %}
 </body>
