@@ -23,6 +23,7 @@ SHARED_NAV_ITEMS = (
     ("/recommendations", "מנוע ההמלצות"),
     ("/dashboard", "היסטוריית חיפושים"),
 )
+EXPECTED_SHARED_NAV_OCCURRENCES = 2
 
 
 def _valid_payload():
@@ -39,8 +40,8 @@ def _valid_payload():
 
 def _assert_shared_nav(html):
     for href, label in SHARED_NAV_ITEMS:
-        assert html.count(f'href="{href}"') >= 2
-        assert html.count(label) >= 2
+        assert html.count(f'href="{href}"') >= EXPECTED_SHARED_NAV_OCCURRENCES
+        assert html.count(label) >= EXPECTED_SHARED_NAV_OCCURRENCES
 
 
 @pytest.mark.parametrize(
