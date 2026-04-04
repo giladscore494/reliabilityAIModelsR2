@@ -552,23 +552,33 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
    - להחזיר "לחץ עלות תחזוקה" ברמת low/medium/high (לא מספר), בתוך risk_signals.
     - להחזיר analysis_confidence כ-low/medium/high (לא מספר), בתוך risk_signals.
       - להחזיר overall_reliability_estimate ברמת high|medium|low כהערכת אמינות כללית של הדגם בשוק.
-      - להחזיר שדות כיול אופציונליים בלבד: reliability_bias, recall_penalty_sensitivity,
+      - להחזיר שדות כיול כ-null בלבד (reliability_bias, recall_penalty_sensitivity,
         maintenance_penalty_sensitivity, systemic_penalty_sensitivity,
-        soft_floor_if_no_major_systemic, calibration_confidence.
+        soft_floor_if_no_major_systemic, calibration_confidence). הניקוד מתבצע דטרמיניסטית בקוד.
      - להחזיר overall_reliability_reasoning קצר ו-reliability_factors_summary תמציתי שמסביר את גורמי האמינות.
      - לשמר את כל חלקי חוויית המשתמש הקיימים (סיכומים, תקלות, עלויות, דוח אמינות, מתחרים, בדיקות, מקורות).
-4.1) overall_reliability_estimate והסיכומים הכלליים צריכים לשקף את אמינות הדגם בשוק לאורך זמן - לא רק את עצם קיומם של recalls/campaigns.
-     recall, service campaign, ועדכון תוכנה הם לעיתים פריטי אימות/טיפול נקודתיים; אין לדרג דגם כאמין פחות אוטומטית רק בגלל קיומם.
+4.1) overall_reliability_estimate חייב לשקף את המוניטין ארוך-הטווח של הדגם בשוק, לא את כמות הריקולים או ההוצאות.
+     כללים:
+     - "high" = דגמים עם מוניטין של 5+ שנות אמינות מוכחת, תקלות נדירות במערכות קריטיות, ושביעות רצון בעלים גבוהה.
+       דוגמאות: טויוטה קורולה/קאמרי/RAV4/יאריס, מאזדה 3/CX-5/CX-30, סובארו פורסטר/XV/אימפרזה, הונדה סיוויק/ג'אז, לקסוס כל הדגמים, יונדאי/קיה דגמים מ-2018+.
+     - "medium" = דגמים עם אמינות סבירה אבל עם חולשות ידועות במערכת ספציפית, או דגמים שאין עליהם מספיק מידע ארוך-טווח.
+       דוגמאות: סקודה/פולקסווגן (DSG), BMW/מרצדס (אלקטרוניקה), פיג'ו/רנו/סיטרואן, פורד/אופל, ניסאן קשקאי.
+     - "low" = דגמים עם היסטוריה של כשלים כרוניים במערכות קריטיות.
+       דוגמאות: לנד רובר/יגואר, פיאט 500X, ג'יפ רנגייד, דודג'/קרייזלר.
+     - recall/campaign/software update לא אמורים להוריד את ההערכה מ-"high" ל-"medium" אלא אם מדובר בבעיה כרונית שלא נפתרה.
 4.2) כאשר תקלה נראית כמו recall/campaign/official fix:
      - לציין אותה כפריט מבוסס-מקור עם sources.
      - להבדיל בין "חולשת אמינות מערכתית כרונית" לבין "קמפיין/עדכון/בדיקה שהקונה צריך לאמת".
      - למקם פעולות אימות ב-buyer_checklist / top_risks בלי לטעון שהרכב הספציפי מוזנח.
 5) עבור כל recall וכל תקלה מערכתית בדרגת חומרה high, ודא שקיים לפחות URL תומך אחד ב-sources.
 6) risk_signals: כל הערכים חייבים להיות קטגוריאליים (low/medium/high, rare/sometimes/common). אסור להחזיר floats או מספרים פנימיים.
-6.1) שדות הכיול הם שדות עזר קלים בלבד:
-     - אם אינך בטוח, אפשר להחזיר null.
-     - אל תגרום לשינויים גדולים בציון רק בגלל הכיול.
-     - אל תמציא כיול אם אין בסיס.
+6.1) שדות הכיול (reliability_bias, recall_penalty_sensitivity וכו') — להחזיר null בכולם. הניקוד מתבצע דטרמיניסטית בקוד בלבד.
+6.1b) סיווג חומרת תקלות מערכתיות (systemic_issue_signals):
+      severity: "high" — בעיה שגורמת לאובדן תפקוד מלא של מערכת קריטית (מנוע נכבה, גיר ננעל, בלמים מפסיקים).
+      severity: "medium" — בעיה שגורמת לירידה בביצועים או לעלות תיקון משמעותית אבל הרכב נשאר בטוח לנהיגה.
+      severity: "low" — בעיה קוסמטית, נוחות, או רעש שלא משפיע על בטיחות או אמינות מכנית.
+      כלל: אם לא בטוח — סווג כ-"medium", לא כ-"high".
+      כלל: recall שטופל = severity "low" לכל היותר.
 6.2) סיווג חומרת ריקולים — חובה לפי הקריטריונים הבאים:
      severity: "high" — ריקול על מערכת שפגיעה בה מסכנת חיים או גורמת לנזק מכני משמעותי:
        engine, transmission, brakes, cooling, steering, safety_system (כריות אוויר, ABS, ESP, חגורות).
@@ -595,12 +605,12 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
   "search_queries": ["שאילתות חיפוש בעברית"],
   "sources": ["קישורים או אובייקטים {{title,url,domain}}"],
   "overall_reliability_estimate": "high|medium|low",
-  "reliability_bias": "strong|neutral|weak|null",
-  "recall_penalty_sensitivity": "low|normal|high|null",
-  "maintenance_penalty_sensitivity": "low|normal|high|null",
-  "systemic_penalty_sensitivity": "low|normal|high|null",
-  "soft_floor_if_no_major_systemic": "integer 0-100|null",
-  "calibration_confidence": "low|medium|high|null",
+  "reliability_bias": null,
+  "recall_penalty_sensitivity": null,
+  "maintenance_penalty_sensitivity": null,
+  "systemic_penalty_sensitivity": null,
+  "soft_floor_if_no_major_systemic": null,
+  "calibration_confidence": null,
   "overall_reliability_reasoning": "הסבר קצר לרמת האמינות הכללית של הדגם בשוק",
   "reliability_factors_summary": "סיכום קצר של גורמי אמינות: חומרה/שכיחות תקלות, עלות תיקון, אמינות מערכות עיקריות, יחס לקטגוריה, משמעות ריקולים, רגישות תחזוקה, מורכבות טכנולוגית, מוניטין ארוך טווח, התאמה לשוק הישראלי",
   "score_breakdown": {{

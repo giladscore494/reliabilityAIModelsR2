@@ -56,51 +56,51 @@ _BANNER_MAP = {
 }
 
 # ── Severity base penalty ──
-_SEVERITY_PENALTY = {"low": 2, "medium": 4, "high": 7}
+_SEVERITY_PENALTY = {"low": 1, "medium": 3, "high": 5}
 
 # ── Frequency multiplier ──
-_FREQUENCY_MULT = {"rare": 0.7, "sometimes": 1.0, "common": 1.3}
+_FREQUENCY_MULT = {"rare": 0.7, "sometimes": 1.0, "common": 1.0}
 
 # ── System tier multiplier (3 tiers: critical=1.25, standard=1.0, minor=0.7) ──
 _SYSTEM_TIER = {
     # critical
-    "engine": 1.25, "transmission": 1.25, "brakes": 1.25,
-    "hv battery": 1.25, "hv_battery": 1.25,
+    "engine": 1.1, "transmission": 1.1, "brakes": 1.1,
+    "hv battery": 1.1, "hv_battery": 1.1,
     # standard
     "suspension": 1.0, "steering": 1.0, "ac": 1.0,
     "electrical": 1.0, "sensors": 1.0, "cooling": 1.0,
     # minor
-    "infotainment": 0.7, "trim": 0.7, "cosmetic": 0.7,
+    "infotainment": 0.5, "trim": 0.5, "cosmetic": 0.5,
 }
 _SYSTEM_TIER_DEFAULT = 1.0  # standard tier for unknown systems
 
 # ── Systemic penalty cap ──
-_SYSTEMIC_PENALTY_CAP = 40
+_SYSTEMIC_PENALTY_CAP = 25
 _MAX_SIGNALS = 50
 
 # Recall penalty by severity tier:
 # low = infotainment, cosmetic, convenience → zero penalty
 # medium = AC, sensors, non-safety electrical → minor penalty per recall
 # high = engine, transmission, brakes, cooling, steering, safety → significant penalty per recall
-_RECALL_SEVERITY_PENALTY = {"low": 0, "medium": 1.5, "high": 4}
-_RECALL_TOTAL_CAP = 12
+_RECALL_SEVERITY_PENALTY = {"low": 0, "medium": 1, "high": 3}
+_RECALL_TOTAL_CAP = 9
 
 # ── Maintenance cost pressure ──
-_MCP_PENALTY = {"low": 0, "medium": 2, "high": 6}
+_MCP_PENALTY = {"low": 0, "medium": 0, "high": 0}
 
 # ── Clean bonus ──
 _CLEAN_BONUS = 6
 
 # ── Penalty cap: fraction of base that total penalties can consume (0.55 = 55%) ──
-_PENALTY_CAP_FRACTION = 0.55
+_PENALTY_CAP_FRACTION = 0.40
 
 # ── Overall model-level reliability anchor (modest adjustment) ──
 _OVERALL_RELIABILITY_ADJUSTMENT = {
-    "high": 8,
+    "high": 10,
     "medium": 0,
-    "low": -8,
+    "low": -10,
 }
-_MODEL_PRIMARY_BASE_SCORE = 74
+_MODEL_PRIMARY_BASE_SCORE = 80
 _MODEL_JSON_RELIABILITY_BIAS = {"strong": 2, "neutral": 0, "weak": -2}
 _MODEL_JSON_SENSITIVITY_SCALE = {"low": 0.7, "normal": 1.0, "high": 1.3}
 _MODEL_JSON_CONFIDENCE_ALLOWED = {"low", "medium", "high"}
@@ -521,7 +521,6 @@ def compute_reliability_score_and_banner(
 
     # ── Step 2: systemic issue penalties ──
     systemic_penalty = 0.0
-    recall_like_systemic_penalty = 0.0
     signals = risk_signals.get("systemic_issue_signals")
     has_meaningful_issues = False
     has_major_systemic_issue = False
@@ -535,22 +534,15 @@ def compute_reliability_score_and_banner(
                 or _contains_vehicle_specific_neglect_claim(sig.get("typical_timing"))
             ):
                 continue
-            system = str(sig.get("system", "")).lower()
+
             severity = str(sig.get("severity", "")).lower()
-            freq = str(sig.get("repeat_frequency", "")).lower()
+            if severity not in ("low", "medium", "high"):
+                continue
 
-            sev_val = _SEVERITY_PENALTY.get(severity, 0)
-            freq_mult = _FREQUENCY_MULT.get(freq, 1.0)
-            sys_mult = _SYSTEM_TIER.get(system, _SYSTEM_TIER_DEFAULT)
-
-            penalty = sev_val * freq_mult * sys_mult
-            is_recall_like = _is_recall_like_signal(sig, recalls)
-            if is_recall_like:
-                penalty *= _RECALL_LIKE_SIGNAL_FACTOR
+            penalty = _SEVERITY_PENALTY.get(severity, 0)
             systemic_penalty += penalty
-            if is_recall_like:
-                recall_like_systemic_penalty += penalty
-            if severity in ("medium", "high") and sys_mult >= 1.0:
+
+            if severity in ("medium", "high"):
                 has_meaningful_issues = True
             if severity == "high":
                 has_major_systemic_issue = True
@@ -583,37 +575,18 @@ def compute_reliability_score_and_banner(
             )
             has_meaningful_recalls = high_sev_count > 0 or recall_count >= 3
 
-    # De-duplicate when the same recall appears as systemic signal text + recall bucket
-    if recall_penalty > 0 and recall_like_systemic_penalty > 0:
-        # Recall/campaign phrasing should not stack too aggressively against the recall bucket.
-        overlap_discount = min(
-            recall_like_systemic_penalty * _RECALL_OVERLAP_DISCOUNT,
-            recall_penalty * _RECALL_OVERLAP_DISCOUNT,
-        )
-        systemic_penalty = max(0.0, systemic_penalty - overlap_discount)
-
-    # ── Step 4: maintenance cost pressure ──
-    mcp = risk_signals.get("maintenance_cost_pressure")
+    # ── Step 4: maintenance cost pressure (disabled — cost ≠ reliability) ──
+    mcp_penalty = 0
     mcp_level = ""
+    mcp = risk_signals.get("maintenance_cost_pressure")
     if isinstance(mcp, dict):
         mcp_level = str(mcp.get("level", "unknown")).lower()
-    raw_mcp = _MCP_PENALTY.get(mcp_level, 0)
-    mcp_penalty = raw_mcp
-
-    # ── MCP ↔ systemic dedup: high systemic penalty already reflects expensive
-    # repairs, so mcp is partially redundant. Discount mcp when systemic > 10. ──
-    _MCP_SYSTEMIC_OVERLAP_THRESHOLD = 10
-    _MCP_OVERLAP_DISCOUNT = 0.5
-    if systemic_penalty > _MCP_SYSTEMIC_OVERLAP_THRESHOLD and mcp_penalty > 0:
-        mcp_penalty = mcp_penalty * _MCP_OVERLAP_DISCOUNT
 
     calibration = _compute_model_json_calibration(
         model_output if isinstance(model_output, dict) else None,
         has_major_systemic_issue=has_major_systemic_issue,
     )
-    systemic_penalty *= calibration["systemic_scale"]
-    recall_penalty *= calibration["recall_scale"]
-    mcp_penalty *= calibration["maintenance_scale"]
+    # calibration scales disabled — scoring is deterministic only
 
     # ── Step 5: total penalty with cap ──
     total_penalty = systemic_penalty + recall_penalty + mcp_penalty
@@ -625,7 +598,6 @@ def compute_reliability_score_and_banner(
     if (
         not has_meaningful_issues
         and not has_meaningful_recalls
-        and mcp_level in ("low", "")
     ):
         bonus = _CLEAN_BONUS
 
@@ -635,7 +607,7 @@ def compute_reliability_score_and_banner(
     # Code-side floor: LLM's overall assessment protects against
     # accumulated minor/medium penalties dragging a reliable car down.
     # Disabled when any high-severity systemic issue exists.
-    _ESTIMATE_FLOOR = {"high": _BANNER_HIGH_THRESHOLD, "medium": _BANNER_MEDIUM_THRESHOLD}
+    _ESTIMATE_FLOOR = {"high": 75, "medium": 55}
     if estimate_label in _ESTIMATE_FLOOR and not has_major_systemic_issue:
         model_reliability_score = max(model_reliability_score, _ESTIMATE_FLOOR[estimate_label])
     model_reliability_score = _bound_score(model_reliability_score)
