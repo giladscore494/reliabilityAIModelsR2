@@ -494,6 +494,23 @@ class TestSystemicIssues:
         expected_score = 80 - int(round(expected_penalty))
         assert r["score_0_100"] == expected_score
 
+    def test_frequency_and_system_multipliers_ignored(self):
+        """Different frequency/system values should produce same score for same severity."""
+        v = _default_validated()
+        rs_common = _full_risk_signals(
+            {"systemic_issue_signals": [
+                {"system": "engine", "severity": "high", "repeat_frequency": "common"},
+            ]}
+        )
+        rs_rare = _full_risk_signals(
+            {"systemic_issue_signals": [
+                {"system": "infotainment", "severity": "high", "repeat_frequency": "rare"},
+            ]}
+        )
+        r_common = compute_reliability_score_and_banner(v, rs_common)
+        r_rare = compute_reliability_score_and_banner(v, rs_rare)
+        assert r_common["score_0_100"] == r_rare["score_0_100"]
+
     def test_infotainment_low_rare(self):
         rs = _full_risk_signals(
             {
