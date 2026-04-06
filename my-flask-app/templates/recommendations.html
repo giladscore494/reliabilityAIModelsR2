@@ -71,7 +71,7 @@
                     </p>
                 </header>
 
-                <form id="advisor-form" class="bg-dark-lighter/70 border border-slate-700/70 rounded-[1.75rem] p-6 md:p-8 space-y-8">
+                <form id="advisor-form" data-is-owner="{{ 'true' if is_owner else 'false' }}" class="bg-dark-lighter/70 border border-slate-700/70 rounded-[1.75rem] p-6 md:p-8 space-y-8">
                     <!-- בלוק 1 – תקציב ושנותון -->
                     <div class="space-y-4">
                         <h2 class="text-lg font-bold text-white flex items-center gap-2">
@@ -275,7 +275,7 @@
                             סדר עדיפויות
                         </h2>
                         <p class="text-xs text-slate-400 mb-2">
-                            דרג מ-1 (פחות חשוב) עד 5 (חשוב מאוד). המספרים ישפיעו על חישוב ציון ההתאמה (Fit Score).
+                            דרג מ-1 (פחות חשוב) עד 5 (חשוב מאוד). המספרים ישפיעו על חישוב ה-Fit Score כהתאמה למה שביקשת בשאלון בלבד — לא כציון אמינות, לא כהמלצת קנייה, ולא כאישור לרכוש רכב מסוים.
                         </p>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div class="flex items-center justify-between gap-4">
@@ -387,6 +387,21 @@
 
                     {% include '_research_advisor_fields.html' %}
 
+                    <div class="rounded-2xl border border-primary/25 bg-primary/8 p-4 md:p-5 space-y-2">
+                        <p class="text-sm md:text-base font-semibold text-white">
+                            To evaluate whether a specific car is a worthwhile deal, use the Reliability Checker.
+                        </p>
+                        <div class="inline-flex items-center rounded-full border border-primary/40 bg-slate-900/50 px-3 py-1 text-[11px] font-medium text-primary">
+                            <a href="{{ url_for('public.app_page') }}" class="hover:underline">Reliability Checker</a>
+                        </div>
+                        <p class="text-xs md:text-sm leading-6 text-slate-300">
+                            The Reliability Checker is intended for a more focused review of reliability risks, common ownership costs, and what to inspect before purchase.
+                        </p>
+                        <p class="text-[11px] leading-5 text-slate-400">
+                            The recommendation questionnaire does not replace a pre-purchase inspection. In addition, you should review insurance history, service history, and have the car inspected by a qualified professional before buying.
+                        </p>
+                    </div>
+
                     <!-- הסכמה מעל גיל 18 + תנאים -->
                     <div class="mt-4 mb-2 flex items-start gap-2 text-xs text-slate-300">
                         <input
@@ -463,10 +478,14 @@
                             <div>
                                 <h2 class="text-xl md:text-2xl font-bold text-white mb-1">תוצאות המלצה מותאמות אישית</h2>
                                 <p class="text-slate-400 text-xs md:text-sm">
-                                    הרשימה מסודרת לפי Fit Score – ההתאמה הכוללת לפרופיל שהוזן.
+                                    הרשימה מסודרת לפי Fit Score – התאמה למה שביקשת בשאלון, ולא לפי אמינות או כדאיות קנייה.
                                 </p>
                             </div>
                             <div id="advisor-search-queries" class="text-[11px] text-slate-400 max-w-md md:text-right"></div>
+                        </div>
+
+                        <div class="rounded-2xl border border-slate-700 bg-slate-900/50 px-4 py-3 text-xs md:text-sm text-slate-200">
+                            Fit Score = how well the car matches the preferences entered in the questionnaire, not a reliability score or purchase-worthiness score.
                         </div>
 
                         <!-- סיכום פרופיל נהג לפי הטופס -->
