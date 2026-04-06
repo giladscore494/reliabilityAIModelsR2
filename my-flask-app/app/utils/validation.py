@@ -403,6 +403,8 @@ def validate_analyze_request(
         if "annual_km" in validated:
             validated["annual_km"] = _validate_int_range("annual_km", validated["annual_km"], min_val=0, max_val=60000)
         if "research_actual_consumption" in validated and _is_non_empty(validated["research_actual_consumption"]):
+            # Research form placeholder asks for km/L or EV-equivalent consumption, so 0-50 covers
+            # realistic user-entered ranges while rejecting obviously bad values.
             validated["research_actual_consumption"] = _validate_int_range(
                 "research_actual_consumption",
                 validated["research_actual_consumption"],

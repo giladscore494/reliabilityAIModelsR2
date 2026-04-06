@@ -20,6 +20,10 @@
             defaultSource: 'advisor_pre_result'
         })
         : null;
+    const advisorCopy = {
+        fitFallback: 'Fit Score גבוה כאן משקף התאמה לתקציב, לשימוש ולהעדפות שסימנת בשאלון.',
+        caveatFallback: 'אין כאן אישור קנייה אוטומטי: לפני החלטה בדוק היסטוריית טיפולים, היסטוריית ביטוח, מצב בפועל ובדיקת קנייה מקצועית.'
+    };
     let currentAdvisorHistoryId = null;
     let legalAccepted = false;
 
@@ -705,8 +709,8 @@
             else fitClass = 'bg-slate-700 text-slate-100';
         }
 
-        const comparisonComment = car.comparison_comment || 'Fit Score גבוה כאן משקף התאמה לתקציב, לשימוש ולהעדפות שסימנת בשאלון.';
-        const notRecommendedReason = car.not_recommended_reason || 'אין כאן אישור קנייה אוטומטי: לפני החלטה בדוק היסטוריית טיפולים, היסטוריית ביטוח, מצב בפועל ובדיקת קנייה מקצועית.';
+        const comparisonComment = car.comparison_comment || advisorCopy.fitFallback;
+        const notRecommendedReason = car.not_recommended_reason || advisorCopy.caveatFallback;
 
         // שדות method – טקסט כבר בעברית, רק שם שדה בעברית לפי המפה
         const fuelMethod = car.fuel_method || '';

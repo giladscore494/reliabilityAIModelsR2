@@ -1559,6 +1559,8 @@ def create_app():
     logger.info(f"ProxyFix configured with trusted_proxy_count={trusted_proxy_count}")
 
     # ---- בעל מערכת (למנוע ההמלצות) ----
+    # Support both OWNER_EMAIL (single secret) and legacy OWNER_EMAILS (comma-separated)
+    # so deployments can adopt the clearer name without breaking existing configs.
     owner_emails_raw = ",".join(
         value for value in (
             os.environ.get("OWNER_EMAIL", ""),
