@@ -12,6 +12,7 @@
     const errorEl = document.getElementById('advisor-error');
     const consentCheckbox = document.getElementById('advisor-consent');
     const researchMessageEl = document.getElementById('advisorResearchMessage');
+    const isOwnerUser = form.dataset.isOwner === 'true';
     const chargingResearchBlock = document.getElementById('advisorChargingResearchBlock');
     const researchClient = window.YedaResearch
         ? window.YedaResearch.createClient({
@@ -19,6 +20,10 @@
             defaultSource: 'advisor_pre_result'
         })
         : null;
+    const advisorCopy = {
+        fitFallback: 'Fit Score גבוה כאן משקף התאמה לתקציב, לשימוש ולהעדפות שסימנת בשאלון.',
+        caveatFallback: 'אין כאן אישור קנייה אוטומטי: לפני החלטה בדוק היסטוריית טיפולים, היסטוריית ביטוח, מצב בפועל ובדיקת קנייה מקצועית.'
+    };
     let currentAdvisorHistoryId = null;
     let legalAccepted = false;
 
@@ -585,10 +590,10 @@
         if (bestFit) {
             cards.push({
                 label: 'התאמה כללית הכי גבוהה',
-                badge: 'המלצה ראשית',
+                badge: 'Fit Score מוביל',
                 car: bestFit,
                 chip: bestFit.fit_score != null ? `${Math.round(bestFit.fit_score)}% Fit` : '',
-                text: 'מבוסס על כל הפרמטרים שהזנת: תקציב, שימוש, משפחה והעדפות. זה הדגם שהכי מתאים לפרופיל הכולל שלך.'
+                text: 'זה הדגם שהכי תואם למה שביקשת בשאלון. הציון משקף התאמת העדפות בלבד, ולא קובע שזה בהכרח הרכב הכי אמין או הכי כדאי לקנייה.'
             });
         }
 
@@ -704,8 +709,8 @@
             else fitClass = 'bg-slate-700 text-slate-100';
         }
 
-        const comparisonComment = car.comparison_comment || '';
-        const notRecommendedReason = car.not_recommended_reason || '';
+        const comparisonComment = car.comparison_comment || advisorCopy.fitFallback;
+        const notRecommendedReason = car.not_recommended_reason || advisorCopy.caveatFallback;
 
         // שדות method – טקסט כבר בעברית, רק שם שדה בעברית לפי המפה
         const fuelMethod = car.fuel_method || '';
@@ -768,6 +773,7 @@
                         <span class="inline-flex items-center justify-center min-w-[52px] px-2 py-1 rounded-full text-[11px] font-bold ${fitClass}">
                             ${fit !== null ? fit + '% Fit' : '?'}
                         </span>
+                        <span class="text-[11px] text-slate-400">התאמת העדפות בלבד</span>
                         ${reliabilityValue != null ? `
                             <span class="inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold ${reliabilityGrade.className}">
                                 רמת אמינות: ${escapeHtml(reliabilityGrade.label)}
@@ -910,19 +916,15 @@
                     </table>
                 </div>
 
-                ${comparisonComment ? `
-                    <div class="mt-2 text-[11px] md:text-xs text-slate-300 leading-relaxed">
-                        <span class="font-semibold text-slate-100">הסבר כללי:</span>
-                        <br>${safeComparisonComment}
-                    </div>
-                ` : ''}
+                <div class="mt-2 rounded-xl border border-primary/25 bg-primary/8 px-3 py-2 text-[11px] md:text-xs text-slate-200 leading-relaxed">
+                    <span class="font-semibold text-white">למה זה מתאים למה שביקשת:</span>
+                    <br>${safeComparisonComment}
+                </div>
 
-                ${notRecommendedReason ? `
-                    <div class="mt-2 text-[11px] md:text-xs text-red-300 leading-relaxed border border-red-500/40 bg-red-900/20 rounded-xl px-3 py-2">
-                        <span class="font-semibold">סיבה לאי-המלצה/הסתייגות:</span>
-                        <br>${safeNotRecommendedReason}
-                    </div>
-                ` : ''}
+                <div class="mt-2 text-[11px] md:text-xs text-amber-200 leading-relaxed border border-amber-500/30 bg-amber-950/20 rounded-xl px-3 py-2">
+                    <span class="font-semibold text-amber-100">סיכונים / הסתייגויות שכדאי לבדוק:</span>
+                    <br>${safeNotRecommendedReason}
+                </div>
             </article>
         `;
     }
@@ -973,7 +975,7 @@
         // Safe innerHTML: renderCarCard escapes all dynamic values.
         tableWrapper.innerHTML = `
             <div class="mb-2 text-[11px] text-slate-400">
-                לכל רכב מוצגת כרטיסייה נפרדת עם כל הפרמטרים, כולל השיטות שבהן חושבו הנתונים.
+                לכל רכב מוצגת כרטיסייה נפרדת עם התאמת העדפות לצד סיכונים והסתייגויות נפרדים. Fit Score אינו ציון אמינות ואינו אישור קנייה.
             </div>
             <div class="space-y-4">
                 ${cardsHtml}
@@ -1007,19 +1009,19 @@
             return;
         }
 
-        if (researchClient && !(await researchClient.ensureConsent('advisor_pre_result'))) {
+        if (!isOwnerUser && researchClient && !(await researchClient.ensureConsent('advisor_pre_result'))) {
             return;
         }
 
         const payload = { ...buildPayload(), legal_confirm: true };
-        if (!payload.research_current_vehicle || !payload.research_actual_consumption) {
+        if (!isOwnerUser && (!payload.research_current_vehicle || !payload.research_actual_consumption)) {
             if (errorEl) {
                 errorEl.textContent = 'נא להשלים את שאלות המחקר על הרכב הנוכחי וצריכת הדלק בפועל לפני המשך.';
                 errorEl.classList.remove('hidden');
             }
             return;
         }
-        if (advisorResearchNeedsCharging() && (!payload.research_charging_cost || !payload.research_charging_location)) {
+        if (!isOwnerUser && advisorResearchNeedsCharging() && (!payload.research_charging_cost || !payload.research_charging_location)) {
             if (errorEl) {
                 errorEl.textContent = 'לרכב חשמלי או היברידי צריך להשלים גם עלות טעינה ומיקום טעינה.';
                 errorEl.classList.remove('hidden');
@@ -1064,7 +1066,7 @@
             const payloadFromApi = res.data || {};
             currentAdvisorHistoryId = payloadFromApi.history_id || null;
             renderResults(payloadFromApi);
-            if (currentAdvisorHistoryId && researchClient) {
+            if (!isOwnerUser && currentAdvisorHistoryId && researchClient) {
                 await researchClient.saveResponses({
                     flow_type: 'advisor',
                     source_analysis_type: 'advisor_history',

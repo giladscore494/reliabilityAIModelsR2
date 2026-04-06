@@ -1,5 +1,12 @@
+from app.utils.http_helpers import api_ok
 from app.legal import PRIVACY_VERSION, TERMS_VERSION
 from app.models import ResearchConsent, ResearchResponse, ResearchResponseSession
+
+
+def _advisor_headers(client):
+    with client.session_transaction() as sess:
+        sess["csrf_token"] = "a" * 64
+    return {"X-CSRF-Token": "a" * 64}
 
 
 def test_research_consent_supports_anonymous_client(client, app):
@@ -132,3 +139,81 @@ def test_owner_advisor_page_renders_research_fields(logged_in_client, app):
     html = resp.data.decode("utf-8")
     assert 'id="research_current_vehicle"' in html
     assert 'id="advisorChargingResearchBlock"' in html
+    assert (
+        "To evaluate whether a specific car is a worthwhile deal, use the Reliability Checker."
+        in html
+    )
+    assert (
+        "Fit Score = how well the car matches the preferences entered in the questionnaire, not a reliability score or purchase-worthiness score."
+        in html
+    )
+
+
+def test_owner_can_submit_advisor_without_research_fields(logged_in_client, app, monkeypatch):
+    client, _ = logged_in_client
+    app.config["OWNER_EMAILS"] = {"tester@example.com"}
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    monkeypatch.setattr(
+        "app.routes.advisor_routes.advisor_service.handle_advisor_logic",
+        lambda payload, user, user_id: api_ok({"received": payload}),
+    )
+
+    resp = client.post(
+        "/advisor_api",
+        json={
+            "budget_min": 20000,
+            "budget_max": 120000,
+            "year_min": 2012,
+            "year_max": 2025,
+            "fuels_he": ["בנזין"],
+            "gears_he": ["אוטומטית"],
+                "annual_km": 15000,
+                "legal_confirm": True,
+                "weights": {
+                "reliability": 5,
+                "resale": 3,
+                "fuel": 4,
+                "performance": 2,
+                "comfort": 3,
+            },
+        },
+        headers=_advisor_headers(client),
+    )
+
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+
+
+def test_regular_user_cannot_bypass_advisor_research_fields(logged_in_client, app):
+    client, _ = logged_in_client
+    app.config["ADVISOR_OWNER_ONLY"] = False
+    app.config["OWNER_EMAILS"] = set()
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    resp = client.post(
+        "/advisor_api",
+        json={
+            "budget_min": 20000,
+            "budget_max": 120000,
+            "year_min": 2012,
+            "year_max": 2025,
+            "fuels_he": ["בנזין"],
+            "gears_he": ["אוטומטית"],
+                "annual_km": 15000,
+                "legal_confirm": True,
+                "weights": {
+                "reliability": 5,
+                "resale": 3,
+                "fuel": 4,
+                "performance": 2,
+                "comfort": 3,
+            },
+        },
+        headers=_advisor_headers(client),
+    )
+
+    assert resp.status_code == 400
+    data = resp.get_json()
+    assert data["error"]["details"]["field"] == "research_current_vehicle"

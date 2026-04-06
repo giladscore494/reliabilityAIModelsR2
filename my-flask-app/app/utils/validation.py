@@ -107,6 +107,14 @@ _FIELD_MAX_LENGTHS = {
     'excluded_colors': 200,
     'driver_gender': 20,
     'seats_choice': 10,
+    'research_current_vehicle': 120,
+    'research_actual_consumption': 20,
+    'research_sale_timeline': 40,
+    'research_sale_gap': 40,
+    'research_purchase_reference_type': 40,
+    'research_purchase_delta_bucket': 40,
+    'research_charging_cost': 20,
+    'research_charging_location': 20,
 }
 
 _CONTROL_CHARS = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]')
@@ -129,6 +137,12 @@ _TEXT_FIELDS_TO_NORMALIZE = {
     'violations',
     'driver_gender',
     'seats_choice',
+    'research_current_vehicle',
+    'research_sale_timeline',
+    'research_sale_gap',
+    'research_purchase_reference_type',
+    'research_purchase_delta_bucket',
+    'research_charging_location',
 }
 
 
@@ -267,7 +281,71 @@ def _normalize_and_validate_text(field: str, value: Any, max_length: int) -> str
     return text
 
 
-def validate_analyze_request(payload: Mapping[str, Any], allowed_fields: set[str] | None = None) -> Dict[str, Any]:
+def _is_non_empty(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    return True
+
+
+def _validate_string_list(field: str, value: Any) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValidationError(field, "Field must be an array")
+    normalized: list[str] = []
+    for item in value:
+        text = _normalize_and_validate_text(field, item, 50)
+        if text:
+            normalized.append(text)
+    return normalized
+
+
+def _validate_weight_map(weights: Any) -> dict[str, int]:
+    required_keys = ("reliability", "resale", "fuel", "performance", "comfort")
+    if not isinstance(weights, dict):
+        raise ValidationError("weights", "weights must be an object")
+    normalized: dict[str, int] = {}
+    for key in required_keys:
+        if key not in weights:
+            raise ValidationError("weights", f"weights.{key} is required")
+        normalized[key] = _validate_int_range(f"weights.{key}", weights.get(key), min_val=1, max_val=5)
+    return normalized
+
+
+def _preferred_fuels_need_charging(payload: Mapping[str, Any]) -> bool:
+    fuels = payload.get("fuels_he") or []
+    if isinstance(fuels, str):
+        fuels = [fuels]
+    normalized = " ".join(str(item).lower() for item in fuels)
+    return any(
+        token in normalized
+        for token in ("חשמ", "היבריד", "electric", "hybrid", "phev", "ev")
+    )
+
+
+def _preferred_fuels_skip_gear_requirement(payload: Mapping[str, Any]) -> bool:
+    fuels = payload.get("fuels_he") or []
+    if isinstance(fuels, str):
+        fuels = [fuels]
+    normalized = " ".join(str(item).lower() for item in fuels)
+    return any(token in normalized for token in ("חשמ", "electric", "ev"))
+
+
+def _require_field(payload: Mapping[str, Any], field: str, message: str) -> None:
+    if not _is_non_empty(payload.get(field)):
+        raise ValidationError(field, message)
+
+
+def validate_analyze_request(
+    payload: Mapping[str, Any],
+    allowed_fields: set[str] | None = None,
+    *,
+    is_owner: bool = False,
+) -> Dict[str, Any]:
     """Validate an /analyze request payload and return the validated payload.
 
     This is a small wrapper around :func:`validate_form_data` that standardizes
@@ -324,6 +402,64 @@ def validate_analyze_request(payload: Mapping[str, Any], allowed_fields: set[str
             raise ValidationError("year_range", "year_min cannot exceed year_max")
         if "annual_km" in validated:
             validated["annual_km"] = _validate_int_range("annual_km", validated["annual_km"], min_val=0, max_val=60000)
+        if "research_actual_consumption" in validated and _is_non_empty(validated["research_actual_consumption"]):
+            # Research form placeholder asks for km/L or EV-equivalent consumption, so 0-50 covers
+            # realistic user-entered ranges while rejecting obviously bad values.
+            validated["research_actual_consumption"] = _validate_int_range(
+                "research_actual_consumption",
+                validated["research_actual_consumption"],
+                min_val=0,
+                max_val=50,
+            )
+        if "research_charging_cost" in validated and _is_non_empty(validated["research_charging_cost"]):
+            value = float(validated["research_charging_cost"])
+            if value < 0 or value > 10:
+                raise ValidationError("research_charging_cost", "Value must be between 0 and 10")
+            validated["research_charging_cost"] = value
+
+        if allowed_fields is None:
+            validated["fuels_he"] = _validate_string_list("fuels_he", validated.get("fuels_he"))
+            validated["gears_he"] = _validate_string_list("gears_he", validated.get("gears_he"))
+            validated["weights"] = _validate_weight_map(validated.get("weights"))
+
+            _require_field(validated, "budget_min", "budget_min is required")
+            _require_field(validated, "budget_max", "budget_max is required")
+            _require_field(validated, "year_min", "year_min is required")
+            _require_field(validated, "year_max", "year_max is required")
+            if not validated["fuels_he"]:
+                raise ValidationError("fuels_he", "Select at least one preferred fuel type")
+            if not validated["gears_he"] and not _preferred_fuels_skip_gear_requirement(validated):
+                raise ValidationError("gears_he", "Select at least one preferred gearbox")
+
+            if float(validated["budget_max"]) <= 0:
+                raise ValidationError("budget_max", "budget_max must be greater than 0")
+            if float(validated["budget_min"]) < 0:
+                raise ValidationError("budget_min", "budget_min must be 0 or greater")
+            if float(validated["budget_min"]) > float(validated["budget_max"]):
+                raise ValidationError("budget_range", "budget_min cannot exceed budget_max")
+
+            if not is_owner:
+                _require_field(
+                    validated,
+                    "research_current_vehicle",
+                    "research_current_vehicle is required",
+                )
+                _require_field(
+                    validated,
+                    "research_actual_consumption",
+                    "research_actual_consumption is required",
+                )
+                if _preferred_fuels_need_charging(validated):
+                    _require_field(
+                        validated,
+                        "research_charging_cost",
+                        "research_charging_cost is required for hybrid/electric preferences",
+                    )
+                    _require_field(
+                        validated,
+                        "research_charging_location",
+                        "research_charging_location is required for hybrid/electric preferences",
+                    )
 
         # Usage profile normalization (fills defaults when missing)
         usage_profile = normalize_usage_profile(validated)

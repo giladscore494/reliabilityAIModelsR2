@@ -181,7 +181,7 @@ def compute_quota_window(tz: ZoneInfo, *, now: Optional[datetime] = None) -> Tup
 
 def parse_owner_emails(raw: str) -> list:
     """
-    Normalize OWNER_EMAILS env var into a clean, lowercase list.
+    Normalize OWNER_EMAIL / OWNER_EMAILS env vars into a clean, lowercase list.
     """
     return [
         item.strip().lower()
@@ -876,6 +876,7 @@ Please recommend cars for an Israeli customer. Here is the user profile (JSON wr
 {bounded_profile}
 
 You are an independent automotive data analyst for the **Israeli used car market**.
+Your job is to rank cars by the customer's stated preferences and taste, not to override or re-educate the customer.
 
 🔴 CRITICAL INSTRUCTION: USE GOOGLE SEARCH TOOL
 You MUST use the Google Search tool to verify:
@@ -918,6 +919,19 @@ recommended_cars: array of 5–10 cars. EACH car MUST include:
   - not_recommended_reason (Hebrew or null)
 
 **All explanation fields (all *_method, comparison_comment, not_recommended_reason) MUST be in clean, easy Hebrew.**
+Fit Score means preference-fit only:
+- Fit Score represents how well the car matches the questionnaire preferences only.
+- Fit Score is NOT a reliability score.
+- Fit Score is NOT a purchase-worthiness score.
+- Fit Score is NOT an approval to buy a specific vehicle.
+- A car may receive a high Fit Score even if it has reliability, resale, liquidity, or ownership-cost drawbacks, as long as it strongly matches what the user asked for.
+- Risks, drawbacks, and inspection points must appear separately and clearly from the preference-fit explanation.
+- Never frame any result as a final approval to buy.
+
+Explanation field rules:
+- comparison_comment: explain only why the car matches the user's stated preferences, priorities, budget, body style, gearbox, fuel, comfort, usage, or taste.
+- not_recommended_reason: explain separately the main risks, drawbacks, ownership caveats, liquidity issues, or what to inspect before purchase, even when the car still has a high Fit Score.
+- Do not use comparison_comment to warn about risks unless directly tied to preference fit.
 
 IMPORTANT MARKET REALITY:
 - לפני שאתה בוחר רכבים, תבדוק בזהירות בעזרת החיפוש שדגם כזה אכן נמכר בישראל, בתצורת מנוע וגיר שאתה מציג.
@@ -1545,7 +1559,17 @@ def create_app():
     logger.info(f"ProxyFix configured with trusted_proxy_count={trusted_proxy_count}")
 
     # ---- בעל מערכת (למנוע ההמלצות) ----
-    OWNER_EMAILS = parse_owner_emails(os.environ.get("OWNER_EMAILS", ""))
+    # Support both OWNER_EMAIL (single secret) and legacy OWNER_EMAILS (comma-separated)
+    # so deployments can adopt the clearer name without breaking existing configs.
+    owner_emails_raw = ",".join([
+        value
+        for value in [
+            os.environ.get("OWNER_EMAIL", ""),
+            os.environ.get("OWNER_EMAILS", ""),
+        ]
+        if value
+    ])
+    OWNER_EMAILS = set(parse_owner_emails(owner_emails_raw))
     OWNER_BYPASS_QUOTA = os.environ.get("OWNER_BYPASS_QUOTA", "1").lower() in ("1", "true", "yes")
     ADVISOR_OWNER_ONLY = os.environ.get("ADVISOR_OWNER_ONLY", "1").lower() in ("1", "true", "yes")
     
