@@ -1561,13 +1561,14 @@ def create_app():
     # ---- בעל מערכת (למנוע ההמלצות) ----
     # Support both OWNER_EMAIL (single secret) and legacy OWNER_EMAILS (comma-separated)
     # so deployments can adopt the clearer name without breaking existing configs.
-    owner_emails_raw = ",".join(
-        value for value in (
+    owner_emails_raw = ",".join([
+        value
+        for value in [
             os.environ.get("OWNER_EMAIL", ""),
             os.environ.get("OWNER_EMAILS", ""),
-        )
+        ]
         if value
-    )
+    ])
     OWNER_EMAILS = set(parse_owner_emails(owner_emails_raw))
     OWNER_BYPASS_QUOTA = os.environ.get("OWNER_BYPASS_QUOTA", "1").lower() in ("1", "true", "yes")
     ADVISOR_OWNER_ONLY = os.environ.get("ADVISOR_OWNER_ONLY", "1").lower() in ("1", "true", "yes")
