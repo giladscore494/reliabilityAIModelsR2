@@ -769,7 +769,7 @@
                         <span class="inline-flex items-center justify-center min-w-[52px] px-2 py-1 rounded-full text-[11px] font-bold ${fitClass}">
                             ${fit !== null ? fit + '% Fit' : '?'}
                         </span>
-                        <span class="text-[10px] text-slate-400">התאמת העדפות בלבד</span>
+                        <span class="text-[11px] text-slate-400">התאמת העדפות בלבד</span>
                         ${reliabilityValue != null ? `
                             <span class="inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold ${reliabilityGrade.className}">
                                 רמת אמינות: ${escapeHtml(reliabilityGrade.label)}
