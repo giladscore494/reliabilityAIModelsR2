@@ -118,7 +118,21 @@ _FIELD_MAX_LENGTHS = {
 }
 
 _CONTROL_CHARS = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]')
-_ALLOWED_TEXT_PATTERN = re.compile(r"^[A-Za-z0-9א-ת\s\-.,/'\"()&:+־]+$")
+_ALLOWED_TEXT_PATTERN = re.compile(r"^[A-Za-z0-9א-ת\s\-.,/'\"()&:+_;?!%₪]+$")
+
+# Research-only fields used for data enrichment / market research.
+# Owner users bypass validation and required checks for these fields.
+_RESEARCH_ONLY_FIELDS = {
+    'research_current_vehicle',
+    'research_actual_consumption',
+    'research_sale_timeline',
+    'research_sale_gap',
+    'research_purchase_reference_type',
+    'research_purchase_delta_bucket',
+    'research_charging_cost',
+    'research_charging_location',
+}
+
 _TEXT_FIELDS_TO_NORMALIZE = {
     'make',
     'model',
@@ -382,6 +396,10 @@ def validate_analyze_request(
         # Enforce field length limits (Phase 1D: DoS prevention) and normalize text
         for field, max_length in _FIELD_MAX_LENGTHS.items():
             if field not in validated:
+                continue
+
+            # Owner users skip validation for research-only fields
+            if is_owner and field in _RESEARCH_ONLY_FIELDS:
                 continue
 
             if field in _TEXT_FIELDS_TO_NORMALIZE:

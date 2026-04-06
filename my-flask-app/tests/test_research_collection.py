@@ -140,11 +140,11 @@ def test_owner_advisor_page_renders_research_fields(logged_in_client, app):
     assert 'id="research_current_vehicle"' in html
     assert 'id="advisorChargingResearchBlock"' in html
     assert (
-        "To evaluate whether a specific car is a worthwhile deal, use the Reliability Checker."
+        "כדי לבדוק כדאיות עסקה על רכב ספציפי, יש להיכנס לבודק האמינות."
         in html
     )
     assert (
-        "Fit Score = how well the car matches the preferences entered in the questionnaire, not a reliability score or purchase-worthiness score."
+        "Fit Score = רמת התאמה להעדפות שהוזנו בשאלון, ולא ציון אמינות או כדאיות קנייה."
         in html
     )
 
