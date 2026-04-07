@@ -224,7 +224,6 @@ class TestPostHogSnippetAndCsp:
     def test_snippet_uses_assets_host_and_csp_matches(
         self,
         posthog_app,
-        posthog_client,
         posthog_logged_in_client,
         posthog_example_row,
     ):
@@ -246,8 +245,15 @@ class TestPostHogSnippetAndCsp:
             assert 's.api_host+"/static/array.js"' not in html
 
         csp = responses[0].headers["Content-Security-Policy"]
-        assert "https://eu-assets.i.posthog.com" in csp
-        assert "https://eu.i.posthog.com" in csp
+        csp_directives = {}
+        for directive in csp.split(";"):
+            directive = directive.strip()
+            if not directive:
+                continue
+            name, *values = directive.split()
+            csp_directives[name] = values
+        assert "https://eu-assets.i.posthog.com" in csp_directives["script-src"]
+        assert "https://eu.i.posthog.com" in csp_directives["connect-src"]
 
     def test_template_injection_logging(self, posthog_client, caplog):
         with caplog.at_level(logging.INFO):
