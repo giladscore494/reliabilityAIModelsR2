@@ -579,6 +579,7 @@
     const termsVersion = "{{ terms_version }}";
     const privacyVersion = "{{ privacy_version }}";
     window.legalAccepted = legalAccepted;
+    window.__IS_AUTHENTICATED__ = {{ 'true' if current_user.is_authenticated else 'false' }};
 
     const legalConfirmCheckbox = document.getElementById('compareLegalConfirm');
     const legalConfirmError = document.getElementById('compareLegalError');

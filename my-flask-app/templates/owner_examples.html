@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>yedaarechevAI – ניהול דוגמאות ציבוריות</title>
+    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+
+    <script nonce="{{ csp_nonce }}">
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#6366F1', secondary: '#EC4899',
+                        dark: '#0F172A', 'dark-lighter': '#1E293B',
+                        success: '#10B981', warning: '#F59E0B', danger: '#EF4444',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Heebo', system-ui, -apple-system, sans-serif;
+            background-color: #0F172A;
+            color: #E2E8F0;
+            margin: 0;
+        }
+        .fade-in { animation: fadeIn 0.4s ease-out forwards; opacity: 0; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="bg-dark text-slate-200 min-h-screen flex flex-col antialiased">
+    {% set active_page = 'owner' %}
+    {% include '_navbar.html' %}
+
+    <main class="flex-grow container mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12">
+        <div class="max-w-5xl mx-auto fade-in">
+
+            <header class="mb-8">
+                <h1 class="text-3xl font-extrabold text-white mb-2">🛠 ניהול דוגמאות ציבוריות</h1>
+                <p class="text-slate-400 text-sm leading-relaxed max-w-2xl">
+                    בחר עד 4 ניתוחים שיוצגו בדף הנחיתה כדוגמאות ציבוריות. כל בחירה חדשה מחליפה את הדוגמאות הקיימות.
+                </p>
+            </header>
+
+            <!-- Section A: Currently public examples -->
+            <section class="mb-10">
+                <h2 class="text-lg font-bold text-white mb-3">דוגמאות ציבוריות נוכחיות</h2>
+                {% if public_rows %}
+                <div class="grid gap-3">
+                    {% for r in public_rows %}
+                    <div class="flex items-center justify-between bg-dark-lighter/70 border border-emerald-500/30 rounded-xl px-4 py-3">
+                        <div>
+                            <span class="text-emerald-300 font-semibold text-sm">✓ {{ r.make }} {{ r.model }} {{ r.year }}</span>
+                            <span class="text-slate-500 text-xs mr-2">slug: {{ r.example_slug }}</span>
+                        </div>
+                        <span class="text-xs text-slate-500">id={{ r.id }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-slate-500 text-sm">אין דוגמאות ציבוריות מוגדרות כרגע.</p>
+                {% endif %}
+            </section>
+
+            <!-- Section B: Owner's analyses -->
+            <section>
+                <h2 class="text-lg font-bold text-white mb-3">הניתוחים שלך (בחר עד 4)</h2>
+                <div id="checkLimitMsg" class="hidden text-amber-300 text-sm mb-3 font-semibold">ניתן לבחור עד 4 דוגמאות</div>
+
+                {% if my_rows %}
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="text-slate-400 border-b border-slate-700/50 text-xs uppercase tracking-wider">
+                                <th class="py-2 px-2 w-10">בחר</th>
+                                <th class="py-2 px-3 text-right">רכב</th>
+                                <th class="py-2 px-3 text-right w-20">ציון</th>
+                                <th class="py-2 px-3 text-right w-28">תאריך</th>
+                                <th class="py-2 px-3 text-right w-32">סטטוס</th>
+                                <th class="py-2 px-3 text-right">Slug</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rowsBody">
+                            {% for r in my_rows %}
+                            <tr class="border-b border-slate-800/40 hover:bg-slate-800/30 transition" data-row-id="{{ r.id }}">
+                                <td class="py-2.5 px-2 text-center">
+                                    <input type="checkbox"
+                                           class="example-check rounded border-slate-600 text-primary focus:ring-primary bg-slate-900"
+                                           data-id="{{ r.id }}"
+                                           {% if r.is_public_example %}checked{% endif %}>
+                                </td>
+                                <td class="py-2.5 px-3 text-white font-medium">{{ r.make }} {{ r.model }} {{ r.year }}{% if r.mileage_range %} · {{ r.mileage_range }}{% endif %}</td>
+                                <td class="py-2.5 px-3">
+                                    {% set rj = r.result_json %}
+                                    {% if rj %}
+                                        {% set parsed = {} %}
+                                        {% set score_val = '' %}
+                                        <span class="text-slate-300">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="py-2.5 px-3 text-slate-400 text-xs">{{ r.timestamp.strftime('%Y-%m-%d') if r.timestamp else '—' }}</td>
+                                <td class="py-2.5 px-3">
+                                    {% if r.is_public_example %}
+                                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">✓ ציבורי</span>
+                                    {% else %}
+                                    <span class="text-slate-500 text-xs">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="py-2.5 px-3">
+                                    <input type="text"
+                                           class="slug-input w-full bg-slate-900/60 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white focus:ring-primary focus:border-primary"
+                                           data-id="{{ r.id }}"
+                                           value="{{ r.example_slug or '' }}"
+                                           placeholder="e.g. toyota-corolla-2020"
+                                           pattern="^[a-z0-9][a-z0-9-]{1,62}$">
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-slate-500 text-sm">אין ניתוחים בהיסטוריה שלך.</p>
+                {% endif %}
+
+                <!-- Submit -->
+                <div class="mt-6 flex items-center gap-4">
+                    <button id="submitBtn" type="button"
+                            class="inline-flex items-center justify-center px-8 py-3 rounded-2xl bg-gradient-to-r from-primary to-secondary text-white font-bold text-sm shadow-lg shadow-primary/20 hover:scale-[1.02] transition-transform disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100">
+                        שלח לדף נחיתה
+                    </button>
+                    <span id="statusMsg" class="text-sm font-semibold hidden"></span>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    {% include '_footer.html' %}
+
+    <script nonce="{{ csp_nonce }}">
+    (function() {
+        var MAX = 4;
+        var SLUG_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
+        var checks = document.querySelectorAll('.example-check');
+        var slugInputs = document.querySelectorAll('.slug-input');
+        var submitBtn = document.getElementById('submitBtn');
+        var statusMsg = document.getElementById('statusMsg');
+        var limitMsg = document.getElementById('checkLimitMsg');
+
+        function autoSlug(label) {
+            return label
+                .toLowerCase()
+                .replace(/[^a-z0-9\s-]/g, '')
+                .replace(/\s+/g, '-')
+                .replace(/-+/g, '-')
+                .replace(/^-|-$/g, '')
+                .substring(0, 63);
+        }
+
+        // Auto-fill slugs when checkbox is toggled on and slug is empty
+        checks.forEach(function(cb) {
+            cb.addEventListener('change', function() {
+                var row = cb.closest('tr');
+                var slugEl = row.querySelector('.slug-input');
+                if (cb.checked && !slugEl.value.trim()) {
+                    // Build label from row text
+                    var cells = row.querySelectorAll('td');
+                    var carLabel = cells[1] ? cells[1].textContent.trim().split('·')[0].trim() : '';
+                    slugEl.value = autoSlug(carLabel);
+                }
+                validateForm();
+            });
+        });
+
+        slugInputs.forEach(function(input) {
+            input.addEventListener('input', validateForm);
+        });
+
+        function validateForm() {
+            var checkedCount = 0;
+            var allValid = true;
+
+            checks.forEach(function(cb) {
+                if (cb.checked) {
+                    checkedCount++;
+                    var row = cb.closest('tr');
+                    var slugEl = row.querySelector('.slug-input');
+                    var slug = slugEl.value.trim();
+                    if (!SLUG_RE.test(slug)) {
+                        allValid = false;
+                        slugEl.classList.add('border-red-500');
+                    } else {
+                        slugEl.classList.remove('border-red-500');
+                    }
+                }
+            });
+
+            if (checkedCount > MAX) {
+                limitMsg.classList.remove('hidden');
+                submitBtn.disabled = true;
+            } else {
+                limitMsg.classList.add('hidden');
+                submitBtn.disabled = !allValid;
+            }
+        }
+
+        submitBtn.addEventListener('click', function() {
+            submitBtn.disabled = true;
+            statusMsg.classList.add('hidden');
+
+            var selections = [];
+            checks.forEach(function(cb) {
+                if (cb.checked) {
+                    var id = parseInt(cb.getAttribute('data-id'), 10);
+                    var row = cb.closest('tr');
+                    var slug = row.querySelector('.slug-input').value.trim();
+                    selections.push({ history_id: id, slug: slug });
+                }
+            });
+
+            var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+            var headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+            if (csrfMeta) headers['X-CSRF-Token'] = csrfMeta.getAttribute('content');
+
+            fetch('/owner/examples/update', {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify({ selections: selections })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(body) {
+                if (body.ok) {
+                    statusMsg.textContent = 'עודכן בהצלחה ✓';
+                    statusMsg.className = 'text-sm font-semibold text-emerald-300';
+                    statusMsg.classList.remove('hidden');
+                    setTimeout(function() { location.reload(); }, 1000);
+                } else {
+                    statusMsg.textContent = body.error?.message || body.message || 'שגיאה';
+                    statusMsg.className = 'text-sm font-semibold text-red-300';
+                    statusMsg.classList.remove('hidden');
+                    submitBtn.disabled = false;
+                }
+            })
+            .catch(function(err) {
+                statusMsg.textContent = 'שגיאת רשת';
+                statusMsg.className = 'text-sm font-semibold text-red-300';
+                statusMsg.classList.remove('hidden');
+                submitBtn.disabled = false;
+            });
+        });
+
+        validateForm();
+    })();
+    </script>
+</body>
+</html>

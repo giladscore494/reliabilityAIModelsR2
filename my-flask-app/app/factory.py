@@ -1666,6 +1666,7 @@ def create_app():
     @app.context_processor
     def inject_template_globals():
         from flask import g
+        from app.utils.auth_helpers import is_owner as _is_owner_check
         legal_accepted = False
         research_consent_accepted = False
         terms_version = app.config.get("TERMS_VERSION", TERMS_VERSION)
@@ -1702,7 +1703,7 @@ def create_app():
         return {
             "is_logged_in": current_user.is_authenticated,
             "current_user": current_user,
-            "is_owner": is_owner_user(),
+            "is_owner": is_owner_user() or _is_owner_check(),
             "contact_email": app.config.get("CONTACT_EMAIL", CONTACT_EMAIL),
             "legal_accepted": legal_accepted,
             "research_consent_accepted": research_consent_accepted,
@@ -2001,6 +2002,8 @@ def create_app():
             "/leasing",
             "/compare",
             "/api/examples",
+            "/owner/examples",
+            "/owner/examples/update",
         }
         if path in allowlist or path.startswith(("/static/", "/assets/", "/example/")) or path == "/favicon.ico":
             return None
@@ -2225,6 +2228,7 @@ def create_app():
     from app.routes.leasing_routes import bp as leasing_bp
     from app.routes.public_examples_routes import bp as examples_bp
     from app.routes.feedback_routes import bp as feedback_bp
+    from app.routes.owner_routes import bp as owner_bp
     app.register_blueprint(public_bp)
     app.register_blueprint(analyze_bp)
     app.register_blueprint(advisor_bp)
@@ -2235,6 +2239,7 @@ def create_app():
     app.register_blueprint(leasing_bp)
     app.register_blueprint(examples_bp)
     app.register_blueprint(feedback_bp)
+    app.register_blueprint(owner_bp)
 
 
     @app.cli.command("init-db")

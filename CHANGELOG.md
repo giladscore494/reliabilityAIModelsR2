@@ -22,6 +22,13 @@
 - New `POST /api/feedback` endpoint with ownership validation.
 - Feedback UI (thumbs up/down) added to analyze results and compare results.
 
+### Follow-up — Owner UI for Managing Public Examples
+- New `OWNER_EMAIL` env var and `app/utils/auth_helpers.py` with `is_owner()` + `@owner_required` decorator.
+- New owner-only routes: `GET /owner/examples` and `POST /owner/examples/update`.
+- Owner dashboard template with checkboxes to select up to 4 public examples.
+- Auto-slug generator, validation (strict ASCII slug regex), ownership checks.
+- Navbar shows "🛠 ניהול דוגמאות" link for owner users only.
+
 ### Cross-cutting
 - Comprehensive pytest tests for all three features.
 - New env vars: `POSTHOG_API_KEY`, `POSTHOG_HOST` (both optional).
