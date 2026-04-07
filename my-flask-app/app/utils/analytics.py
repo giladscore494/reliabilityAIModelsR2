@@ -18,8 +18,14 @@ def init_posthog(app):
     host = os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com").strip()
 
     if not api_key:
+        _posthog_client = None
         _posthog_enabled = False
         logger.info("[POSTHOG] No POSTHOG_API_KEY – analytics disabled (no-op mode)")
+        logger.info(
+            "[POSTHOG] server initialization status enabled=%s host=%s",
+            False,
+            host,
+        )
         return
 
     try:
@@ -27,13 +33,24 @@ def init_posthog(app):
         posthog.api_key = api_key
         posthog.host = host
         posthog.debug = False
-        posthog.on_error = lambda e, batch: None  # swallow errors
+        posthog.on_error = lambda e, batch: logger.warning(
+            "[POSTHOG] batch error host=%s error=%s batch_size=%s",
+            host,
+            e,
+            len(batch) if batch is not None else 0,
+        )
         _posthog_client = posthog
         _posthog_enabled = True
         logger.info("[POSTHOG] Initialised (host=%s)", host)
     except Exception:
+        _posthog_client = None
         _posthog_enabled = False
-        logger.info("[POSTHOG] Failed to import posthog – analytics disabled")
+        logger.exception("[POSTHOG] Failed to import posthog – analytics disabled")
+    logger.info(
+        "[POSTHOG] server initialization status enabled=%s host=%s",
+        _posthog_enabled,
+        host,
+    )
 
 
 def track_event(distinct_id, event_name, properties=None):
@@ -47,4 +64,8 @@ def track_event(distinct_id, event_name, properties=None):
         props = dict(properties) if properties else {}
         _posthog_client.capture(distinct_id, event_name, properties=props)
     except Exception:
-        pass
+        logger.exception(
+            "[POSTHOG] capture failed distinct_id=%s event=%s",
+            distinct_id,
+            event_name,
+        )

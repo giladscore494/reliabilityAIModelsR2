@@ -1669,6 +1669,8 @@ def create_app():
         from app.utils.auth_helpers import is_owner as _is_owner_check
         legal_accepted = False
         research_consent_accepted = False
+        posthog_key = app.config.get("POSTHOG_API_KEY", "")
+        posthog_host = app.config.get("POSTHOG_HOST", "https://us.i.posthog.com")
         terms_version = app.config.get("TERMS_VERSION", TERMS_VERSION)
         privacy_version = app.config.get("PRIVACY_VERSION", PRIVACY_VERSION)
         research_notice_version = app.config.get("RESEARCH_NOTICE_VERSION", RESEARCH_NOTICE_VERSION)
@@ -1700,6 +1702,12 @@ def create_app():
                 ).first() is not None
             except Exception:
                 research_consent_accepted = False
+        app.logger.info(
+            "[POSTHOG] template config injected=%s path=%s host=%s",
+            bool(posthog_key),
+            request.path,
+            posthog_host if posthog_key else "",
+        )
         return {
             "is_logged_in": current_user.is_authenticated,
             "current_user": current_user,
@@ -1713,8 +1721,8 @@ def create_app():
             "privacy_version": privacy_version,
             "csp_nonce": getattr(g, "csp_nonce", ""),
             "csrf_token": session.get("csrf_token", ""),
-            "posthog_key": app.config.get("POSTHOG_API_KEY", ""),
-            "posthog_host": app.config.get("POSTHOG_HOST", "https://us.i.posthog.com"),
+            "posthog_key": posthog_key,
+            "posthog_host": posthog_host,
             "is_authenticated": current_user.is_authenticated,
         }
 
