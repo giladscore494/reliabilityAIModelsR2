@@ -15,6 +15,7 @@ from flask import current_app
 
 from app.extensions import db
 from app.models import SearchHistory
+from app.utils.analytics import track_event
 from app.quota import (
     compute_quota_window,
     reserve_daily_quota,
@@ -919,4 +920,15 @@ def handle_analyze_request(
 
     response_payload = dict(sanitized_output)
     response_payload["history_id"] = history_id
+
+    # PostHog: analyze_completed
+    try:
+        track_event(
+            str(user_id),
+            "analyze_completed",
+            {"cache_hit": cache_hit, "request_id": get_request_id()},
+        )
+    except Exception:
+        pass
+
     return api_ok(response_payload)

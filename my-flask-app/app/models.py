@@ -161,6 +161,11 @@ class QuotaReservation(db.Model):
 class SearchHistory(db.Model):
     __table_args__ = (
         db.Index("ix_search_history_user_cache_ts", "user_id", "cache_key", desc("timestamp")),
+        db.Index(
+            "idx_search_history_public_examples",
+            "example_slug",
+            postgresql_where=db.text("is_public_example = true"),
+        ),
     )
 
     id = db.Column(db.Integer, primary_key=True)
@@ -175,6 +180,8 @@ class SearchHistory(db.Model):
     transmission = db.Column(db.String(100))
     result_json = db.Column(db.Text, nullable=False)
     duration_ms = db.Column(db.Integer, nullable=True)
+    is_public_example = db.Column(db.Boolean, nullable=False, default=False, server_default="false")
+    example_slug = db.Column(db.String(64), nullable=True, unique=True)
 
 
 class AdvisorHistory(db.Model):
@@ -536,4 +543,26 @@ class LeasingAdvisorHistory(db.Model):
 
     __table_args__ = (
         db.Index("ix_leasing_history_user_created", "user_id", desc("created_at")),
+    )
+
+
+class Feedback(db.Model):
+    """CTA feedback (thumbs up/down) on analyses."""
+    __tablename__ = "feedback"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
+    search_history_id = db.Column(db.Integer, db.ForeignKey("search_history.id", ondelete="SET NULL"), nullable=True)
+    is_positive = db.Column(db.Boolean, nullable=False)
+    created_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        server_default=db.func.now(),
+    )
+
+    __table_args__ = (
+        db.Index("ix_feedback_user_created", "user_id", "created_at"),
+        db.Index("ix_feedback_search_history", "search_history_id"),
+        db.UniqueConstraint("user_id", "search_history_id", name="uq_feedback_user_search"),
     )

@@ -81,6 +81,7 @@ from app.models import (
     LegalAcceptance,
     ResearchConsent,
     LeasingAdvisorHistory,
+    Feedback,
 )
 from app.legal import CONTACT_EMAIL, TERMS_VERSION, PRIVACY_VERSION, parse_legal_confirm
 from app.research import (
@@ -1589,6 +1590,55 @@ def create_app():
     # Helper functions (is_owner_user, api_ok, api_error, get_request_id, get_redirect_uri)
     # are now imported from app.utils.http_helpers and used throughout the code
 
+    # --- PostHog analytics (silent no-op if key missing) ---
+    from app.utils.analytics import init_posthog
+    init_posthog(app)
+    posthog_api_key = os.environ.get("POSTHOG_API_KEY", "").strip()
+    posthog_host_url = os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com").strip()
+    app.config["POSTHOG_API_KEY"] = posthog_api_key
+    app.config["POSTHOG_HOST"] = posthog_host_url
+
+    # Derive CSP-safe PostHog domains from the configured host URL
+    from urllib.parse import urlparse as _urlparse
+    _ph_parsed = _urlparse(posthog_host_url)
+    _ph_netloc = (
+        _ph_parsed.netloc
+        or posthog_host_url.split("//")[-1].split("/")[0]
+    )
+    # Pattern: "{region}.i.posthog.com" → "{region}-assets.i.posthog.com"
+    _ph_parts = _ph_netloc.split(".", 1)
+    if len(_ph_parts) == 2 and _ph_parts[1] == "i.posthog.com":
+        _ph_assets = f"{_ph_parts[0]}-assets.{_ph_parts[1]}"
+    else:
+        _ph_assets = _ph_netloc  # fallback: same host
+    app.config["_PH_CSP_CONNECT"] = _ph_netloc   # e.g. "eu.i.posthog.com"
+    app.config["_PH_CSP_SCRIPT"] = _ph_assets     # e.g. "eu-assets.i.posthog.com"
+
+    @app.before_request
+    def ensure_yrc_anon_cookie():
+        """Set a stable anonymous cookie for PostHog distinct_id on anonymous users."""
+        from flask import g
+        if hasattr(request, 'cookies') and not request.cookies.get('yrc_anon'):
+            g._set_yrc_anon = uuid.uuid4().hex
+        else:
+            g._set_yrc_anon = None
+
+    @app.after_request
+    def set_yrc_anon_cookie(response):
+        """Attach the yrc_anon cookie if it was flagged for creation."""
+        from flask import g
+        anon_val = getattr(g, '_set_yrc_anon', None)
+        if anon_val:
+            response.set_cookie(
+                'yrc_anon',
+                anon_val,
+                max_age=365 * 24 * 60 * 60,
+                httponly=True,
+                secure=True,
+                samesite='Lax',
+            )
+        return response
+
     @app.before_request
     def assign_request_id_and_redirect():
         """
@@ -1616,6 +1666,7 @@ def create_app():
     @app.context_processor
     def inject_template_globals():
         from flask import g
+        from app.utils.auth_helpers import is_owner as _is_owner_check
         legal_accepted = False
         research_consent_accepted = False
         terms_version = app.config.get("TERMS_VERSION", TERMS_VERSION)
@@ -1652,7 +1703,7 @@ def create_app():
         return {
             "is_logged_in": current_user.is_authenticated,
             "current_user": current_user,
-            "is_owner": is_owner_user(),
+            "is_owner": _is_owner_check(),
             "contact_email": app.config.get("CONTACT_EMAIL", CONTACT_EMAIL),
             "legal_accepted": legal_accepted,
             "research_consent_accepted": research_consent_accepted,
@@ -1662,6 +1713,9 @@ def create_app():
             "privacy_version": privacy_version,
             "csp_nonce": getattr(g, "csp_nonce", ""),
             "csrf_token": session.get("csrf_token", ""),
+            "posthog_key": app.config.get("POSTHOG_API_KEY", ""),
+            "posthog_host": app.config.get("POSTHOG_HOST", "https://us.i.posthog.com"),
+            "is_authenticated": current_user.is_authenticated,
         }
 
     # Phase 2G: Allowed hosts validation
@@ -1946,8 +2000,12 @@ def create_app():
             "/healthz",
             "/recommendations",
             "/leasing",
+            "/compare",
+            "/api/examples",
+            "/owner/examples",
+            "/owner/examples/update",
         }
-        if path in allowlist or path.startswith(("/static/", "/assets/")) or path == "/favicon.ico":
+        if path in allowlist or path.startswith(("/static/", "/assets/", "/example/")) or path == "/favicon.ico":
             return None
         if not current_user.is_authenticated:
             return None
@@ -2041,14 +2099,18 @@ def create_app():
         from flask import g
         csp_nonce = getattr(g, "csp_nonce", "")
         nonce_directive = f"'nonce-{csp_nonce}'" if csp_nonce else "'unsafe-inline'"
+        ph_script = app.config.get("_PH_CSP_SCRIPT", "")
+        ph_connect = app.config.get("_PH_CSP_CONNECT", "")
+        ph_script_src = f" https://{ph_script}" if ph_script else ""
+        ph_connect_src = f" https://{ph_connect}" if ph_connect else ""
         response.headers.setdefault(
             "Content-Security-Policy",
             f"default-src 'self'; "
-            f"script-src 'self' {nonce_directive} https://cdn.tailwindcss.com https://cdn.jsdelivr.net; "
+            f"script-src 'self' {nonce_directive} https://cdn.tailwindcss.com https://cdn.jsdelivr.net{ph_script_src}; "
             f"style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://fonts.googleapis.com; "
             f"font-src 'self' https://fonts.gstatic.com; "
             f"img-src 'self' data: https://*.googleusercontent.com; "
-            f"connect-src 'self' https://accounts.google.com https://www.googleapis.com https://openidconnect.googleapis.com https://generativelanguage.googleapis.com; "
+            f"connect-src 'self' https://accounts.google.com https://www.googleapis.com https://openidconnect.googleapis.com https://generativelanguage.googleapis.com{ph_connect_src}; "
             f"frame-ancestors 'none'; "
             f"base-uri 'self'; "
             f"form-action 'self' https://accounts.google.com"
@@ -2164,6 +2226,9 @@ def create_app():
     from app.routes.comparison_routes import bp as comparison_bp
     from app.routes.service_prices_routes import bp as service_prices_bp
     from app.routes.leasing_routes import bp as leasing_bp
+    from app.routes.public_examples_routes import bp as examples_bp
+    from app.routes.feedback_routes import bp as feedback_bp
+    from app.routes.owner_routes import bp as owner_bp
     app.register_blueprint(public_bp)
     app.register_blueprint(analyze_bp)
     app.register_blueprint(advisor_bp)
@@ -2172,6 +2237,9 @@ def create_app():
     app.register_blueprint(comparison_bp)
     app.register_blueprint(service_prices_bp)
     app.register_blueprint(leasing_bp)
+    app.register_blueprint(examples_bp)
+    app.register_blueprint(feedback_bp)
+    app.register_blueprint(owner_bp)
 
 
     @app.cli.command("init-db")

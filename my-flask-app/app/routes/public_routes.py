@@ -16,6 +16,7 @@ from authlib.integrations.base_client.errors import MismatchingStateError
 
 from app.extensions import db, oauth
 from app.models import User
+from app.utils.analytics import track_event
 from car_models_dict import israeli_car_market_full_compilation
 from app.utils.http_helpers import (
     api_ok,
@@ -71,7 +72,9 @@ def auth():
         oauth.google.authorize_access_token()
         userinfo = oauth.google.get('userinfo').json()
         user = User.query.filter_by(google_id=userinfo['id']).first()
+        is_new_user = False
         if not user:
+            is_new_user = True
             user = User(
                 google_id=userinfo['id'],
                 email=userinfo.get('email', ''),
@@ -82,6 +85,12 @@ def auth():
         # SECURITY: Regenerate session to prevent session fixation attacks
         session.clear()
         login_user(user)
+        if is_new_user:
+            track_event(
+                str(user.id),
+                "signup_completed",
+                {"request_id": get_request_id()},
+            )
         return redirect(url_for('public.app_page'))
     except MismatchingStateError:
         current_app.logger.warning(

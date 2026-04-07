@@ -641,6 +641,9 @@
             reliabilityResearchSection.classList.remove('hidden');
         }
 
+        // Render feedback CTA
+        renderFeedbackCTA(resultsContainer, currentReliabilityHistoryId);
+
         resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
@@ -1038,4 +1041,45 @@
             alert('שגיאה בהשוואה');
         }
     };
+    // ============================================================
+    // FEEDBACK CTA
+    // ============================================================
+    function renderFeedbackCTA(container, historyId) {
+        if (!container) return;
+        // Remove existing feedback CTA if any
+        var existing = container.querySelector('.feedback-cta');
+        if (existing) existing.remove();
+
+        var wrapper = document.createElement('div');
+        wrapper.className = 'feedback-cta mt-6 p-4 rounded-2xl border border-slate-700/60 bg-dark-lighter/60 text-center fade-in';
+        wrapper.innerHTML =
+            '<p class="text-sm text-slate-300 mb-3">האם הניתוח היה מועיל?</p>' +
+            '<div class="flex justify-center gap-4">' +
+                '<button data-feedback="positive" class="feedback-btn px-5 py-2.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition text-lg" title="👍">👍</button>' +
+                '<button data-feedback="negative" class="feedback-btn px-5 py-2.5 rounded-xl border border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition text-lg" title="👎">👎</button>' +
+            '</div>';
+
+        container.appendChild(wrapper);
+
+        wrapper.querySelectorAll('.feedback-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var isPositive = btn.getAttribute('data-feedback') === 'positive';
+                var payload = { is_positive: isPositive };
+                if (historyId) payload.search_history_id = historyId;
+
+                safeFetchJson('/api/feedback', {
+                    method: 'POST',
+                    body: JSON.stringify(payload),
+                }).then(function(resp) {
+                    wrapper.innerHTML = '<p class="text-sm text-emerald-300 font-semibold py-2">תודה על הפידבק!</p>';
+                }).catch(function() {
+                    wrapper.innerHTML = '<p class="text-sm text-red-300 font-semibold py-2">שגיאה בשליחת פידבק</p>';
+                });
+            });
+        });
+    }
+
+    // Expose for compare page use
+    window.renderFeedbackCTA = renderFeedbackCTA;
+
 })();

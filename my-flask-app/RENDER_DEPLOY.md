@@ -28,6 +28,9 @@ These must be present (app will hard-fail on Render without `SECRET_KEY`/`DATABA
 - `ADVISOR_OWNER_ONLY` (`0` or `1`, restricts advisor/recommendations to owners)
 - `CANONICAL_BASE_URL=https://yedaarechev.com` (callback + redirects use apex)
 - `WEB_CONCURRENCY` (optional, defaults to 2 gunicorn workers)
+- `POSTHOG_API_KEY` (optional; PostHog analytics API key. If empty/missing, analytics are silently disabled)
+- `POSTHOG_HOST` (optional; default `https://us.i.posthog.com`)
+- `OWNER_EMAIL` (optional; single email address of the site owner for the owner management UI, e.g. `gilad@example.com`)
 
 ## 3) Google OAuth redirect URI (IMPORTANT)
 In Google Cloud Console > APIs & Services > Credentials > OAuth 2.0 Client ID:
