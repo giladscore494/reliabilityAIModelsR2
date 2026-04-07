@@ -223,16 +223,19 @@ class TestPostHogNoOp:
 class TestPostHogSnippetAndCsp:
     def test_snippet_uses_assets_host_and_csp_matches(
         self,
+        posthog_app,
         posthog_client,
         posthog_logged_in_client,
         posthog_example_row,
     ):
+        anon_client = posthog_app.test_client()
         dashboard_client, _ = posthog_logged_in_client
+        dashboard_client.post("/api/legal/accept", json={"legal_confirm": True})
         responses = [
-            posthog_client.get("/"),
-            posthog_client.get("/compare"),
-            posthog_client.get("/recommendations"),
-            posthog_client.get("/example/toyota-corolla-2020"),
+            anon_client.get("/"),
+            anon_client.get("/compare"),
+            anon_client.get("/recommendations"),
+            anon_client.get("/example/toyota-corolla-2020"),
             dashboard_client.get("/dashboard"),
         ]
 
@@ -430,6 +433,7 @@ class TestPostHogServerFlows:
 
     def test_compare_completed_emitted_on_success(self, logged_in_client, monkeypatch):
         client, user_id = logged_in_client
+        client.post("/api/legal/accept", json={"legal_confirm": True})
         response_class = client.application.response_class
         track_event = MagicMock()
         monkeypatch.setattr("app.routes.comparison_routes.track_event", track_event)
@@ -442,7 +446,11 @@ class TestPostHogServerFlows:
             ),
         )
 
-        resp = client.post("/api/compare", json={"cars": []}, headers={"Origin": "http://localhost"})
+        resp = client.post(
+            "/api/compare",
+            json={"cars": [], "legal_confirm": True},
+            headers={"Origin": "http://localhost"},
+        )
 
         assert resp.status_code == 200
         track_event.assert_called_once()

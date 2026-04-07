@@ -21,7 +21,11 @@ def init_posthog(app):
         _posthog_client = None
         _posthog_enabled = False
         logger.info("[POSTHOG] No POSTHOG_API_KEY – analytics disabled (no-op mode)")
-        logger.info("[POSTHOG] server initialization status enabled=%s host=%s", False, host)
+        logger.info(
+            "[POSTHOG] server initialization status enabled=%s host=%s",
+            False,
+            host,
+        )
         return
 
     try:
