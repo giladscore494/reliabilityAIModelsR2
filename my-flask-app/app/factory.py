@@ -1703,7 +1703,7 @@ def create_app():
         return {
             "is_logged_in": current_user.is_authenticated,
             "current_user": current_user,
-            "is_owner": is_owner_user() or _is_owner_check(),
+            "is_owner": _is_owner_check(),
             "contact_email": app.config.get("CONTACT_EMAIL", CONTACT_EMAIL),
             "legal_accepted": legal_accepted,
             "research_consent_accepted": research_consent_accepted,

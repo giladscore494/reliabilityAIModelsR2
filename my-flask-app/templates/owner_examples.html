@@ -95,6 +95,7 @@
                                     <input type="checkbox"
                                            class="example-check rounded border-slate-600 text-primary focus:ring-primary bg-slate-900"
                                            data-id="{{ r.id }}"
+                                           aria-label="בחר {{ r.make }} {{ r.model }} {{ r.year }} כדוגמה ציבורית"
                                            {% if r.is_public_example %}checked{% endif %}>
                                 </td>
                                 <td class="py-2.5 px-3 text-white font-medium">{{ r.make }} {{ r.model }} {{ r.year }}{% if r.mileage_range %} · {{ r.mileage_range }}{% endif %}</td>
@@ -120,7 +121,8 @@
                                            data-id="{{ r.id }}"
                                            value="{{ r.example_slug or '' }}"
                                            placeholder="e.g. toyota-corolla-2020"
-                                           pattern="^[a-z0-9][a-z0-9-]{1,62}$">
+                                           pattern="^[a-z0-9][a-z0-9-]{1,62}$"
+                                           aria-label="Slug עבור {{ r.make }} {{ r.model }} {{ r.year }}">
                                 </td>
                             </tr>
                             {% endfor %}
