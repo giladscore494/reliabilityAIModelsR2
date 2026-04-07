@@ -252,8 +252,10 @@ class TestPostHogSnippetAndCsp:
                 continue
             name, *values = directive.split()
             csp_directives[name] = values
-        assert "https://eu-assets.i.posthog.com" in csp_directives["script-src"]
-        assert "https://eu.i.posthog.com" in csp_directives["connect-src"]
+        expected_script = f"https://{posthog_app.config['_PH_CSP_SCRIPT']}"
+        expected_connect = posthog_app.config["POSTHOG_HOST"]
+        assert expected_script in csp_directives["script-src"]
+        assert expected_connect in csp_directives["connect-src"]
 
     def test_template_injection_logging(self, posthog_client, caplog):
         with caplog.at_level(logging.INFO):
