@@ -2,12 +2,15 @@
 """Tests for Tasks 1–3: PostHog analytics, Public examples, Feedback."""
 
 import json
+import logging
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
 import pytest
+from flask import Flask
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -36,6 +39,77 @@ def app(monkeypatch):
 @pytest.fixture
 def client(app):
     return app.test_client()
+
+
+@pytest.fixture
+def posthog_app(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///:memory:")
+    monkeypatch.setenv("SECRET_KEY", "test-secret-key-for-pytest")
+    monkeypatch.setenv("POSTHOG_API_KEY", "test-posthog-key")
+    monkeypatch.setenv("POSTHOG_HOST", "https://eu.i.posthog.com")
+    monkeypatch.delenv("SKIP_CREATE_ALL", raising=False)
+    from app.utils import analytics
+
+    analytics._posthog_client = None
+    analytics._posthog_enabled = False
+    app = create_app()
+    app.config.update(TESTING=True)
+    with app.app_context():
+        db.create_all()
+    yield app
+    with app.app_context():
+        db.session.remove()
+        db.drop_all()
+
+
+@pytest.fixture
+def posthog_client(posthog_app):
+    return posthog_app.test_client()
+
+
+@pytest.fixture
+def posthog_logged_in_client(posthog_app, posthog_client):
+    with posthog_app.app_context():
+        user = User(
+            google_id="posthog-google-id",
+            email="posthog@example.com",
+            name="PostHog Tester",
+        )
+        db.session.add(user)
+        db.session.commit()
+        user_id = user.id
+
+    with posthog_client.session_transaction() as sess:
+        sess["_user_id"] = str(user_id)
+        sess["_fresh"] = True
+
+    return posthog_client, user_id
+
+
+@pytest.fixture
+def posthog_example_row(posthog_app, posthog_logged_in_client):
+    _, user_id = posthog_logged_in_client
+    with posthog_app.app_context():
+        row = SearchHistory(
+            user_id=user_id,
+            make="Toyota",
+            model="Corolla",
+            year=2020,
+            result_json=json.dumps({
+                "reliability_score": 82,
+                "executive_summary": "Very reliable car.",
+                "reliability_label": "גבוהה",
+                "risk_level": "בינונית",
+                "common_issues": ["Brake pads wear", "AC compressor"],
+                "pre_purchase_checks": ["Check mileage", "Check brakes"],
+            }),
+            is_public_example=True,
+            example_slug="toyota-corolla-2020",
+        )
+        db.session.add(row)
+        db.session.commit()
+        row_id = row.id
+    return row_id
 
 
 @pytest.fixture
@@ -93,6 +167,91 @@ class TestPostHogNoOp:
         track_event("user-1", "test_event", {"foo": "bar"})
         track_event(None, "test_event")
         track_event("", "", {})
+
+    def test_track_event_emits_when_enabled(self, monkeypatch):
+        from app.utils import analytics
+
+        mock_client = MagicMock()
+        monkeypatch.setattr(analytics, "_posthog_client", mock_client)
+        monkeypatch.setattr(analytics, "_posthog_enabled", True)
+
+        analytics.track_event("user-1", "test_event", {"foo": "bar"})
+
+        mock_client.capture.assert_called_once_with(
+            "user-1",
+            "test_event",
+            properties={"foo": "bar"},
+        )
+
+    def test_track_event_logs_capture_failures(self, monkeypatch, caplog):
+        from app.utils import analytics
+
+        class BrokenClient:
+            @staticmethod
+            def capture(*_args, **_kwargs):
+                raise RuntimeError("boom")
+
+        monkeypatch.setattr(analytics, "_posthog_client", BrokenClient())
+        monkeypatch.setattr(analytics, "_posthog_enabled", True)
+
+        with caplog.at_level(logging.ERROR):
+            analytics.track_event("user-1", "test_event", {"foo": "bar"})
+
+        assert "[POSTHOG] capture failed distinct_id=user-1 event=test_event" in caplog.text
+
+    def test_init_posthog_logs_server_initialization(self, monkeypatch, caplog):
+        from app.utils import analytics
+
+        fake_posthog = SimpleNamespace(
+            api_key=None,
+            host=None,
+            debug=None,
+            on_error=None,
+        )
+        monkeypatch.setenv("POSTHOG_API_KEY", "server-key")
+        monkeypatch.setenv("POSTHOG_HOST", "https://eu.i.posthog.com")
+        monkeypatch.setitem(sys.modules, "posthog", fake_posthog)
+        monkeypatch.setattr(analytics, "_posthog_client", None)
+        monkeypatch.setattr(analytics, "_posthog_enabled", False)
+
+        with caplog.at_level(logging.INFO):
+            analytics.init_posthog(Flask(__name__))
+
+        assert "[POSTHOG] server initialization status enabled=True host=https://eu.i.posthog.com" in caplog.text
+
+
+class TestPostHogSnippetAndCsp:
+    def test_snippet_uses_assets_host_and_csp_matches(
+        self,
+        posthog_client,
+        posthog_logged_in_client,
+        posthog_example_row,
+    ):
+        dashboard_client, _ = posthog_logged_in_client
+        responses = [
+            posthog_client.get("/"),
+            posthog_client.get("/compare"),
+            posthog_client.get("/recommendations"),
+            posthog_client.get("/example/toyota-corolla-2020"),
+            dashboard_client.get("/dashboard"),
+        ]
+
+        for resp in responses:
+            assert resp.status_code == 200
+            html = resp.get_data(as_text=True)
+            assert '.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js"' in html
+            assert 's.api_host+"/static/array.js"' not in html
+
+        csp = responses[0].headers["Content-Security-Policy"]
+        assert "https://eu-assets.i.posthog.com" in csp
+        assert "https://eu.i.posthog.com" in csp
+
+    def test_template_injection_logging(self, posthog_client, caplog):
+        with caplog.at_level(logging.INFO):
+            resp = posthog_client.get("/")
+
+        assert resp.status_code == 200
+        assert "[POSTHOG] template config injected=True path=/ host=https://eu.i.posthog.com" in caplog.text
 
 
 # =====================================================
@@ -227,6 +386,102 @@ class TestProtectedRoutesAnonymous:
             content_type="application/json",
         )
         assert resp.status_code in (401, 403)
+
+
+class TestPostHogServerFlows:
+    def test_analyze_completed_emitted_on_success(self, logged_in_client, monkeypatch):
+        client, user_id = logged_in_client
+        client.post("/api/legal/accept", json={"legal_confirm": True})
+
+        def fake_ai(_prompt):
+            return (
+                {
+                    "ok": True,
+                    "base_score_calculated": 85,
+                    "estimated_reliability": "גבוה",
+                    "reliability_report": {},
+                },
+                None,
+            )
+
+        track_event = MagicMock()
+        monkeypatch.setattr("main.call_gemini_grounded_once", fake_ai)
+        monkeypatch.setattr("app.services.analyze_service.track_event", track_event)
+
+        resp = client.post(
+            "/analyze",
+            json={
+                "make": "Toyota",
+                "model": "Corolla",
+                "year": 2020,
+                "mileage_range": "0-50k",
+                "fuel_type": "בנזין",
+                "transmission": "אוטומטית",
+                "sub_model": "",
+                "legal_confirm": True,
+            },
+            headers={"Origin": "http://localhost"},
+        )
+
+        assert resp.status_code == 200
+        track_event.assert_called_once()
+        assert track_event.call_args.args[0] == str(user_id)
+        assert track_event.call_args.args[1] == "analyze_completed"
+
+    def test_compare_completed_emitted_on_success(self, logged_in_client, monkeypatch):
+        client, user_id = logged_in_client
+        response_class = client.application.response_class
+        track_event = MagicMock()
+        monkeypatch.setattr("app.routes.comparison_routes.track_event", track_event)
+        monkeypatch.setattr(
+            "app.routes.comparison_routes.comparison_service.handle_comparison_request",
+            lambda *_args, **_kwargs: response_class(
+                response=json.dumps({"ok": True, "data": {"comparison": []}}),
+                status=200,
+                mimetype="application/json",
+            ),
+        )
+
+        resp = client.post("/api/compare", json={"cars": []}, headers={"Origin": "http://localhost"})
+
+        assert resp.status_code == 200
+        track_event.assert_called_once()
+        assert track_event.call_args.args[0] == str(user_id)
+        assert track_event.call_args.args[1] == "compare_completed"
+
+    def test_feedback_given_emitted_on_success(self, logged_in_client, monkeypatch):
+        client, user_id = logged_in_client
+        track_event = MagicMock()
+        monkeypatch.setattr("app.routes.feedback_routes.track_event", track_event)
+
+        resp = client.post("/api/feedback", json={"is_positive": True}, content_type="application/json")
+
+        assert resp.status_code == 200
+        track_event.assert_called_once()
+        assert track_event.call_args.args[0] == str(user_id)
+        assert track_event.call_args.args[1] == "feedback_given"
+
+    def test_signup_completed_emitted_for_new_users(self, client, monkeypatch):
+        track_event = MagicMock()
+
+        class FakeResponse:
+            @staticmethod
+            def json():
+                return {
+                    "id": "new-google-id",
+                    "email": "new-user@example.com",
+                    "name": "New User",
+                }
+
+        monkeypatch.setattr("app.routes.public_routes.track_event", track_event)
+        monkeypatch.setattr("main.oauth.google.authorize_access_token", lambda: {"access_token": "token"})
+        monkeypatch.setattr("main.oauth.google.get", lambda _path: FakeResponse())
+
+        resp = client.get("/auth")
+
+        assert resp.status_code == 302
+        track_event.assert_called_once()
+        assert track_event.call_args.args[1] == "signup_completed"
 
 
 # =====================================================
