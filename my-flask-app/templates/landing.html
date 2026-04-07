@@ -7,6 +7,12 @@
     <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
     <script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio"></script>
     <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    {% if posthog_key %}
+    <script nonce="{{ csp_nonce }}">
+        !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures getActiveMatchingSurveys getSurveys onSessionId".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+        posthog.init('{{ posthog_key }}', {api_host: '{{ posthog_host }}'});
+    </script>
+    {% endif %}
     <style>
         :root { --bg-dark: #0F172A; --text-light: #E2E8F0; --primary: #6366F1; --secondary:#EC4899; }
         body {
@@ -67,9 +73,16 @@
                             מזינים יצרן, דגם ושנתון — ומקבלים תמונת מצב ברורה על אמינות הדגם, סיכון העסקה, תקלות נפוצות ומה כדאי לבדוק לפני החלטה.
                         </p>
                         <div class="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start items-center">
+                            {% if current_user.is_authenticated %}
                             <a href="{{ url_for('public.app_page') }}" class="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 rounded-2xl bg-gradient-to-r from-primary to-secondary text-white font-black text-lg shadow-xl shadow-primary/20 hover:scale-[1.02] transition-transform">
                                 להתחיל בדיקה עכשיו
                             </a>
+                            {% else %}
+                            <a href="{{ url_for('public.login') }}" class="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 rounded-2xl bg-gradient-to-r from-primary to-secondary text-white font-black text-lg shadow-xl shadow-primary/20 hover:scale-[1.02] transition-transform"
+                               onclick="if(typeof posthog!=='undefined')try{posthog.capture('signup_clicked',{source:'landing'})}catch(e){}">
+                                התחבר עם Google כדי לנתח רכב
+                            </a>
+                            {% endif %}
                         </div>
                         <p class="text-sm text-slate-400 mt-4">
                             השירות נועד לתת אינדיקציה מהירה ומסודרת — לא תחליף לבדיקה פיזית במכון או במוסך.
@@ -216,8 +229,61 @@
                 </div>
             </div>
         </section>
+
+        <!-- Example gallery section -->
+        <section id="example-gallery" class="container mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-16">
+            <div class="max-w-6xl mx-auto">
+                <div class="text-center mb-8">
+                    <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase mb-3">ניתוחים לדוגמה</p>
+                    <h2 class="text-3xl md:text-4xl font-extrabold text-white mb-4">ראו מה מקבלים — דוגמאות אמיתיות</h2>
+                    <p class="text-slate-300">לחצו על כרטיסייה כדי לצפות בניתוח המלא</p>
+                </div>
+                <div id="example-cards" class="grid md:grid-cols-3 gap-6">
+                    <!-- Populated dynamically via JS from /api/examples -->
+                </div>
+            </div>
+        </section>
     </main>
 
+    {% include '_login_modal.html' %}
     {% include '_footer.html' %}
+
+    <script nonce="{{ csp_nonce }}">
+    /* Example gallery — fetch /api/examples and render cards */
+    (function() {
+        var container = document.getElementById('example-cards');
+        if (!container) return;
+        fetch('/api/examples', {headers: {'Accept': 'application/json'}})
+            .then(function(r) { return r.json(); })
+            .then(function(body) {
+                var examples = (body.data && body.data.examples) || [];
+                if (!examples.length) { container.parentElement.style.display = 'none'; return; }
+                examples.forEach(function(ex) {
+                    var score = ex.score || '—';
+                    var scoreColor = score >= 75 ? 'emerald' : (score >= 55 ? 'amber' : 'red');
+                    var card = document.createElement('a');
+                    card.href = '/example/' + ex.slug;
+                    card.className = 'rounded-2xl border border-slate-700/60 bg-dark-lighter/70 p-6 hover:border-primary/40 transition-all hover:-translate-y-1 block';
+                    card.innerHTML =
+                        '<div class="flex items-start justify-between mb-3">' +
+                            '<div><p class="text-white font-bold text-lg">' + (ex.label || '') + '</p></div>' +
+                            '<div class="px-3 py-1.5 rounded-full text-xs font-bold bg-' + scoreColor + '-500/15 text-' + scoreColor + '-300 border border-' + scoreColor + '-500/30">' + score + '</div>' +
+                        '</div>' +
+                        '<p class="text-slate-400 text-sm leading-relaxed mb-4">' + (ex.summary || '') + '</p>' +
+                        '<span class="text-primary text-sm font-semibold">צפה בניתוח מלא &larr;</span>';
+                    container.appendChild(card);
+                });
+            })
+            .catch(function() {});
+    })();
+    </script>
+
+    {% if posthog_key %}
+    <script nonce="{{ csp_nonce }}">
+        if (typeof posthog !== 'undefined') {
+            try { posthog.capture('landing_viewed'); } catch(e) {}
+        }
+    </script>
+    {% endif %}
 </body>
 </html>

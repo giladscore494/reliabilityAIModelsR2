@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>yedaarechevAI – ניתוח לדוגמה: {{ example.make }} {{ example.model }} {{ example.year }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    {% if posthog_key %}
+    <script nonce="{{ csp_nonce }}">
+        !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures getActiveMatchingSurveys getSurveys onSessionId".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+        posthog.init('{{ posthog_key }}', {api_host: '{{ posthog_host }}'});
+    </script>
+    {% endif %}
+    <style>
+        :root { --bg-dark: #0F172A; --text-light: #E2E8F0; --primary: #6366F1; --secondary:#EC4899; }
+        body {
+            font-family: 'Heebo', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-light);
+            margin: 0;
+            overflow-x: hidden;
+        }
+        .fade-in { animation: fadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards; opacity: 0; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        ::-webkit-scrollbar { width: 10px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 5px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+        .score-circle {
+            width: 120px; height: 120px; border-radius: 50%;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            font-weight: 900; color: white; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+        }
+    </style>
+    <script nonce="{{ csp_nonce }}">
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#6366F1', secondary: '#EC4899',
+                        dark: '#0F172A', 'dark-lighter': '#1E293B',
+                        success: '#10B981', warning: '#F59E0B', danger: '#EF4444',
+                    },
+                    boxShadow: { 'neon': '0 0 20px rgba(99, 102, 241, 0.4)' }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-dark text-slate-200 min-h-screen flex flex-col antialiased selection:bg-primary/30 selection:text-white">
+    {% set active_page = 'example' %}
+    {% include '_navbar.html' %}
+
+    <main class="flex-grow">
+        <!-- Example banner -->
+        <div class="bg-gradient-to-r from-amber-600/20 to-amber-500/10 border-b border-amber-500/30">
+            <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-4">
+                <div class="flex flex-col md:flex-row items-center justify-between gap-4 max-w-6xl mx-auto">
+                    <div class="text-center md:text-right">
+                        <p class="text-amber-200 font-bold text-sm md:text-base">
+                            דוגמה — זהו ניתוח שנוצר עבור רכב לדוגמה. כדי לקבל ניתוח לרכב שלך, התחבר עם Google.
+                        </p>
+                    </div>
+                    <a href="{{ url_for('public.login') }}"
+                       class="shrink-0 inline-flex items-center justify-center px-6 py-2.5 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-bold text-sm shadow-lg shadow-primary/20 hover:scale-[1.02] transition-transform"
+                       onclick="if(typeof posthog!=='undefined')try{posthog.capture('signup_clicked',{source:'example'})}catch(e){}">
+                        התחבר עם Google
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <section class="container mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12">
+            <div class="max-w-5xl mx-auto fade-in">
+                <!-- Car header -->
+                <div class="flex flex-col md:flex-row items-start justify-between gap-6 mb-8">
+                    <div>
+                        <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase mb-2">ניתוח אמינות לדוגמה</p>
+                        <h1 class="text-3xl md:text-4xl font-extrabold text-white">{{ example.make }} {{ example.model }} {{ example.year }}</h1>
+                    </div>
+                    {% set score = result_data.get('reliability_score') or result_data.get('score') or result_data.get('overall_score') %}
+                    {% if score %}
+                    <div class="score-circle {% if score >= 75 %}bg-emerald-600{% elif score >= 55 %}bg-amber-500{% else %}bg-red-500{% endif %}">
+                        <span class="text-3xl">{{ score }}</span>
+                        <span class="text-xs opacity-80">/ 100</span>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- Executive summary -->
+                {% set summary = result_data.get('executive_summary') or result_data.get('summary') %}
+                {% if summary %}
+                <div class="rounded-2xl border border-slate-700/70 bg-dark-lighter/70 p-6 mb-6">
+                    <h2 class="text-lg font-bold text-white mb-3">סיכום מנהלים</h2>
+                    <p class="text-slate-300 leading-relaxed">{{ summary }}</p>
+                </div>
+                {% endif %}
+
+                <!-- Reliability level -->
+                {% set level = result_data.get('reliability_label') or result_data.get('reliability_level') %}
+                {% if level %}
+                <div class="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5 mb-6">
+                    <div class="text-sm text-emerald-200 font-bold mb-1">אמינות מוערכת: {{ level }}</div>
+                </div>
+                {% endif %}
+
+                <!-- Risk level -->
+                {% set risk = result_data.get('risk_level') or result_data.get('deal_risk_level') %}
+                {% if risk %}
+                <div class="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-5 mb-6">
+                    <div class="text-sm text-amber-200 font-bold mb-1">רמת סיכון: {{ risk }}</div>
+                    {% set risk_desc = result_data.get('risk_assessment') or result_data.get('deal_risk_assessment') %}
+                    {% if risk_desc %}
+                    <p class="text-sm text-slate-200">{{ risk_desc }}</p>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                <!-- Common issues -->
+                {% set issues = result_data.get('common_issues') or result_data.get('known_issues') or [] %}
+                {% if issues %}
+                <div class="rounded-2xl border border-slate-700/70 bg-dark-lighter/70 p-6 mb-6">
+                    <h2 class="text-lg font-bold text-white mb-3">תקלות נפוצות</h2>
+                    <ul class="space-y-3 text-sm text-slate-300">
+                        {% for issue in issues %}
+                        <li class="flex items-start gap-3">
+                            <span class="mt-1 h-2.5 w-2.5 rounded-full bg-danger shrink-0"></span>
+                            <span>{% if issue is mapping %}{{ issue.get('description', issue.get('name', issue|string)) }}{% else %}{{ issue }}{% endif %}</span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+
+                <!-- Pre-purchase checks -->
+                {% set checks = result_data.get('pre_purchase_checks') or result_data.get('what_to_check') or [] %}
+                {% if checks %}
+                <div class="rounded-2xl border border-slate-700/70 bg-dark-lighter/70 p-6 mb-6">
+                    <h2 class="text-lg font-bold text-white mb-3">מה לבדוק לפני קנייה</h2>
+                    <ul class="space-y-3 text-sm text-slate-300">
+                        {% for check in checks %}
+                        <li class="flex items-start gap-3">
+                            <span class="mt-1 h-2.5 w-2.5 rounded-full bg-primary shrink-0"></span>
+                            <span>{% if check is mapping %}{{ check.get('description', check.get('item', check|string)) }}{% else %}{{ check }}{% endif %}</span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+
+                <!-- Maintenance costs -->
+                {% set costs = result_data.get('maintenance_costs') or result_data.get('estimated_costs') %}
+                {% if costs %}
+                <div class="rounded-2xl border border-slate-700/70 bg-dark-lighter/70 p-6 mb-6">
+                    <h2 class="text-lg font-bold text-white mb-3">עלויות תחזוקה משוערות</h2>
+                    {% if costs is mapping %}
+                    <div class="grid grid-cols-2 gap-4 text-sm">
+                        {% for key, val in costs.items() %}
+                        <div class="text-slate-400">{{ key }}</div>
+                        <div class="text-white font-semibold">{{ val }}</div>
+                        {% endfor %}
+                    </div>
+                    {% elif costs is iterable and costs is not string %}
+                    <ul class="space-y-2 text-sm text-slate-300">
+                        {% for item in costs %}
+                        <li>{% if item is mapping %}{{ item.get('description', item|string) }}: {{ item.get('cost', '') }}{% else %}{{ item }}{% endif %}</li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <p class="text-slate-300">{{ costs }}</p>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                <!-- CTA -->
+                <div class="rounded-[2rem] border border-slate-700/70 bg-dark-lighter/70 p-8 text-center">
+                    <h3 class="text-2xl font-extrabold text-white mb-3">מוכנים לבדוק את הרכב שלכם?</h3>
+                    <p class="text-slate-400 mb-6">התחברו עם Google וקבלו ניתוח אמינות מותאם אישית לרכב שאתם שוקלים לקנות.</p>
+                    <a href="{{ url_for('public.login') }}"
+                       class="inline-flex items-center justify-center px-8 py-4 rounded-2xl bg-gradient-to-r from-primary to-secondary text-white font-black text-lg shadow-xl shadow-primary/20 hover:scale-[1.02] transition-transform"
+                       onclick="if(typeof posthog!=='undefined')try{posthog.capture('signup_clicked',{source:'example'})}catch(e){}">
+                        התחבר עם Google כדי לנתח רכב
+                    </a>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    {% include '_login_modal.html' %}
+    {% include '_footer.html' %}
+
+    {% if posthog_key %}
+    <script nonce="{{ csp_nonce }}">
+        if (typeof posthog !== 'undefined') {
+            try { posthog.capture('example_viewed', { example_slug: '{{ slug }}' }); } catch(e) {}
+        }
+    </script>
+    {% endif %}
+</body>
+</html>

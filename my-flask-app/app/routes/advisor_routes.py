@@ -35,10 +35,9 @@ def _current_user_email() -> str:
 
 
 @bp.route('/recommendations')
-@login_required
 def recommendations():
     advisor_owner_only = current_app.config.get('ADVISOR_OWNER_ONLY', False)
-    if advisor_owner_only and not is_owner_user():
+    if current_user.is_authenticated and advisor_owner_only and not is_owner_user():
         flash("גישה למנוע ההמלצות זמינה לבעלי המערכת בלבד.", "error")
         return redirect(url_for('dashboard.dashboard'))
     return render_template(

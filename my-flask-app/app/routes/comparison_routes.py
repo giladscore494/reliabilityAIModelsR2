@@ -22,14 +22,27 @@ from app.legal import TERMS_VERSION, PRIVACY_VERSION
 from app.models import LegalAcceptance, QuotaReservation
 from app.utils.http_helpers import api_error, api_ok, is_owner_user, get_request_id, _utcnow
 from app.services import comparison_service
+from app.utils.analytics import track_event
 
 bp = Blueprint('comparison', __name__)
 
 
 @bp.route('/compare')
-@login_required
 def compare_page():
-    """Render the car comparison page."""
+    """Render the car comparison page (publicly accessible GET)."""
+    if not current_user.is_authenticated:
+        return render_template(
+            'compare.html',
+            user=current_user,
+            user_email="",
+            is_owner=False,
+            car_models_data=israeli_car_market_full_compilation,
+            legal_accepted=False,
+            accepted_terms=False,
+            accepted_privacy=False,
+            terms_version=current_app.config.get("TERMS_VERSION", TERMS_VERSION),
+            privacy_version=current_app.config.get("PRIVACY_VERSION", PRIVACY_VERSION),
+        )
     user_email = getattr(current_user, "email", "") if current_user.is_authenticated else ""
     terms_version = current_app.config.get("TERMS_VERSION", TERMS_VERSION)
     privacy_version = current_app.config.get("PRIVACY_VERSION", PRIVACY_VERSION)
@@ -179,6 +192,12 @@ def compare_api():
                     return resp
             except Exception:
                 pass  # If JSON parsing fails, just return the response
+        # PostHog: compare_completed
+        if resp.status_code < 400:
+            try:
+                track_event(str(user_id), "compare_completed", {"request_id": get_request_id()})
+            except Exception:
+                pass
         return resp
     except Exception:
         if reservation_id:
