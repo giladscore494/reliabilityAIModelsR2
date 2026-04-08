@@ -48,24 +48,25 @@
     {% include '_navbar.html' %}
 
     <main class="flex-grow">
+        <!-- HERO -->
         <section class="relative overflow-hidden">
             <div class="absolute inset-0 pointer-events-none">
                 <div class="absolute top-[-12rem] left-1/2 -translate-x-1/2 w-[70rem] h-[70rem] opacity-25" style="background: radial-gradient(circle, rgba(99,102,241,0.35) 0%, rgba(15,23,42,0) 70%);"></div>
                 <div class="absolute top-40 right-[-8rem] w-80 h-80 rounded-full bg-secondary/10 blur-3xl"></div>
             </div>
-            <div class="relative container mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-10 md:pt-24 md:pb-16">
+            <div class="relative container mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-10 md:pt-20 md:pb-14">
                 <div class="max-w-6xl mx-auto grid lg:grid-cols-[1.15fr_0.85fr] gap-10 items-center">
                     <div class="text-center lg:text-right fade-in">
                         <div class="inline-flex items-center gap-2 rounded-full border border-slate-700/80 bg-slate-900/70 px-4 py-2 text-sm text-slate-300 mb-6">
                             בדיקת אמינות רכבים לשוק הישראלי
                         </div>
-                        <h1 class="text-4xl md:text-6xl font-extrabold text-white leading-tight tracking-tight mb-6">
+                        <h1 class="text-4xl md:text-6xl font-extrabold text-white leading-tight tracking-tight mb-5">
                             לפני שקונים רכב,
-                            <span class="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">בודקים את רמת האמינות והסיכון</span>
+                            <span class="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">בודקים אמינות וסיכון</span>
                             בכמה שניות.
                         </h1>
-                        <p class="text-lg md:text-2xl text-slate-300 max-w-2xl leading-relaxed mx-auto lg:mx-0 mb-8">
-                            מזינים יצרן, דגם ושנתון — ומקבלים תמונת מצב ברורה על אמינות הדגם, סיכון העסקה, תקלות נפוצות ומה כדאי לבדוק לפני החלטה.
+                        <p class="text-lg md:text-xl text-slate-300 max-w-2xl leading-relaxed mx-auto lg:mx-0 mb-7">
+                            מזינים יצרן, דגם ושנתון — ומקבלים ציון אמינות, תקלות נפוצות ומה לבדוק לפני העסקה.
                         </p>
                         <div class="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start items-center">
                             {% if current_user.is_authenticated %}
@@ -79,9 +80,6 @@
                             </a>
                             {% endif %}
                         </div>
-                        <p class="text-sm text-slate-400 mt-4">
-                            השירות נועד לתת אינדיקציה מהירה ומסודרת — לא תחליף לבדיקה פיזית במכון או במוסך.
-                        </p>
                     </div>
 
                     <div class="fade-in delay-100">
@@ -99,19 +97,11 @@
                             <div class="space-y-4">
                                 <div class="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4">
                                     <div class="text-sm text-emerald-200 font-bold mb-1">אמינות מוערכת: גבוהה</div>
-                                    <p class="text-sm text-slate-200">ביצועים עקביים, פחות תקלות מהמקובל בקטגוריה ועלויות תחזוקה צפויות יחסית.</p>
+                                    <p class="text-sm text-slate-200">ביצועים עקביים, פחות תקלות מהמקובל בקטגוריה.</p>
                                 </div>
                                 <div class="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
                                     <div class="text-sm text-amber-200 font-bold mb-1">רמת סיכון: בינונית</div>
-                                    <p class="text-sm text-slate-200">כדאי לבדוק היסטוריית טיפולים, מצב גיר ונתוני קילומטראז' מול מחיר העסקה.</p>
-                                </div>
-                                <div class="rounded-2xl border border-slate-700/70 bg-slate-900/60 p-4">
-                                    <div class="text-sm text-white font-bold mb-3">בדיקות חשובות לפני קנייה:</div>
-                                    <ul class="space-y-3 text-sm text-slate-300">
-                                        <li class="flex items-start gap-3"><span class="mt-1 h-2.5 w-2.5 rounded-full bg-primary"></span><span>להצליב היסטוריית טיפולים עם קילומטראז' ומצב בעלויות.</span></li>
-                                        <li class="flex items-start gap-3"><span class="mt-1 h-2.5 w-2.5 rounded-full bg-primary"></span><span>לבקש בדיקה ממוקדת לגיר, למערכת הקירור ולמצב המצבר.</span></li>
-                                        <li class="flex items-start gap-3"><span class="mt-1 h-2.5 w-2.5 rounded-full bg-primary"></span><span>להגיע עם שאלות מוכנות על תיקונים קודמים ומקורות מידע זמינים.</span></li>
-                                    </ul>
+                                    <p class="text-sm text-slate-200">כדאי לבדוק היסטוריית טיפולים ומצב גיר מול מחיר העסקה.</p>
                                 </div>
                             </div>
                         </div>
@@ -120,122 +110,40 @@
             </div>
         </section>
 
-        <section class="container mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12">
-            <div class="max-w-6xl mx-auto grid md:grid-cols-3 gap-4 fade-in delay-200">
-                    <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
-                        <div class="text-white font-bold mb-2">מה הבעיה?</div>
-                        <p class="text-slate-300 text-sm leading-7">קשה להבין מראש אם דגם מסוים נחשב אמין, ומה הסיכון האמיתי בקנייה שלו בישראל.</p>
-                    </div>
-                    <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
-                        <div class="text-white font-bold mb-2">למה זה חשוב?</div>
-                        <p class="text-slate-300 text-sm leading-7">בחירה לא נכונה עלולה להוביל לתיקונים יקרים, הפתעות אחרי הקנייה וזמן יקר שמתבזבז.</p>
-                    </div>
-                    <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
-                        <div class="text-white font-bold mb-2">מה מקבלים כאן?</div>
-                        <p class="text-slate-300 text-sm leading-7">בדיקה מהירה שמסדרת את הנתונים לשפה פשוטה: אמינות, סיכון, עלויות ומה לבדוק לפני שסוגרים.</p>
-                    </div>
-            </div>
-        </section>
-
-        <section class="container mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-16">
-            <div class="max-w-6xl mx-auto rounded-[2rem] border border-slate-800 bg-dark-lighter/50 p-8 md:p-10">
-                <div class="max-w-2xl mb-10">
-                    <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase mb-3">איך זה עובד</p>
-                    <h2 class="text-3xl md:text-4xl font-extrabold text-white mb-4">3 צעדים פשוטים לתמונה ברורה יותר</h2>
-                    <p class="text-slate-300 leading-7">בלי טפסים מסובכים ובלי לקפוץ ישר למורכבות. קודם מבינים, ואז בודקים.</p>
-                </div>
-                <div class="grid md:grid-cols-3 gap-6">
-                    <div class="rounded-2xl border border-slate-700/60 bg-slate-900/50 p-6">
-                        <div class="w-12 h-12 rounded-2xl bg-primary/15 text-primary flex items-center justify-center font-black text-xl mb-4">1</div>
-                        <h3 class="text-xl font-bold text-white mb-3">מזינים דגם ושנתון</h3>
-                        <p class="text-slate-300 text-sm leading-7">בחרו יצרן, דגם ושנה, והוסיפו פרטי שימוש אם תרצו תוצאה מדויקת יותר.</p>
-                    </div>
-                    <div class="rounded-2xl border border-slate-700/60 bg-slate-900/50 p-6">
-                        <div class="w-12 h-12 rounded-2xl bg-primary/15 text-primary flex items-center justify-center font-black text-xl mb-4">2</div>
-                        <h3 class="text-xl font-bold text-white mb-3">מקבלים ניתוח מסודר</h3>
-                        <p class="text-slate-300 text-sm leading-7">המערכת מציגה ציון אמינות, סיכון עסקה, תקלות נפוצות ונקודות בדיקה רלוונטיות.</p>
-                    </div>
-                    <div class="rounded-2xl border border-slate-700/60 bg-slate-900/50 p-6">
-                        <div class="w-12 h-12 rounded-2xl bg-primary/15 text-primary flex items-center justify-center font-black text-xl mb-4">3</div>
-                        <h3 class="text-xl font-bold text-white mb-3">מחליטים עם פחות אי-ודאות</h3>
-                        <p class="text-slate-300 text-sm leading-7">מגיעים לשיחת המכירה, לבדיקה במוסך או להמשך חיפוש כשאתם מבינים טוב יותר את התמונה.</p>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <section class="container mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-16">
-            <div class="max-w-6xl mx-auto grid lg:grid-cols-[0.95fr_1.05fr] gap-8 items-start">
-                <div>
-                    <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase mb-3">למה משתמשים בזה</p>
-                    <h2 class="text-3xl md:text-4xl font-extrabold text-white mb-4">פחות רעש, יותר בהירות לפני עסקה</h2>
-                    <p class="text-slate-300 leading-7 mb-6">במקום לאסוף מידע מפוזר ממקומות שונים, הכלי מרכז עבורך נקודות מפתח שיעזרו להבין האם כדאי להמשיך לבדוק את הרכב — או לעצור מוקדם.</p>
-                    <div class="space-y-4 text-sm text-slate-300">
-                        <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">מתאים במיוחד למי שרוצה סינון ראשוני חכם לפני שיחת מכירה, נסיעת מבחן או בדיקה במכון.</div>
-                        <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">הפלט כתוב בעברית פשוטה וממוקד בהחלטה, לא רק בנתונים גולמיים.</div>
-                    </div>
-                </div>
-                <div class="rounded-[2rem] border border-slate-800 bg-slate-900/40 p-6 md:p-8">
-                    <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase mb-4">מה תראו בתוצאה</p>
-                    <div class="space-y-4">
-                        <div class="rounded-2xl border border-slate-700/60 bg-dark-lighter/60 p-5">
-                            <div class="text-white font-bold mb-2">סיכום מנהלים מהיר</div>
-                            <p class="text-slate-300 text-sm">משפט אחד ברור שמסביר אם הדגם נראה בטוח יחסית, רגיש, או דורש זהירות מיוחדת.</p>
-                        </div>
-                        <div class="rounded-2xl border border-slate-700/60 bg-dark-lighter/60 p-5">
-                            <div class="text-white font-bold mb-2">תקלות ועלויות תחזוקה</div>
-                            <p class="text-slate-300 text-sm">תקבלו דוגמאות לתקלות שכדאי להכיר והערכות שיעזרו להבין מה עלול לעלות כסף.</p>
-                        </div>
-                        <div class="rounded-2xl border border-slate-700/60 bg-dark-lighter/60 p-5">
-                            <div class="text-white font-bold mb-2">מה לבדוק לפני קנייה</div>
-                            <p class="text-slate-300 text-sm">רשימת בדיקות ושאלות שיעזרו לכם להגיע מוכנים יותר למוכר, למכון או למוסך.</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <section class="container mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-16">
-            <div class="max-w-6xl mx-auto grid lg:grid-cols-2 gap-8">
-                <div class="rounded-[2rem] border border-slate-800 bg-dark-lighter/50 p-8">
-                    <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase mb-3">אמון והבהרה</p>
-                    <h2 class="text-3xl font-extrabold text-white mb-4">נבנה כדי לעזור לך להבין מהר יותר, לא להחליף בדיקה מקצועית</h2>
-                    <ul class="space-y-4 text-slate-300 text-sm leading-7">
-                        <li class="rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4">הניתוח נועד לספק אינדיקציה מסודרת, לא חוות דעת מכנית, משפטית או בטיחותית.</li>
-                        <li class="rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4">לפני קנייה חשוב לבצע בדיקה פיזית ולוודא היסטוריית טיפולים ומצב רכב בפועל.</li>
-                        <li class="rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4">תנאי השימוש ומדיניות הפרטיות זמינים תמיד לעיון לפני השימוש.</li>
-                    </ul>
-                    <div class="flex flex-wrap gap-4 mt-6 text-sm">
-                        <a href="{{ url_for('public.terms') }}" class="text-primary hover:underline">תנאי שימוש</a>
-                        <a href="{{ url_for('public.privacy') }}" class="text-primary hover:underline">מדיניות פרטיות</a>
-                    </div>
-                </div>
-                <div class="rounded-[2rem] border border-slate-800 bg-dark-lighter/50 p-8">
-                    <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase mb-3">קצת על השירות</p>
-                    <h2 class="text-3xl font-extrabold text-white mb-4">כלי שנועד לתת נקודת פתיחה חכמה לרכישת רכב</h2>
-                    <p class="text-slate-300 leading-7 mb-6">yedaarechevAI מרכז תובנות אמינות ברכב בפורמט פשוט וברור, עם התאמה לשוק הישראלי ולשאלות שעולות רגע לפני עסקה.</p>
-                    <div class="rounded-2xl border border-slate-700/70 bg-slate-900/50 p-5">
-                        <p class="text-white font-bold mb-2">מוכנים לבדוק רכב?</p>
-                        <p class="text-slate-300 text-sm mb-4">אם יש לכם כבר דגם ושנתון בראש, עברו לכלי וקבלו תוצאה מסודרת בתוך דקות.</p>
-                        <a href="{{ url_for('public.app_page') }}" class="inline-flex items-center justify-center px-6 py-3 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-bold shadow-lg shadow-primary/20">
-                            לעבור לבודק האמינות
-                        </a>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Example gallery section -->
-        <section id="example-gallery" class="container mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-16">
+        <!-- EXAMPLE GALLERY (moved up — primary proof) -->
+        <section id="example-gallery" class="container mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-14">
             <div class="max-w-6xl mx-auto">
                 <div class="text-center mb-8">
-                    <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase mb-3">ניתוחים לדוגמה</p>
-                    <h2 class="text-3xl md:text-4xl font-extrabold text-white mb-4">ראו מה מקבלים — דוגמאות אמיתיות</h2>
-                    <p class="text-slate-300">לחצו על כרטיסייה כדי לצפות בניתוח המלא</p>
+                    <h2 class="text-3xl md:text-4xl font-extrabold text-white mb-3">ניתוחים אמיתיים לדוגמה</h2>
+                    <p class="text-slate-400">לחצו על כרטיסייה כדי לצפות בניתוח המלא</p>
                 </div>
                 <div id="example-cards" class="grid md:grid-cols-3 gap-6">
                     <!-- Populated dynamically via JS from /api/examples -->
                 </div>
+            </div>
+        </section>
+
+        <!-- DISCLAIMER + FINAL CTA -->
+        <section class="container mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-14">
+            <div class="max-w-3xl mx-auto text-center rounded-[2rem] border border-slate-800 bg-dark-lighter/40 p-8">
+                <p class="text-slate-300 text-sm leading-7 mb-2">
+                    השירות נותן אינדיקציה מסודרת לפני עסקה — לא תחליף לבדיקה פיזית במכון או במוסך.
+                </p>
+                <div class="flex justify-center gap-4 text-xs text-slate-400 mb-6">
+                    <a href="{{ url_for('public.terms') }}" class="hover:text-primary">תנאי שימוש</a>
+                    <span>·</span>
+                    <a href="{{ url_for('public.privacy') }}" class="hover:text-primary">מדיניות פרטיות</a>
+                </div>
+                {% if current_user.is_authenticated %}
+                <a href="{{ url_for('public.app_page') }}" class="inline-flex items-center justify-center px-8 py-4 rounded-2xl bg-gradient-to-r from-primary to-secondary text-white font-black text-lg shadow-xl shadow-primary/20 hover:scale-[1.02] transition-transform">
+                    לעבור לבודק האמינות
+                </a>
+                {% else %}
+                <a href="{{ url_for('public.login') }}" class="inline-flex items-center justify-center px-8 py-4 rounded-2xl bg-gradient-to-r from-primary to-secondary text-white font-black text-lg shadow-xl shadow-primary/20 hover:scale-[1.02] transition-transform"
+                   onclick="if(typeof posthog!=='undefined')try{posthog.capture('signup_clicked',{source:'landing_bottom'})}catch(e){}">
+                    התחבר עם Google כדי להתחיל
+                </a>
+                {% endif %}
             </div>
         </section>
     </main>

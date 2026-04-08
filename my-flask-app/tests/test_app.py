@@ -110,7 +110,7 @@ def test_landing_preview_uses_verbal_reliability_demo(client):
     html = resp.get_data(as_text=True)
     assert "אמינות מוערכת: גבוהה" in html
     assert "רמת סיכון: בינונית" in html
-    assert "בדיקות חשובות לפני קנייה:" in html
+    assert "ניתוחים אמיתיים לדוגמה" in html
     assert "/100" not in html
 
 
