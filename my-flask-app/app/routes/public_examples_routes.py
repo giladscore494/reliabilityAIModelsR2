@@ -54,13 +54,12 @@ def list_examples():
             rj = {}
 
         score = (
-            rj.get("reliability_score")
-            or rj.get("score")
-            or rj.get("overall_score")
+            rj.get("model_reliability_score")
+            or rj.get("base_score_calculated")
         )
         summary = (
-            rj.get("executive_summary")
-            or rj.get("summary")
+            rj.get("reliability_summary_simple")
+            or rj.get("reliability_summary")
             or ""
         )
         if isinstance(summary, str) and len(summary) > 160:

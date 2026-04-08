@@ -1081,5 +1081,19 @@
 
     // Expose for compare page use
     window.renderFeedbackCTA = renderFeedbackCTA;
+    window.renderResults = renderResults;
+
+    // Public example page bootstrap: if server injected example data, render it.
+    const exampleDataEl = document.getElementById('example-data');
+    if (exampleDataEl) {
+        try {
+            const exampleData = JSON.parse(exampleDataEl.textContent || '{}');
+            if (exampleData && Object.keys(exampleData).length > 0) {
+                renderResults(exampleData);
+            }
+        } catch (e) {
+            console.error('[EXAMPLE] failed to parse example data', e);
+        }
+    }
 
 })();
