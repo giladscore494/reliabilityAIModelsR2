@@ -8,7 +8,11 @@ from app.models import (
     AdvisorHistory,
 )
 from app.legal import PRIVACY_VERSION, TERMS_VERSION
-from app.research import RESEARCH_NOTICE_VERSION, RESEARCH_CONSENT_VERSION
+from app.research import (
+    RESEARCH_NOTICE_VERSION,
+    RESEARCH_CONSENT_VERSION,
+    RESEARCH_QUESTION_VERSION,
+)
 from app.utils.sanitization import (
     sanitize_profile_for_storage,
     sanitize_context_for_ai,
@@ -221,6 +225,12 @@ def test_owner_profile_valid_payload_saves(app, logged_in_client):
         data = body.get("data") or body
         assert data["saved"]
         assert "session_id" in data
+
+        session_record = ResearchResponseSession.query.get(data["session_id"])
+        assert session_record.question_version == RESEARCH_QUESTION_VERSION
+        rows = ResearchResponse.query.filter_by(session_id=session_record.id).all()
+        assert rows
+        assert all(row.is_required is False for row in rows)
 
 
 def test_owner_profile_missing_required_fields_rejected(client, logged_in_client):

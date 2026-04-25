@@ -25,6 +25,7 @@ from app.legal import PRIVACY_VERSION, TERMS_VERSION
 from app.research import (
     RESEARCH_CONSENT_VERSION,
     RESEARCH_NOTICE_VERSION,
+    RESEARCH_QUESTION_VERSION,
     ensure_anon_id,
     OWNER_PROFILE_FLOW,
 )
@@ -155,7 +156,7 @@ def submit_owner_profile():
             vehicle_context_json=json.dumps(vehicle_context),
             consent_id=consent.id,
             status="submitted",
-            question_version=RESEARCH_CONSENT_VERSION,
+            question_version=RESEARCH_QUESTION_VERSION,
         )
         db.session.add(session_record)
         db.session.flush()
@@ -168,20 +169,8 @@ def submit_owner_profile():
                 flow_type=OWNER_PROFILE_FLOW,
                 response_json=json.dumps(sanitized_value),
                 answered_at=_utcnow(),
-                is_required=question_code in {
-                    "has_current_vehicle",
-                    "make",
-                    "model",
-                    "year",
-                    "fuel_type",
-                    "transmission",
-                    "mileage_bucket",
-                    "ownership_duration_bucket",
-                    "had_major_faults",
-                    "satisfaction_score",
-                    "would_buy_again",
-                },
-                question_version=RESEARCH_CONSENT_VERSION,
+                is_required=False,
+                question_version=RESEARCH_QUESTION_VERSION,
                 consent_id=consent.id,
             )
             db.session.add(response_record)

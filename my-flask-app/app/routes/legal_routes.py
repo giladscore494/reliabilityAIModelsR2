@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Legal acceptance routes blueprint."""
 
+import hashlib
+
 from flask import Blueprint, current_app, jsonify, request, session
 from flask_login import login_required, current_user
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -68,6 +70,13 @@ def _find_research_consent(*, consent_id=None):
     if user_id:
         return query.filter_by(user_id=user_id).first()
     return query.filter_by(anon_id=anon_id).first()
+
+
+def _hash_value(value: str) -> str | None:
+    text = (value or "").strip()
+    if not text:
+        return None
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 @bp.route("/api/legal/accept", methods=["POST"])
@@ -256,6 +265,10 @@ def accept_research_consent():
         accepted_source=((data.get("accepted_source") or "web")[:64]),
         is_explicit=True,
         is_informed=True,
+        consent_given=True,
+        source_page=((data.get("accepted_source") or "web")[:64]),
+        ip_hash=_hash_value(normalize_legal_ip(get_client_ip())),
+        user_agent_hash=_hash_value((request.headers.get("User-Agent") or "")[:512]),
     )
     db.session.add(consent)
     try:
@@ -315,9 +328,12 @@ def save_research_responses():
         return _legal_error("VALIDATION_ERROR", exc.message, status=400)
 
     source_analysis_type = (data.get("source_analysis_type") or "").strip()
+    source_analysis_type = {
+        "comparison_history": "compare_history",
+    }.get(source_analysis_type, source_analysis_type)
     if source_analysis_type not in {
         "search_history",
-        "comparison_history",
+        "compare_history",
         "advisor_history",
     }:
         return _legal_error(
@@ -342,7 +358,7 @@ def save_research_responses():
 
     source_model = {
         "search_history": SearchHistory,
-        "comparison_history": ComparisonHistory,
+        "compare_history": ComparisonHistory,
         "advisor_history": AdvisorHistory,
     }[source_analysis_type]
     source_record = db.session.get(source_model, source_record_id)
@@ -382,9 +398,7 @@ def save_research_responses():
                 source_record_id if source_analysis_type == "advisor_history" else None
             ),
             related_compare_history_id=(
-                source_record_id
-                if source_analysis_type == "comparison_history"
-                else None
+                source_record_id if source_analysis_type == "compare_history" else None
             ),
         )
         db.session.add(response_session)
@@ -401,7 +415,7 @@ def save_research_responses():
             source_record_id if source_analysis_type == "advisor_history" else None
         )
         response_session.related_compare_history_id = (
-            source_record_id if source_analysis_type == "comparison_history" else None
+            source_record_id if source_analysis_type == "compare_history" else None
         )
 
     for validated in validated_responses:

@@ -1,4 +1,5 @@
 import json
+import pytest
 
 from app.utils.http_helpers import api_ok
 from app.legal import PRIVACY_VERSION, TERMS_VERSION
@@ -10,6 +11,8 @@ from app.models import (
     ResearchResponse,
     ResearchResponseSession,
 )
+from app.research import FIELD_CLASSIFICATION, RESEARCH_QUESTION_VERSION, validate_research_payload
+from app.utils.validation import ValidationError
 
 
 def _advisor_headers(client):
@@ -99,7 +102,7 @@ def test_research_response_persists_session_and_answers_for_logged_in_user(
         json={
             "consent_id": consent_id,
             "flow_type": "compare",
-            "source_analysis_type": "comparison_history",
+            "source_analysis_type": "compare_history",
             "source_record_id": comparison_id,
             "vehicle_context": {"cars": [{"make": "Toyota", "model": "Corolla"}]},
             "responses": [
@@ -145,11 +148,15 @@ def test_reliability_and_compare_pages_render_research_panels(logged_in_client):
     assert compare_resp.status_code == 200
     reliability_html = reliability_resp.data.decode("utf-8")
     compare_html = compare_resp.data.decode("utf-8")
+    assert 'id="reliabilityResultReadyPanel"' in reliability_html
+    assert 'id="reliabilityOpenResultButton"' in reliability_html
     assert 'id="reliabilityResearchSection"' in reliability_html
-    assert 'id="reliabilityResearchSection" class="mt-8 hidden' in reliability_html
+    assert 'id="reliabilityResearchSection" class="mt-6 hidden' in reliability_html
     assert 'id="researchConsentModal"' in reliability_html
+    assert 'id="compareResultReadyPanel"' in compare_html
+    assert 'id="compareOpenResultButton"' in compare_html
     assert 'id="compareResearchSection"' in compare_html
-    assert 'id="compareResearchSection" class="mt-8 hidden' in compare_html
+    assert 'id="compareResearchSection" class="mt-6 hidden' in compare_html
     assert 'id="researchConsentModal"' in compare_html
 
 
@@ -160,10 +167,13 @@ def test_owner_advisor_page_renders_research_fields(logged_in_client, app):
     resp = client.get("/recommendations")
     assert resp.status_code == 200
     html = resp.data.decode("utf-8")
+    assert 'id="advisorResultReadyPanel"' in html
+    assert 'id="advisorOpenResultButton"' in html
     assert 'id="advisorResearchSection"' in html
     assert 'id="advisorResearchCurrentVehicle"' in html
-    assert 'id="advisorResearchSection" class="mt-8 hidden' in html
+    assert 'id="advisorResearchSection" class="mt-6 hidden' in html
     assert 'id="advisorResearchAnswerNow"' in html
+    assert "אפשרויות מתקדמות (אופציונלי)" in html
     form_index = html.index('id="advisor-form"')
     research_index = html.index('id="advisorResearchSection"')
     assert research_index > form_index
@@ -288,3 +298,37 @@ def test_advisor_research_responses_reject_unknown_question_code(logged_in_clien
 
     assert resp.status_code == 400
     assert "Unknown research question_code" in resp.get_json()["message"]
+
+
+def test_research_field_classification_exposes_service_vs_research_boundaries():
+    assert FIELD_CLASSIFICATION["make"] == "service_required"
+    assert FIELD_CLASSIFICATION["driver_gender"] == "service_optional"
+    assert FIELD_CLASSIFICATION["insurance_history"] == "service_optional"
+    assert FIELD_CLASSIFICATION["violations"] == "service_optional"
+    assert FIELD_CLASSIFICATION["current_vehicle"] == "research_optional"
+    assert FIELD_CLASSIFICATION["maintenance_cost_bucket"] == "research_optional"
+
+
+def test_owner_profile_validation_does_not_fall_through_advisor_questions():
+    with pytest.raises(ValidationError) as exc:
+        validate_research_payload(
+            "owner_profile",
+            [
+                {
+                    "question_code": "current_vehicle",
+                    "response": {"current_vehicle": "Toyota Corolla"},
+                }
+            ],
+            {},
+        )
+
+    assert "Unknown research question_code" in exc.value.message
+
+
+def test_research_frontend_scripts_store_seen_state_for_same_history(client):
+    reliability_js = client.get("/static/script.js").get_data(as_text=True)
+    advisor_js = client.get("/static/recommendations.js").get_data(as_text=True)
+
+    assert "research_prompt_seen_" in reliability_js
+    assert "research_prompt_seen_" in advisor_js
+    assert RESEARCH_QUESTION_VERSION == "research_v2_after_value_2026_04_25"

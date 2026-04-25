@@ -123,18 +123,181 @@
         alert(`${message}${suffix}`);
     }
 
+    function researchPromptSeenKey(flowType, historyId) {
+        return `research_prompt_seen_${flowType}_${historyId}`;
+    }
+
+    function hasSeenResearchPrompt(flowType, historyId) {
+        if (!historyId) return false;
+        try {
+            return sessionStorage.getItem(researchPromptSeenKey(flowType, historyId)) === '1';
+        } catch (err) {
+            return false;
+        }
+    }
+
+    function markResearchPromptSeen(flowType, historyId) {
+        if (!historyId) return;
+        try {
+            sessionStorage.setItem(researchPromptSeenKey(flowType, historyId), '1');
+        } catch (err) {}
+    }
+
+    function setReliabilityResearchMessage(message, tone) {
+        if (!reliabilityResearchMessage) return;
+        if (!message) {
+            reliabilityResearchMessage.textContent = '';
+            reliabilityResearchMessage.classList.add('hidden');
+            reliabilityResearchMessage.classList.remove('text-emerald-300', 'text-amber-300', 'text-red-300');
+            reliabilityResearchMessage.classList.add('text-emerald-300');
+            return;
+        }
+        reliabilityResearchMessage.textContent = message;
+        reliabilityResearchMessage.classList.remove('hidden', 'text-emerald-300', 'text-amber-300', 'text-red-300');
+        reliabilityResearchMessage.classList.add(
+            tone === 'error' ? 'text-red-300' : tone === 'warning' ? 'text-amber-300' : 'text-emerald-300'
+        );
+    }
+
+    function scrollToReliabilityResult() {
+        if (!resultsContainer) return;
+        resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function hideReliabilityResearchCard() {
+        reliabilityResearchSection?.classList.add('hidden');
+        reliabilityResearchFormWrap?.classList.add('hidden');
+        researchCardVisible = false;
+        researchFormOpen = false;
+    }
+
+    function resetReliabilityResearchCard() {
+        hideReliabilityResearchCard();
+        reliabilityResearchForm?.reset();
+        setReliabilityResearchMessage('', 'success');
+    }
+
+    function openReliabilityResult(options = {}) {
+        if (!resultsContainer || !isResultReady) return;
+        const userInitiated = options.userInitiated !== false;
+        const alreadyOpen = isResultOpen;
+        isResultOpen = true;
+        resultsContainer.classList.remove('hidden');
+        if (resultReadyPanel) {
+            resultReadyPanel.classList.remove('hidden');
+        }
+        scrollToReliabilityResult();
+        if (userInitiated && !alreadyOpen) {
+            trackAnalytics('result_opened', {
+                flow_type: 'reliability',
+                search_history_id: currentHistoryId,
+            });
+        }
+    }
+
+    function closeReliabilityResult() {
+        isResultOpen = false;
+        resultsContainer?.classList.add('hidden');
+    }
+
+    function showReliabilityReadyPanel() {
+        if (!resultReadyPanel) return;
+        resultReadyPanel.classList.remove('hidden');
+        isResultReady = true;
+        if (currentHistoryId && resultReadyPanelTrackedForHistory !== currentHistoryId) {
+            trackAnalytics('result_ready_panel_shown', {
+                flow_type: 'reliability',
+                search_history_id: currentHistoryId,
+            });
+            resultReadyPanelTrackedForHistory = currentHistoryId;
+        }
+    }
+
+    function showReliabilityResearchCard() {
+        if (!reliabilityResearchSection || !currentHistoryId || hasSeenResearchPrompt('reliability', currentHistoryId)) {
+            hideReliabilityResearchCard();
+            return;
+        }
+        reliabilityResearchSection.classList.remove('hidden');
+        researchCardVisible = true;
+        if (reliabilityResearchTrackedForHistory !== currentHistoryId) {
+            trackAnalytics('research_card_shown', {
+                flow_type: 'reliability',
+                search_history_id: currentHistoryId,
+            });
+            reliabilityResearchTrackedForHistory = currentHistoryId;
+        }
+    }
+
+    function closeReliabilityResearch(options = {}) {
+        const reason = options.reason || 'closed';
+        const trackSkipped = options.trackSkipped === true;
+        if (currentHistoryId) {
+            markResearchPromptSeen('reliability', currentHistoryId);
+            trackAnalytics('research_card_closed', {
+                flow_type: 'reliability',
+                search_history_id: currentHistoryId,
+                reason,
+            });
+            if (trackSkipped) {
+                trackAnalytics('research_skipped', {
+                    flow_type: 'reliability',
+                    search_history_id: currentHistoryId,
+                });
+            }
+        }
+        hideReliabilityResearchCard();
+        if (options.openResult === true) {
+            openReliabilityResult({ userInitiated: true });
+        }
+    }
+
+    function openReliabilityResearchForm() {
+        if (!currentHistoryId || !reliabilityResearchFormWrap) return;
+        reliabilityResearchFormWrap.classList.remove('hidden');
+        researchFormOpen = true;
+        setReliabilityResearchMessage('', 'success');
+        trackAnalytics('research_started', {
+            flow_type: 'reliability',
+            search_history_id: currentHistoryId,
+        });
+        const firstInput = reliabilityResearchForm?.querySelector('input, select, textarea');
+        firstInput?.focus();
+    }
+
+    function resetResultFlowState() {
+        isLoading = false;
+        isResultReady = false;
+        isResultOpen = false;
+        currentHistoryId = null;
+        researchCardVisible = false;
+        researchFormOpen = false;
+        lastAnalyzePayload = null;
+        resultReadyPanel?.classList.add('hidden');
+        closeReliabilityResult();
+        resetReliabilityResearchCard();
+    }
+
     const makeSelect = document.getElementById('make');
     const modelSelect = document.getElementById('model');
     const yearSelect = document.getElementById('year');
     const form = document.getElementById('car-form');
     const submitBtn = document.getElementById('submit-button');
     const resultsContainer = document.getElementById('results-container');
+    const resultReadyPanel = document.getElementById('reliabilityResultReadyPanel');
+    const openResultButton = document.getElementById('reliabilityOpenResultButton');
     const legalCheckbox = document.getElementById('legal-confirm');
     const legalError = document.getElementById('legal-error');
     let legalAccepted = false;
     const reliabilityResearchSection = document.getElementById('reliabilityResearchSection');
+    const reliabilityResearchFormWrap = document.getElementById('reliabilityResearchFormWrap');
     const reliabilityResearchForm = document.getElementById('reliabilityResearchForm');
     const reliabilityResearchMessage = document.getElementById('reliabilityResearchMessage');
+    const reliabilityResearchAnswerNow = document.getElementById('reliabilityResearchAnswerNow');
+    const reliabilityResearchSkip = document.getElementById('reliabilityResearchSkip');
+    const reliabilityResearchClose = document.getElementById('reliabilityResearchClose');
+    const reliabilityResearchDismiss = document.getElementById('reliabilityResearchDismiss');
+    const reliabilityOpenResultNow = document.getElementById('reliabilityOpenResultNow');
     const researchClient = window.YedaResearch
         ? window.YedaResearch.createClient({
             accepted: document.getElementById('researchConsentModal')?.dataset.accepted === 'true',
@@ -147,9 +310,15 @@
             }
         })
         : null;
-    let currentReliabilityHistoryId = null;
+    let isLoading = false;
+    let isResultReady = false;
+    let isResultOpen = false;
+    let currentHistoryId = null;
+    let researchCardVisible = false;
+    let researchFormOpen = false;
     let lastAnalyzePayload = null;
     let reliabilityResearchTrackedForHistory = null;
+    let resultReadyPanelTrackedForHistory = null;
 
     const summarySimpleEl = document.getElementById('summary-simple-text');
     const summaryDetailedEl = document.getElementById('summary-detailed-text');
@@ -418,15 +587,13 @@
     }
 
 
-    function renderResults(data) {
+    function renderResults(data, options = {}) {
         if (!resultsContainer) return;
 
         if (data && data.ok === false) {
             alert(data.message || data.error || 'שגיאת מודל: פלט לא תקין.');
             return;
         }
-
-        resultsContainer.classList.remove('hidden');
         const safe = (v) => escapeHtml(v);
 
         // Temporary compatibility keeps estimated_reliability/base_score_calculated alive,
@@ -654,27 +821,29 @@
             reportContainer.innerHTML = html;
         }
 
-        currentReliabilityHistoryId = data.history_id || null;
-        if (reliabilityResearchSection) {
-            reliabilityResearchSection.classList.remove('hidden');
-            if (currentReliabilityHistoryId && reliabilityResearchTrackedForHistory !== currentReliabilityHistoryId) {
-                trackAnalytics('research_card_shown', {
-                    flow_type: 'reliability',
-                    search_history_id: currentReliabilityHistoryId,
-                });
-                reliabilityResearchTrackedForHistory = currentReliabilityHistoryId;
-            }
-        }
+        currentHistoryId = data.history_id || null;
+        isLoading = false;
+        isResultReady = true;
+        isResultOpen = false;
+        researchCardVisible = false;
+        researchFormOpen = false;
 
         trackAnalytics('result_rendered', {
             flow_type: 'reliability',
-            search_history_id: currentReliabilityHistoryId,
+            search_history_id: currentHistoryId,
         });
 
         // Render feedback CTA
-        renderFeedbackCTA(resultsContainer, currentReliabilityHistoryId);
-
-        resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        renderFeedbackCTA(resultsContainer, currentHistoryId);
+        closeReliabilityResult();
+        if (options.openImmediately) {
+            resultReadyPanel?.classList.add('hidden');
+            showReliabilityResearchCard();
+            openReliabilityResult({ userInitiated: false });
+            return;
+        }
+        showReliabilityReadyPanel();
+        showReliabilityResearchCard();
     }
 
     function validateLegal() {
@@ -730,6 +899,8 @@
         if (!validateLegal()) return;
         if (!(await ensureLegalAcceptance())) return;
 
+        resetResultFlowState();
+        isLoading = true;
         lastAnalyzePayload = collectFormData();
         const payload = { ...lastAnalyzePayload, legal_confirm: true };
         trackAnalytics('result_requested', { flow_type: 'reliability' });
@@ -769,6 +940,11 @@
             console.error(err);
             alert('שגיאה כללית בשליחת הבקשה. אנא נסה שוב מאוחר יותר.');
         } finally {
+            if (!isResultReady) {
+                hideReliabilityResearchCard();
+                resultReadyPanel?.classList.add('hidden');
+            }
+            isLoading = false;
             hideTimingBanner(true);
             setSubmitting(false);
         }
@@ -809,17 +985,74 @@
             form.addEventListener('submit', handleSubmit);
         }
 
+        openResultButton?.addEventListener('click', function () {
+            openReliabilityResult({ userInitiated: true });
+        });
+        reliabilityOpenResultNow?.addEventListener('click', function () {
+            closeReliabilityResearch({ reason: 'open_result_now', openResult: true });
+        });
+        reliabilityResearchAnswerNow?.addEventListener('click', function () {
+            openReliabilityResearchForm();
+        });
+        reliabilityResearchSkip?.addEventListener('click', function () {
+            closeReliabilityResearch({ reason: 'skip', trackSkipped: true });
+        });
+        reliabilityResearchClose?.addEventListener('click', function () {
+            closeReliabilityResearch({ reason: 'close_button' });
+        });
+        reliabilityResearchDismiss?.addEventListener('click', function () {
+            closeReliabilityResearch({ reason: 'dismiss_form' });
+        });
+
         if (reliabilityResearchForm && researchClient) {
             reliabilityResearchForm.addEventListener('submit', async (event) => {
                 event.preventDefault();
-                if (!currentReliabilityHistoryId || !lastAnalyzePayload) {
-                    showRequestAwareError('קודם צריך להפיק תוצאת אמינות לפני שמירת תשובות המחקר.', null);
+                if (!currentHistoryId || !lastAnalyzePayload) {
+                    setReliabilityResearchMessage('קודם צריך להפיק תוצאת אמינות לפני שמירת תשובות המחקר.', 'error');
                     return;
                 }
-                trackAnalytics('research_started', {
-                    flow_type: 'reliability',
-                    search_history_id: currentReliabilityHistoryId,
-                });
+                const responses = [];
+                const ownershipStatus = reliabilityResearchForm.querySelector('input[name="ownership_status"]:checked')?.value || '';
+                const garageType = document.getElementById('reliabilityGarageType')?.value || '';
+                const lastServiceCost = document.getElementById('reliabilityLastServiceCost')?.value || '';
+                const firstTestPass = reliabilityResearchForm.querySelector('input[name="first_test_pass"]:checked')?.value || '';
+                const outOfWarrantyRepairs = reliabilityResearchForm.querySelector('input[name="out_of_warranty_repairs"]:checked')?.value || '';
+
+                if (ownershipStatus) {
+                    responses.push({
+                        question_code: 'ownership_status',
+                        response: { ownership_status: ownershipStatus },
+                    });
+                }
+                if (garageType || lastServiceCost) {
+                    responses.push({
+                        question_code: 'maintenance_profile',
+                        response: {
+                            garage_type: garageType,
+                            last_service_cost_ils: lastServiceCost,
+                        },
+                    });
+                }
+                if (firstTestPass) {
+                    responses.push({
+                        question_code: 'first_test_pass',
+                        response: {
+                            first_test_pass: firstTestPass === 'true',
+                        },
+                    });
+                }
+                if (outOfWarrantyRepairs) {
+                    responses.push({
+                        question_code: 'out_of_warranty_repairs',
+                        response: {
+                            out_of_warranty_repairs: outOfWarrantyRepairs === 'true',
+                        },
+                    });
+                }
+                if (!responses.length) {
+                    setReliabilityResearchMessage('צריך למלא לפחות תשובת מחקר אחת כדי לשמור.', 'warning');
+                    return;
+                }
                 if (!(await researchClient.ensureConsent('reliability_results'))) {
                     return;
                 }
@@ -828,54 +1061,33 @@
                     await researchClient.saveResponses({
                         flow_type: 'reliability',
                         source_analysis_type: 'search_history',
-                        source_record_id: currentReliabilityHistoryId,
+                        source_record_id: currentHistoryId,
                         vehicle_context: {
-                            ...lastAnalyzePayload,
-                            analysis_history_id: currentReliabilityHistoryId,
+                            make: lastAnalyzePayload.make,
+                            model: lastAnalyzePayload.model,
+                            year: lastAnalyzePayload.year,
+                            mileage_range: lastAnalyzePayload.mileage_range,
+                            fuel_type: lastAnalyzePayload.fuel_type,
+                            transmission: lastAnalyzePayload.transmission,
                         },
-                        responses: [
-                            {
-                                question_code: 'ownership_status',
-                                response: {
-                                    ownership_status: reliabilityResearchForm.querySelector('input[name="ownership_status"]:checked')?.value || 'owner',
-                                },
-                            },
-                            {
-                                question_code: 'maintenance_profile',
-                                response: {
-                                    garage_type: document.getElementById('reliabilityGarageType')?.value || 'authorized',
-                                    last_service_cost_ils: document.getElementById('reliabilityLastServiceCost')?.value || '',
-                                },
-                            },
-                            {
-                                question_code: 'first_test_pass',
-                                response: {
-                                    first_test_pass: reliabilityResearchForm.querySelector('input[name="first_test_pass"]:checked')?.value === 'true',
-                                },
-                            },
-                            {
-                                question_code: 'out_of_warranty_repairs',
-                                response: {
-                                    out_of_warranty_repairs: reliabilityResearchForm.querySelector('input[name="out_of_warranty_repairs"]:checked')?.value === 'true',
-                                },
-                            },
-                        ],
+                        responses,
                     });
-                    if (reliabilityResearchMessage) {
-                        reliabilityResearchMessage.textContent = 'תודה, תשובות המחקר נשמרו.';
-                        reliabilityResearchMessage.classList.remove('hidden');
-                    }
+                    setReliabilityResearchMessage('תודה — התשובות נשמרו למחקר בלבד.', 'success');
+                    markResearchPromptSeen('reliability', currentHistoryId);
                     trackAnalytics('research_completed', {
                         flow_type: 'reliability',
-                        search_history_id: currentReliabilityHistoryId,
+                        search_history_id: currentHistoryId,
                     });
                 } catch (err) {
                     trackAnalytics('research_save_failed', {
                         flow_type: 'reliability',
-                        search_history_id: currentReliabilityHistoryId,
+                        search_history_id: currentHistoryId,
                         message: err.message || 'save_failed',
                     });
-                    showRequestAwareError(err.message || 'לא הצלחנו לשמור את תשובות המחקר.', err.requestId || null);
+                    setReliabilityResearchMessage(
+                        'לא הצלחנו לשמור את התשובות כרגע. התוצאה שלך עדיין זמינה.',
+                        'error'
+                    );
                 }
             });
         }
@@ -1133,7 +1345,7 @@
         try {
             const exampleData = JSON.parse(exampleDataEl.textContent || '{}');
             if (exampleData && Object.keys(exampleData).length > 0) {
-                renderResults(exampleData);
+                renderResults(exampleData, { openImmediately: true });
             }
         } catch (e) {
             console.error('[EXAMPLE] failed to parse example data', e);

@@ -1,96 +1,94 @@
-<section id="compareResearchSection" class="mt-8 hidden rounded-[1.75rem] border border-slate-700/70 bg-slate-900/60 p-6 md:p-8">
-    <div class="mb-6 space-y-2">
-        <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase">מחקר אופציונלי אחרי התוצאה</p>
-        <h3 class="text-2xl font-bold text-white">עזרת לנו להשלים תמונת בעלות אמיתית</h3>
-        <p class="text-sm leading-7 text-slate-400">
-            אחרי תוצאת ההשוואה אפשר לשמור תשובות קצרות על אחד מהרכבים שנבדקו. השמירה דורשת אישור מחקר ייעודי.
-        </p>
-    </div>
-
-    <form id="compareResearchForm" class="space-y-5">
-        <div class="grid gap-5 md:grid-cols-2">
-            <div class="space-y-2">
-                <label for="compareSubjectVehicle" class="block text-sm font-semibold text-slate-200">על איזה רכב התשובות מתייחסות?</label>
-                <select id="compareSubjectVehicle" class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white">
-                    <option value="car_1">רכב 1</option>
-                    <option value="car_2">רכב 2</option>
-                    <option value="car_3">רכב 3</option>
-                    <option value="unknown">לא בטוח / אחר</option>
-                </select>
-            </div>
-            <div class="space-y-2">
-                <label for="compareAnnualInsurance" class="block text-sm font-semibold text-slate-200">כמה משלם/ת על ביטוח בשנה? (₪)</label>
-                <input id="compareAnnualInsurance" type="number" min="0" max="50000" step="50" class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white" placeholder="לדוגמה: 6200">
-            </div>
-        </div>
-
-        <div class="grid gap-5 md:grid-cols-2">
-            <div class="space-y-2">
-                <label for="compareAnnualTotalCost" class="block text-sm font-semibold text-slate-200">מה העלות השנתית הכוללת? (₪)</label>
-                <input id="compareAnnualTotalCost" type="number" min="0" max="200000" step="100" class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white" placeholder="דלק, ביטוח, טיפולים ועוד">
-            </div>
-            <div class="space-y-2">
-                <label for="compareSatisfactionScore" class="block text-sm font-semibold text-slate-200">שביעות רצון כללית (1–10)</label>
-                <input id="compareSatisfactionScore" type="range" min="1" max="10" step="1" value="8" class="w-full accent-primary">
-                <div class="text-xs text-slate-400">1 = לא מרוצה, 10 = מרוצה מאוד</div>
-            </div>
-        </div>
-
+<section id="compareResearchSection" class="mt-6 hidden rounded-[1.75rem] border border-slate-700/70 bg-slate-900/60 p-6 md:p-8">
+    <div class="flex items-start justify-between gap-4">
         <div class="space-y-2">
-            <p class="text-sm font-semibold text-slate-200">האם היית קונה/ה את הרכב הזה שוב?</p>
-            <div class="flex flex-wrap gap-3 text-sm">
-                <label class="inline-flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2">
-                    <input type="radio" name="compare_would_buy_again" value="true" class="text-primary" checked>
-                    <span>כן</span>
-                </label>
-                <label class="inline-flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2">
-                    <input type="radio" name="compare_would_buy_again" value="false" class="text-primary">
-                    <span>לא</span>
-                </label>
-            </div>
-        </div>
-
-        {# Separate research/business-dataset consent — must NOT be bundled with Terms/Privacy. #}
-        <div class="rounded-2xl border border-slate-700 bg-slate-950/40 p-4 space-y-2">
-            <label for="compareResearchConsentCheckbox" class="flex items-start gap-3 cursor-pointer">
-                <input id="compareResearchConsentCheckbox" name="research_consent_optin" type="checkbox"
-                       class="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-900 text-primary focus:ring-primary">
-                <span class="text-sm leading-7 text-slate-200">
-                    אני מסכים/ה למסור מידע מחקרי אופציונלי לצורך שיפור מאגר האמינות והמודלים של ידע רכב. המידע יישמר בנפרד מנתוני השימוש הרגילים, וינותח בצורה מצרפית או לאחר הסרת מזהים ככל שניתן. אפשר להשתמש בשירות גם בלי להסכים.
-                </span>
-            </label>
-            <p class="text-xs leading-6 text-slate-400">
-                החלק הזה אופציונלי לגמרי. התוצאה שלך כבר מוכנה ואפשר להשתמש בשירות גם בלי לענות.
+            <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase">מחקר אופציונלי</p>
+            <h3 class="text-2xl font-bold text-white">עזור לבנות את מאגר האמינות הישראלי</h3>
+            <p class="text-sm leading-7 text-slate-300">
+                יש לך 45 שניות? כמה תשובות קצרות על רכב שהיה אצלך יעזרו לנו לשפר את האמינות וההמלצות לכולם.
+            </p>
+            <p class="text-sm leading-7 text-slate-400">
+                החלק הזה אופציונלי לגמרי. התוצאה שלך כבר מוכנה ואפשר לפתוח אותה בלי לענות.
             </p>
         </div>
+        <button id="compareResearchClose" type="button" class="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 bg-slate-950/40 text-slate-300 transition hover:border-slate-500 hover:text-white" aria-label="סגור כרטיס מחקר">
+            ✕
+        </button>
+    </div>
 
-        <div class="flex flex-col gap-3 md:flex-row md:items-center">
-            <button type="submit" class="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-primary to-secondary px-6 py-3 text-sm font-bold text-white transition hover:opacity-90">
-                שמור/י תשובות מחקר
+    <div class="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+        <button id="compareResearchAnswerNow" type="button" class="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-primary to-secondary px-5 py-3 text-sm font-bold text-white transition hover:opacity-90">
+            עונה עכשיו
+        </button>
+        <button id="compareResearchSkip" type="button" class="inline-flex items-center justify-center rounded-2xl border border-slate-600 bg-slate-950/40 px-5 py-3 text-sm font-semibold text-slate-200 transition hover:border-slate-500 hover:text-white">
+            לא עכשיו
+        </button>
+    </div>
+
+    <div id="compareResearchFormWrap" class="mt-6 hidden rounded-3xl border border-slate-700 bg-slate-950/40 p-5 md:p-6">
+        <div class="mb-5 flex items-start justify-between gap-4">
+            <div class="space-y-2">
+                <h4 class="text-lg font-bold text-white">שאלון מחקר קצר</h4>
+                <p class="text-sm leading-7 text-slate-400">
+                    השאלון אופציונלי, לא משפיע על תוצאת ההשוואה שכבר נוצרה, ושמירה בפועל תתבצע רק אחרי אישור מחקר נפרד וברור.
+                </p>
+            </div>
+            <button id="compareResearchDismiss" type="button" class="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 bg-slate-950/40 text-slate-300 transition hover:border-slate-500 hover:text-white" aria-label="סגור שאלון מחקר">
+                ✕
             </button>
-            <p id="compareResearchMessage" class="hidden text-sm text-emerald-300"></p>
         </div>
-    </form>
-</section>
 
-<script nonce="{{ csp_nonce }}">
-    // Block research answer submission when the explicit research consent
-    // checkbox is unchecked. The main compare flow is unaffected.
-    (function () {
-        var form = document.getElementById('compareResearchForm');
-        var cb = document.getElementById('compareResearchConsentCheckbox');
-        var msg = document.getElementById('compareResearchMessage');
-        if (!form || !cb) return;
-        form.addEventListener('submit', function (event) {
-            if (!cb.checked) {
-                event.preventDefault();
-                event.stopImmediatePropagation();
-                if (msg) {
-                    msg.textContent = 'יש לאשר את הסכמת המחקר לפני שמירת התשובות.';
-                    msg.classList.remove('hidden', 'text-emerald-300');
-                    msg.classList.add('text-amber-300');
-                }
-            }
-        }, true);
-    })();
-</script>
+        <form id="compareResearchForm" class="space-y-5">
+            <div class="grid gap-5 md:grid-cols-2">
+                <div class="space-y-2">
+                    <label for="compareSubjectVehicle" class="block text-sm font-semibold text-slate-200">על איזה רכב התשובות מתייחסות?</label>
+                    <select id="compareSubjectVehicle" class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white">
+                        <option value="car_1">רכב 1</option>
+                        <option value="car_2">רכב 2</option>
+                        <option value="car_3">רכב 3</option>
+                        <option value="unknown">לא בטוח / אחר</option>
+                    </select>
+                </div>
+                <div class="space-y-2">
+                    <label for="compareAnnualInsurance" class="block text-sm font-semibold text-slate-200">כמה משלם/ת על ביטוח בשנה? (₪)</label>
+                    <input id="compareAnnualInsurance" type="number" min="0" max="50000" step="50" class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white" placeholder="לדוגמה: 6200">
+                </div>
+            </div>
+
+            <div class="grid gap-5 md:grid-cols-2">
+                <div class="space-y-2">
+                    <label for="compareAnnualTotalCost" class="block text-sm font-semibold text-slate-200">מה העלות השנתית הכוללת? (₪)</label>
+                    <input id="compareAnnualTotalCost" type="number" min="0" max="200000" step="100" class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white" placeholder="דלק, ביטוח, טיפולים ועוד">
+                </div>
+                <div class="space-y-2">
+                    <label for="compareSatisfactionScore" class="block text-sm font-semibold text-slate-200">שביעות רצון כללית (1–10)</label>
+                    <input id="compareSatisfactionScore" type="range" min="1" max="10" step="1" value="8" class="w-full accent-primary">
+                    <div class="text-xs text-slate-400">1 = לא מרוצה, 10 = מרוצה מאוד</div>
+                </div>
+            </div>
+
+            <div class="space-y-2">
+                <p class="text-sm font-semibold text-slate-200">האם היית קונה/ה את הרכב הזה שוב?</p>
+                <div class="flex flex-wrap gap-3 text-sm">
+                    <label class="inline-flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2">
+                        <input type="radio" name="compare_would_buy_again" value="true" class="text-primary">
+                        <span>כן</span>
+                    </label>
+                    <label class="inline-flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2">
+                        <input type="radio" name="compare_would_buy_again" value="false" class="text-primary">
+                        <span>לא</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="flex flex-col gap-3 md:flex-row md:items-center">
+                <button type="submit" class="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-primary to-secondary px-6 py-3 text-sm font-bold text-white transition hover:opacity-90">
+                    שמור/י תשובות מחקר
+                </button>
+                <button id="compareOpenResultNow" type="button" class="inline-flex items-center justify-center rounded-2xl border border-primary/40 bg-primary/10 px-6 py-3 text-sm font-bold text-primary transition hover:bg-primary/20">
+                    פתח תוצאה עכשיו
+                </button>
+                <p id="compareResearchMessage" class="hidden text-sm text-emerald-300"></p>
+            </div>
+        </form>
+    </div>
+</section>
