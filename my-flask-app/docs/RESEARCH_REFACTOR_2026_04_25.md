@@ -26,7 +26,7 @@ This refactor implements a three-layer data collection architecture for the yeda
 
 ### Migration Files
 
-5. **migrations/versions/bb03_research_refactor_2026_04_25.py** - Alembic migration adding:
+5. **migrations/versions/bb03_research_260425.py** - Alembic migration adding:
    - ResearchConsent: consent_given, source_page, ip_hash, user_agent_hash, revoked_at
    - ResearchResponseSession: question_version, related_*_history_id foreign keys
    - ResearchResponse: answer_type
@@ -73,7 +73,7 @@ This refactor implements a three-layer data collection architecture for the yeda
 
 ## Migration Details
 
-**Revision ID**: bb03_research_refactor_2026_04_25  
+**Revision ID**: bb03_research_260425  
 **Parent Revision**: aa02_feedback_table  
 **Strategy**: Nullable columns with server defaults for backward compatibility
 
@@ -107,8 +107,14 @@ All new columns are nullable to allow existing rows to survive. New rows should 
 4. **Run Migration**:
    ```bash
    cd my-flask-app
-   flask db upgrade
+   flask --app main:create_app db current
+   # Confirm current revision is still aa02_feedback_table
+   # If current is aa02_feedback_table and the new columns do not exist:
+   flask --app main:create_app db upgrade
    ```
+
+   If the new columns already exist while `alembic_version` is still `aa02_feedback_table`,
+   stop and report a partial migration state instead of rerunning blindly.
 
 5. **Verify Migration**:
    ```sql
@@ -165,7 +171,7 @@ All new columns are nullable to allow existing rows to survive. New rows should 
 
 ## Testing Status
 
-**Migration Revision**: bb03_research_refactor_2026_04_25  
+**Migration Revision**: bb03_research_260425  
 **Parent Revision**: aa02_feedback_table
 
 **Tests Created**: 12 tests in tests/test_research_refactor.py  
@@ -193,7 +199,7 @@ If issues arise post-deployment:
 
 2. **Database rollback**:
    ```bash
-   flask db downgrade bb03_research_refactor_2026_04_25
+   flask db downgrade bb03_research_260425
    ```
 
 3. **Code rollback**: Revert to commit before this refactor
