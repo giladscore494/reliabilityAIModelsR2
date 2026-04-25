@@ -608,7 +608,9 @@ def _validate_owner_profile(
             "make": lambda response: _optional_question(
                 question_code="make",
                 response_json={
-                    "make": _require_text("make.make", response.get("make"), max_length=80)
+                    "make": _require_text(
+                        "make.make", response.get("make"), max_length=80
+                    )
                 },
                 answer_type="text",
             ),
@@ -625,7 +627,10 @@ def _validate_owner_profile(
                 question_code="year",
                 response_json={
                     "year": _require_int(
-                        "year.year", response.get("year"), min_value=1950, max_value=2100
+                        "year.year",
+                        response.get("year"),
+                        min_value=1950,
+                        max_value=2100,
                     )
                 },
                 answer_type="number",

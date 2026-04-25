@@ -464,40 +464,44 @@ def revoke_research_consent():
     Sets revoked_at timestamp on all active research consents.
     """
     user_id, anon_id = _research_subject()
-    
+
     if not user_id and not anon_id:
         return _legal_error("NO_SUBJECT", "No user or session identified", status=400)
-    
+
     # Find all active consents
     query = ResearchConsent.query.filter(
         ResearchConsent.revoked_at.is_(None),
         ResearchConsent.consent_given,
     )
-    
+
     if user_id:
         query = query.filter_by(user_id=user_id)
     else:
         query = query.filter_by(anon_id=anon_id)
-    
+
     consents = query.all()
-    
+
     if not consents:
-        return jsonify({"ok": True, "message": "No active consents to revoke", "revoked_count": 0})
-    
+        return jsonify(
+            {"ok": True, "message": "No active consents to revoke", "revoked_count": 0}
+        )
+
     # Revoke all
     revoked_at = _utcnow()
     for consent in consents:
         consent.revoked_at = revoked_at
-    
+
     try:
         db.session.commit()
     except SQLAlchemyError:
         db.session.rollback()
         return _legal_error("REVOKE_FAILED", "Failed to revoke consent", status=500)
-    
-    return jsonify({
-        "ok": True,
-        "message": "Research consent revoked successfully",
-        "revoked_count": len(consents),
-        "revoked_at": revoked_at.isoformat(),
-    })
+
+    return jsonify(
+        {
+            "ok": True,
+            "message": "Research consent revoked successfully",
+            "revoked_count": len(consents),
+            "revoked_at": revoked_at.isoformat(),
+        }
+    )
