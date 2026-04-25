@@ -50,7 +50,19 @@
   <main class="flex-grow container mx-auto px-4 sm:px-6 lg:px-8 py-16 md:py-24">
     <div class="max-w-4xl mx-auto bg-dark-lighter/50 backdrop-blur-xl shadow-xl p-10 rounded-3xl border border-slate-700/50 fade-in">
       <h2 class="text-4xl md:text-5xl font-extrabold text-white mb-6">תקנון תנאי שימוש</h2>
-      <p class="text-slate-400 mb-4"><strong>עודכן לאחרונה:</strong> 3 באפריל 2026</p>
+      <p class="text-slate-400 mb-2"><strong>עודכן לאחרונה:</strong> 25 באפריל 2026</p>
+      <p class="text-slate-500 text-sm mb-6">
+        גרסת תקנון: <code>{{ terms_version or '2026-04-25' }}</code> ·
+        גרסת מדיניות פרטיות: <code>{{ privacy_version or '2026-04-25' }}</code> ·
+        גרסת הסכמת מחקר: <code>{{ research_consent_version or '2026-04-25' }}</code>
+      </p>
+
+      <p class="bg-warning/10 border border-warning/40 rounded-xl p-4 text-slate-200 mb-8">
+        <strong>הערה חשובה:</strong> המידע באתר הוא כלי עזר בלבד ואינו מהווה בדיקת מוסך, ייעוץ מקצועי
+        או התחייבות למצב הרכב בפועל.
+      </p>
+
+      {# TODO: have an Israeli privacy/consumer-law attorney review this Terms of Use document before production. #}
 
       <p class="text-slate-300 leading-relaxed mb-6">
         מסמך זה מסדיר את השימוש באתר yedaarechevAI ובמוצריו. המשך שימוש באתר או בחלקים המחייבים הזדהות מהווה הסכמה לתנאים אלה,
@@ -145,6 +157,66 @@
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">11. יצירת קשר</h3>
       <p class="text-slate-300 leading-relaxed">
         לשאלות משפטיות או פניות אחרות, ניתן ליצור קשר בכתובת <a href="mailto:{{ contact_email }}" class="text-primary hover:underline">{{ contact_email }}</a>.
+      </p>
+
+      {# TODO: have an Israeli privacy/consumer-law attorney review the sections below before production. #}
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">12. הסתמכות, אחריות מקצועית והגבלת אחריות</h3>
+      <p class="text-slate-300 mb-3">
+        השירות אינו מחליף בדיקת מוסך מורשה, אינו מחליף ייעוץ משפטי, ביטוחי, פיננסי או בטיחותי, ואינו מהווה אישור רשמי
+        למצב הרכב. לפני רכישת רכב יש לבצע בדיקות עצמאיות, לרבות בדיקת מוסך, בדיקת בעלות/שעבודים, בדיקת היסטוריית
+        תאונות (כאשר זמינה), ומבחן נסיעה.
+      </p>
+      <p class="text-slate-300 mb-3">
+        תוצרי AI עשויים להיות חלקיים, לא מעודכנים, לא נכונים, או מבוססים על מידע חסר. הניקוד והמלצות הם כלי תמיכה בקבלת
+        החלטות, ולא הסמכה אובייקטיבית של מצב הרכב.
+      </p>
+      <p class="text-slate-300 mb-6">
+        במידה המרבית המותרת על פי דין, המפעיל אינו אחראי לנזקים עקיפים, תוצאתיים, מיוחדים או כלכליים שנגרמו עקב הסתמכות
+        על השירות. אין באמור כדי לשלול אחריות שלא ניתן לשלול על פי דין.
+      </p>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">13. אחריות המשתמש על הנתונים</h3>
+      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+        <li>על המשתמש לספק מידע מדויק.</li>
+        <li>החלטות רכישה ומכירה הן באחריות המשתמש בלבד.</li>
+        <li>אסור להסתמך על השירות כמקור יחיד לקבלת החלטה משמעותית.</li>
+        <li>המשתמש מצהיר שיש לו הזכות לספק את הנתונים שמוסר.</li>
+        <li>אין למסור פרטי צד שלישי בלי הרשאה, ואין למסור תלונות פרטניות, מזהות או משמיצות נגד מוסכים, מוכרים, מבטחים או אנשים פרטיים.</li>
+      </ul>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">14. מאגר מחקרי / עסקי</h3>
+      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+        <li>בכפוף להסכמת המשתמש, נתוני ניסיון בעלות עשויים לשמש לשיפור השירות ולבניית מאגרים סטטיסטיים מצטברים.</li>
+        <li>תובנות מצטברות/אנונימיזציות עשויות להיות בשימוש מסחרי על-ידי yedaarechev.</li>
+        <li>אין בכך מתן זכויות בעלות או תשלום למשתמשים בתובנות המצרפיות, אלא אם החברה הסכימה לכך מפורשות.</li>
+      </ul>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">15. שימוש אסור</h3>
+      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+        <li>גריפת מידע, ביצוע הנדסה הפוכה או ניצול לרעה של השירות.</li>
+        <li>בקשות אוטומטיות בקצב חריג.</li>
+        <li>מסירת נתונים שגויים או מטעים.</li>
+        <li>שימוש בשירות להוצאת דיבה כלפי צדדים שלישיים.</li>
+        <li>ניסיונות לעקוף מגבלות שימוש או חיובים.</li>
+        <li>שימוש בתוצרי השירות כהסמכה רשמית של מצב הרכב.</li>
+      </ul>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">16. זמינות והפסקת שירות</h3>
+      <p class="text-slate-300 mb-6">
+        אין התחייבות לזמינות רציפה. השירות עשוי להשתנות, להיעצר או להיפסק לחלוטין בכל עת ובלי הודעה מוקדמת.
+      </p>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">17. שינויים בתקנון</h3>
+      <p class="text-slate-300 mb-6">
+        התקנון עשוי להתעדכן מעת לעת. המשך שימוש לאחר עדכון מהווה הסכמה לתנאים החדשים, בכפוף לדין החל.
+        גרסת תקנון נוכחית: <code>{{ terms_version or '2026-04-25' }}</code>.
+      </p>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">18. דין וסמכות שיפוט</h3>
+      <p class="text-slate-300 mb-6">
+        הדין החל על תקנון זה הוא דין מדינת ישראל. סמכות שיפוט ייחודית:
+        <code>[INSERT_ISRAELI_COURT_JURISDICTION_AFTER_LEGAL_REVIEW]</code>.
       </p>
     </div>
   </main>

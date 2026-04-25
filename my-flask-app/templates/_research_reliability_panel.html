@@ -68,6 +68,20 @@
             </div>
         </div>
 
+        {# Separate research/business-dataset consent — must NOT be bundled with Terms/Privacy. #}
+        <div class="rounded-2xl border border-slate-700 bg-slate-950/40 p-4 space-y-2">
+            <label for="reliabilityResearchConsentCheckbox" class="flex items-start gap-3 cursor-pointer">
+                <input id="reliabilityResearchConsentCheckbox" name="research_consent_optin" type="checkbox"
+                       class="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-900 text-primary focus:ring-primary">
+                <span class="text-sm leading-7 text-slate-200">
+                    אני מסכים/ה שהמידע שאמסור בשאלוני הרכב ישמש את ידע רכב לצורך שיפור השירות, בניית מאגר אמינות רכב ישראלי, ניתוחים סטטיסטיים, מחקר פנימי ופיתוח מוצרים, ככל הניתן בצורה מצרפית או אנונימית, כמפורט במדיניות הפרטיות.
+                </span>
+            </label>
+            <p class="text-xs leading-6 text-slate-400">
+                מסירת מידע מחקרי היא רשות. אפשר להשתמש בשירות גם בלי לענות על שאלות שאינן חובה לתפקוד הבדיקה או ההמלצה.
+            </p>
+        </div>
+
         <div class="flex flex-col gap-3 md:flex-row md:items-center">
             <button type="submit" class="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-primary to-secondary px-6 py-3 text-sm font-bold text-white transition hover:opacity-90">
                 שמור/י תשובות מחקר
@@ -76,3 +90,25 @@
         </div>
     </form>
 </section>
+
+<script nonce="{{ csp_nonce }}">
+    // Block research answer submission when the explicit research consent
+    // checkbox is unchecked. The main reliability analyze flow is unaffected.
+    (function () {
+        var form = document.getElementById('reliabilityResearchForm');
+        var cb = document.getElementById('reliabilityResearchConsentCheckbox');
+        var msg = document.getElementById('reliabilityResearchMessage');
+        if (!form || !cb) return;
+        form.addEventListener('submit', function (event) {
+            if (!cb.checked) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                if (msg) {
+                    msg.textContent = 'יש לאשר את הסכמת המחקר לפני שמירת התשובות.';
+                    msg.classList.remove('hidden', 'text-emerald-300');
+                    msg.classList.add('text-amber-300');
+                }
+            }
+        }, true);
+    })();
+</script>

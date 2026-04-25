@@ -82,4 +82,47 @@
     </div>
 
     <p id="advisorResearchMessage" class="hidden text-xs text-emerald-300"></p>
+
+    {# Separate research/business-dataset consent — must NOT be bundled with Terms/Privacy. #}
+    <div class="mt-4 rounded-2xl border border-slate-700 bg-slate-900/40 p-4 space-y-2">
+        <label for="advisorResearchConsentCheckbox" class="flex items-start gap-3 cursor-pointer">
+            <input id="advisorResearchConsentCheckbox" name="research_consent_optin" type="checkbox"
+                   class="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-900 text-primary focus:ring-primary">
+            <span class="text-xs leading-6 text-slate-200">
+                אני מסכים/ה שהמידע שאמסור בשאלוני הרכב ישמש את ידע רכב לצורך שיפור השירות, בניית מאגר אמינות רכב ישראלי, ניתוחים סטטיסטיים, מחקר פנימי ופיתוח מוצרים, ככל הניתן בצורה מצרפית או אנונימית, כמפורט במדיניות הפרטיות.
+            </span>
+        </label>
+        <p class="text-[11px] leading-5 text-slate-400">
+            מסירת מידע מחקרי היא רשות. אפשר להשתמש בשירות גם בלי לענות על שאלות שאינן חובה לתפקוד הבדיקה או ההמלצה.
+        </p>
+    </div>
 </div>
+
+<script nonce="{{ csp_nonce }}">
+    // When the research consent checkbox is unchecked, the optional research_*
+    // fields must NOT be submitted. We disable them so the browser omits them
+    // from the form payload. The main advisor flow remains unaffected.
+    (function () {
+        var cb = document.getElementById('advisorResearchConsentCheckbox');
+        if (!cb) return;
+        var researchIds = [
+            'research_current_vehicle',
+            'research_actual_consumption',
+            'research_sale_timeline',
+            'research_sale_gap',
+            'research_purchase_reference_type',
+            'research_purchase_delta_bucket',
+            'research_charging_cost',
+            'research_charging_location',
+        ];
+        function sync() {
+            var disabled = !cb.checked;
+            researchIds.forEach(function (id) {
+                var el = document.getElementById(id);
+                if (el) el.disabled = disabled;
+            });
+        }
+        cb.addEventListener('change', sync);
+        sync();
+    })();
+</script>

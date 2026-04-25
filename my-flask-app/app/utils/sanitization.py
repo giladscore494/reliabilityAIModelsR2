@@ -770,3 +770,209 @@ def sanitize_reliability_report_response(
     out["missing_info"] = inferred_missing
 
     return out
+
+
+# -----------------------------
+# Research refactor 2026-04-25
+# -----------------------------
+
+import re as _re_mod
+
+_PII_PATTERNS = [
+    _re_mod.compile(r'\b\d{2,3}-?\d{2,3}-?\d{2,3}\b'),  # Israeli license plate
+    _re_mod.compile(r'\b0\d{1,2}-?\d{7}\b'),  # Israeli phone
+    _re_mod.compile(r'\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'),  # email
+]
+
+
+def _contains_pii_strings(s: str) -> bool:
+    """Check if string contains PII patterns (license plates, phones, emails)."""
+    if not isinstance(s, str):
+        return False
+    for pattern in _PII_PATTERNS:
+        if pattern.search(s):
+            return True
+    return False
+
+
+def sanitize_profile_for_storage(profile_json: dict) -> dict:
+    """
+    Sanitize advisor profile for storage by removing PII and sensitive fields.
+    Returns a new dict with only allowed fields.
+    """
+    allowed_keys = {
+        "budget", "min_year", "max_year", "fuel_preference", "transmission_preference",
+        "main_use", "annual_km_bucket", "body_style", "family_size_bucket",
+        "cargo_need", "maintenance_sensitivity", "comfort_importance",
+        "performance_importance", "reliability_importance", "safety_importance",
+        "age_bucket", "license_years_bucket",
+    }
+    
+    result = {}
+    
+    for key in allowed_keys:
+        if key in profile_json:
+            result[key] = profile_json[key]
+    
+    # Convert exact age to bucket
+    if "driver_age" in profile_json or "age" in profile_json:
+        age = profile_json.get("driver_age") or profile_json.get("age")
+        if age is not None:
+            try:
+                age_int = int(age)
+                if age_int < 25:
+                    result["age_bucket"] = "17-24"
+                elif age_int < 35:
+                    result["age_bucket"] = "25-34"
+                elif age_int < 45:
+                    result["age_bucket"] = "35-44"
+                elif age_int < 55:
+                    result["age_bucket"] = "45-54"
+                else:
+                    result["age_bucket"] = "55+"
+            except (ValueError, TypeError):
+                pass
+    
+    # Convert exact license_years to bucket
+    if "license_years" in profile_json:
+        lic_years = profile_json["license_years"]
+        if lic_years is not None:
+            try:
+                lic_int = int(lic_years)
+                if lic_int <= 1:
+                    result["license_years_bucket"] = "0-1"
+                elif lic_int <= 5:
+                    result["license_years_bucket"] = "2-5"
+                elif lic_int <= 10:
+                    result["license_years_bucket"] = "6-10"
+                else:
+                    result["license_years_bucket"] = "10+"
+            except (ValueError, TypeError):
+                pass
+    
+    return result
+
+
+def sanitize_context_for_ai(context: dict) -> dict:
+    """
+    Sanitize context for AI reasoning. Keeps only reasoning-relevant keys.
+    """
+    allowed_keys = {
+        "current_or_previous_vehicle", "ownership_duration_bucket", "annual_km_bucket",
+        "main_use", "maintenance_sensitivity", "had_major_faults", "satisfaction_score",
+        "would_buy_again", "actual_fuel_consumption_bucket", "family_size_bucket",
+        "cargo_need",
+    }
+    
+    result = {}
+    for key in allowed_keys:
+        if key in context:
+            val = context[key]
+            # Truncate strings to 64 chars
+            if isinstance(val, str):
+                val = val[:64]
+            result[key] = val
+    
+    return result
+
+
+def sanitize_research_answer(question_key: str, answer):
+    """
+    Validate and sanitize a research answer based on its question key.
+    Raises ValidationError if invalid.
+    """
+    from app.utils.validation import ValidationError
+    
+    # Define all allowed question keys
+    allowed_keys = {
+        # Owner profile flow
+        "has_current_vehicle", "make", "model", "year", "fuel_type", "transmission",
+        "mileage_bucket", "ownership_duration_bucket", "had_major_faults",
+        "satisfaction_score", "would_buy_again", "actual_fuel_consumption_bucket",
+        "main_use", "annual_km_bucket", "notes",
+        # Reliability flow
+        "ownership_status", "garage_type",
+        # Compare flow
+        "subject_vehicle_slot",
+        # Advisor flow
+        "sale_timeline_bucket", "ask_to_sale_gap_bucket", "purchase_reference_type",
+        "purchase_delta_bucket", "charging_location",
+    }
+    
+    if question_key not in allowed_keys:
+        raise ValidationError(question_key, f"Unknown question key: {question_key}")
+    
+    # Enum validation
+    enum_map = {
+        "ownership_status": {"owner", "pre_purchase_research"},
+        "garage_type": {"authorized", "independent", "both"},
+        "subject_vehicle_slot": {"car_1", "car_2", "car_3", "unknown"},
+        "sale_timeline_bucket": {"under_14_days", "14_to_30_days", "31_to_60_days", "over_60_days", "not_sold"},
+        "ask_to_sale_gap_bucket": {"under_5_pct", "5_to_10_pct", "10_to_15_pct", "over_15_pct", "not_sold"},
+        "purchase_reference_type": {"price_list", "published_ad"},
+        "purchase_delta_bucket": {"below_5_pct", "within_5_pct", "5_to_10_pct", "over_10_pct", "unknown"},
+        "charging_location": {"home", "work", "public", "mixed"},
+        "mileage_bucket": {"0-50k", "50k-100k", "100k-150k", "150k-200k", "200k+", "unknown"},
+        "ownership_duration_bucket": {"less_than_6_months", "6_12_months", "1_2_years", "2_4_years", "4_plus_years"},
+        "annual_km_bucket": {"0-10000", "10000-15000", "15000-20000", "20000-30000", "30000+"},
+        "actual_fuel_consumption_bucket": {"very_low", "low", "average", "high", "very_high"},
+        "fuel_type": {"gasoline", "diesel", "hybrid", "electric", "lpg", "other"},
+        "transmission": {"manual", "automatic", "cvt", "dual_clutch", "other"},
+        "main_use": {"city", "highway", "mixed", "other"},
+    }
+    
+    if question_key in enum_map:
+        if not isinstance(answer, str):
+            raise ValidationError(question_key, "Expected string value")
+        if answer not in enum_map[question_key]:
+            raise ValidationError(question_key, f"Invalid value: {answer}")
+        return answer
+    
+    # Boolean validation
+    bool_keys = {"has_current_vehicle", "had_major_faults", "would_buy_again"}
+    if question_key in bool_keys:
+        if not isinstance(answer, bool):
+            raise ValidationError(question_key, "Expected boolean value")
+        return answer
+    
+    # Integer validation (satisfaction_score, year)
+    if question_key == "satisfaction_score":
+        try:
+            val = int(answer)
+            if val < 1 or val > 10:
+                raise ValidationError(question_key, "satisfaction_score must be 1-10")
+            return val
+        except (ValueError, TypeError):
+            raise ValidationError(question_key, "satisfaction_score must be an integer")
+    
+    if question_key == "year":
+        try:
+            val = int(answer)
+            if val < 1900 or val > 2030:
+                raise ValidationError(question_key, "year must be between 1900 and 2030")
+            return val
+        except (ValueError, TypeError):
+            raise ValidationError(question_key, "year must be an integer")
+    
+    # String validation (make, model, notes)
+    if question_key in {"make", "model"}:
+        if not isinstance(answer, str):
+            raise ValidationError(question_key, "Expected string value")
+        if len(answer) > 100:
+            raise ValidationError(question_key, "Value too long (max 100 chars)")
+        if _contains_pii_strings(answer):
+            raise ValidationError(question_key, "Contains prohibited information")
+        return answer
+    
+    # Free text (notes) - max 200 chars and PII check
+    if question_key == "notes":
+        if not isinstance(answer, str):
+            raise ValidationError(question_key, "Expected string value")
+        if len(answer) > 200:
+            raise ValidationError(question_key, "Notes too long (max 200 chars)")
+        if _contains_pii_strings(answer):
+            raise ValidationError(question_key, "Notes contain prohibited information (license plates, phone numbers, emails)")
+        return answer
+    
+    # Default: accept as-is for unknown keys (shouldn't reach here due to allowlist)
+    return answer

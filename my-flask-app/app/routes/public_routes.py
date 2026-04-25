@@ -137,19 +137,31 @@ def logout():
 
 @bp.route('/privacy')
 def privacy():
+    from app.legal import PRIVACY_VERSION, TERMS_VERSION
+    from app.research import RESEARCH_CONSENT_VERSION
     return render_template(
         'privacy.html',
         user=current_user,
         is_owner=is_owner_user(),
+        contact_email='[INSERT_CONTACT_EMAIL]',
+        privacy_version=PRIVACY_VERSION,
+        terms_version=TERMS_VERSION,
+        research_consent_version=RESEARCH_CONSENT_VERSION,
     )
 
 
 @bp.route('/terms')
 def terms():
+    from app.legal import PRIVACY_VERSION, TERMS_VERSION
+    from app.research import RESEARCH_CONSENT_VERSION
     return render_template(
         'terms.html',
         user=current_user,
         is_owner=is_owner_user(),
+        contact_email='[INSERT_CONTACT_EMAIL]',
+        privacy_version=PRIVACY_VERSION,
+        terms_version=TERMS_VERSION,
+        research_consent_version=RESEARCH_CONSENT_VERSION,
     )
 
 
