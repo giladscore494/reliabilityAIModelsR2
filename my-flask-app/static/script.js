@@ -33,6 +33,17 @@
         return '';
     };
 
+    function trackAnalytics(eventName, properties) {
+        if (typeof window.posthog === 'undefined' || typeof window.posthog.capture !== 'function') {
+            return;
+        }
+        try {
+            window.posthog.capture(eventName, properties || {});
+        } catch (err) {
+            console.warn('analytics capture failed', err);
+        }
+    }
+
     const getCSRFToken = () => {
         const meta = document.querySelector('meta[name="csrf-token"]');
         return meta ? meta.getAttribute('content') : '';
@@ -127,11 +138,18 @@
     const researchClient = window.YedaResearch
         ? window.YedaResearch.createClient({
             accepted: document.getElementById('researchConsentModal')?.dataset.accepted === 'true',
-            defaultSource: 'reliability_results'
+            defaultSource: 'reliability_results',
+            onConsentOpen: function () {
+                trackAnalytics('research_consent_opened', { flow_type: 'reliability' });
+            },
+            onConsentAccepted: function () {
+                trackAnalytics('research_consented', { flow_type: 'reliability' });
+            }
         })
         : null;
     let currentReliabilityHistoryId = null;
     let lastAnalyzePayload = null;
+    let reliabilityResearchTrackedForHistory = null;
 
     const summarySimpleEl = document.getElementById('summary-simple-text');
     const summaryDetailedEl = document.getElementById('summary-detailed-text');
@@ -639,7 +657,19 @@
         currentReliabilityHistoryId = data.history_id || null;
         if (reliabilityResearchSection) {
             reliabilityResearchSection.classList.remove('hidden');
+            if (currentReliabilityHistoryId && reliabilityResearchTrackedForHistory !== currentReliabilityHistoryId) {
+                trackAnalytics('research_card_shown', {
+                    flow_type: 'reliability',
+                    search_history_id: currentReliabilityHistoryId,
+                });
+                reliabilityResearchTrackedForHistory = currentReliabilityHistoryId;
+            }
         }
+
+        trackAnalytics('result_rendered', {
+            flow_type: 'reliability',
+            search_history_id: currentReliabilityHistoryId,
+        });
 
         // Render feedback CTA
         renderFeedbackCTA(resultsContainer, currentReliabilityHistoryId);
@@ -702,6 +732,7 @@
 
         lastAnalyzePayload = collectFormData();
         const payload = { ...lastAnalyzePayload, legal_confirm: true };
+        trackAnalytics('result_requested', { flow_type: 'reliability' });
         if (!payload.make || !payload.model || !payload.year) {
             alert('נא למלא יצרן, דגם ושנתון.');
             return;
@@ -785,6 +816,10 @@
                     showRequestAwareError('קודם צריך להפיק תוצאת אמינות לפני שמירת תשובות המחקר.', null);
                     return;
                 }
+                trackAnalytics('research_started', {
+                    flow_type: 'reliability',
+                    search_history_id: currentReliabilityHistoryId,
+                });
                 if (!(await researchClient.ensureConsent('reliability_results'))) {
                     return;
                 }
@@ -830,7 +865,16 @@
                         reliabilityResearchMessage.textContent = 'תודה, תשובות המחקר נשמרו.';
                         reliabilityResearchMessage.classList.remove('hidden');
                     }
+                    trackAnalytics('research_completed', {
+                        flow_type: 'reliability',
+                        search_history_id: currentReliabilityHistoryId,
+                    });
                 } catch (err) {
+                    trackAnalytics('research_save_failed', {
+                        flow_type: 'reliability',
+                        search_history_id: currentReliabilityHistoryId,
+                        message: err.message || 'save_failed',
+                    });
                     showRequestAwareError(err.message || 'לא הצלחנו לשמור את תשובות המחקר.', err.requestId || null);
                 }
             });

@@ -150,18 +150,6 @@ def handle_advisor_logic(payload, user, user_id):
     user_profile["fuel_price_nis_per_liter"] = fuel_price
     user_profile["electricity_price_nis_per_kwh"] = electricity_price
     user_profile["seats"] = seats_choice
-    user_profile["market_research_context"] = {
-        "current_vehicle": payload.get("research_current_vehicle") or "",
-        "actual_consumption": payload.get("research_actual_consumption") or "",
-        "sale_timeline_bucket": payload.get("research_sale_timeline") or "",
-        "ask_to_sale_gap_bucket": payload.get("research_sale_gap") or "",
-        "purchase_reference_type": payload.get("research_purchase_reference_type")
-        or "",
-        "purchase_delta_bucket": payload.get("research_purchase_delta_bucket") or "",
-        "charging_cost_ils_per_kwh": payload.get("research_charging_cost") or "",
-        "charging_location": payload.get("research_charging_location") or "",
-    }
-
     profile_for_storage = sanitize_profile_for_prompt(user_profile)
     start_time = time.perf_counter()
     parsed = car_advisor_call_gemini_with_search(user_profile)
@@ -188,7 +176,7 @@ def handle_advisor_logic(payload, user, user_id):
     history_id = None
 
     # 🔴 שמירת היסטוריית המלצות למאגר
-    # Strip sensitive/research fields (market_research_context, gender, plate, etc.)
+    # Strip sensitive/non-service fields (research, gender, plate, etc.)
     # from AdvisorHistory.profile_json. Optional research fields go to
     # ResearchResponseSession only when consent exists (handled elsewhere).
     profile_for_history = sanitize_profile_for_storage(profile_for_storage or {})

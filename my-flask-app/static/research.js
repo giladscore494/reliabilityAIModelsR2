@@ -49,6 +49,9 @@
         function openModal() {
             if (!modal) return;
             hideError();
+            if (typeof options.onConsentOpen === 'function') {
+                try { options.onConsentOpen(); } catch (e) {}
+            }
             modal.classList.remove('hidden');
             modal.classList.add('flex');
             document.body.classList.add('overflow-hidden');
@@ -85,6 +88,9 @@
                 accepted = true;
                 consentId = result.payload.consent_id || null;
                 if (modal) modal.dataset.accepted = 'true';
+                if (typeof options.onConsentAccepted === 'function') {
+                    try { options.onConsentAccepted({ consentId }); } catch (e) {}
+                }
                 closeModal();
                 return true;
             } catch (err) {

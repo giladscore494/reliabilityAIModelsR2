@@ -11,13 +11,32 @@
     const tableWrapper = document.getElementById('advisor-table-wrapper');
     const errorEl = document.getElementById('advisor-error');
     const consentCheckbox = document.getElementById('advisor-consent');
+    const researchSectionEl = document.getElementById('advisorResearchSection');
+    const researchFormWrapEl = document.getElementById('advisorResearchFormWrap');
+    const researchFormEl = document.getElementById('advisorResearchForm');
+    const researchAnswerNowBtn = document.getElementById('advisorResearchAnswerNow');
+    const researchSkipBtn = document.getElementById('advisorResearchSkip');
     const researchMessageEl = document.getElementById('advisorResearchMessage');
-    const isOwnerUser = form.dataset.isOwner === 'true';
-    const chargingResearchBlock = document.getElementById('advisorChargingResearchBlock');
+    const researchConsentCheckbox = document.getElementById('advisorResearchConsentCheckbox');
+    const researchCurrentVehicleEl = document.getElementById('advisorResearchCurrentVehicle');
+    const researchOwnershipDurationEl = document.getElementById('advisorResearchOwnershipDuration');
+    const researchMileageBucketEl = document.getElementById('advisorResearchMileageBucket');
+    const researchMajorFaultTypeWrapEl = document.getElementById('advisorResearchFaultTypeWrap');
+    const researchMajorFaultTypeEl = document.getElementById('advisorResearchMajorFaultType');
+    const researchMaintenanceCostBucketEl = document.getElementById('advisorResearchMaintenanceCostBucket');
+    const researchActualConsumptionEl = document.getElementById('advisorResearchActualConsumption');
+    const researchSatisfactionScoreEl = document.getElementById('advisorResearchSatisfactionScore');
+    const researchWouldBuyAgainEl = document.getElementById('advisorResearchWouldBuyAgain');
     const researchClient = window.YedaResearch
         ? window.YedaResearch.createClient({
             accepted: document.getElementById('researchConsentModal')?.dataset.accepted === 'true',
-            defaultSource: 'advisor_pre_result'
+            defaultSource: 'advisor_after_result',
+            onConsentOpen: function () {
+                trackAnalytics('research_consent_opened', { flow_type: 'advisor' });
+            },
+            onConsentAccepted: function () {
+                trackAnalytics('research_consented', { flow_type: 'advisor' });
+            }
         })
         : null;
     const advisorCopy = {
@@ -26,6 +45,7 @@
     };
     let currentAdvisorHistoryId = null;
     let legalAccepted = false;
+    let advisorResearchCardTrackedForHistory = null;
 
     const profileSummaryEl = document.getElementById('advisor-profile-summary');
     const highlightCardsEl = document.getElementById('advisor-highlight-cards');
@@ -48,6 +68,17 @@
         if (/^https?:\/\//i.test(trimmed)) return trimmed;
         if (/^mailto:/i.test(trimmed)) return trimmed;
         return '';
+    }
+
+    function trackAnalytics(eventName, properties) {
+        if (typeof window.posthog === 'undefined' || typeof window.posthog.capture !== 'function') {
+            return;
+        }
+        try {
+            window.posthog.capture(eventName, properties || {});
+        } catch (err) {
+            console.warn('analytics capture failed', err);
+        }
     }
 
     const getCSRFToken = () => {
@@ -391,15 +422,6 @@
             consider_supply,
             fuel_price: parseFloat(form.fuel_price.value || '7.0'),
             electricity_price: parseFloat(form.electricity_price.value || '0.65'),
-            research_current_vehicle: form.research_current_vehicle ? form.research_current_vehicle.value || '' : '',
-            research_actual_consumption: form.research_actual_consumption ? form.research_actual_consumption.value || '' : '',
-            research_sale_timeline: form.research_sale_timeline ? form.research_sale_timeline.value || '' : '',
-            research_sale_gap: form.research_sale_gap ? form.research_sale_gap.value || '' : '',
-            research_purchase_reference_type: form.research_purchase_reference_type ? form.research_purchase_reference_type.value || '' : '',
-            research_purchase_delta_bucket: form.research_purchase_delta_bucket ? form.research_purchase_delta_bucket.value || '' : '',
-            research_charging_cost: form.research_charging_cost ? form.research_charging_cost.value || '' : '',
-            research_charging_location: form.research_charging_location ? form.research_charging_location.value || '' : '',
-
             excluded_colors: form.excluded_colors.value || '',
 
             // משקלים
@@ -415,17 +437,129 @@
         return payload;
     }
 
-    function advisorResearchNeedsCharging() {
-        const fuels = getCheckedValues('fuels_he');
-        return fuels.some((fuel) => {
-            const normalized = String(fuel || '').toLowerCase();
-            return normalized.includes('חשמל') || normalized.includes('היבריד') || normalized.includes('electric') || normalized.includes('hybrid');
-        });
+    function setResearchMessage(message, tone) {
+        if (!researchMessageEl) return;
+        if (!message) {
+            researchMessageEl.textContent = '';
+            researchMessageEl.classList.add('hidden');
+            researchMessageEl.classList.remove('text-emerald-300', 'text-amber-300', 'text-red-300');
+            researchMessageEl.classList.add('text-emerald-300');
+            return;
+        }
+        researchMessageEl.textContent = message;
+        researchMessageEl.classList.remove('hidden', 'text-emerald-300', 'text-amber-300', 'text-red-300');
+        researchMessageEl.classList.add(
+            tone === 'error' ? 'text-red-300' : tone === 'warning' ? 'text-amber-300' : 'text-emerald-300'
+        );
     }
 
-    function syncAdvisorResearchVisibility() {
-        if (!chargingResearchBlock) return;
-        chargingResearchBlock.classList.toggle('hidden', !advisorResearchNeedsCharging());
+    function getSelectedMajorFaultValue() {
+        return researchFormEl?.querySelector('input[name="advisorResearchMajorFaults"]:checked')?.value || '';
+    }
+
+    function syncAdvisorResearchFaultTypeVisibility() {
+        if (!researchMajorFaultTypeWrapEl || !researchMajorFaultTypeEl) return;
+        const shouldShow = getSelectedMajorFaultValue() === 'yes';
+        researchMajorFaultTypeWrapEl.classList.toggle('hidden', !shouldShow);
+        if (!shouldShow) {
+            researchMajorFaultTypeEl.value = '';
+        }
+    }
+
+    function resetAdvisorResearchCard() {
+        if (!researchSectionEl) return;
+        researchSectionEl.classList.add('hidden');
+        researchFormWrapEl?.classList.add('hidden');
+        researchFormEl?.reset();
+        syncAdvisorResearchFaultTypeVisibility();
+        if (researchMessageEl) {
+            researchMessageEl.textContent = '';
+            researchMessageEl.classList.add('hidden');
+            researchMessageEl.classList.remove('text-amber-300', 'text-red-300');
+            researchMessageEl.classList.add('text-emerald-300');
+        }
+    }
+
+    function showAdvisorResearchCard() {
+        if (!researchSectionEl || !currentAdvisorHistoryId) return;
+        researchSectionEl.classList.remove('hidden');
+        if (advisorResearchCardTrackedForHistory !== currentAdvisorHistoryId) {
+            trackAnalytics('research_card_shown', {
+                flow_type: 'advisor',
+                advisor_history_id: currentAdvisorHistoryId
+            });
+            advisorResearchCardTrackedForHistory = currentAdvisorHistoryId;
+        }
+    }
+
+    function buildAdvisorResearchResponses() {
+        const responses = [];
+        const currentVehicle = researchCurrentVehicleEl?.value?.trim() || '';
+        const ownershipDuration = researchOwnershipDurationEl?.value || '';
+        const mileageBucket = researchMileageBucketEl?.value || '';
+        const majorFaults = getSelectedMajorFaultValue();
+        const majorFaultType = researchMajorFaultTypeEl?.value || '';
+        const maintenanceCostBucket = researchMaintenanceCostBucketEl?.value || '';
+        const actualConsumption = researchActualConsumptionEl?.value || '';
+        const satisfactionScore = researchSatisfactionScoreEl?.value || '';
+        const wouldBuyAgain = researchWouldBuyAgainEl?.value || '';
+
+        if (currentVehicle) {
+            responses.push({
+                question_code: 'current_vehicle',
+                response: { current_vehicle: currentVehicle }
+            });
+        }
+        if (ownershipDuration) {
+            responses.push({
+                question_code: 'ownership_duration',
+                response: { ownership_duration: ownershipDuration }
+            });
+        }
+        if (mileageBucket) {
+            responses.push({
+                question_code: 'mileage_bucket',
+                response: { mileage_bucket: mileageBucket }
+            });
+        }
+        if (majorFaults) {
+            responses.push({
+                question_code: 'had_major_faults',
+                response: { had_major_faults: majorFaults === 'yes' }
+            });
+        }
+        if (majorFaultType) {
+            responses.push({
+                question_code: 'major_fault_type',
+                response: { major_fault_type: majorFaultType }
+            });
+        }
+        if (maintenanceCostBucket) {
+            responses.push({
+                question_code: 'maintenance_cost_bucket',
+                response: { maintenance_cost_bucket: maintenanceCostBucket }
+            });
+        }
+        if (actualConsumption !== '') {
+            responses.push({
+                question_code: 'actual_fuel_consumption',
+                response: { actual_consumption: actualConsumption }
+            });
+        }
+        if (satisfactionScore) {
+            responses.push({
+                question_code: 'satisfaction_score',
+                response: { satisfaction_score: satisfactionScore }
+            });
+        }
+        if (wouldBuyAgain) {
+            responses.push({
+                question_code: 'would_buy_again',
+                response: { would_buy_again: wouldBuyAgain }
+            });
+        }
+
+        return responses;
     }
 
     function formatPriceRange(range) {
@@ -958,6 +1092,12 @@
                 '<p class="text-sm text-slate-400">לא התקבלו המלצות. ייתכן שהגבלות התקציב/שנים קשיחות מדי.</p>';
             resultsSection.classList.remove('hidden');
             resultsSection.scrollIntoView({behavior: 'smooth', block: 'start'});
+            showAdvisorResearchCard();
+            trackAnalytics('result_rendered', {
+                flow_type: 'advisor',
+                advisor_history_id: currentAdvisorHistoryId,
+                recommended_count: 0
+            });
             return;
         }
 
@@ -984,6 +1124,12 @@
 
         resultsSection.classList.remove('hidden');
         resultsSection.scrollIntoView({behavior: 'smooth', block: 'start'});
+        showAdvisorResearchCard();
+        trackAnalytics('result_rendered', {
+            flow_type: 'advisor',
+            advisor_history_id: currentAdvisorHistoryId,
+            recommended_count: cars.length
+        });
     }
 
     // --- Submit ---
@@ -1009,25 +1155,7 @@
             return;
         }
 
-        if (!isOwnerUser && researchClient && !(await researchClient.ensureConsent('advisor_pre_result'))) {
-            return;
-        }
-
         const payload = { ...buildPayload(), legal_confirm: true };
-        if (!isOwnerUser && (!payload.research_current_vehicle || !payload.research_actual_consumption)) {
-            if (errorEl) {
-                errorEl.textContent = 'נא להשלים את שאלות המחקר על הרכב הנוכחי וצריכת הדלק בפועל לפני המשך.';
-                errorEl.classList.remove('hidden');
-            }
-            return;
-        }
-        if (!isOwnerUser && advisorResearchNeedsCharging() && (!payload.research_charging_cost || !payload.research_charging_location)) {
-            if (errorEl) {
-                errorEl.textContent = 'לרכב חשמלי או היברידי צריך להשלים גם עלות טעינה ומיקום טעינה.';
-                errorEl.classList.remove('hidden');
-            }
-            return;
-        }
 
         if (!payload.budget_max || payload.budget_max <= 0 || payload.budget_min > payload.budget_max) {
             if (errorEl) {
@@ -1038,6 +1166,14 @@
             return;
         }
 
+        currentAdvisorHistoryId = null;
+        trackAnalytics('result_requested', {
+            flow_type: 'advisor',
+            budget_min: payload.budget_min,
+            budget_max: payload.budget_max,
+            preferred_fuels_count: Array.isArray(payload.fuels_he) ? payload.fuels_he.length : 0
+        });
+        resetAdvisorResearchCard();
         setSubmitting(true);
         showTimingBanner('advisor');
         
@@ -1066,55 +1202,6 @@
             const payloadFromApi = res.data || {};
             currentAdvisorHistoryId = payloadFromApi.history_id || null;
             renderResults(payloadFromApi);
-            if (!isOwnerUser && currentAdvisorHistoryId && researchClient) {
-                await researchClient.saveResponses({
-                    flow_type: 'advisor',
-                    source_analysis_type: 'advisor_history',
-                    source_record_id: currentAdvisorHistoryId,
-                    vehicle_context: {
-                        preferred_fuels: payload.fuels_he,
-                        budget_min: payload.budget_min,
-                        budget_max: payload.budget_max,
-                    },
-                    responses: [
-                        {
-                            question_code: 'current_vehicle',
-                            response: { current_vehicle: payload.research_current_vehicle },
-                        },
-                        {
-                            question_code: 'sale_experience',
-                            response: {
-                                sale_timeline_bucket: payload.research_sale_timeline,
-                                ask_to_sale_gap_bucket: payload.research_sale_gap,
-                            },
-                        },
-                        {
-                            question_code: 'purchase_reference',
-                            response: {
-                                purchase_reference_type: payload.research_purchase_reference_type,
-                                purchase_delta_bucket: payload.research_purchase_delta_bucket,
-                            },
-                        },
-                        {
-                            question_code: 'actual_fuel_consumption',
-                            response: {
-                                actual_consumption: payload.research_actual_consumption,
-                            },
-                        },
-                        ...(advisorResearchNeedsCharging() ? [{
-                            question_code: 'charging_profile',
-                            response: {
-                                charging_cost_ils_per_kwh: payload.research_charging_cost,
-                                charging_location: payload.research_charging_location,
-                            },
-                        }] : []),
-                    ],
-                });
-                if (researchMessageEl) {
-                    researchMessageEl.textContent = 'תשובות המחקר נשמרו יחד עם הבקשה.';
-                    researchMessageEl.classList.remove('hidden');
-                }
-            }
         } catch (err) {
             console.error(err);
             showRequestAwareError(err.message || 'שגיאה כללית בחיבור לשרת. נסה שוב מאוחר יותר.', err.requestId || null);
@@ -1125,14 +1212,97 @@
     }
 
     form.addEventListener('submit', handleSubmit);
-    form.querySelectorAll('input[name="fuels_he"]').forEach((checkbox) => {
-        checkbox.addEventListener('change', syncAdvisorResearchVisibility);
+
+    (researchFormEl?.querySelectorAll('input[name="advisorResearchMajorFaults"]') || []).forEach((radio) => {
+        radio.addEventListener('change', syncAdvisorResearchFaultTypeVisibility);
     });
-    syncAdvisorResearchVisibility();
+    syncAdvisorResearchFaultTypeVisibility();
+
+    researchAnswerNowBtn?.addEventListener('click', function () {
+        if (!currentAdvisorHistoryId || !researchFormWrapEl) return;
+        researchFormWrapEl.classList.remove('hidden');
+        setResearchMessage('', 'success');
+        if (researchMessageEl) {
+            researchMessageEl.textContent = '';
+            researchMessageEl.classList.add('hidden');
+        }
+        trackAnalytics('research_started', {
+            flow_type: 'advisor',
+            advisor_history_id: currentAdvisorHistoryId
+        });
+        researchCurrentVehicleEl?.focus();
+    });
+
+    researchSkipBtn?.addEventListener('click', function () {
+        researchFormWrapEl?.classList.add('hidden');
+        setResearchMessage('אין בעיה — אפשר לחזור לזה אחר כך.', 'warning');
+        trackAnalytics('research_skipped', {
+            flow_type: 'advisor',
+            advisor_history_id: currentAdvisorHistoryId
+        });
+    });
+
+    researchFormEl?.addEventListener('submit', async function (event) {
+        event.preventDefault();
+        if (!currentAdvisorHistoryId) {
+            setResearchMessage('קודם צריך להפיק תוצאה כדי לשמור תרומה אופציונלית למאגר.', 'error');
+            return;
+        }
+        if (!researchConsentCheckbox?.checked) {
+            setResearchMessage('יש לסמן את הסכמת המחקר האופציונלית לפני השמירה.', 'warning');
+            return;
+        }
+
+        const responses = buildAdvisorResearchResponses();
+        if (!responses.length) {
+            setResearchMessage('צריך למלא לפחות תשובת מחקר אחת כדי לשמור.', 'warning');
+            return;
+        }
+
+        if (getSelectedMajorFaultValue() === 'yes' && !researchMajorFaultTypeEl?.value) {
+            setResearchMessage('אם היו תקלות משמעותיות, צריך לבחור גם את סוג התקלה.', 'warning');
+            return;
+        }
+
+        if (!researchClient || !(await researchClient.ensureConsent('advisor_after_result'))) {
+            return;
+        }
+
+        const servicePayload = buildPayload();
+        try {
+            await researchClient.saveResponses({
+                flow_type: 'advisor',
+                source_analysis_type: 'advisor_history',
+                source_record_id: currentAdvisorHistoryId,
+                vehicle_context: {
+                    advisor_history_id: currentAdvisorHistoryId,
+                    budget_min: servicePayload.budget_min,
+                    budget_max: servicePayload.budget_max,
+                    preferred_fuels: servicePayload.fuels_he,
+                    main_use: servicePayload.main_use,
+                    annual_km: servicePayload.annual_km
+                },
+                responses
+            });
+            setResearchMessage('תודה, התשובות נשמרו.', 'success');
+            trackAnalytics('research_completed', {
+                flow_type: 'advisor',
+                advisor_history_id: currentAdvisorHistoryId,
+                saved_count: responses.length
+            });
+        } catch (err) {
+            trackAnalytics('research_save_failed', {
+                flow_type: 'advisor',
+                advisor_history_id: currentAdvisorHistoryId,
+                message: err.message || 'save_failed'
+            });
+            showRequestAwareError(err.message || 'לא הצלחנו לשמור את תשובות המחקר.', err.requestId || null);
+        }
+    });
 
     if (window.advisorHistoryProfile && window.advisorHistoryResult) {
         applyHistoryProfile(window.advisorHistoryProfile);
+        currentAdvisorHistoryId = window.advisorHistoryId || null;
         renderResults(window.advisorHistoryResult);
-        syncAdvisorResearchVisibility();
     }
 })();

@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from datetime import datetime
 from typing import Any, Dict, Mapping
 
 from app.utils.http_helpers import _utcnow
@@ -455,29 +454,6 @@ def validate_analyze_request(
                 raise ValidationError("budget_min", "budget_min must be 0 or greater")
             if float(validated["budget_min"]) > float(validated["budget_max"]):
                 raise ValidationError("budget_range", "budget_min cannot exceed budget_max")
-
-            if not is_owner:
-                _require_field(
-                    validated,
-                    "research_current_vehicle",
-                    "research_current_vehicle is required",
-                )
-                _require_field(
-                    validated,
-                    "research_actual_consumption",
-                    "research_actual_consumption is required",
-                )
-                if _preferred_fuels_need_charging(validated):
-                    _require_field(
-                        validated,
-                        "research_charging_cost",
-                        "research_charging_cost is required for hybrid/electric preferences",
-                    )
-                    _require_field(
-                        validated,
-                        "research_charging_location",
-                        "research_charging_location is required for hybrid/electric preferences",
-                    )
 
         # Usage profile normalization (fills defaults when missing)
         usage_profile = normalize_usage_profile(validated)

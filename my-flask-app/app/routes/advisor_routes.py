@@ -47,6 +47,7 @@ def recommendations():
         is_owner=is_owner_user(),
         advisor_history_profile=None,
         advisor_history_result=None,
+        advisor_history_id=None,
     )
 
 
@@ -76,6 +77,7 @@ def recommendations_history(history_id):
         is_owner=is_owner_user(),
         advisor_history_profile=profile,
         advisor_history_result=result,
+        advisor_history_id=record.id,
     )
 
 

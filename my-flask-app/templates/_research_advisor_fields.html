@@ -1,128 +1,156 @@
-<div class="space-y-4 rounded-3xl border border-primary/20 bg-primary/5 p-5">
-    <div class="space-y-2">
-        <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase">שאלות מחקר משולבות</p>
-        <h2 class="text-lg font-bold text-white">עוד קצת הקשר מהשוק האמיתי</h2>
-        <p class="text-xs leading-6 text-slate-400">
-            השדות הבאים עוזרים לחדד את ההמלצה ומיועדים גם למחקר מוצר. התשובות יישמרו רק לאחר אישור מחקר ייעודי.
-        </p>
-    </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-            <label for="research_current_vehicle" class="block text-xs font-semibold text-slate-300 mb-1">מה הרכב הנוכחי?</label>
-            <input id="research_current_vehicle" name="research_current_vehicle" type="text" maxlength="120"
-                   placeholder="לדוגמה: Mazda 3 2018 / אין רכב כרגע"
-                   class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm focus:ring-primary focus:border-primary">
-        </div>
-        <div>
-            <label for="research_actual_consumption" class="block text-xs font-semibold text-slate-300 mb-1">צריכת דלק בפועל</label>
-            <input id="research_actual_consumption" name="research_actual_consumption" type="number" min="0" max="50" step="0.1"
-                   placeholder="ק״מ לליטר / קוט״ש מקביל"
-                   class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm focus:ring-primary focus:border-primary">
-        </div>
-        <div>
-            <label for="research_sale_timeline" class="block text-xs font-semibold text-slate-300 mb-1">תוך כמה זמן הרכב האחרון נמכר?</label>
-            <select id="research_sale_timeline" name="research_sale_timeline"
-                    class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm">
-                <option value="under_14_days">עד שבועיים</option>
-                <option value="14_to_30_days">שבועיים עד חודש</option>
-                <option value="31_to_60_days">חודש עד חודשיים</option>
-                <option value="over_60_days">מעל חודשיים</option>
-                <option value="not_sold">לא מכרתי עדיין</option>
-            </select>
-        </div>
-        <div>
-            <label for="research_sale_gap" class="block text-xs font-semibold text-slate-300 mb-1">פער בין מחיר מבוקש למחיר סגירה</label>
-            <select id="research_sale_gap" name="research_sale_gap"
-                    class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm">
-                <option value="under_5_pct">עד 5%</option>
-                <option value="5_to_10_pct">5%–10%</option>
-                <option value="10_to_15_pct">10%–15%</option>
-                <option value="over_15_pct">מעל 15%</option>
-                <option value="not_sold">לא מכרתי עדיין</option>
-            </select>
-        </div>
-        <div>
-            <label for="research_purchase_reference_type" class="block text-xs font-semibold text-slate-300 mb-1">מחיר הרכישה הושווה למה?</label>
-            <select id="research_purchase_reference_type" name="research_purchase_reference_type"
-                    class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm">
-                <option value="price_list">מחירון</option>
-                <option value="published_ad">מחיר שפורסם במודעה</option>
-            </select>
-        </div>
-        <div>
-            <label for="research_purchase_delta_bucket" class="block text-xs font-semibold text-slate-300 mb-1">מה היה הפער?</label>
-            <select id="research_purchase_delta_bucket" name="research_purchase_delta_bucket"
-                    class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm">
-                <option value="below_5_pct">עד 5% מתחת</option>
-                <option value="within_5_pct">עד 5% סביב המחיר</option>
-                <option value="5_to_10_pct">5%–10% מעל</option>
-                <option value="over_10_pct">מעל 10% מעל</option>
-                <option value="unknown">לא יודע/ת</option>
-            </select>
-        </div>
-    </div>
-
-    <div id="advisorChargingResearchBlock" class="hidden grid grid-cols-1 md:grid-cols-2 gap-4 rounded-2xl border border-slate-700 bg-slate-900/40 p-4">
-        <div>
-            <label for="research_charging_cost" class="block text-xs font-semibold text-slate-300 mb-1">עלות טעינה משוערת (₪ לקוט״ש)</label>
-            <input id="research_charging_cost" name="research_charging_cost" type="number" min="0" max="10" step="0.01"
-                   class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm focus:ring-primary focus:border-primary">
-        </div>
-        <div>
-            <label for="research_charging_location" class="block text-xs font-semibold text-slate-300 mb-1">איפה מטעינים בדרך כלל?</label>
-            <select id="research_charging_location" name="research_charging_location"
-                    class="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm">
-                <option value="home">בבית</option>
-                <option value="work">בעבודה</option>
-                <option value="public">עמדה ציבורית</option>
-                <option value="mixed">משולב</option>
-            </select>
-        </div>
-    </div>
-
-    <p id="advisorResearchMessage" class="hidden text-xs text-emerald-300"></p>
-
-    {# Separate research/business-dataset consent — must NOT be bundled with Terms/Privacy. #}
-    <div class="mt-4 rounded-2xl border border-slate-700 bg-slate-900/40 p-4 space-y-2">
-        <label for="advisorResearchConsentCheckbox" class="flex items-start gap-3 cursor-pointer">
-            <input id="advisorResearchConsentCheckbox" name="research_consent_optin" type="checkbox"
-                   class="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-900 text-primary focus:ring-primary">
-            <span class="text-xs leading-6 text-slate-200">
-                אני מסכים/ה שהמידע שאמסור בשאלוני הרכב ישמש את ידע רכב לצורך שיפור השירות, בניית מאגר אמינות רכב ישראלי, ניתוחים סטטיסטיים, מחקר פנימי ופיתוח מוצרים, ככל הניתן בצורה מצרפית או אנונימית, כמפורט במדיניות הפרטיות.
+<section id="advisorResearchSection" class="mt-8 hidden rounded-[1.75rem] border border-slate-700/70 bg-slate-900/60 p-6 md:p-8">
+    <div class="space-y-4">
+        <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div class="space-y-2">
+                <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase">מחקר אופציונלי אחרי התוצאה</p>
+                <h3 class="text-2xl font-bold text-white">עזור לבנות את מאגר האמינות הישראלי</h3>
+                <p class="text-sm leading-7 text-slate-300">
+                    יש לך 45 שניות? כמה תשובות קצרות על רכב שהיה אצלך יעזרו לנו לשפר את האמינות וההמלצות לכולם.
+                </p>
+                <p class="text-sm leading-7 text-slate-400">
+                    החלק הזה אופציונלי לגמרי. התוצאה שלך כבר מוכנה ואפשר להשתמש בשירות גם בלי לענות.
+                </p>
+            </div>
+            <span class="inline-flex items-center justify-center self-start rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                45 שניות
             </span>
-        </label>
-        <p class="text-[11px] leading-5 text-slate-400">
-            מסירת מידע מחקרי היא רשות. אפשר להשתמש בשירות גם בלי לענות על שאלות שאינן חובה לתפקוד הבדיקה או ההמלצה.
-        </p>
-    </div>
-</div>
+        </div>
 
-<script nonce="{{ csp_nonce }}">
-    // When the research consent checkbox is unchecked, the optional research_*
-    // fields must NOT be submitted. We disable them so the browser omits them
-    // from the form payload. The main advisor flow remains unaffected.
-    (function () {
-        var cb = document.getElementById('advisorResearchConsentCheckbox');
-        if (!cb) return;
-        var researchIds = [
-            'research_current_vehicle',
-            'research_actual_consumption',
-            'research_sale_timeline',
-            'research_sale_gap',
-            'research_purchase_reference_type',
-            'research_purchase_delta_bucket',
-            'research_charging_cost',
-            'research_charging_location',
-        ];
-        function sync() {
-            var disabled = !cb.checked;
-            researchIds.forEach(function (id) {
-                var el = document.getElementById(id);
-                if (el) el.disabled = disabled;
-            });
-        }
-        cb.addEventListener('change', sync);
-        sync();
-    })();
-</script>
+        <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+            <button id="advisorResearchAnswerNow" type="button" class="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-primary to-secondary px-5 py-3 text-sm font-bold text-white transition hover:opacity-90">
+                עונה עכשיו
+            </button>
+            <button id="advisorResearchSkip" type="button" class="inline-flex items-center justify-center rounded-2xl border border-slate-600 bg-slate-950/40 px-5 py-3 text-sm font-semibold text-slate-200 transition hover:border-slate-500 hover:text-white">
+                לא עכשיו
+            </button>
+        </div>
+    </div>
+
+    <div id="advisorResearchFormWrap" class="mt-6 hidden rounded-3xl border border-slate-700 bg-slate-950/40 p-5 md:p-6">
+        <form id="advisorResearchForm" class="space-y-5">
+            <div class="grid gap-5 md:grid-cols-2">
+                <div class="space-y-2">
+                    <label for="advisorResearchCurrentVehicle" class="block text-sm font-semibold text-slate-200">איזה רכב יש/היה לך?</label>
+                    <input id="advisorResearchCurrentVehicle" type="text" maxlength="120" placeholder="לדוגמה: Toyota Corolla 2018"
+                           class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white" />
+                </div>
+                <div class="space-y-2">
+                    <label for="advisorResearchOwnershipDuration" class="block text-sm font-semibold text-slate-200">כמה זמן היה אצלך?</label>
+                    <select id="advisorResearchOwnershipDuration" class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white">
+                        <option value="">בחר/י אפשרות</option>
+                        <option value="less_than_6_months">פחות מ-6 חודשים</option>
+                        <option value="6_12_months">6–12 חודשים</option>
+                        <option value="1_2_years">שנה עד שנתיים</option>
+                        <option value="2_4_years">שנתיים עד ארבע</option>
+                        <option value="4_plus_years">4+ שנים</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid gap-5 md:grid-cols-2">
+                <div class="space-y-2">
+                    <label for="advisorResearchMileageBucket" class="block text-sm font-semibold text-slate-200">בערך כמה ק&quot;מ נסעת איתו?</label>
+                    <select id="advisorResearchMileageBucket" class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white">
+                        <option value="">בחר/י אפשרות</option>
+                        <option value="0-50k">0–50k</option>
+                        <option value="50k-100k">50k–100k</option>
+                        <option value="100k-150k">100k–150k</option>
+                        <option value="150k-200k">150k–200k</option>
+                        <option value="200k+">200k+</option>
+                        <option value="unknown">לא יודע/ת</option>
+                    </select>
+                </div>
+                <div class="space-y-2">
+                    <p class="text-sm font-semibold text-slate-200">היו תקלות משמעותיות?</p>
+                    <div class="flex flex-wrap gap-3 text-sm">
+                        <label class="inline-flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2">
+                            <input type="radio" name="advisorResearchMajorFaults" value="yes" class="text-primary">
+                            <span>כן</span>
+                        </label>
+                        <label class="inline-flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2">
+                            <input type="radio" name="advisorResearchMajorFaults" value="no" class="text-primary">
+                            <span>לא</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div id="advisorResearchFaultTypeWrap" class="hidden space-y-2">
+                <label for="advisorResearchMajorFaultType" class="block text-sm font-semibold text-slate-200">אם כן, סוג התקלה</label>
+                <select id="advisorResearchMajorFaultType" class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white">
+                    <option value="">בחר/י אפשרות</option>
+                    <option value="engine">מנוע</option>
+                    <option value="gearbox">גיר</option>
+                    <option value="hybrid_battery">סוללה היברידית</option>
+                    <option value="electrical">חשמל</option>
+                    <option value="suspension">מתלים</option>
+                    <option value="ac">מיזוג</option>
+                    <option value="other">אחר</option>
+                </select>
+            </div>
+
+            <div class="grid gap-5 md:grid-cols-2">
+                <div class="space-y-2">
+                    <label for="advisorResearchMaintenanceCostBucket" class="block text-sm font-semibold text-slate-200">עלות אחזקה שנתית משוערת</label>
+                    <select id="advisorResearchMaintenanceCostBucket" class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white">
+                        <option value="">בחר/י אפשרות</option>
+                        <option value="0-2000">0–2000</option>
+                        <option value="2000-4000">2000–4000</option>
+                        <option value="4000-7000">4000–7000</option>
+                        <option value="7000-10000">7000–10000</option>
+                        <option value="10000+">10000+</option>
+                        <option value="unknown">לא יודע/ת</option>
+                    </select>
+                </div>
+                <div class="space-y-2">
+                    <label for="advisorResearchActualConsumption" class="block text-sm font-semibold text-slate-200">צריכת דלק בפועל (אופציונלי)</label>
+                    <input id="advisorResearchActualConsumption" type="number" min="0" max="50" step="0.1" placeholder="לדוגמה: 14.5"
+                           class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white" />
+                </div>
+            </div>
+
+            <div class="grid gap-5 md:grid-cols-2">
+                <div class="space-y-2">
+                    <label for="advisorResearchSatisfactionScore" class="block text-sm font-semibold text-slate-200">שביעות רצון</label>
+                    <select id="advisorResearchSatisfactionScore" class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white">
+                        <option value="">בחר/י דירוג</option>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                        <option value="4">4</option>
+                        <option value="5">5</option>
+                    </select>
+                </div>
+                <div class="space-y-2">
+                    <label for="advisorResearchWouldBuyAgain" class="block text-sm font-semibold text-slate-200">היית קונה שוב?</label>
+                    <select id="advisorResearchWouldBuyAgain" class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white">
+                        <option value="">בחר/י אפשרות</option>
+                        <option value="yes">כן</option>
+                        <option value="no">לא</option>
+                        <option value="not_sure">לא בטוח/ה</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="rounded-2xl border border-slate-700 bg-slate-950/40 p-4 space-y-2">
+                <label for="advisorResearchConsentCheckbox" class="flex items-start gap-3 cursor-pointer">
+                    <input id="advisorResearchConsentCheckbox" name="research_consent_optin" type="checkbox"
+                           class="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-900 text-primary focus:ring-primary">
+                    <span class="text-sm leading-7 text-slate-200">
+                        אני מסכים/ה למסור מידע מחקרי אופציונלי לצורך שיפור מאגר האמינות והמודלים של ידע רכב. המידע יישמר בנפרד מנתוני השימוש הרגילים, וינותח בצורה מצרפית או לאחר הסרת מזהים ככל שניתן. אפשר להשתמש בשירות גם בלי להסכים.
+                    </span>
+                </label>
+                <p class="text-xs leading-6 text-slate-400">
+                    החלק הזה אופציונלי לגמרי. התוצאה שלך כבר מוכנה ואפשר להשתמש בשירות גם בלי לענות.
+                </p>
+            </div>
+
+            <div class="flex flex-col gap-3 md:flex-row md:items-center">
+                <button type="submit" class="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-primary to-secondary px-6 py-3 text-sm font-bold text-white transition hover:opacity-90">
+                    שמור תשובות מחקר
+                </button>
+                <p id="advisorResearchMessage" class="hidden text-sm text-emerald-300"></p>
+            </div>
+        </form>
+    </div>
+</section>

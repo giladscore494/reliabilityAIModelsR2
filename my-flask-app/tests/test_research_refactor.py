@@ -1,7 +1,6 @@
 """Tests for research refactor 2026-04-25."""
 
 import json
-import pytest
 from app.models import (
     ResearchConsent,
     ResearchResponseSession,
@@ -13,9 +12,7 @@ from app.research import RESEARCH_NOTICE_VERSION, RESEARCH_CONSENT_VERSION
 from app.utils.sanitization import (
     sanitize_profile_for_storage,
     sanitize_context_for_ai,
-    sanitize_research_answer,
 )
-from app.utils.validation import ValidationError
 
 
 def test_advisor_without_research_fields_succeeds(client, logged_in_client):
@@ -115,8 +112,6 @@ def test_advisor_history_profile_json_excludes_sensitive_fields(app):
 
 def test_research_save_requires_consent(app, logged_in_client):
     """Test 4: Research data save requires valid consent."""
-    from app.extensions import db
-    
     client, user_id = logged_in_client
     
     with app.app_context():
@@ -141,14 +136,12 @@ def test_research_save_requires_consent(app, logged_in_client):
         assert response.status_code == 200
         body = response.get_json()
         data = body.get("data") or body
-        assert data["saved"] == False
+        assert not data["saved"]
         assert data["reason"] == "consent_required"
 
 
 def test_research_save_rejected_without_consent(app, logged_in_client):
     """Test 5: No research rows written without consent."""
-    from app.extensions import db
-    
     client, user_id = logged_in_client
     
     with app.app_context():
@@ -226,7 +219,7 @@ def test_owner_profile_valid_payload_saves(app, logged_in_client):
         assert response.status_code == 200
         body = response.get_json()
         data = body.get("data") or body
-        assert data["saved"] == True
+        assert data["saved"]
         assert "session_id" in data
 
 
@@ -373,7 +366,7 @@ def test_user_can_withdraw_research_consent(app, logged_in_client):
         response = client.post("/api/research_consent/revoke")
         assert response.status_code == 200
         data = response.get_json()
-        assert data["ok"] == True
+        assert data["ok"]
         assert data["revoked_count"] >= 1
         
         # Verify revoked
@@ -405,3 +398,133 @@ def test_declined_research_consent_does_not_break_core_product(client, logged_in
     # Should not fail with 412 or 400 due to missing consent
     # (May fail with 500/503 due to AI timeouts in test env)
     assert response.status_code not in [400, 412]
+
+
+def test_research_payload_empty_is_rejected(app, logged_in_client):
+    from app.extensions import db
+    from app.models import AdvisorHistory
+
+    client, user_id = logged_in_client
+    consent_resp = client.post(
+        "/api/research/consent",
+        json={"research_confirm": True, "accepted_source": "advisor_after_result"},
+    )
+    consent_id = consent_resp.get_json()["consent_id"]
+
+    with app.app_context():
+        history = AdvisorHistory(
+            user_id=user_id,
+            profile_json=json.dumps({"budget_min": 50000}),
+            result_json=json.dumps({"recommended_cars": []}),
+        )
+        db.session.add(history)
+        db.session.commit()
+        history_id = history.id
+
+    response = client.post(
+        "/api/research/responses",
+        json={
+            "consent_id": consent_id,
+            "flow_type": "advisor",
+            "source_analysis_type": "advisor_history",
+            "source_record_id": history_id,
+            "vehicle_context": {"advisor_history_id": history_id},
+            "responses": [],
+        },
+    )
+
+    assert response.status_code == 400
+    assert "non-empty list" in response.get_json()["message"]
+
+
+def test_advisor_research_responses_require_existing_result_record(app, logged_in_client):
+    client, _ = logged_in_client
+    consent_resp = client.post(
+        "/api/research/consent",
+        json={"research_confirm": True, "accepted_source": "advisor_after_result"},
+    )
+    consent_id = consent_resp.get_json()["consent_id"]
+
+    response = client.post(
+        "/api/research/responses",
+        json={
+            "consent_id": consent_id,
+            "flow_type": "advisor",
+            "source_analysis_type": "advisor_history",
+            "source_record_id": 424242,
+            "vehicle_context": {"advisor_history_id": 424242},
+            "responses": [
+                {
+                    "question_code": "current_vehicle",
+                    "response": {"current_vehicle": "Toyota Corolla 2018"},
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 400
+    assert "valid result record exists" in response.get_json()["message"]
+
+
+def test_advisor_research_saved_as_optional_with_answer_types(app, logged_in_client):
+    from app.extensions import db
+    from app.models import AdvisorHistory
+
+    client, user_id = logged_in_client
+    consent_resp = client.post(
+        "/api/research/consent",
+        json={"research_confirm": True, "accepted_source": "advisor_after_result"},
+    )
+    consent_id = consent_resp.get_json()["consent_id"]
+
+    with app.app_context():
+        history = AdvisorHistory(
+            user_id=user_id,
+            profile_json=json.dumps({"budget_min": 50000}),
+            result_json=json.dumps({"recommended_cars": []}),
+        )
+        db.session.add(history)
+        db.session.commit()
+        history_id = history.id
+
+    response = client.post(
+        "/api/research/responses",
+        json={
+            "consent_id": consent_id,
+            "flow_type": "advisor",
+            "source_analysis_type": "advisor_history",
+            "source_record_id": history_id,
+            "vehicle_context": {"advisor_history_id": history_id},
+            "responses": [
+                {
+                    "question_code": "current_vehicle",
+                    "response": {"current_vehicle": "Toyota Corolla 2018"},
+                },
+                {
+                    "question_code": "satisfaction_score",
+                    "response": {"satisfaction_score": 4},
+                },
+                {
+                    "question_code": "would_buy_again",
+                    "response": {"would_buy_again": "yes"},
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+
+    with app.app_context():
+        session_record = ResearchResponseSession.query.one()
+        assert session_record.related_advisor_history_id == history_id
+        assert session_record.question_version is not None
+
+        rows = {
+            row.question_code: row
+            for row in ResearchResponse.query.order_by(ResearchResponse.question_code).all()
+        }
+        assert set(rows) == {"current_vehicle", "satisfaction_score", "would_buy_again"}
+        assert all(row.is_required is False for row in rows.values())
+        assert rows["current_vehicle"].answer_type == "text"
+        assert rows["satisfaction_score"].answer_type == "rating"
+        assert rows["would_buy_again"].answer_type == "bucket"

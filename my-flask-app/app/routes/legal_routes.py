@@ -8,10 +8,13 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from app.extensions import db
 from app.legal import normalize_legal_ip, parse_legal_confirm, record_feature_acceptance
 from app.models import (
+    AdvisorHistory,
+    ComparisonHistory,
     LegalAcceptance,
     ResearchConsent,
     ResearchResponse,
     ResearchResponseSession,
+    SearchHistory,
 )
 from app.quota import get_client_ip
 from app.research import (
@@ -55,6 +58,10 @@ def _find_research_consent(*, consent_id=None):
         terms_version=terms_version,
         privacy_version=privacy_version,
         research_notice_version=research_notice_version,
+    )
+    query = query.filter(
+        ResearchConsent.revoked_at.is_(None),
+        ResearchConsent.consent_given.isnot(False),
     )
     if consent_id:
         query = query.filter_by(id=consent_id)
@@ -333,6 +340,19 @@ def save_research_responses():
             "VALIDATION_ERROR", "source_record_id must be positive.", status=400
         )
 
+    source_model = {
+        "search_history": SearchHistory,
+        "comparison_history": ComparisonHistory,
+        "advisor_history": AdvisorHistory,
+    }[source_analysis_type]
+    source_record = db.session.get(source_model, source_record_id)
+    if source_record is None:
+        return _legal_error(
+            "VALIDATION_ERROR",
+            "Cannot save research before a valid result record exists.",
+            status=400,
+        )
+
     user_id, anon_id = _research_subject()
     session_query = ResearchResponseSession.query.filter_by(
         flow_type=flow_type,
@@ -354,6 +374,18 @@ def save_research_responses():
             vehicle_context_json=context_json,
             consent_id=consent.id,
             status="submitted",
+            question_version=RESEARCH_QUESTION_VERSION,
+            related_search_history_id=(
+                source_record_id if source_analysis_type == "search_history" else None
+            ),
+            related_advisor_history_id=(
+                source_record_id if source_analysis_type == "advisor_history" else None
+            ),
+            related_compare_history_id=(
+                source_record_id
+                if source_analysis_type == "comparison_history"
+                else None
+            ),
         )
         db.session.add(response_session)
         db.session.flush()
@@ -361,6 +393,16 @@ def save_research_responses():
         response_session.vehicle_context_json = context_json
         response_session.consent_id = consent.id
         response_session.status = "submitted"
+        response_session.question_version = RESEARCH_QUESTION_VERSION
+        response_session.related_search_history_id = (
+            source_record_id if source_analysis_type == "search_history" else None
+        )
+        response_session.related_advisor_history_id = (
+            source_record_id if source_analysis_type == "advisor_history" else None
+        )
+        response_session.related_compare_history_id = (
+            source_record_id if source_analysis_type == "comparison_history" else None
+        )
 
     for validated in validated_responses:
         record = ResearchResponse.query.filter_by(
@@ -381,6 +423,7 @@ def save_research_responses():
         record.is_required = validated["is_required"]
         record.question_version = RESEARCH_QUESTION_VERSION
         record.consent_id = consent.id
+        record.answer_type = validated.get("answer_type")
 
     try:
         db.session.commit()
@@ -414,7 +457,7 @@ def revoke_research_consent():
     # Find all active consents
     query = ResearchConsent.query.filter(
         ResearchConsent.revoked_at.is_(None),
-        ResearchConsent.consent_given == True,
+        ResearchConsent.consent_given,
     )
     
     if user_id:
