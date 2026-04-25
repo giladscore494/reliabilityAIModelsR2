@@ -11,7 +11,7 @@ from app.extensions import db
 from app.models import AdvisorHistory
 from app.quota import log_access_decision
 from app.utils.http_helpers import api_ok, api_error, get_request_id
-from app.utils.sanitization import sanitize_advisor_response
+from app.utils.sanitization import sanitize_advisor_response, sanitize_profile_for_storage
 from app.factory import (
     fuel_map,
     gear_map,
@@ -188,10 +188,14 @@ def handle_advisor_logic(payload, user, user_id):
     history_id = None
 
     # 🔴 שמירת היסטוריית המלצות למאגר
+    # Strip sensitive/research fields (market_research_context, gender, plate, etc.)
+    # from AdvisorHistory.profile_json. Optional research fields go to
+    # ResearchResponseSession only when consent exists (handled elsewhere).
+    profile_for_history = sanitize_profile_for_storage(profile_for_storage or {})
     try:
         rec_log = AdvisorHistory(
             user_id=user.id,
-            profile_json=json.dumps(profile_for_storage, ensure_ascii=False),
+            profile_json=json.dumps(profile_for_history, ensure_ascii=False),
             result_json=json.dumps(sanitized_result, ensure_ascii=False),
             duration_ms=model_duration_ms,
         )

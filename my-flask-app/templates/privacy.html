@@ -50,7 +50,14 @@
   <main class="flex-grow container mx-auto px-4 sm:px-6 lg:px-8 py-16 md:py-24">
     <div class="max-w-4xl mx-auto bg-dark-lighter/50 backdrop-blur-xl shadow-xl p-10 rounded-3xl border border-slate-700/50 fade-in">
       <h2 class="text-4xl md:text-5xl font-extrabold text-white mb-6">מדיניות פרטיות</h2>
-      <p class="text-slate-400 mb-2"><strong>עדכון אחרון:</strong> 3 באפריל 2026</p>
+      <p class="text-slate-400 mb-2"><strong>עדכון אחרון:</strong> 25 באפריל 2026</p>
+      <p class="text-slate-500 text-sm mb-6">
+        גרסת מדיניות: <code>{{ privacy_version or '2026-04-25' }}</code> ·
+        גרסת תקנון: <code>{{ terms_version or '2026-04-25' }}</code> ·
+        גרסת הסכמת מחקר: <code>{{ research_consent_version or '2026-04-25' }}</code>
+      </p>
+
+      {# TODO: have an Israeli privacy/consumer-law attorney review this Privacy Policy before production. #}
 
       <p class="text-slate-300 leading-relaxed mb-6">
         מסמך זה מסביר אילו נתונים אנו אוספים בעת שימוש ב-yedaarechevAI, לאילו מטרות, איך הם נשמרים, ומתי הם עשויים להיות משויכים
@@ -135,6 +142,91 @@
       <p class="text-slate-300 leading-relaxed">
         לפניות משפטיות, בקשות מחיקה, או שאלות בנושא פרטיות, ניתן ליצור קשר בכתובת
         <a href="mailto:{{ contact_email }}" class="text-primary hover:underline">{{ contact_email }}</a>.
+      </p>
+
+      {# TODO: have an Israeli privacy/consumer-law attorney review the sections below before production. #}
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">10. מידע שאיננו אוספים במכוון</h3>
+      <p class="text-slate-300 mb-3">
+        כיום איננו אוספים במכוון את הסוגים הבאים, אלא אם תוסיפנו אותם בעתיד לאחר עדכון מדיניות הפרטיות:
+      </p>
+      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+        <li>מספרי רישוי / לוחיות זיהוי של הרכב.</li>
+        <li>כתובת מגורים מדויקת.</li>
+        <li>עבירות תנועה.</li>
+        <li>מגדר נהג.</li>
+        <li>היסטוריית תאונות מפורטת.</li>
+        <li>היסטוריית ביטוח כטקסט חופשי.</li>
+        <li>תלונות פרטניות מזהות נגד מוסכים, מבטחים או צדדים שלישיים.</li>
+      </ul>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">11. שלוש שכבות נתונים מופרדות</h3>
+      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+        <li><strong>היסטוריית מוצר רגילה</strong> — חיפושים, השוואות והמלצות שביצעת, להצגה בדשבורד שלך.</li>
+        <li><strong>הקשר חשיבה ל-AI</strong> — תת-קבוצה קטנה ומסוננת של תשובותיך שעשויה להישלח למודל AI רק כאשר היא משפרת את התוצר.</li>
+        <li><strong>מאגר עסקי / מחקרי</strong> — נתונים מובנים ומצורפים שמשמשים, בכפוף להסכמה, לבניית מאגר אמינות רכב ישראלי. אין ערבוב בין שכבות אלה.</li>
+      </ul>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">12. מאגר מצרפי / עסקי</h3>
+      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+        <li>בכפוף להסכמתך הנפרדת, תשובות פרופיל הרכב והניסיון בבעלות עשויות לשמש לבניית מאגרי נתונים סטטיסטיים מצטברים.</li>
+        <li>המטרה היא לשפר ניקוד אמינות, המלצות ותובנות שוק רלוונטיות לישראל.</li>
+        <li>החברה רשאית לעשות שימוש מסחרי בתובנות מצרפיות/אנונימיזציות.</li>
+        <li>נתונים ברמת משתמש מזוהה לא יימכרו כפרופיל אישי מזוהה.</li>
+      </ul>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">13. הודעת עיבוד AI</h3>
+      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+        <li>חלק מנתוני הרכב/הבקשה עשויים להישלח לספקי AI חיצוניים לצורך הפקת תשובה.</li>
+        <li>אנו שולחים רק נתונים רלוונטיים; מזהים אישיים אינם נשלחים אלא אם הדבר נחוץ טכנית.</li>
+        <li>תוצרי AI עשויים לכלול שגיאות ואין להתייחס אליהם כייעוץ מקצועי, משפטי, פיננסי או בטיחותי.</li>
+      </ul>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">14. בסיס משפטי / הסכמה</h3>
+      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+        <li>חלק מהנתונים נדרשים לצורך מתן השירות.</li>
+        <li>איסוף מחקרי/עסקי אופציונלי מתבצע בכפוף להסכמה נפרדת ומפורשת.</li>
+        <li>ניתן לסרב לאיסוף מחקרי כל עוד הוא אינו נדרש לתפקוד הליבה של השירות.</li>
+      </ul>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">15. שיתוף נתונים עם מעבדים</h3>
+      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+        <li>ספק אירוח/תשתית.</li>
+        <li>ספק מסד נתונים מנוהל.</li>
+        <li>ספק הזדהות (Google OAuth).</li>
+        <li>ספק מודל AI (לדוגמה Google Gemini API, אם בשימוש).</li>
+        <li>כלי אנליטיקה/אבטחה ככל שייושמו.</li>
+      </ul>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">16. תקופות שמירה (ברירות מחדל)</h3>
+      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+        <li>נתוני חשבון נשמרים כל עוד החשבון קיים.</li>
+        <li>היסטוריית חיפוש נשמרת לדשבורד עד למחיקה או שינוי מדיניות.</li>
+        <li>תשובות מאגר עסקי נשמרות כל עוד נדרש לניתוח מצרפי, אלא אם נדרשת מחיקה לפי דין כשהן עוד קשורות למשתמש.</li>
+        <li>לוגי אבטחה נשמרים לפרק זמן תפעולי מוגבל.</li>
+      </ul>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">17. זכויות המשתמש</h3>
+      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+        <li>זכות עיון בנתונים שאתה אישית סיפקת.</li>
+        <li>זכות תיקון מידע לא מדויק.</li>
+        <li>זכות לבקש מחיקה (בכפוף לדרישות דין ומגבלות תפעוליות).</li>
+        <li>זכות למשוך הסכמת מחקר אופציונלית בכל עת באמצעות הדשבורד או פנייה אלינו.</li>
+        <li>פנייה: <a href="mailto:{{ contact_email }}" class="text-primary hover:underline">{{ contact_email }}</a>.</li>
+      </ul>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">18. אבטחת מידע</h3>
+      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+        <li>בקרות גישה, TLS, ניטור והרשאות.</li>
+        <li>גיבוב (hash) של מזהים טכניים כגון IP ו-User-Agent כאשר ניתן.</li>
+        <li>הפרדה בין היסטוריית מוצר לבין מאגר מחקר/עסקי.</li>
+        <li>צמצום שדות רגישים ושימוש בערכי דליים (buckets) במקום ערכים מדויקים היכן שאפשר.</li>
+      </ul>
+
+      <h3 class="text-2xl font-bold text-white mt-10 mb-4">19. שינויים במדיניות</h3>
+      <p class="text-slate-300 mb-2">
+        גרסת מדיניות נוכחית: <code>{{ privacy_version or '2026-04-25' }}</code>.
+        עדכוני מהותיים עשויים להיות מוצגים בתוך המוצר. המשך שימוש לאחר עדכון מהווה הסכמה לתנאים החדשים, בכפוף לדין החל.
       </p>
     </div>
   </main>

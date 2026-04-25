@@ -2237,6 +2237,7 @@ def create_app():
     from app.routes.public_examples_routes import bp as examples_bp
     from app.routes.feedback_routes import bp as feedback_bp
     from app.routes.owner_routes import bp as owner_bp
+    from app.routes.owner_profile_routes import owner_profile_bp
     app.register_blueprint(public_bp)
     app.register_blueprint(analyze_bp)
     app.register_blueprint(advisor_bp)
@@ -2248,6 +2249,7 @@ def create_app():
     app.register_blueprint(examples_bp)
     app.register_blueprint(feedback_bp)
     app.register_blueprint(owner_bp)
+    app.register_blueprint(owner_profile_bp)
 
 
     @app.cli.command("init-db")

@@ -9,8 +9,10 @@ from app.utils.validation import ValidationError
 RESEARCH_CONSENT_TYPE = os.environ.get("RESEARCH_CONSENT_TYPE", "research_questions")
 RESEARCH_NOTICE_VERSION = os.environ.get("RESEARCH_NOTICE_VERSION", "2026-04-03")
 RESEARCH_QUESTION_VERSION = os.environ.get("RESEARCH_QUESTION_VERSION", "2026-04-03")
+RESEARCH_CONSENT_VERSION = "2026-04-25"  # Alias for new refactor, backward-compatible
 
-RESEARCH_FLOW_TYPES = {"reliability", "compare", "advisor"}
+RESEARCH_FLOW_TYPES = {"reliability", "compare", "advisor", "owner_profile"}
+OWNER_PROFILE_FLOW = "owner_profile"
 
 _ENUMS = {
     "reliability.ownership_status": {"owner", "pre_purchase_research"},
@@ -39,6 +41,34 @@ _ENUMS = {
         "unknown",
     },
     "advisor.charging_location": {"home", "work", "public", "mixed"},
+    "owner_profile.mileage_bucket": {
+        "0-50000",
+        "50000-100000",
+        "100000-150000",
+        "150000-200000",
+        "200000+",
+    },
+    "owner_profile.ownership_duration_bucket": {
+        "0-1_years",
+        "1-3_years",
+        "3-5_years",
+        "5-10_years",
+        "10+_years",
+    },
+    "owner_profile.annual_km_bucket": {
+        "0-10000",
+        "10000-15000",
+        "15000-20000",
+        "20000-30000",
+        "30000+",
+    },
+    "owner_profile.fuel_consumption_bucket": {
+        "very_low",
+        "low",
+        "average",
+        "high",
+        "very_high",
+    },
 }
 
 

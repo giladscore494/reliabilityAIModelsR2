@@ -414,6 +414,13 @@ class ResearchConsent(db.Model):
     accepted_source = db.Column(db.String(64), nullable=False, default="web")
     is_explicit = db.Column(db.Boolean, nullable=False, default=True)
     is_informed = db.Column(db.Boolean, nullable=False, default=True)
+    
+    # New columns for refactor 2026-04-25
+    consent_given = db.Column(db.Boolean, nullable=True, default=True, server_default="true")
+    source_page = db.Column(db.String(64), nullable=True)
+    ip_hash = db.Column(db.String(128), nullable=True)
+    user_agent_hash = db.Column(db.String(128), nullable=True)
+    revoked_at = db.Column(db.DateTime, nullable=True)
 
     __table_args__ = (
         db.UniqueConstraint(
@@ -468,6 +475,12 @@ class ResearchResponseSession(db.Model):
     vehicle_context_json = db.Column(JSONEncodedText, nullable=True)
     consent_id = db.Column(db.Integer, db.ForeignKey("research_consent.id", ondelete="CASCADE"), nullable=False, index=True)
     status = db.Column(db.String(32), nullable=False, default="submitted", index=True)
+    
+    # New columns for refactor 2026-04-25
+    question_version = db.Column(db.String(32), nullable=True)
+    related_search_history_id = db.Column(db.Integer, db.ForeignKey("search_history.id", ondelete="SET NULL"), nullable=True)
+    related_advisor_history_id = db.Column(db.Integer, db.ForeignKey("advisor_history.id", ondelete="SET NULL"), nullable=True)
+    related_compare_history_id = db.Column(db.Integer, db.ForeignKey("comparison_history.id", ondelete="SET NULL"), nullable=True)
 
     consent = relationship("ResearchConsent", lazy=True)
     responses = relationship(
@@ -506,6 +519,9 @@ class ResearchResponse(db.Model):
     is_required = db.Column(db.Boolean, nullable=False, default=False)
     question_version = db.Column(db.String(32), nullable=False)
     consent_id = db.Column(db.Integer, db.ForeignKey("research_consent.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # New column for refactor 2026-04-25
+    answer_type = db.Column(db.String(32), nullable=True)
 
     consent = relationship("ResearchConsent", lazy=True)
 

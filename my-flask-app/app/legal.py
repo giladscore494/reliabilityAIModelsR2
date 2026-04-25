@@ -3,8 +3,8 @@ import os
 from ipaddress import ip_address, ip_network
 
 # General legal versions
-TERMS_VERSION = os.environ.get("TERMS_VERSION", "2026-02-07")
-PRIVACY_VERSION = os.environ.get("PRIVACY_VERSION", "2026-02-07")
+TERMS_VERSION = os.environ.get("TERMS_VERSION", "2026-04-25")
+PRIVACY_VERSION = os.environ.get("PRIVACY_VERSION", "2026-04-25")
 CONTACT_EMAIL = os.environ.get("CONTACT_EMAIL", "support@yedaarechev.com")
 LEGAL_IP_HASH_SALT = os.environ.get("LEGAL_IP_HASH_SALT", "").strip()
 

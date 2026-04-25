@@ -790,6 +790,22 @@ def handle_analyze_request(
         if os.environ.get("SIMULATE_AI_FAIL", "").lower() in ("1", "true", "yes"):
             raise RuntimeError("SIMULATED_AI_FAILURE")
         prompt = build_combined_prompt(validated, missing_info)
+        # Inject compact user_context_for_reasoning (no PII) when available.
+        # Optional context that may improve AI personalization without distorting
+        # vehicle reliability factuality. Safe to skip if no data / consent.
+        try:
+            from app.utils.ai_context import build_user_context_for_reasoning
+            _user_ctx = build_user_context_for_reasoning(user_id, validated)
+            if _user_ctx:
+                import json as _json
+                prompt = (
+                    f"{prompt}\n\n"
+                    f"user_context_for_reasoning: "
+                    f"{_json.dumps(_user_ctx, ensure_ascii=False)}"
+                )
+        except Exception:
+            # Never let optional context block the AI call.
+            logger.debug("[AI] user_context_for_reasoning skipped", exc_info=True)
         ai_call = get_ai_call_fn()
         model_start = pytime.perf_counter()
         model_output, ai_error = ai_call(prompt)
