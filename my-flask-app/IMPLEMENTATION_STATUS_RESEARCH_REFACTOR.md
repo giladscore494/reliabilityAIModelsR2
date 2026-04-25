@@ -23,7 +23,7 @@ This refactor implements a privacy-compliant, three-layer data architecture for 
 - All columns nullable for backward compatibility
 
 ### 3. Alembic Migration ✅
-- **migrations/versions/bb03_research_refactor_2026_04_25.py**
+- **migrations/versions/bb03_research_260425.py**
 - Parent: aa02_feedback_table
 - SQLite-safe with batch_alter_table
 - Foreign keys with ondelete='SET NULL'
@@ -310,10 +310,16 @@ def hash_ip_for_consent(raw_ip: str) -> str:
 6. **Run Migration** 🟡 REQUIRED
    ```bash
    cd my-flask-app
-   flask db upgrade
-   # Verify: flask db current
-   # Expected: bb03_research_refactor_2026_04_25
+   flask --app main:create_app db current
+   # Confirm current revision is still aa02_feedback_table
+   # If current is aa02_feedback_table and the new columns do not exist:
+   flask --app main:create_app db upgrade
+   # Verify: flask --app main:create_app db current
+   # Expected: bb03_research_260425
    ```
+
+   If the new columns already exist while `alembic_version` is still `aa02_feedback_table`,
+   stop and report a partial migration state instead of rerunning blindly.
 
 7. **Smoke Tests** 🟡 REQUIRED
    ```bash
@@ -354,7 +360,7 @@ def hash_ip_for_consent(raw_ip: str) -> str:
 7. app/routes/owner_profile_routes.py - Owner profile submission endpoint
 8. app/services/research_aggregation_service.py - Aggregate statistics service
 9. app/utils/ai_context.py - AI context builder
-10. migrations/versions/bb03_research_refactor_2026_04_25.py - Alembic migration
+10. migrations/versions/bb03_research_260425.py - Alembic migration
 11. tests/test_research_refactor.py - 12 comprehensive tests
 12. docs/RESEARCH_REFACTOR_2026_04_25.md - Implementation guide
 
@@ -403,7 +409,7 @@ If critical issues arise:
 
 2. **Database Rollback**:
    ```bash
-   flask db downgrade bb03_research_refactor_2026_04_25
+   flask db downgrade bb03_research_260425
    ```
 
 3. **Code Rollback**:

@@ -1,6 +1,6 @@
 """Research refactor 2026-04-25: Add consent_given, ip_hash, etc.
 
-Revision ID: bb03_research_refactor_2026_04_25
+Revision ID: bb03_research_260425
 Revises: aa02_feedback_table
 Create Date: 2026-04-25 12:00:00.000000
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = 'bb03_research_refactor_2026_04_25'
+revision = 'bb03_research_260425'
 down_revision = 'aa02_feedback_table'
 branch_labels = None
 depends_on = None
