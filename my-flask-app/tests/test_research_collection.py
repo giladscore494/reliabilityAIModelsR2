@@ -1,6 +1,15 @@
+import json
+
 from app.utils.http_helpers import api_ok
 from app.legal import PRIVACY_VERSION, TERMS_VERSION
-from app.models import ResearchConsent, ResearchResponse, ResearchResponseSession
+from app.extensions import db
+from app.models import (
+    AdvisorHistory,
+    ComparisonHistory,
+    ResearchConsent,
+    ResearchResponse,
+    ResearchResponseSession,
+)
 
 
 def _advisor_headers(client):
@@ -73,13 +82,25 @@ def test_research_response_persists_session_and_answers_for_logged_in_user(
     )
     consent_id = consent_resp.get_json()["consent_id"]
 
+    with app.app_context():
+        comparison = ComparisonHistory(
+            user_id=user_id,
+            cars_selected=json.dumps(
+                [{"make": "Toyota", "model": "Corolla", "year": 2020}],
+                ensure_ascii=False,
+            ),
+        )
+        db.session.add(comparison)
+        db.session.commit()
+        comparison_id = comparison.id
+
     resp = client.post(
         "/api/research/responses",
         json={
             "consent_id": consent_id,
             "flow_type": "compare",
             "source_analysis_type": "comparison_history",
-            "source_record_id": 77,
+            "source_record_id": comparison_id,
             "vehicle_context": {"cars": [{"make": "Toyota", "model": "Corolla"}]},
             "responses": [
                 {
@@ -110,7 +131,7 @@ def test_research_response_persists_session_and_answers_for_logged_in_user(
         session_record = ResearchResponseSession.query.one()
         assert session_record.user_id == user_id
         assert session_record.flow_type == "compare"
-        assert session_record.source_record_id == 77
+        assert session_record.source_record_id == comparison_id
         assert (
             ResearchResponse.query.filter_by(session_id=session_record.id).count() == 4
         )
@@ -125,8 +146,10 @@ def test_reliability_and_compare_pages_render_research_panels(logged_in_client):
     reliability_html = reliability_resp.data.decode("utf-8")
     compare_html = compare_resp.data.decode("utf-8")
     assert 'id="reliabilityResearchSection"' in reliability_html
+    assert 'id="reliabilityResearchSection" class="mt-8 hidden' in reliability_html
     assert 'id="researchConsentModal"' in reliability_html
     assert 'id="compareResearchSection"' in compare_html
+    assert 'id="compareResearchSection" class="mt-8 hidden' in compare_html
     assert 'id="researchConsentModal"' in compare_html
 
 
@@ -137,8 +160,13 @@ def test_owner_advisor_page_renders_research_fields(logged_in_client, app):
     resp = client.get("/recommendations")
     assert resp.status_code == 200
     html = resp.data.decode("utf-8")
-    assert 'id="research_current_vehicle"' in html
-    assert 'id="advisorChargingResearchBlock"' in html
+    assert 'id="advisorResearchSection"' in html
+    assert 'id="advisorResearchCurrentVehicle"' in html
+    assert 'id="advisorResearchSection" class="mt-8 hidden' in html
+    assert 'id="advisorResearchAnswerNow"' in html
+    form_index = html.index('id="advisor-form"')
+    research_index = html.index('id="advisorResearchSection"')
+    assert research_index > form_index
     assert (
         "כדי לבדוק כדאיות עסקה על רכב ספציפי, יש להיכנס לבודק האמינות."
         in html
@@ -186,11 +214,15 @@ def test_owner_can_submit_advisor_without_research_fields(logged_in_client, app,
     assert data["ok"] is True
 
 
-def test_regular_user_cannot_bypass_advisor_research_fields(logged_in_client, app):
+def test_regular_user_can_submit_advisor_without_research_fields(logged_in_client, app, monkeypatch):
     client, _ = logged_in_client
     app.config["ADVISOR_OWNER_ONLY"] = False
     app.config["OWNER_EMAILS"] = set()
     client.post("/api/legal/accept", json={"legal_confirm": True})
+    monkeypatch.setattr(
+        "app.routes.advisor_routes.advisor_service.handle_advisor_logic",
+        lambda payload, user, user_id: api_ok({"received": payload}),
+    )
 
     resp = client.post(
         "/advisor_api",
@@ -214,6 +246,45 @@ def test_regular_user_cannot_bypass_advisor_research_fields(logged_in_client, ap
         headers=_advisor_headers(client),
     )
 
-    assert resp.status_code == 400
+    assert resp.status_code == 200
     data = resp.get_json()
-    assert data["error"]["details"]["field"] == "research_current_vehicle"
+    assert data["ok"] is True
+
+
+def test_advisor_research_responses_reject_unknown_question_code(logged_in_client, app):
+    client, user_id = logged_in_client
+    consent_resp = client.post(
+        "/api/research/consent",
+        json={"research_confirm": True, "accepted_source": "advisor_after_result"},
+    )
+    consent_id = consent_resp.get_json()["consent_id"]
+
+    with app.app_context():
+        history = AdvisorHistory(
+            user_id=user_id,
+            profile_json=json.dumps({"budget_min": 20000}),
+            result_json=json.dumps({"recommended_cars": []}),
+        )
+        db.session.add(history)
+        db.session.commit()
+        history_id = history.id
+
+    resp = client.post(
+        "/api/research/responses",
+        json={
+            "consent_id": consent_id,
+            "flow_type": "advisor",
+            "source_analysis_type": "advisor_history",
+            "source_record_id": history_id,
+            "vehicle_context": {"advisor_history_id": history_id},
+            "responses": [
+                {
+                    "question_code": "totally_unknown",
+                    "response": {"value": "x"},
+                }
+            ],
+        },
+    )
+
+    assert resp.status_code == 400
+    assert "Unknown research question_code" in resp.get_json()["message"]

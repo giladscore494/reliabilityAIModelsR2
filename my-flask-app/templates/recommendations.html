@@ -386,8 +386,6 @@
                         </div>
                     </details>
 
-                    {% include '_research_advisor_fields.html' %}
-
                     <div class="rounded-2xl border border-primary/25 bg-primary/8 p-4 md:p-5 space-y-2">
                         <p class="text-sm md:text-base font-semibold text-white">
                             כדי לבדוק כדאיות עסקה על רכב ספציפי, יש להיכנס לבודק האמינות.
@@ -507,6 +505,8 @@
                         </div>
                     </div>
                 </section>
+
+                {% include '_research_advisor_fields.html' %}
             </section>
         {% else %}
             <!-- === גרסת משתמש רגיל – בקרוב === -->
@@ -530,9 +530,11 @@
 {% if user and user.is_authenticated and is_owner %}
 <script id="advisor-history-profile" type="application/json">{{ advisor_history_profile|default(None)|tojson }}</script>
 <script id="advisor-history-result" type="application/json">{{ advisor_history_result|default(None)|tojson }}</script>
+<script id="advisor-history-id" type="application/json">{{ advisor_history_id|default(None)|tojson }}</script>
 <script nonce="{{ csp_nonce }}">
     window.advisorHistoryProfile = JSON.parse(document.getElementById('advisor-history-profile').textContent);
     window.advisorHistoryResult = JSON.parse(document.getElementById('advisor-history-result').textContent);
+    window.advisorHistoryId = JSON.parse(document.getElementById('advisor-history-id').textContent);
 </script>
 <script src="/static/research.js"></script>
 <script src="/static/recommendations.js"></script>
