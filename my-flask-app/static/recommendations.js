@@ -7,6 +7,8 @@
     const form = document.getElementById('advisor-form');
     const submitBtn = document.getElementById('advisor-submit');
     const resultsSection = document.getElementById('advisor-results');
+    const resultReadyPanel = document.getElementById('advisorResultReadyPanel');
+    const openResultButton = document.getElementById('advisorOpenResultButton');
     const queriesEl = document.getElementById('advisor-search-queries');
     const tableWrapper = document.getElementById('advisor-table-wrapper');
     const errorEl = document.getElementById('advisor-error');
@@ -16,8 +18,10 @@
     const researchFormEl = document.getElementById('advisorResearchForm');
     const researchAnswerNowBtn = document.getElementById('advisorResearchAnswerNow');
     const researchSkipBtn = document.getElementById('advisorResearchSkip');
+    const researchCloseBtn = document.getElementById('advisorResearchClose');
+    const researchDismissBtn = document.getElementById('advisorResearchDismiss');
+    const openResultNowBtn = document.getElementById('advisorOpenResultNow');
     const researchMessageEl = document.getElementById('advisorResearchMessage');
-    const researchConsentCheckbox = document.getElementById('advisorResearchConsentCheckbox');
     const researchCurrentVehicleEl = document.getElementById('advisorResearchCurrentVehicle');
     const researchOwnershipDurationEl = document.getElementById('advisorResearchOwnershipDuration');
     const researchMileageBucketEl = document.getElementById('advisorResearchMileageBucket');
@@ -43,9 +47,15 @@
         fitFallback: 'Fit Score גבוה כאן משקף התאמה לתקציב, לשימוש ולהעדפות שסימנת בשאלון.',
         caveatFallback: 'אין כאן אישור קנייה אוטומטי: לפני החלטה בדוק היסטוריית טיפולים, היסטוריית ביטוח, מצב בפועל ובדיקת קנייה מקצועית.'
     };
-    let currentAdvisorHistoryId = null;
+    let isLoading = false;
+    let isResultReady = false;
+    let isResultOpen = false;
+    let currentHistoryId = null;
+    let researchCardVisible = false;
+    let researchFormOpen = false;
     let legalAccepted = false;
     let advisorResearchCardTrackedForHistory = null;
+    let resultReadyPanelTrackedForHistory = null;
 
     const profileSummaryEl = document.getElementById('advisor-profile-summary');
     const highlightCardsEl = document.getElementById('advisor-highlight-cards');
@@ -163,6 +173,26 @@
         } else {
             alert(`${message}${suffix}`);
         }
+    }
+
+    function researchPromptSeenKey(flowType, historyId) {
+        return `research_prompt_seen_${flowType}_${historyId}`;
+    }
+
+    function hasSeenResearchPrompt(flowType, historyId) {
+        if (!historyId) return false;
+        try {
+            return sessionStorage.getItem(researchPromptSeenKey(flowType, historyId)) === '1';
+        } catch (err) {
+            return false;
+        }
+    }
+
+    function markResearchPromptSeen(flowType, historyId) {
+        if (!historyId) return;
+        try {
+            sessionStorage.setItem(researchPromptSeenKey(flowType, historyId), '1');
+        } catch (err) {}
     }
 
     async function ensureLegalAcceptance() {
@@ -453,6 +483,17 @@
         );
     }
 
+    function scrollToAdvisorResult() {
+        resultsSection?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function hideAdvisorResearchCard() {
+        researchSectionEl?.classList.add('hidden');
+        researchFormWrapEl?.classList.add('hidden');
+        researchCardVisible = false;
+        researchFormOpen = false;
+    }
+
     function getSelectedMajorFaultValue() {
         return researchFormEl?.querySelector('input[name="advisorResearchMajorFaults"]:checked')?.value || '';
     }
@@ -467,29 +508,108 @@
     }
 
     function resetAdvisorResearchCard() {
-        if (!researchSectionEl) return;
-        researchSectionEl.classList.add('hidden');
-        researchFormWrapEl?.classList.add('hidden');
+        hideAdvisorResearchCard();
         researchFormEl?.reset();
         syncAdvisorResearchFaultTypeVisibility();
-        if (researchMessageEl) {
-            researchMessageEl.textContent = '';
-            researchMessageEl.classList.add('hidden');
-            researchMessageEl.classList.remove('text-amber-300', 'text-red-300');
-            researchMessageEl.classList.add('text-emerald-300');
+        setResearchMessage('', 'success');
+    }
+
+    function showAdvisorReadyPanel() {
+        if (!resultReadyPanel) return;
+        resultReadyPanel.classList.remove('hidden');
+        if (currentHistoryId && resultReadyPanelTrackedForHistory !== currentHistoryId) {
+            trackAnalytics('result_ready_panel_shown', {
+                flow_type: 'advisor',
+                advisor_history_id: currentHistoryId
+            });
+            resultReadyPanelTrackedForHistory = currentHistoryId;
         }
     }
 
+    function openAdvisorResult(options = {}) {
+        if (!resultsSection || !isResultReady) return;
+        const userInitiated = options.userInitiated !== false;
+        const alreadyOpen = isResultOpen;
+        isResultOpen = true;
+        resultsSection.classList.remove('hidden');
+        if (resultReadyPanel) {
+            resultReadyPanel.classList.remove('hidden');
+        }
+        scrollToAdvisorResult();
+        if (userInitiated && !alreadyOpen) {
+            trackAnalytics('result_opened', {
+                flow_type: 'advisor',
+                advisor_history_id: currentHistoryId
+            });
+        }
+    }
+
+    function closeAdvisorResult() {
+        isResultOpen = false;
+        resultsSection?.classList.add('hidden');
+    }
+
     function showAdvisorResearchCard() {
-        if (!researchSectionEl || !currentAdvisorHistoryId) return;
+        if (!researchSectionEl || !currentHistoryId || hasSeenResearchPrompt('advisor', currentHistoryId)) {
+            hideAdvisorResearchCard();
+            return;
+        }
         researchSectionEl.classList.remove('hidden');
-        if (advisorResearchCardTrackedForHistory !== currentAdvisorHistoryId) {
+        researchCardVisible = true;
+        if (advisorResearchCardTrackedForHistory !== currentHistoryId) {
             trackAnalytics('research_card_shown', {
                 flow_type: 'advisor',
-                advisor_history_id: currentAdvisorHistoryId
+                advisor_history_id: currentHistoryId
             });
-            advisorResearchCardTrackedForHistory = currentAdvisorHistoryId;
+            advisorResearchCardTrackedForHistory = currentHistoryId;
         }
+    }
+
+    function closeAdvisorResearch(options = {}) {
+        const reason = options.reason || 'closed';
+        const trackSkipped = options.trackSkipped === true;
+        if (currentHistoryId) {
+            markResearchPromptSeen('advisor', currentHistoryId);
+            trackAnalytics('research_card_closed', {
+                flow_type: 'advisor',
+                advisor_history_id: currentHistoryId,
+                reason
+            });
+            if (trackSkipped) {
+                trackAnalytics('research_skipped', {
+                    flow_type: 'advisor',
+                    advisor_history_id: currentHistoryId
+                });
+            }
+        }
+        hideAdvisorResearchCard();
+        if (options.openResult === true) {
+            openAdvisorResult({ userInitiated: true });
+        }
+    }
+
+    function openAdvisorResearchForm() {
+        if (!currentHistoryId || !researchFormWrapEl) return;
+        researchFormWrapEl.classList.remove('hidden');
+        researchFormOpen = true;
+        setResearchMessage('', 'success');
+        trackAnalytics('research_started', {
+            flow_type: 'advisor',
+            advisor_history_id: currentHistoryId
+        });
+        researchCurrentVehicleEl?.focus();
+    }
+
+    function resetAdvisorResultFlowState() {
+        isLoading = false;
+        isResultReady = false;
+        isResultOpen = false;
+        currentHistoryId = null;
+        researchCardVisible = false;
+        researchFormOpen = false;
+        resultReadyPanel?.classList.add('hidden');
+        closeAdvisorResult();
+        resetAdvisorResearchCard();
     }
 
     function buildAdvisorResearchResponses() {
@@ -1064,7 +1184,7 @@
     }
 
     // --- תצוגת תוצאות מלאה (כרטיסיות + טבלאות) ---
-    function renderResults(data) {
+    function renderResults(data, options = {}) {
         if (!resultsSection || !tableWrapper) return;
 
         const queries = Array.isArray(data.search_queries) ? data.search_queries : [];
@@ -1090,12 +1210,19 @@
             if (highlightCardsEl) highlightCardsEl.innerHTML = '';
             tableWrapper.innerHTML =
                 '<p class="text-sm text-slate-400">לא התקבלו המלצות. ייתכן שהגבלות התקציב/שנים קשיחות מדי.</p>';
-            resultsSection.classList.remove('hidden');
-            resultsSection.scrollIntoView({behavior: 'smooth', block: 'start'});
+            isLoading = false;
+            isResultReady = true;
+            isResultOpen = false;
+            closeAdvisorResult();
+            showAdvisorReadyPanel();
             showAdvisorResearchCard();
+            if (options.openImmediately) {
+                resultReadyPanel?.classList.add('hidden');
+                openAdvisorResult({ userInitiated: false });
+            }
             trackAnalytics('result_rendered', {
                 flow_type: 'advisor',
-                advisor_history_id: currentAdvisorHistoryId,
+                advisor_history_id: currentHistoryId,
                 recommended_count: 0
             });
             return;
@@ -1122,12 +1249,19 @@
             </div>
         `;
 
-        resultsSection.classList.remove('hidden');
-        resultsSection.scrollIntoView({behavior: 'smooth', block: 'start'});
+        isLoading = false;
+        isResultReady = true;
+        isResultOpen = false;
+        closeAdvisorResult();
+        showAdvisorReadyPanel();
         showAdvisorResearchCard();
+        if (options.openImmediately) {
+            resultReadyPanel?.classList.add('hidden');
+            openAdvisorResult({ userInitiated: false });
+        }
         trackAnalytics('result_rendered', {
             flow_type: 'advisor',
-            advisor_history_id: currentAdvisorHistoryId,
+            advisor_history_id: currentHistoryId,
             recommended_count: cars.length
         });
     }
@@ -1155,6 +1289,8 @@
             return;
         }
 
+        resetAdvisorResultFlowState();
+        isLoading = true;
         const payload = { ...buildPayload(), legal_confirm: true };
 
         if (!payload.budget_max || payload.budget_max <= 0 || payload.budget_min > payload.budget_max) {
@@ -1166,14 +1302,12 @@
             return;
         }
 
-        currentAdvisorHistoryId = null;
         trackAnalytics('result_requested', {
             flow_type: 'advisor',
             budget_min: payload.budget_min,
             budget_max: payload.budget_max,
             preferred_fuels_count: Array.isArray(payload.fuels_he) ? payload.fuels_he.length : 0
         });
-        resetAdvisorResearchCard();
         setSubmitting(true);
         showTimingBanner('advisor');
         
@@ -1200,12 +1334,17 @@
             }
 
             const payloadFromApi = res.data || {};
-            currentAdvisorHistoryId = payloadFromApi.history_id || null;
+            currentHistoryId = payloadFromApi.history_id || null;
             renderResults(payloadFromApi);
         } catch (err) {
             console.error(err);
             showRequestAwareError(err.message || 'שגיאה כללית בחיבור לשרת. נסה שוב מאוחר יותר.', err.requestId || null);
         } finally {
+            if (!isResultReady) {
+                hideAdvisorResearchCard();
+                resultReadyPanel?.classList.add('hidden');
+            }
+            isLoading = false;
             hideTimingBanner(true);
             setSubmitting(false);
         }
@@ -1218,38 +1357,34 @@
     });
     syncAdvisorResearchFaultTypeVisibility();
 
-    researchAnswerNowBtn?.addEventListener('click', function () {
-        if (!currentAdvisorHistoryId || !researchFormWrapEl) return;
-        researchFormWrapEl.classList.remove('hidden');
-        setResearchMessage('', 'success');
-        if (researchMessageEl) {
-            researchMessageEl.textContent = '';
-            researchMessageEl.classList.add('hidden');
-        }
-        trackAnalytics('research_started', {
-            flow_type: 'advisor',
-            advisor_history_id: currentAdvisorHistoryId
-        });
-        researchCurrentVehicleEl?.focus();
+    openResultButton?.addEventListener('click', function () {
+        openAdvisorResult({ userInitiated: true });
     });
 
     researchSkipBtn?.addEventListener('click', function () {
-        researchFormWrapEl?.classList.add('hidden');
-        setResearchMessage('אין בעיה — אפשר לחזור לזה אחר כך.', 'warning');
-        trackAnalytics('research_skipped', {
-            flow_type: 'advisor',
-            advisor_history_id: currentAdvisorHistoryId
-        });
+        closeAdvisorResearch({ reason: 'skip', trackSkipped: true });
+    });
+
+    researchCloseBtn?.addEventListener('click', function () {
+        closeAdvisorResearch({ reason: 'close_button' });
+    });
+
+    researchDismissBtn?.addEventListener('click', function () {
+        closeAdvisorResearch({ reason: 'dismiss_form' });
+    });
+
+    researchAnswerNowBtn?.addEventListener('click', function () {
+        openAdvisorResearchForm();
+    });
+
+    openResultNowBtn?.addEventListener('click', function () {
+        closeAdvisorResearch({ reason: 'open_result_now', openResult: true });
     });
 
     researchFormEl?.addEventListener('submit', async function (event) {
         event.preventDefault();
-        if (!currentAdvisorHistoryId) {
+        if (!currentHistoryId) {
             setResearchMessage('קודם צריך להפיק תוצאה כדי לשמור תרומה אופציונלית למאגר.', 'error');
-            return;
-        }
-        if (!researchConsentCheckbox?.checked) {
-            setResearchMessage('יש לסמן את הסכמת המחקר האופציונלית לפני השמירה.', 'warning');
             return;
         }
 
@@ -1273,9 +1408,9 @@
             await researchClient.saveResponses({
                 flow_type: 'advisor',
                 source_analysis_type: 'advisor_history',
-                source_record_id: currentAdvisorHistoryId,
+                source_record_id: currentHistoryId,
                 vehicle_context: {
-                    advisor_history_id: currentAdvisorHistoryId,
+                    advisor_history_id: currentHistoryId,
                     budget_min: servicePayload.budget_min,
                     budget_max: servicePayload.budget_max,
                     preferred_fuels: servicePayload.fuels_he,
@@ -1284,25 +1419,26 @@
                 },
                 responses
             });
-            setResearchMessage('תודה, התשובות נשמרו.', 'success');
+            setResearchMessage('תודה — התשובות נשמרו למחקר בלבד.', 'success');
+            markResearchPromptSeen('advisor', currentHistoryId);
             trackAnalytics('research_completed', {
                 flow_type: 'advisor',
-                advisor_history_id: currentAdvisorHistoryId,
+                advisor_history_id: currentHistoryId,
                 saved_count: responses.length
             });
         } catch (err) {
             trackAnalytics('research_save_failed', {
                 flow_type: 'advisor',
-                advisor_history_id: currentAdvisorHistoryId,
+                advisor_history_id: currentHistoryId,
                 message: err.message || 'save_failed'
             });
-            showRequestAwareError(err.message || 'לא הצלחנו לשמור את תשובות המחקר.', err.requestId || null);
+            setResearchMessage('לא הצלחנו לשמור את התשובות כרגע. התוצאה שלך עדיין זמינה.', 'error');
         }
     });
 
     if (window.advisorHistoryProfile && window.advisorHistoryResult) {
         applyHistoryProfile(window.advisorHistoryProfile);
-        currentAdvisorHistoryId = window.advisorHistoryId || null;
-        renderResults(window.advisorHistoryResult);
+        currentHistoryId = window.advisorHistoryId || null;
+        renderResults(window.advisorHistoryResult, { openImmediately: true });
     }
 })();

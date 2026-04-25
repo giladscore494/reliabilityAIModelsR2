@@ -9,7 +9,7 @@ from app.utils.validation import ValidationError
 RESEARCH_CONSENT_TYPE = os.environ.get("RESEARCH_CONSENT_TYPE", "research_questions")
 RESEARCH_NOTICE_VERSION = os.environ.get("RESEARCH_NOTICE_VERSION", "2026-04-03")
 RESEARCH_QUESTION_VERSION = os.environ.get(
-    "RESEARCH_QUESTION_VERSION", "after_value_v2_2026_04_25"
+    "RESEARCH_QUESTION_VERSION", "research_v2_after_value_2026_04_25"
 )
 RESEARCH_CONSENT_VERSION = "2026-04-25"  # Alias for new refactor, backward-compatible
 
@@ -32,10 +32,17 @@ FIELD_CLASSIFICATION = {
     "annual_km": "service_required",
     "family_size": "service_required",
     "cargo_need": "service_optional",
+    "excluded_colors": "service_optional",
+    "driver_gender": "service_optional",
+    "insurance_history": "service_optional",
+    "violations": "service_optional",
     "current_vehicle": "research_optional",
     "ownership_duration": "research_optional",
+    "km_driven_bucket": "research_optional",
     "mileage_bucket": "research_optional",
+    "had_major_issues": "research_optional",
     "had_major_faults": "research_optional",
+    "issue_type": "research_optional",
     "major_fault_type": "research_optional",
     "maintenance_cost_bucket": "research_optional",
     "actual_fuel_consumption": "research_optional",
@@ -324,8 +331,12 @@ def validate_research_payload(
         validated = _validate_reliability(response_map)
     elif normalized_flow == "compare":
         validated = _validate_compare(response_map)
-    else:
+    elif normalized_flow == "advisor":
         validated = _validate_advisor(response_map, context_obj)
+    elif normalized_flow == OWNER_PROFILE_FLOW:
+        validated = _validate_owner_profile(response_map)
+    else:
+        raise ValidationError("flow_type", "Unsupported research flow")
 
     return context_obj, context_json, validated
 
@@ -572,3 +583,155 @@ def _validate_advisor(
         )
 
     return _validate_optional_questions(responses, validators)
+
+
+def _validate_owner_profile(
+    responses: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    owner_profile has its own dedicated endpoint and must never fall through the
+    advisor validators by accident.
+    """
+    return _validate_optional_questions(
+        responses,
+        {
+            "has_current_vehicle": lambda response: _optional_question(
+                question_code="has_current_vehicle",
+                response_json={
+                    "has_current_vehicle": _require_bool(
+                        "has_current_vehicle.has_current_vehicle",
+                        response.get("has_current_vehicle"),
+                    )
+                },
+                answer_type="boolean",
+            ),
+            "make": lambda response: _optional_question(
+                question_code="make",
+                response_json={
+                    "make": _require_text(
+                        "make.make", response.get("make"), max_length=80
+                    )
+                },
+                answer_type="text",
+            ),
+            "model": lambda response: _optional_question(
+                question_code="model",
+                response_json={
+                    "model": _require_text(
+                        "model.model", response.get("model"), max_length=80
+                    )
+                },
+                answer_type="text",
+            ),
+            "year": lambda response: _optional_question(
+                question_code="year",
+                response_json={
+                    "year": _require_int(
+                        "year.year",
+                        response.get("year"),
+                        min_value=1950,
+                        max_value=2100,
+                    )
+                },
+                answer_type="number",
+            ),
+            "fuel_type": lambda response: _optional_question(
+                question_code="fuel_type",
+                response_json={
+                    "fuel_type": _require_text(
+                        "fuel_type.fuel_type",
+                        response.get("fuel_type"),
+                        max_length=50,
+                    )
+                },
+                answer_type="text",
+            ),
+            "transmission": lambda response: _optional_question(
+                question_code="transmission",
+                response_json={
+                    "transmission": _require_text(
+                        "transmission.transmission",
+                        response.get("transmission"),
+                        max_length=50,
+                    )
+                },
+                answer_type="text",
+            ),
+            "mileage_bucket": lambda response: _optional_question(
+                question_code="mileage_bucket",
+                response_json={
+                    "mileage_bucket": _require_enum(
+                        "mileage_bucket.mileage_bucket",
+                        response.get("mileage_bucket"),
+                        _ENUMS["owner_profile.mileage_bucket"],
+                    )
+                },
+                answer_type="bucket",
+            ),
+            "ownership_duration_bucket": lambda response: _optional_question(
+                question_code="ownership_duration_bucket",
+                response_json={
+                    "ownership_duration_bucket": _require_enum(
+                        "ownership_duration_bucket.ownership_duration_bucket",
+                        response.get("ownership_duration_bucket"),
+                        _ENUMS["owner_profile.ownership_duration_bucket"],
+                    )
+                },
+                answer_type="bucket",
+            ),
+            "annual_km_bucket": lambda response: _optional_question(
+                question_code="annual_km_bucket",
+                response_json={
+                    "annual_km_bucket": _require_enum(
+                        "annual_km_bucket.annual_km_bucket",
+                        response.get("annual_km_bucket"),
+                        _ENUMS["owner_profile.annual_km_bucket"],
+                    )
+                },
+                answer_type="bucket",
+            ),
+            "had_major_faults": lambda response: _optional_question(
+                question_code="had_major_faults",
+                response_json={
+                    "had_major_faults": _require_bool(
+                        "had_major_faults.had_major_faults",
+                        response.get("had_major_faults"),
+                    )
+                },
+                answer_type="boolean",
+            ),
+            "fuel_consumption_bucket": lambda response: _optional_question(
+                question_code="fuel_consumption_bucket",
+                response_json={
+                    "fuel_consumption_bucket": _require_enum(
+                        "fuel_consumption_bucket.fuel_consumption_bucket",
+                        response.get("fuel_consumption_bucket"),
+                        _ENUMS["owner_profile.fuel_consumption_bucket"],
+                    )
+                },
+                answer_type="bucket",
+            ),
+            "satisfaction_score": lambda response: _optional_question(
+                question_code="satisfaction_score",
+                response_json={
+                    "satisfaction_score": _require_int(
+                        "satisfaction_score.satisfaction_score",
+                        response.get("satisfaction_score"),
+                        min_value=1,
+                        max_value=10,
+                    )
+                },
+                answer_type="rating",
+            ),
+            "would_buy_again": lambda response: _optional_question(
+                question_code="would_buy_again",
+                response_json={
+                    "would_buy_again": _require_bool(
+                        "would_buy_again.would_buy_again",
+                        response.get("would_buy_again"),
+                    )
+                },
+                answer_type="boolean",
+            ),
+        },
+    )

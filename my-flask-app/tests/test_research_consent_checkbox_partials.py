@@ -1,6 +1,4 @@
-"""Tests proving the explicit research-consent checkbox text is present in
-all three research partials (advisor, reliability, compare).
-"""
+"""Tests for the optional post-result research card partials and consent modal."""
 
 from pathlib import Path
 
@@ -15,7 +13,7 @@ CONSENT_LABEL = (
 
 HELPER_TEXT = (
     "החלק הזה אופציונלי לגמרי. "
-    "התוצאה שלך כבר מוכנה ואפשר להשתמש בשירות גם בלי לענות."
+    "התוצאה שלך כבר מוכנה ואפשר לפתוח אותה בלי לענות."
 )
 
 PARTIALS = [
@@ -30,14 +28,6 @@ def _templates_dir() -> Path:
 
 
 @pytest.mark.parametrize("partial", PARTIALS)
-def test_partial_has_research_consent_checkbox_label(partial):
-    content = (_templates_dir() / partial).read_text(encoding="utf-8")
-    assert CONSENT_LABEL in content, (
-        f"Required research-consent label is missing from {partial}"
-    )
-
-
-@pytest.mark.parametrize("partial", PARTIALS)
 def test_partial_has_optional_research_helper_text(partial):
     content = (_templates_dir() / partial).read_text(encoding="utf-8")
     assert HELPER_TEXT in content, (
@@ -46,13 +36,19 @@ def test_partial_has_optional_research_helper_text(partial):
 
 
 @pytest.mark.parametrize("partial", PARTIALS)
-def test_partial_has_separate_research_consent_checkbox_input(partial):
+def test_partial_has_non_blocking_result_ctas(partial):
     content = (_templates_dir() / partial).read_text(encoding="utf-8")
-    # Must be a real <input type="checkbox"> dedicated to research consent,
-    # not bundled into Terms/Privacy acceptance.
-    assert 'name="research_consent_optin"' in content, (
-        f"Dedicated research-consent checkbox input is missing from {partial}"
+    assert "עונה עכשיו" in content, f'Answer CTA is missing from {partial}'
+    assert "לא עכשיו" in content, f'Skip CTA is missing from {partial}'
+    assert "פתח תוצאה עכשיו" in content, (
+        f'Open-result CTA is missing from {partial}'
     )
-    assert 'type="checkbox"' in content, (
-        f"Research-consent control must be a checkbox in {partial}"
+
+
+def test_research_consent_modal_keeps_separate_explicit_consent():
+    content = (_templates_dir() / "_research_consent_modal.html").read_text(
+        encoding="utf-8"
     )
+    assert CONSENT_LABEL in content
+    assert 'type="checkbox"' in content
+    assert 'id="{{ checkbox_id|default(\'researchConsentCheckbox\') }}"' in content
