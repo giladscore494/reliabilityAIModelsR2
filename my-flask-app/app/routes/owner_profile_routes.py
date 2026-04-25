@@ -196,6 +196,16 @@ def submit_owner_profile():
     
     except ValidationError as e:
         return api_error(e.field, e.message, 400)
-    except Exception as e:
+    except Exception:
+        # Do not echo internal exception details to clients (avoid stack-trace
+        # / internal information leakage). Log server-side only.
+        import logging
+        logging.getLogger(__name__).exception(
+            "owner_profile submission failed"
+        )
         db.session.rollback()
-        return api_error("server_error", str(e), 500)
+        return api_error(
+            "server_error",
+            "Internal server error while saving owner profile",
+            500,
+        )
