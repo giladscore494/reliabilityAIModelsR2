@@ -760,7 +760,7 @@ def _sanitize_estimated_cost_sensitivity(value: Any, src: Mapping[str, Any]) -> 
         legacy_notes = _escape(legacy_cost.get("notes") or "")
         if legacy_range:
             items.append(
-                f"פוטנציאל העלויות עשוי להשתנות משמעותית לפי מצב הרכב בפועל (למשל {legacy_range} אם ההערכה הישנה עדיין רלוונטית לרכב שנבדק)."
+                f"פוטנציאל העלויות עשוי להשתנות משמעותית לפי מצב הרכב בפועל (למשל {legacy_range} אם הטווח הזה עדיין תואם למצב הרכב שנבדק)."
             )
         if legacy_notes:
             items.append(legacy_notes)
