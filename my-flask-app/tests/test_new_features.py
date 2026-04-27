@@ -58,6 +58,57 @@ def test_analyze_response_drops_removed_sections(logged_in_client, monkeypatch):
     assert "sim_model" not in data1["data"]
 
 
+def test_analyze_response_uses_risk_only_reliability_report(logged_in_client, monkeypatch):
+    client, _ = logged_in_client
+
+    def fake_gemini(_prompt):
+        return (
+            {
+                "ok": True,
+                "base_score_calculated": 80,
+                "search_performed": True,
+                "search_queries": [],
+                "sources": [],
+                "reliability_report": {
+                    "overall_score": 91,
+                    "confidence": "high",
+                    "one_sentence_verdict": "לא אמור לעבור הלאה",
+                    "top_risks": [
+                        {
+                            "risk_title": "גיר",
+                            "why_it_matters": "דורש אימות",
+                        }
+                    ],
+                },
+            },
+            None,
+        )
+
+    monkeypatch.setattr(main, "call_gemini_grounded_once", fake_gemini)
+
+    payload = {
+        "make": "Toyota",
+        "model": "Corolla",
+        "year": 2020,
+        "mileage_range": "0-50k",
+        "fuel_type": "בנזין",
+        "transmission": "אוטומטית",
+        "sub_model": "",
+        "legal_confirm": True,
+    }
+
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+    resp = client.post("/analyze", json=payload, headers={"Origin": "http://localhost"})
+    data = resp.get_json()["data"]["reliability_report"]
+
+    assert resp.status_code == 200
+    assert "overall_score" not in data
+    assert "confidence" not in data
+    assert "one_sentence_verdict" not in data
+    assert len(data["key_risk_areas_to_examine"]) >= 1
+    assert data["final_line"] == "This information highlights areas to verify and is not a substitute for a professional inspection."
+
+
 def test_delete_account_requires_json_content_type(logged_in_client):
     """Test that delete account endpoint requires Content-Type: application/json"""
     client, _ = logged_in_client

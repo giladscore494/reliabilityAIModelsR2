@@ -309,6 +309,8 @@ def build_prompt(make, model, sub_model, year, fuel_type, transmission, mileage_
     bounded_user_data = wrap_user_input_in_boundary(user_data)
     data_instruction = create_data_only_instruction()
     
+    # final_line is intentionally fixed in English because downstream UX/tests
+    # require that exact sentence unchanged.
     return f"""
 {data_instruction}
 
@@ -376,44 +378,44 @@ def build_reliability_report_prompt(payload: dict, missing_info: list[str]) -> s
     data_instruction = create_data_only_instruction()
     missing_block = ", ".join(missing_info) if missing_info else "אין"
 
+    # final_line is intentionally fixed in English because downstream UX/tests
+    # require that exact sentence unchanged.
     return f"""
-{data_instruction}
+    {data_instruction}
 
-אתה יועץ אמינות רכבים בישראל. החזר JSON תקני בלבד (ללא טקסט חופשי, ללא Markdown) עם המפתחות המדויקים:
-{{
-  "overall_score": 0-100,
-  "confidence": "high"|"medium"|"low",
-  "one_sentence_verdict": "משפט החלטה קצר",
-  "top_risks": [
-    {{"risk_title": "", "why_it_matters": "", "how_to_check": "", "severity": "low|medium|high", "cost_impact": "low|medium|high"}}
-  ],
-  "expected_ownership_cost": {{"maintenance_level": "low|medium|high", "typical_yearly_range_ils": "", "notes": ""}},
-  "buyer_checklist": {{
-    "ask_seller": ["שאלות/מסמכים"],
-    "inspection_focus": ["דגשים לבדיקת מוסך"],
-    "walk_away_signs": ["דגלים אדומים לביטול עסקה"]
-  }},
-  "what_changes_with_mileage": [
-    {{"mileage_band": "", "what_to_expect": ""}}
-  ],
-  "recommended_next_step": {{"action": "", "reason": ""}},
-  "missing_info": ["פריטים שחסרים בקלט"]
-}}
+    אתה עוזר ניתוח סיכונים לרכב בישראל. תפקידך אינו להמליץ אם לקנות את הרכב, לא לתת ציון סופי, ולא לנסח משפט החלטה.
+    החזר JSON תקני בלבד (ללא טקסט חופשי, ללא Markdown) עם המפתחות המדויקים:
+    {{
+      "based_on_available_information": "1-2 משפטים ניטרליים שמדגישים שהניתוח מוגבל ומבוסס על מידע חלקי/ציבורי/כללי בלבד",
+      "key_risk_areas_to_examine": [
+        {{"risk_area": "", "why_to_check": ""}}
+      ],
+      "what_must_be_checked_before_a_decision": {{
+        "mechanical_inspection_points": ["נקודות בדיקה מכניות"],
+        "documents_to_verify": ["מסמכים לאימות"],
+        "questions_to_ask_seller": ["שאלות למוכר"],
+        "red_flags_to_look_for": ["דגלים אדומים"]
+      }},
+      "known_uncertainties": ["מה לא ידוע או חסר"],
+      "estimated_cost_sensitivity": ["טווחי עלות בלבד, אם רלוונטי"],
+      "final_line": "This information highlights areas to verify and is not a substitute for a professional inspection."
+    }}
 
-חוקים:
-- עברית בלבד, טון ענייני ותמציתי, ללא שיווק.
-- אל תנחש מידע חסר; פרט אותו ב-missing_info.
-- אם מציינים סיכון, חובה לכלול how_to_check.
-- דגש על פעולות בטוחות לקונה לפני רכישה.
-- אל תציג חוסר היסטוריית טיפולים, הזנחה, או ריקול שלא טופל כעובדה על הרכב הספציפי בלי ראיה מהמשתמש.
-- אם יש recall / campaign / software update, להציג אותו כפריט לאימות ותיעוד - לא כהוכחה אוטומטית לאמינות חלשה של הדגם.
-- top_risks צריכים להבחין בין חולשת אמינות רחבה של הדגם לבין בדיקות קנייה כלליות/אימות תיעוד.
+    חוקים:
+    - עברית בלבד, טון ניטרלי, אנליטי ולא שיווקי.
+    - אל תנחש מידע חסר; פרט אותו ב-known_uncertainties.
+    - אל תיתן verdict, ציון, החלטת קנייה, "next step" החלטי, או משפט מסכם שיפוטי.
+    - אל תשתמש במילים/ביטויים: "recommended", "good choice", "bad choice", "reliable", "worth it".
+    - אל תציג כעובדה ודאית מצב מכני, הזנחה, היסטוריית טיפולים חסרה, או recall שלא טופל בלי ראיה מפורשת מהמשתמש.
+    - כל סיכון צריך להיות מוצג כמשהו לבדיקה/אימות, לא כעובדה ודאית על הרכב הספציפי.
+    - estimated_cost_sensitivity חייב להכיל רק טווחים/שונות אפשרית, לא מספר בודד ולא הבטחת עלות.
+    - final_line חייב להיות בדיוק המשפט האנגלי שסופק בסכימה.
 
-נתוני הקלט:
-{bounded_user_data}
+    נתוני הקלט:
+    {bounded_user_data}
 
-Missing info שנמסר לך: {missing_block}
-""".strip()
+    Missing info שנמסר לך: {missing_block}
+    """.strip()
 
 
 def call_model_with_retry(prompt: str) -> dict:
@@ -549,7 +551,7 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
 4) כן מותר:
    - להחזיר תקלות נפוצות (common_issues) + issues_with_costs + avg_repair_cost_ILS כמו היום.
    - להחזיר מתחרים (common_competitors_brief) כמו היום.
-   - להחזיר דוח טקסטואלי (reliability_report.one_sentence_verdict/top_risks/buyer_checklist וכו') כ"טאץ׳ LLM".
+    - להחזיר דוח טקסטואלי זהיר ומוגבל בתוך reliability_report בלבד, בפורמט ממוקד סיכונים/אי-ודאות/בדיקות.
    - להחזיר "לחץ עלות תחזוקה" ברמת low/medium/high (לא מספר), בתוך risk_signals.
     - להחזיר analysis_confidence כ-low/medium/high (לא מספר), בתוך risk_signals.
       - להחזיר overall_reliability_estimate ברמת high|medium|low כהערכת אמינות כללית של הדגם בשוק.
@@ -557,7 +559,7 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
         maintenance_penalty_sensitivity, systemic_penalty_sensitivity,
         soft_floor_if_no_major_systemic, calibration_confidence). הניקוד מתבצע דטרמיניסטית בקוד.
      - להחזיר overall_reliability_reasoning קצר ו-reliability_factors_summary תמציתי שמסביר את גורמי האמינות.
-     - לשמר את כל חלקי חוויית המשתמש הקיימים (סיכומים, תקלות, עלויות, דוח אמינות, מתחרים, בדיקות, מקורות).
+      - לשמר את כל חלקי חוויית המשתמש הקיימים (סיכומים, תקלות, עלויות, דוח סיכונים, מתחרים, בדיקות, מקורות).
 4.1) overall_reliability_estimate חייב לשקף את המוניטין ארוך-הטווח של הדגם בשוק, לא את כמות הריקולים או ההוצאות.
      כללים:
      - "high" = דגמים עם מוניטין של 5+ שנות אמינות מוכחת, תקלות נדירות במערכות קריטיות, ושביעות רצון בעלים גבוהה.
@@ -629,31 +631,27 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
   "issues_with_costs": [
     {{"issue": "שם התקלה", "avg_cost_ILS": "מספר", "source": "מקור", "severity": "נמוך/בינוני/גבוה"}}
   ],
-  "reliability_summary": "סיכום מקצועי בעברית",
-  "reliability_summary_simple": "הסבר פשוט וקצר בעברית",
+  "reliability_summary": "סיכום מקצועי בעברית שמדגיש סיכונים, אי-ודאות ומה צריך לבדוק, בלי verdict ובלי שפה מוחלטת",
+  "reliability_summary_simple": "הסבר פשוט וקצר בעברית שמדגיש רק סיכונים, אי-ודאות ומה צריך לבדוק לפני החלטה, בלי verdict ובלי ציון",
   "recommended_checks": ["בדיקות מומלצות ספציפיות"],
   "common_competitors_brief": [
       {{"model": "שם מתחרה 1", "brief_summary": "אמינות בקצרה"}},
       {{"model": "שם מתחרה 2", "brief_summary": "אמינות בקצרה"}}
   ],
   "reliability_report": {{
-    "overall_score": 0,
-    "confidence": "high"|"medium"|"low",
-    "one_sentence_verdict": "משפט החלטה קצר",
-    "top_risks": [
-      {{"risk_title": "", "why_it_matters": "", "how_to_check": "", "severity": "low|medium|high", "cost_impact": "low|medium|high"}}
+    "based_on_available_information": "1-2 משפטים ניטרליים על מגבלת המידע",
+    "key_risk_areas_to_examine": [
+      {{"risk_area": "", "why_to_check": ""}}
     ],
-    "expected_ownership_cost": {{"maintenance_level": "low|medium|high", "typical_yearly_range_ils": "", "notes": ""}},
-    "buyer_checklist": {{
-      "ask_seller": ["שאלות/מסמכים"],
-      "inspection_focus": ["דגשים לבדיקת מוסך"],
-      "walk_away_signs": ["דגלים אדומים לביטול עסקה"]
+    "what_must_be_checked_before_a_decision": {{
+      "mechanical_inspection_points": ["נקודות בדיקה מכניות"],
+      "documents_to_verify": ["מסמכים לאימות"],
+      "questions_to_ask_seller": ["שאלות למוכר"],
+      "red_flags_to_look_for": ["דגלים אדומים"]
     }},
-    "what_changes_with_mileage": [
-      {{"mileage_band": "", "what_to_expect": ""}}
-    ],
-    "recommended_next_step": {{"action": "", "reason": ""}},
-    "missing_info": ["פריטים שחסרים בקלט"]
+    "known_uncertainties": ["מה לא ידוע או חסר"],
+    "estimated_cost_sensitivity": ["טווחי עלות בלבד, אם רלוונטי"],
+    "final_line": "This information highlights areas to verify and is not a substitute for a professional inspection."
   }},
   "risk_signals": {{
     "vehicle_resolution": {{
@@ -692,7 +690,12 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
   }}
 }}
 
-כל הערכים בעברית בלבד. אל תוסיף הסברים מחוץ ל-JSON. Missing info שסיפק המשתמש: {missing_block}
+כל הערכים בעברית בלבד, למעט final_line שחייב להישאר באנגלית בדיוק כפי שניתן וללא שום שינוי.
+אל תוסיף הסברים מחוץ ל-JSON.
+אסור לנסח verdict, המלצת קנייה, או "שורה תחתונה".
+אסור להחזיר בתוך reliability_report ציון, confidence, verdict, next step החלטי, או headline judgment.
+אסור להשתמש בניסוחים כגון "recommended", "good choice", "bad choice", "reliable", "worth it".
+Missing info שסיפק המשתמש: {missing_block}
 
 נתוני הקלט:
 {bounded_user_data}

@@ -870,11 +870,6 @@ def handle_analyze_request(
         ai_output["base_score_calculated"] = det["model_reliability_score"]
         ai_output["estimated_reliability"] = det["model_reliability_label"]
 
-        # Sync reliability_report
-        if isinstance(ai_output.get("reliability_report"), dict):
-            ai_output["reliability_report"]["overall_score"] = det["model_reliability_score"]
-            ai_output["reliability_report"]["confidence"] = det["confidence_label"]
-
         sanitized_output: Dict[str, Any] = {}
         try:
             ai_output['source_tag'] = f"מקור: ניתוח AI חדש (חיפוש {display_quota_count}/{limit_val})"

@@ -622,28 +622,56 @@
         if (reliabilityReport && reliabilityReport.available === false) {
             reportHtml = '<p class="text-xs text-slate-400">דוח אמינות לא זמין (MISSING_OR_INVALID).</p>';
         } else if (Object.keys(reliabilityReport).length) {
-            const risks = Array.isArray(reliabilityReport.top_risks) ? reliabilityReport.top_risks : [];
-            const checklist = reliabilityReport.buyer_checklist || {};
+            const riskAreas = Array.isArray(reliabilityReport.key_risk_areas_to_examine) ? reliabilityReport.key_risk_areas_to_examine : [];
+            const checklist = reliabilityReport.what_must_be_checked_before_a_decision || {};
+            const uncertainties = Array.isArray(reliabilityReport.known_uncertainties) ? reliabilityReport.known_uncertainties : [];
+            const costSensitivity = Array.isArray(reliabilityReport.estimated_cost_sensitivity) ? reliabilityReport.estimated_cost_sensitivity : [];
             reportHtml = `
                 <div class="space-y-2 text-xs text-slate-200">
-                    <div class="flex items-center gap-2">
-                        <span class="text-sm font-bold text-white">ציון דוח:</span>
-                        <span class="px-2 py-1 rounded bg-slate-800 border border-slate-700">${escapeHtml(reliabilityReport.overall_score || '')}</span>
-                        <span class="px-2 py-1 rounded bg-slate-800 border border-slate-700">ביטחון: ${escapeHtml(reliabilityReport.confidence || '')}</span>
-                    </div>
-                    <p class="text-slate-100">${escapeHtml(reliabilityReport.one_sentence_verdict || '')}</p>
+                    <p class="text-slate-100">${escapeHtml(reliabilityReport.based_on_available_information || '')}</p>
                     <div>
-                        <div class="font-semibold text-slate-100 mb-1">סיכונים מרכזיים</div>
+                        <div class="font-semibold text-slate-100 mb-1">תחומי סיכון מרכזיים לבדיקה</div>
                         <ul class="list-disc pr-4 space-y-1">
-                            ${risks.map(r => `<li>${escapeHtml(r.risk_title || '')} – ${escapeHtml(r.why_it_matters || '')}</li>`).join('') || '<li class="text-slate-400">אין סיכונים מפורטים.</li>'}
+                            ${riskAreas.map(r => `<li>${escapeHtml(r.risk_area || '')}${r.why_to_check ? ` – ${escapeHtml(r.why_to_check)}` : ''}</li>`).join('') || '<li class="text-slate-400">אין תחומי סיכון מפורטים.</li>'}
+                        </ul>
+                    </div>
+                    <div>
+                        <div class="font-semibold text-slate-100 mb-1">נקודות בדיקה מכניות</div>
+                        <ul class="list-disc pr-4 space-y-1">
+                            ${(checklist.mechanical_inspection_points || []).map(x => `<li>${escapeHtml(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
+                        </ul>
+                    </div>
+                    <div>
+                        <div class="font-semibold text-slate-100 mb-1">מסמכים לאימות</div>
+                        <ul class="list-disc pr-4 space-y-1">
+                            ${(checklist.documents_to_verify || []).map(x => `<li>${escapeHtml(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
                         </ul>
                     </div>
                     <div>
                         <div class="font-semibold text-slate-100 mb-1">שאלות למוכר</div>
                         <ul class="list-disc pr-4 space-y-1">
-                            ${(checklist.ask_seller || []).map(x => `<li>${escapeHtml(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
+                            ${(checklist.questions_to_ask_seller || []).map(x => `<li>${escapeHtml(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
                         </ul>
                     </div>
+                    <div>
+                        <div class="font-semibold text-slate-100 mb-1">דגלים אדומים</div>
+                        <ul class="list-disc pr-4 space-y-1">
+                            ${(checklist.red_flags_to_look_for || []).map(x => `<li>${escapeHtml(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
+                        </ul>
+                    </div>
+                    <div>
+                        <div class="font-semibold text-slate-100 mb-1">אי-ודאויות ידועות</div>
+                        <ul class="list-disc pr-4 space-y-1">
+                            ${uncertainties.map(x => `<li>${escapeHtml(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
+                        </ul>
+                    </div>
+                    <div>
+                        <div class="font-semibold text-slate-100 mb-1">רגישות עלויות משוערת</div>
+                        <ul class="list-disc pr-4 space-y-1">
+                            ${costSensitivity.map(x => `<li>${escapeHtml(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
+                        </ul>
+                    </div>
+                    <p class="text-[11px] text-slate-400">${escapeHtml(reliabilityReport.final_line || '')}</p>
                 </div>
             `;
         } else {
