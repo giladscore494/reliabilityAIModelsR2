@@ -309,6 +309,8 @@ def build_prompt(make, model, sub_model, year, fuel_type, transmission, mileage_
     bounded_user_data = wrap_user_input_in_boundary(user_data)
     data_instruction = create_data_only_instruction()
     
+    # final_line is intentionally fixed in English because downstream UX/tests
+    # require that exact sentence unchanged.
     return f"""
 {data_instruction}
 
@@ -376,6 +378,8 @@ def build_reliability_report_prompt(payload: dict, missing_info: list[str]) -> s
     data_instruction = create_data_only_instruction()
     missing_block = ", ".join(missing_info) if missing_info else "אין"
 
+    # final_line is intentionally fixed in English because downstream UX/tests
+    # require that exact sentence unchanged.
     return f"""
     {data_instruction}
 

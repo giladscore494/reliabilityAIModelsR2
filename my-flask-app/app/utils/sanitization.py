@@ -694,7 +694,6 @@ def _sanitize_key_risk_areas(value: Any) -> list:
             why_to_check = _escape(
                 row.get("why_to_check")
                 or row.get("why_it_matters")
-                or row.get("how_to_check")
                 or ""
             )
         else:
@@ -725,6 +724,8 @@ def _sanitize_decision_checklist(value: Any) -> Dict[str, Any]:
         src.get(key) is not None
         for key in ("inspection_focus", "ask_seller", "walk_away_signs")
     )
+    # Fallback order: new schema fields -> legacy top-level checklist fields ->
+    # nested buyer_checklist container -> static defaults.
     active_src = src if (has_new_shape or has_legacy_shape) else legacy_src
     return {
         "mechanical_inspection_points": _sanitize_str_list(
