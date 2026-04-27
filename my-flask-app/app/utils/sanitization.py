@@ -689,6 +689,7 @@ def _sanitize_key_risk_areas(value: Any) -> list:
     items = []
     for row in _coerce_list(value)[:6]:
         if isinstance(row, dict):
+            # Support legacy top_risks fields during the report-schema migration.
             risk_area = _escape(row.get("risk_area") or row.get("risk_title") or "")
             why_to_check = _escape(
                 row.get("why_to_check")
@@ -711,7 +712,20 @@ def _sanitize_key_risk_areas(value: Any) -> list:
 def _sanitize_decision_checklist(value: Any) -> Dict[str, Any]:
     src = _coerce_dict(value)
     legacy_src = _coerce_dict(src.get("buyer_checklist"))
-    active_src = src or legacy_src
+    has_new_shape = any(
+        src.get(key) is not None
+        for key in (
+            "mechanical_inspection_points",
+            "documents_to_verify",
+            "questions_to_ask_seller",
+            "red_flags_to_look_for",
+        )
+    )
+    has_legacy_shape = any(
+        src.get(key) is not None
+        for key in ("inspection_focus", "ask_seller", "walk_away_signs")
+    )
+    active_src = src if (has_new_shape or has_legacy_shape) else legacy_src
     return {
         "mechanical_inspection_points": _sanitize_str_list(
             active_src.get("mechanical_inspection_points")

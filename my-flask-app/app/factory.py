@@ -686,7 +686,7 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
   }}
 }}
 
-כל הערכים בעברית בלבד, למעט final_line שחייב להישאר באנגלית בדיוק כפי שניתן.
+כל הערכים בעברית בלבד, למעט final_line שחייב להישאר באנגלית בדיוק כפי שניתן וללא שום שינוי.
 אל תוסיף הסברים מחוץ ל-JSON.
 אסור לנסח verdict, המלצת קנייה, או "שורה תחתונה".
 אסור להחזיר בתוך reliability_report ציון, confidence, verdict, next step החלטי, או headline judgment.
