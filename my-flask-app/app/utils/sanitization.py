@@ -756,9 +756,9 @@ def _sanitize_decision_checklist(value: Any) -> Dict[str, Any]:
 def _sanitize_known_uncertainties(value: Any, missing_info: Sequence[str]) -> list:
     items = _sanitize_str_list(value, max_items=10)
     if not items:
-        items = [f"לא ידוע: {item}" for item in missing_info[:4]]
-    if not items:
-        items = list(_DEFAULT_KNOWN_UNCERTAINTIES)
+        items = [f"לא ידוע: {item}" for item in missing_info[:4]] or list(
+            _DEFAULT_KNOWN_UNCERTAINTIES
+        )
     for default in _DEFAULT_KNOWN_UNCERTAINTIES:
         if len(items) >= 4:
             break

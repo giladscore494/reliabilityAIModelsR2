@@ -72,7 +72,7 @@ def test_analyze_response_uses_risk_only_reliability_report(logged_in_client, mo
                 "reliability_report": {
                     "overall_score": 91,
                     "confidence": "high",
-                    "one_sentence_verdict": "לא אמור לעבור",
+                    "one_sentence_verdict": "לא אמור לעבור הלאה",
                     "top_risks": [
                         {
                             "risk_title": "גיר",
