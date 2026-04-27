@@ -34,46 +34,39 @@ class OwnerEmailNormalizationTests(unittest.TestCase):
 class ReliabilityReportSanitizationTests(unittest.TestCase):
     def test_reliability_report_sanitization_defaults(self):
         raw = {
-            "overall_score": 120,
-            "confidence": "HIGH",
-            "one_sentence_verdict": "<b>טוב</b>",
-            "top_risks": [
+            "based_on_available_information": "<b>מידע חלקי</b>",
+            "key_risk_areas_to_examine": [
                 {
-                    "risk_title": "<script>כשל",
-                    "why_it_matters": "סיבה",
-                    "how_to_check": "בדיקה",
-                    "severity": "extreme",
-                    "cost_impact": "meh",
+                    "risk_area": "<script>גיר",
+                    "why_to_check": "סיבה",
                 }
             ],
-            "expected_ownership_cost": {
-                "maintenance_level": "ultra",
-                "typical_yearly_range_ils": "₪5,000-₪7,000",
-                "notes": "<note>",
+            "what_must_be_checked_before_a_decision": {
+                "mechanical_inspection_points": ["<בדיקה>"],
+                "documents_to_verify": [],
+                "questions_to_ask_seller": ["<שאלה>"],
+                "red_flags_to_look_for": [],
             },
-            "buyer_checklist": {
-                "ask_seller": ["<שאלה>"],
-                "inspection_focus": [],
-                "walk_away_signs": [],
-            },
-            "what_changes_with_mileage": [
-                {"mileage_band": "עד 120k", "what_to_expect": "<בדיקה>"}
-            ],
-            "recommended_next_step": {"action": "<go>", "reason": "<why>"},
+            "known_uncertainties": ["<חסר>"],
+            "estimated_cost_sensitivity": ["₪5,000-₪7,000", "<note>"],
+            "final_line": "should be overwritten",
         }
         missing_info = ["תת-דגם/תצורה"]
         payload = {"make": "Mazda", "model": "3", "year": 2020}
 
         sanitized = sanitize_reliability_report_response(raw, missing_info=missing_info, payload=payload)
 
-        self.assertEqual(sanitized["overall_score"], 100)
-        self.assertEqual(sanitized["confidence"], "high")
+        self.assertIn("&lt;b&gt;מידע חלקי", sanitized["based_on_available_information"])
         self.assertIn("missing_info", sanitized)
         self.assertIn("תת-דגם/תצורה", sanitized["missing_info"])
-        self.assertTrue(len(sanitized["top_risks"]) >= 3)
-        self.assertNotIn("היסטוריית טיפולים לא מלאה", [r["risk_title"] for r in sanitized["top_risks"]])
-        self.assertEqual(sanitized["expected_ownership_cost"]["maintenance_level"], "medium")
-        self.assertIn("&lt;b&gt;טוב", sanitized["one_sentence_verdict"])
+        self.assertTrue(len(sanitized["key_risk_areas_to_examine"]) >= 4)
+        self.assertIn("&lt;script&gt;גיר", sanitized["key_risk_areas_to_examine"][0]["risk_area"])
+        self.assertIn("&lt;בדיקה&gt;", sanitized["what_must_be_checked_before_a_decision"]["mechanical_inspection_points"][0])
+        self.assertIn("&lt;חסר&gt;", sanitized["known_uncertainties"][0])
+        self.assertEqual(
+            sanitized["final_line"],
+            "This information highlights areas to verify and is not a substitute for a professional inspection.",
+        )
 
 
 class AnalyzeSanitizationTests(unittest.TestCase):

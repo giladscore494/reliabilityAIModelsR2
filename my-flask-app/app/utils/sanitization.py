@@ -559,8 +559,64 @@ def sanitize_comparison_narrative(narrative: Any) -> Optional[Dict[str, Any]]:
 # Reliability report (strict JSON spec)
 # -----------------------------
 
-_CONFIDENCE_ALLOWED = {"high", "medium", "low"}
 _LEVEL_ALLOWED = {"low", "medium", "high"}
+_RELIABILITY_REPORT_FINAL_LINE = (
+    "This information highlights areas to verify and is not a substitute for a professional inspection."
+)
+_DEFAULT_RISK_AREAS = [
+    {
+        "risk_area": "מנוע, גיר ומערכת קירור",
+        "why_to_check": "מערכות אלו יוצרות בדרך כלל את החשיפה הכספית הגבוהה ביותר אם קיימת תקלה חבויה.",
+    },
+    {
+        "risk_area": "היסטוריית טיפולים ועדכוני יצרן",
+        "why_to_check": "תיעוד חסר או לא עקבי מקשה להבין אם טיפולים, קמפיינים ועדכוני תוכנה בוצעו בזמן.",
+    },
+    {
+        "risk_area": "קילומטראז׳ ביחס לגיל הרכב ולאופי השימוש",
+        "why_to_check": "פער בין הגיל, הקילומטראז׳ והשימוש בפועל עשוי לשנות את רמת השחיקה וההוצאות האפשריות.",
+    },
+    {
+        "risk_area": "פגיעות עבר, תיקוני שלדה ודפוסי בעלות",
+        "why_to_check": "ריבוי בעלים, תאונות קודמות או תיקונים מהותיים יכולים להשפיע על הסיכון המכני והכלכלי.",
+    },
+]
+_DEFAULT_DECISION_CHECKLIST = {
+    "mechanical_inspection_points": [
+        "סריקת מחשב מלאה למנוע, גיר, מערכות בטיחות ומערכות עזר.",
+        "בדיקת נזילות שמן/נוזל קירור, מצב מערכת הקירור וסימני התחממות.",
+        "נסיעת מבחן לבדיקת רעידות, החלקות גיר, רעשים ממתלים ובלמים.",
+        "בדיקת צמיגים, בלמים, בולמים ובלאי לא אחיד שמעיד על בעיית שלדה או כיוון.",
+    ],
+    "documents_to_verify": [
+        "ספר טיפולים, חשבוניות ומועדי טיפולים בפועל.",
+        "אישור על קריאות שירות, קמפיינים ועדכוני תוכנה שבוצעו אם קיימים.",
+        "דוח בעלויות קודמות, שעבודים או מגבלות רישום אם רלוונטי.",
+        "דוחות בדיקה קודמים או תיעוד תאונה/תיקון אם קיים.",
+    ],
+    "questions_to_ask_seller": [
+        "למה הרכב נמכר עכשיו וכמה זמן הוא בבעלות המוכר הנוכחי?",
+        "האם היו תקלות חוזרות, תיקוני גיר/מנוע, או תקלות חשמל משמעותיות?",
+        "איפה בוצעו הטיפולים והאם יש רצף חשבוניות מלא?",
+        "האם בוצעו תאונות, תיקוני שלדה, צביעה רחבה או החלפת מכלולים מרכזיים?",
+    ],
+    "red_flags_to_look_for": [
+        "סירוב לשתף מסמכים או פערים מהותיים בהיסטוריית הטיפולים.",
+        "נורות אזהרה פעילות, רעידות, החלקות גיר או התחממות בנסיעת מבחן.",
+        "סימני נזילה, תיקוני פח חריגים, ריתוכים או חוסר התאמה בין חלקי מרכב.",
+        "פער לא מוסבר בין מצב הרכב, הקילומטראז׳, מספר הבעלים והתיאור של המוכר.",
+    ],
+}
+_DEFAULT_KNOWN_UNCERTAINTIES = [
+    "המצב המכני בפועל של הרכב הספציפי.",
+    "רציפות ואיכות היסטוריית הטיפולים והחשבוניות.",
+    "נזק חבוי משלדה, תאונה, הצפה או תיקון לא מתועד.",
+    "אופן הנהיגה והשימוש של הבעלים הקודמים.",
+]
+_DEFAULT_COST_SENSITIVITY = [
+    "עלויות אפשריות עשויות להשתנות משמעותית לפי מצב הרכב בפועל (למשל כ-₪1,500–₪4,000 אם מתגלה צורך בתיקוני בלאי בינוניים).",
+    "אם קיימת תקלה מהותית במנוע, גיר, קירור או מערכת חשמל מרכזית, החשיפה עשויה לעלות לטווח רחב יותר כגון כ-₪4,000–₪15,000+.",
+]
 
 
 def _derive_missing_info(payload: Optional[Mapping[str, Any]]) -> list:
@@ -603,88 +659,114 @@ def _normalize_level(value: Any, default: str = "medium") -> str:
     return default
 
 
-def _normalize_confidence(value: Any, missing_info: Sequence[str]) -> str:
-    if isinstance(value, str):
-        lowered = value.strip().lower()
-        if lowered in _CONFIDENCE_ALLOWED:
-            return lowered
-    if len(missing_info) >= 4:
-        return "low"
-    if missing_info:
-        return "medium"
-    return "high"
-
-
-def _sanitize_top_risks(value: Any) -> list:
-    risks_out = []
-    allowed_values = {"low", "medium", "high"}
-    for row in _coerce_list(value)[:6]:
-        if not isinstance(row, dict):
-            continue
-        sev = str(row.get("severity", "")).strip().lower()
-        impact = str(row.get("cost_impact", "")).strip().lower()
-        risks_out.append(
-            {
-                "risk_title": _escape(row.get("risk_title")),
-                "why_it_matters": _escape(row.get("why_it_matters")),
-                "how_to_check": _escape(row.get("how_to_check")),
-                "severity": sev if sev in allowed_values else "medium",
-                "cost_impact": impact if impact in allowed_values else "medium",
-            }
-        )
-    if len(risks_out) < 3:
-        defaults = [
-            {
-                "risk_title": "אימות תיעוד טיפולים ועדכוני יצרן",
-                "why_it_matters": "מסמכים מסודרים עוזרים לוודא שהרכב טופל בזמן ושקמפיינים/קריאות שירות רלוונטיים בוצעו.",
-                "how_to_check": "בקש ספר טיפולים, חשבוניות ואישור ממוסך מורשה על עדכוני תוכנה/קמפיינים שבוצעו.",
-                "severity": "medium",
-                "cost_impact": "medium",
-            },
-            {
-                "risk_title": "בדיקת מנוע, גיר ומחשב רכב",
-                "why_it_matters": "מערכות הכוח הן מוקד ההוצאה העיקרי ולכן חשוב לוודא שאין קודי תקלה, רעידות או חריגות פעולה.",
-                "how_to_check": "בצע נסיעת מבחן ודרוש סריקת מחשב, בדיקת נזילות ובחינת פעולת ההילוכים בכל מצב.",
-                "severity": "high",
-                "cost_impact": "high",
-            },
-            {
-                "risk_title": "בדיקת בלמים, מתלים וצמיגים",
-                "why_it_matters": "שחיקה בשלדה ובמערכות הבטיחות יכולה ליצור הוצאה מיידית ולהשפיע על התנהגות הרכב.",
-                "how_to_check": "בדוק בנסיעה ובמוסך רעשים, בולמים, רפידות, צלחות, תאריך צמיגים וסימני שחיקה לא אחידים.",
-                "severity": "medium",
-                "cost_impact": "medium",
-            },
-        ]
-        for item in defaults:
-            if len(risks_out) >= 3:
-                break
-            risks_out.append(item)
-    return risks_out[:6]
-
-
 def _sanitize_str_list(value: Any, *, max_items: int = 10) -> list:
     return [_escape(v) for v in _coerce_list(value)[:max_items]]
 
 
-def _sanitize_mileage_changes(value: Any) -> list:
-    items = []
-    for row in _coerce_list(value)[:5]:
-        if not isinstance(row, dict):
-            continue
-        items.append(
-            {
-                "mileage_band": _escape(row.get("mileage_band")),
-                "what_to_expect": _escape(row.get("what_to_expect")),
-            }
+def _sanitize_based_on_available_information(
+    value: Any, missing_info: Sequence[str]
+) -> str:
+    if isinstance(value, list):
+        parts = [_escape(v) for v in value[:2] if _escape(v)]
+        if parts:
+            return " ".join(parts)
+    text = _escape(value) if value is not None else ""
+    if text:
+        return text
+    if missing_info:
+        missing_preview = ", ".join(missing_info[:3])
+        return (
+            "הניתוח מבוסס על מידע חלקי, ציבורי וכללי בלבד לגבי הדגם/השנה. "
+            f"חסרים גם פרטים מהותיים כגון {missing_preview}, ולכן אי אפשר להסיק ממנו תמונה מלאה על הרכב הספציפי."
         )
+    return (
+        "הניתוח מבוסס על מידע חלקי, ציבורי וכללי בלבד לגבי הדגם/השנה. "
+        "ללא בדיקה פיזית, תיעוד מלא והיסטוריית שימוש, אי אפשר להסיק ממנו תמונה מלאה על הרכב הספציפי."
+    )
+
+
+def _sanitize_key_risk_areas(value: Any) -> list:
+    items = []
+    for row in _coerce_list(value)[:6]:
+        if isinstance(row, dict):
+            risk_area = _escape(row.get("risk_area") or row.get("risk_title") or "")
+            why_to_check = _escape(
+                row.get("why_to_check")
+                or row.get("why_it_matters")
+                or row.get("how_to_check")
+                or ""
+            )
+        else:
+            risk_area = _escape(row)
+            why_to_check = ""
+        if risk_area:
+            items.append({"risk_area": risk_area, "why_to_check": why_to_check})
+    for default in _DEFAULT_RISK_AREAS:
+        if len(items) >= 4:
+            break
+        items.append(default)
+    return items[:6]
+
+
+def _sanitize_decision_checklist(value: Any) -> Dict[str, Any]:
+    src = _coerce_dict(value)
+    legacy_src = _coerce_dict(src.get("buyer_checklist"))
+    active_src = src or legacy_src
+    return {
+        "mechanical_inspection_points": _sanitize_str_list(
+            active_src.get("mechanical_inspection_points")
+            or active_src.get("inspection_focus"),
+            max_items=10,
+        )
+        or list(_DEFAULT_DECISION_CHECKLIST["mechanical_inspection_points"]),
+        "documents_to_verify": _sanitize_str_list(
+            active_src.get("documents_to_verify"),
+            max_items=10,
+        )
+        or list(_DEFAULT_DECISION_CHECKLIST["documents_to_verify"]),
+        "questions_to_ask_seller": _sanitize_str_list(
+            active_src.get("questions_to_ask_seller")
+            or active_src.get("ask_seller"),
+            max_items=10,
+        )
+        or list(_DEFAULT_DECISION_CHECKLIST["questions_to_ask_seller"]),
+        "red_flags_to_look_for": _sanitize_str_list(
+            active_src.get("red_flags_to_look_for")
+            or active_src.get("walk_away_signs"),
+            max_items=10,
+        )
+        or list(_DEFAULT_DECISION_CHECKLIST["red_flags_to_look_for"]),
+    }
+
+
+def _sanitize_known_uncertainties(value: Any, missing_info: Sequence[str]) -> list:
+    items = _sanitize_str_list(value, max_items=10)
     if not items:
-        items = [
-            {"mileage_band": "עד 120k", "what_to_expect": "בצע בדיקת מוסך מלאה; לוודא טיפולים בזמן ורצועת תזמון אם רלוונטי."},
-            {"mileage_band": "120k–180k", "what_to_expect": "לשים דגש על גיר, מערכת קירור ומתלים; לבדוק נזילות וצריכת שמן."},
-            {"mileage_band": "מעל 180k", "what_to_expect": "לתמחר הוצאות מתלים/בלמים/גומיות; להימנע מרכב ללא היסטוריית טיפולים מוכחת."},
-        ]
-    return items[:5]
+        items = [f"לא ידוע: {item}" for item in missing_info[:4]]
+    if not items:
+        items = list(_DEFAULT_KNOWN_UNCERTAINTIES)
+    for default in _DEFAULT_KNOWN_UNCERTAINTIES:
+        if len(items) >= 4:
+            break
+        items.append(default)
+    return items[:8]
+
+
+def _sanitize_estimated_cost_sensitivity(value: Any, src: Mapping[str, Any]) -> list:
+    items = _sanitize_str_list(value, max_items=6)
+    if not items:
+        legacy_cost = _coerce_dict(src.get("expected_ownership_cost"))
+        legacy_range = _escape(legacy_cost.get("typical_yearly_range_ils") or "")
+        legacy_notes = _escape(legacy_cost.get("notes") or "")
+        if legacy_range:
+            items.append(
+                f"פוטנציאל העלויות עשוי להשתנות משמעותית לפי מצב הרכב בפועל (למשל {legacy_range} אם ההערכה הישנה עדיין רלוונטית לרכב שנבדק)."
+            )
+        if legacy_notes:
+            items.append(legacy_notes)
+    if not items:
+        items = list(_DEFAULT_COST_SENSITIVITY)
+    return items[:6]
 
 
 def sanitize_reliability_report_response(
@@ -706,68 +788,26 @@ def sanitize_reliability_report_response(
             if "reason" in src:
                 out["reason"] = _escape(src.get("reason"))
             return out
-    out["overall_score"] = _clamp_int(
-        src.get("overall_score", src.get("base_score_calculated")),
-        lo=0,
-        hi=100,
-        default=0,
+    out["based_on_available_information"] = _sanitize_based_on_available_information(
+        src.get("based_on_available_information"),
+        inferred_missing,
     )
-    out["confidence"] = _normalize_confidence(src.get("confidence"), inferred_missing)
-    out["one_sentence_verdict"] = _escape(src.get("one_sentence_verdict") or "")
-    out["top_risks"] = _sanitize_top_risks(src.get("top_risks"))
-
-    expected_cost_src = _coerce_dict(src.get("expected_ownership_cost"))
-    out["expected_ownership_cost"] = {
-        "maintenance_level": _normalize_level(expected_cost_src.get("maintenance_level")),
-        "typical_yearly_range_ils": _escape(
-            expected_cost_src.get("typical_yearly_range_ils") or "לא ידוע"
-        ),
-        "notes": _escape(
-            expected_cost_src.get("notes")
-            or "הערכה מבוססת מידע חלקי; ודא הצעת מחיר במוסך לפני קנייה."
-        ),
-    }
-
-    buyer_src = _coerce_dict(src.get("buyer_checklist"))
-    out["buyer_checklist"] = {
-        "ask_seller": _sanitize_str_list(buyer_src.get("ask_seller"), max_items=10)
-        or [
-            "בקש היסטוריית טיפולים מלאה (חשבוניות ומוסכים)",
-            "כמה בעלים היו ולמה נמכר",
-            "האם הרכב עבר תאונות או תיקוני שלדה",
-            "מתי הוחלפו בלמים, צמיגים ורצועת תזמון/שרשרת",
-            "האם יש רעידות, נזילות או תקלות ידועות",
-        ],
-        "inspection_focus": _sanitize_str_list(buyer_src.get("inspection_focus"), max_items=10)
-        or [
-            "סריקת מחשב לאיתור תקלות בגיר/מנוע",
-            "בדיקת נזילות שמן/מים ומערכת קירור",
-            "בדיקת מתלים, בושינגים ובלמים תחת עומס",
-            "בדיקת תיבת הילוכים בנסיעת מבחן בכל הילוך",
-            "מדידת עובי צמיגים ובדיקת ייצור/סדקים",
-        ],
-        "walk_away_signs": _sanitize_str_list(buyer_src.get("walk_away_signs"), max_items=6)
-        or [
-            "אין היסטוריית טיפולים או סירוב להציג חשבוניות",
-            "רעידות/החלקות בגיר או נורת אזהרה דולקת",
-            "נזילות שמן/מים משמעותיות מתחת לרכב",
-            "תיקוני שלדה או פגיעות בטיחות שלא דווחו",
-        ],
-    }
-
-    out["what_changes_with_mileage"] = _sanitize_mileage_changes(src.get("what_changes_with_mileage"))
-    out["recommended_next_step"] = {
-        "action": _escape(
-            _coerce_dict(src.get("recommended_next_step")).get("action")
-            or "קבע בדיקת מוסך מלאה ודוח מחשב לפני התחייבות."
-        ),
-        "reason": _escape(
-            _coerce_dict(src.get("recommended_next_step")).get("reason")
-            or "הבדיקה תאמת מצב גיר/מנוע ותיתן הערכת עלויות ריאלית."
-        ),
-    }
-
+    out["key_risk_areas_to_examine"] = _sanitize_key_risk_areas(
+        src.get("key_risk_areas_to_examine") or src.get("top_risks")
+    )
+    out["what_must_be_checked_before_a_decision"] = _sanitize_decision_checklist(
+        src.get("what_must_be_checked_before_a_decision") or src.get("buyer_checklist")
+    )
     out["missing_info"] = inferred_missing
+    out["known_uncertainties"] = _sanitize_known_uncertainties(
+        src.get("known_uncertainties") or src.get("missing_info"),
+        inferred_missing,
+    )
+    out["estimated_cost_sensitivity"] = _sanitize_estimated_cost_sensitivity(
+        src.get("estimated_cost_sensitivity"),
+        src,
+    )
+    out["final_line"] = _RELIABILITY_REPORT_FINAL_LINE
 
     return out
 

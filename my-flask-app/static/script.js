@@ -788,33 +788,61 @@
             } else if (Object.keys(rep).length === 0) {
                 html = '<p class="text-sm text-slate-400">הדוח לא סופק על ידי המודל.</p>';
             } else {
-                const risks = Array.isArray(rep.top_risks) ? rep.top_risks : [];
-                const checklist = rep.buyer_checklist || {};
+                const riskAreas = Array.isArray(rep.key_risk_areas_to_examine) ? rep.key_risk_areas_to_examine : [];
+                const checklist = rep.what_must_be_checked_before_a_decision || {};
+                const uncertainties = Array.isArray(rep.known_uncertainties) ? rep.known_uncertainties : [];
+                const costSensitivity = Array.isArray(rep.estimated_cost_sensitivity) ? rep.estimated_cost_sensitivity : [];
                 html += `
                     <div class="space-y-3">
-                        <div class="flex flex-wrap items-center gap-3">
-                            <div class="text-lg font-bold text-white">ציון דוח: ${safe(rep.overall_score || '')}</div>
-                            <span class="px-3 py-1 rounded-full text-xs bg-slate-800 text-slate-200">ביטחון: ${safe(rep.confidence || '')}</span>
-                        </div>
-                        <p class="text-slate-200 text-sm">${safe(rep.one_sentence_verdict || '')}</p>
+                        <p class="text-slate-200 text-sm">${safe(rep.based_on_available_information || '')}</p>
                         <div>
-                            <h4 class="text-sm font-semibold text-white mb-1">סיכונים מרכזיים</h4>
+                            <h4 class="text-sm font-semibold text-white mb-1">תחומי סיכון מרכזיים לבדיקה</h4>
                             <ul class="list-disc list-inside text-sm text-slate-200 space-y-1">
-                                ${risks.slice(0,6).map(r => `<li><span class="font-semibold">${safe(r.risk_title||'')}</span> – ${safe(r.why_it_matters||'')} (${safe(r.severity||'')})</li>`).join('') || '<li class="text-slate-400">אין סיכונים מפורטים.</li>'}
+                                ${riskAreas.slice(0,6).map(r => `<li><span class="font-semibold">${safe(r.risk_area||'')}</span>${r.why_to_check ? ` – ${safe(r.why_to_check)}` : ''}</li>`).join('') || '<li class="text-slate-400">אין תחומי סיכון מפורטים.</li>'}
                             </ul>
                         </div>
                         <div>
-                            <h4 class="text-sm font-semibold text-white mb-1">מה לבדוק</h4>
+                            <h4 class="text-sm font-semibold text-white mb-1">מה חייבים לבדוק לפני החלטה</h4>
+                            <div class="space-y-2 text-sm text-slate-200">
+                                <div>
+                                    <div class="font-semibold text-white mb-1">נקודות בדיקה מכניות</div>
+                                    <ul class="list-disc list-inside space-y-1">
+                                        ${(checklist.mechanical_inspection_points||[]).map(x=>`<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין נתונים</li>'}
+                                    </ul>
+                                </div>
+                                <div>
+                                    <div class="font-semibold text-white mb-1">מסמכים לאימות</div>
+                                    <ul class="list-disc list-inside space-y-1">
+                                        ${(checklist.documents_to_verify||[]).map(x=>`<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין נתונים</li>'}
+                                    </ul>
+                                </div>
+                                <div>
+                                    <div class="font-semibold text-white mb-1">שאלות למוכר</div>
+                                    <ul class="list-disc list-inside space-y-1">
+                                        ${(checklist.questions_to_ask_seller||[]).map(x=>`<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין נתונים</li>'}
+                                    </ul>
+                                </div>
+                                <div>
+                                    <div class="font-semibold text-white mb-1">דגלים אדומים</div>
+                                    <ul class="list-disc list-inside space-y-1">
+                                        ${(checklist.red_flags_to_look_for||[]).map(x=>`<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין נתונים</li>'}
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 class="text-sm font-semibold text-white mb-1">אי-ודאויות ידועות</h4>
                             <ul class="list-disc list-inside text-sm text-slate-200 space-y-1">
-                                ${(checklist.ask_seller||[]).map(x=>`<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין נתונים</li>'}
+                                ${uncertainties.map(x=>`<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
                             </ul>
                         </div>
                         <div>
-                            <h4 class="text-sm font-semibold text-white mb-1">שינויים עם ק״מ</h4>
+                            <h4 class="text-sm font-semibold text-white mb-1">רגישות עלויות משוערת</h4>
                             <ul class="list-disc list-inside text-sm text-slate-200 space-y-1">
-                                ${(rep.what_changes_with_mileage||[]).map(x=>`<li>${safe(x.mileage_band||'')}: ${safe(x.what_to_expect||'')}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
+                                ${costSensitivity.map(x=>`<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
                             </ul>
                         </div>
+                        <p class="text-xs text-slate-400">${safe(rep.final_line || '')}</p>
                     </div>
                 `;
             }
