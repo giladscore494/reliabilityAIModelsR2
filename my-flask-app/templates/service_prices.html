@@ -599,8 +599,12 @@
                 secondaryScore.textContent = '';
                 fairnessNote.textContent = report.fairness_note || 'אין מספיק נתונים';
             } else {
+                const secondaryDisclaimer = 'הוא אינו הוכחה לחיוב יתר.';
+                const baseNote = report.fairness_note || 'המדד המספרי הוא אינדיקציה משנית בלבד.';
                 secondaryScore.textContent = `מדד משני פנימי: ${report.fairness_score}/100`;
-                fairnessNote.textContent = (report.fairness_note || 'המדד המספרי הוא אינדיקציה משנית בלבד.') + ' הוא אינו הוכחה לחיוב יתר.';
+                fairnessNote.textContent = baseNote.includes(secondaryDisclaimer)
+                    ? baseNote
+                    : `${baseNote} ${secondaryDisclaimer}`;
             }
             
             // Totals

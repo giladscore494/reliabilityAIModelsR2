@@ -602,6 +602,7 @@
             const mileageNote = data.mileage_note || '';
             const contextText = infoReview.report.based_on_available_information || '';
             const sourceTransparency = `נמצאו ${infoReview.sourceCount} מקורות · סוג מקורות מזוהה: ${infoReview.sourceScopeLabel}`;
+            const escapedSourceTransparency = safe(sourceTransparency);
 
             const wrapper = document.createElement('div');
             wrapper.className = 'w-full rounded-3xl border border-slate-700/70 bg-slate-900/40 p-5 md:p-6 text-right';
@@ -658,7 +659,7 @@
             transparency.className = 'mt-4 rounded-2xl border border-slate-700/70 bg-slate-950/40 p-4 text-sm text-slate-200';
             transparency.innerHTML = `
                 <div class="font-semibold text-white">שקיפות מקורות</div>
-                <div class="mt-2">${safe(sourceTransparency)}</div>
+                <div class="mt-2">${escapedSourceTransparency}</div>
                 ${infoReview.weaklySourced ? '<div class="mt-2 text-amber-300">פחות משני מקורות נמצאו ולכן הניתוח מבוסס חלש.</div>' : ''}
             `;
             wrapper.appendChild(transparency);

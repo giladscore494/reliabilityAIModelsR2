@@ -923,6 +923,7 @@ def _dedupe_preserve_order(items: Sequence[Any], *, max_items: int = 8) -> list[
 
 
 def _classify_source_scope(source_items: Sequence[Any]) -> tuple[int, int]:
+    """Count heuristically-detected Israeli and global sources in a source list."""
     israeli_count = 0
     global_count = 0
     for item in source_items:
