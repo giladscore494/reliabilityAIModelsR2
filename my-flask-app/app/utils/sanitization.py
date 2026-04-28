@@ -844,6 +844,7 @@ _NONCRITICAL_REQUEST_MISSING_LABELS = {
 
 
 def _sanitize_hebrew_label(value: Any, allowed: set[str], default: str) -> str:
+    """Return a validated Hebrew label or a safe default when the value is invalid."""
     if isinstance(value, str):
         cleaned = _escape(value)
         if cleaned in allowed:
@@ -852,6 +853,7 @@ def _sanitize_hebrew_label(value: Any, allowed: set[str], default: str) -> str:
 
 
 def _dedupe_preserve_order(items: Sequence[Any], *, max_items: int = 8) -> list[str]:
+    """Deduplicate escaped items while preserving input order and capping the result size."""
     result: list[str] = []
     seen = set()
     for item in items:
@@ -871,6 +873,7 @@ def derive_information_status(
     payload: Optional[Mapping[str, Any]] = None,
     sanitized_report: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
+    """Derive data quality, readiness, missing info, and verification focus for the review UI."""
     src = _coerce_dict(response)
     report = (
         dict(sanitized_report)
