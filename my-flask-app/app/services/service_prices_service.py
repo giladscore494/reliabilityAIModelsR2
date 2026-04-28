@@ -4,7 +4,6 @@
 import json
 import os
 import re
-import unicodedata
 from urllib.parse import urlparse
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -36,22 +35,45 @@ CANONICAL_MAPPINGS = {
         "is_labor": False,
     },
     "filters": {
-        "keywords": ["פילטר", "filter", "מסנן", "פילטר אוויר", "air filter", "פילטר שמן", "oil filter"],
+        "keywords": [
+            "פילטר",
+            "filter",
+            "מסנן",
+            "פילטר אוויר",
+            "air filter",
+            "פילטר שמן",
+            "oil filter",
+        ],
         "category": "engine",
         "is_labor": False,
     },
     "brake_pads_front": {
-        "keywords": ["רפידות קדמיות", "רפידות בלם קדמי", "front brake pads", "רפידות קידמי"],
+        "keywords": [
+            "רפידות קדמיות",
+            "רפידות בלם קדמי",
+            "front brake pads",
+            "רפידות קידמי",
+        ],
         "category": "brakes",
         "is_labor": False,
     },
     "brake_discs_front": {
-        "keywords": ["דיסקים קדמיים", "דיסקי בלם קדמי", "front brake discs", "front rotors"],
+        "keywords": [
+            "דיסקים קדמיים",
+            "דיסקי בלם קדמי",
+            "front brake discs",
+            "front rotors",
+        ],
         "category": "brakes",
         "is_labor": False,
     },
     "brake_pads_rear": {
-        "keywords": ["רפידות אחוריות", "רפידות בלם אחורי", "rear brake pads", "רפידות אחורי"],
+        "keywords": [
+            "רפידות אחוריות",
+            "רפידות בלם אחורי",
+            "rear brake pads",
+            "רפידות אחורי",
+        ],
         "category": "brakes",
         "is_labor": False,
     },
@@ -66,7 +88,15 @@ CANONICAL_MAPPINGS = {
         "is_labor": False,
     },
     "ac_gas": {
-        "keywords": ["מילוי גז", "ac gas", "גז מזגן", "freon", "פריאון", "r134a", "מזגן"],
+        "keywords": [
+            "מילוי גז",
+            "ac gas",
+            "גז מזגן",
+            "freon",
+            "פריאון",
+            "r134a",
+            "מזגן",
+        ],
         "category": "ac",
         "is_labor": False,
     },
@@ -138,7 +168,17 @@ CANONICAL_MAPPINGS = {
 }
 
 # Labor detection keywords
-LABOR_KEYWORDS = ["עבודה", "labor", "שעה", "התקנה", "הרכבה", "פירוק", "שירות", "installation", "work"]
+LABOR_KEYWORDS = [
+    "עבודה",
+    "labor",
+    "שעה",
+    "התקנה",
+    "הרכבה",
+    "פירוק",
+    "שירות",
+    "installation",
+    "work",
+]
 
 
 def normalize_text(text: str) -> str:
@@ -151,9 +191,9 @@ def normalize_text(text: str) -> str:
     # Lowercase
     text = text.lower().strip()
     # Remove punctuation
-    text = re.sub(r'[^\w\sא-ת]', '', text)
+    text = re.sub(r"[^\w\sא-ת]", "", text)
     # Unify Hebrew final letters
-    finals = {'ך': 'כ', 'ם': 'מ', 'ן': 'נ', 'ף': 'פ', 'ץ': 'צ'}
+    finals = {"ך": "כ", "ם": "מ", "ן": "נ", "ף": "פ", "ץ": "צ"}
     for final, normal in finals.items():
         text = text.replace(final, normal)
     return text
@@ -168,13 +208,13 @@ def parse_price(price_str: Any) -> Optional[int]:
         return None
     if isinstance(price_str, (int, float)):
         return int(round(price_str))
-    
+
     price_str = str(price_str)
     # Remove currency symbols and whitespace
-    price_str = re.sub(r'[₪$€\s]', '', price_str)
+    price_str = re.sub(r"[₪$€\s]", "", price_str)
     # Remove commas
-    price_str = price_str.replace(',', '')
-    
+    price_str = price_str.replace(",", "")
+
     try:
         return int(round(float(price_str)))
     except (ValueError, TypeError):
@@ -220,17 +260,17 @@ def match_canonical_code(description: str) -> Tuple[Optional[str], Optional[str]
     Returns (canonical_code, category) or (None, None) if no match.
     """
     normalized = normalize_text(description)
-    
+
     # Check each canonical code's keywords
     for code, config in CANONICAL_MAPPINGS.items():
         for keyword in config["keywords"]:
             if normalize_text(keyword) in normalized:
                 return code, config["category"]
-    
+
     # Default to generic "other" if labor detected
     if is_labor_line(description):
         return "labor", "labor"
-    
+
     return None, None
 
 
@@ -241,25 +281,29 @@ def deterministic_sanitize_no_pii(obj: Any) -> Any:
     """
     if obj is None:
         return None
-    
+
     if isinstance(obj, str):
         # Phone patterns (Israeli)
-        obj = re.sub(r'0\d{1,2}[-\s]?\d{3}[-\s]?\d{4}', '[REDACTED]', obj)
-        obj = re.sub(r'\+972[-\s]?\d{1,2}[-\s]?\d{3}[-\s]?\d{4}', '[REDACTED]', obj)
+        obj = re.sub(r"0\d{1,2}[-\s]?\d{3}[-\s]?\d{4}", "[REDACTED]", obj)
+        obj = re.sub(r"\+972[-\s]?\d{1,2}[-\s]?\d{3}[-\s]?\d{4}", "[REDACTED]", obj)
         # Email patterns
-        obj = re.sub(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '[REDACTED]', obj)
+        obj = re.sub(
+            r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "[REDACTED]", obj
+        )
         # Israeli license plate patterns
-        obj = re.sub(r'\d{2,3}[-\s]?\d{2,3}[-\s]?\d{2,3}', '[REDACTED]', obj)
+        obj = re.sub(r"\d{2,3}[-\s]?\d{2,3}[-\s]?\d{2,3}", "[REDACTED]", obj)
         # Invoice serial number patterns (common formats)
-        obj = re.sub(r'(?:חשבונית|invoice)[\s:#]*\d{4,}', '[REDACTED]', obj, flags=re.IGNORECASE)
+        obj = re.sub(
+            r"(?:חשבונית|invoice)[\s:#]*\d{4,}", "[REDACTED]", obj, flags=re.IGNORECASE
+        )
         return obj
-    
+
     if isinstance(obj, dict):
         return {k: deterministic_sanitize_no_pii(v) for k, v in obj.items()}
-    
+
     if isinstance(obj, list):
         return [deterministic_sanitize_no_pii(item) for item in obj]
-    
+
     return obj
 
 
@@ -269,7 +313,7 @@ def _is_israel_context(text: Optional[str]) -> bool:
     lowered = text.lower()
     if "ישראל" in text or "israel" in lowered:
         return True
-    if "₪" in text or "ש\"ח" in text or "שח" in text:
+    if "₪" in text or 'ש"ח' in text or "שח" in text:
         return True
     if "ils" in lowered or "nis" in lowered:
         return True
@@ -287,7 +331,9 @@ def _is_il_domain(url_text: str) -> bool:
     return host.endswith(".il") or host.endswith(".co.il") or host.endswith(".gov.il")
 
 
-def filter_and_deduplicate_israeli_sources(sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def filter_and_deduplicate_israeli_sources(
+    sources: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
     cleaned_sources = []
     seen_urls = set()
     for source in sources:
@@ -300,7 +346,11 @@ def filter_and_deduplicate_israeli_sources(sources: List[Dict[str, Any]]) -> Lis
         url_text = str(url) if url else ""
         title_text = str(title) if title else ""
         is_il_domain = _is_il_domain(url_text)
-        if not (is_il_domain or _is_israel_context(url_text) or _is_israel_context(title_text)):
+        if not (
+            is_il_domain
+            or _is_israel_context(url_text)
+            or _is_israel_context(title_text)
+        ):
             continue
         if url_text and url_text in seen_urls:
             continue
@@ -316,7 +366,11 @@ def _extract_range_samples(range_data: Any) -> List[int]:
     min_val = range_data.get("min")
     max_val = range_data.get("max")
     median_val = range_data.get("median")
-    if median_val is None and isinstance(min_val, (int, float)) and isinstance(max_val, (int, float)):
+    if (
+        median_val is None
+        and isinstance(min_val, (int, float))
+        and isinstance(max_val, (int, float))
+    ):
         median_val = (min_val + max_val) / 2
     values = []
     for value in (min_val, median_val, max_val):
@@ -327,7 +381,9 @@ def _extract_range_samples(range_data: Any) -> List[int]:
 
 def extract_benchmark_samples(benchmark: Dict[str, Any]) -> List[int]:
     samples = benchmark.get("market_samples_ils") or benchmark.get("samples_ils") or []
-    valid_samples = [int(round(s)) for s in samples if isinstance(s, (int, float)) and s > 0]
+    valid_samples = [
+        int(round(s)) for s in samples if isinstance(s, (int, float)) and s > 0
+    ]
     if len(valid_samples) < MIN_MARKET_SAMPLES:
         range_samples = _extract_range_samples(benchmark.get("price_range_ils"))
         for value in range_samples:
@@ -338,7 +394,9 @@ def extract_benchmark_samples(benchmark: Dict[str, Any]) -> List[int]:
 
 def benchmark_has_usable_content(benchmark: Dict[str, Any]) -> bool:
     sources_raw = benchmark.get("sources") or []
-    cleaned_sources = filter_and_deduplicate_israeli_sources(sources_raw if isinstance(sources_raw, list) else [])
+    cleaned_sources = filter_and_deduplicate_israeli_sources(
+        sources_raw if isinstance(sources_raw, list) else []
+    )
     if not cleaned_sources:
         return False
     samples = extract_benchmark_samples(benchmark)
@@ -352,7 +410,9 @@ def extract_grounding_metadata(candidate: Any) -> Tuple[Optional[Any], Optional[
     if not grounding_meta:
         return None, None
     if isinstance(grounding_meta, dict):
-        grounding_chunks = grounding_meta.get("grounding_chunks") or grounding_meta.get("groundingChunks")
+        grounding_chunks = grounding_meta.get("grounding_chunks") or grounding_meta.get(
+            "groundingChunks"
+        )
         citations = grounding_meta.get("citations")
     else:
         grounding_chunks = getattr(grounding_meta, "grounding_chunks", None) or getattr(
@@ -369,22 +429,24 @@ def canonicalize_line_items(line_items: List[Dict]) -> List[Dict]:
     """
     if not line_items:
         return []
-    
+
     grouped: Dict[str, Dict] = {}
-    
+
     for item in line_items:
         description = item.get("description", "") or ""
-        price = parse_price(item.get("price_ils") or item.get("invoice_price_ils") or item.get("price"))
+        price = parse_price(
+            item.get("price_ils") or item.get("invoice_price_ils") or item.get("price")
+        )
         qty = parse_qty(item.get("qty"))
-        
+
         canonical_code, category = match_canonical_code(description)
         if not canonical_code:
             # Skip items we can't categorize
             canonical_code = "other"
             category = "other"
-        
+
         is_labor = is_labor_line(description)
-        
+
         if canonical_code not in grouped:
             grouped[canonical_code] = {
                 "canonical_code": canonical_code,
@@ -396,10 +458,12 @@ def canonicalize_line_items(line_items: List[Dict]) -> List[Dict]:
                 "qty": 0,
                 "confidence": 0.7,  # Default confidence
             }
-        
+
         entry = grouped[canonical_code]
         existing_qty = entry.get("qty")
-        if isinstance(existing_qty, (int, float)) and not isinstance(existing_qty, bool):
+        if isinstance(existing_qty, (int, float)) and not isinstance(
+            existing_qty, bool
+        ):
             entry["qty"] = int(existing_qty)
         elif isinstance(existing_qty, str):
             try:
@@ -409,18 +473,20 @@ def canonicalize_line_items(line_items: List[Dict]) -> List[Dict]:
         else:
             entry["qty"] = 0
         entry["qty"] += qty
-        
+
         if price:
             entry["price_ils"] += price
             if is_labor:
                 entry["labor_ils"] += price
             else:
                 entry["parts_ils"] += price
-        
+
         # Concat descriptions if multiple
         if description and description not in entry["raw_description"]:
-            entry["raw_description"] = f"{entry['raw_description']}; {description}".strip("; ")
-    
+            entry["raw_description"] = (
+                f"{entry['raw_description']}; {description}".strip("; ")
+            )
+
     return list(grouped.values())
 
 
@@ -431,10 +497,10 @@ def compute_percentiles(prices: List[int]) -> Dict[str, Optional[int]]:
     """
     if not prices:
         return {"p50": None, "p75": None, "p90": None}
-    
+
     sorted_prices = sorted(prices)
     n = len(sorted_prices)
-    
+
     def percentile_cont(p: float) -> int:
         """Linear interpolation percentile."""
         if n == 1:
@@ -443,8 +509,13 @@ def compute_percentiles(prices: List[int]) -> Dict[str, Optional[int]]:
         lower = int(pos)
         upper = min(lower + 1, n - 1)
         frac = pos - lower
-        return int(round(sorted_prices[lower] + frac * (sorted_prices[upper] - sorted_prices[lower])))
-    
+        return int(
+            round(
+                sorted_prices[lower]
+                + frac * (sorted_prices[upper] - sorted_prices[lower])
+            )
+        )
+
     return {
         "p50": percentile_cont(0.5),
         "p75": percentile_cont(0.75),
@@ -459,7 +530,7 @@ def percentile_rank(prices: List[int], value: int) -> float:
     """
     if not prices or value is None:
         return 0.5
-    
+
     count_le = sum(1 for p in prices if p <= value)
     return count_le / len(prices)
 
@@ -482,7 +553,12 @@ def compute_market_range(
         lower = int(pos)
         upper = min(lower + 1, n - 1)
         frac = pos - lower
-        median = int(round(sorted_samples[lower] + frac * (sorted_samples[upper] - sorted_samples[lower])))
+        median = int(
+            round(
+                sorted_samples[lower]
+                + frac * (sorted_samples[upper] - sorted_samples[lower])
+            )
+        )
     confidence = "high" if len(samples) >= MIN_HIGH_CONFIDENCE_SAMPLES else "low"
     label = "השוואה מבוססת" if confidence == "high" else "השוואה חלקית (מעט דגימות)"
     return sorted_samples[0], sorted_samples[-1], median, confidence, label
@@ -497,14 +573,16 @@ def compute_item_verdict(
     Classify invoice price vs. market range deterministically.
     """
     if invoice_price is None or market_min is None or market_max is None:
-        return "אין מספיק נתונים להשוואה"
+        return "אין מספיק נתונים"
     low_threshold = market_min * 0.9
     high_threshold = market_max * 1.1
     if invoice_price < low_threshold:
-        return "נמוך מהשוק"
+        return "חריג לבדיקה"
     if invoice_price <= high_threshold:
-        return "תואם שוק"
-    return "גבוה מהשוק"
+        return "בטווח זמין"
+    if invoice_price > market_max * 1.3:
+        return "חריג לבדיקה"
+    return "מעל הטווח"
 
 
 def classify_market_verdict(
@@ -535,7 +613,9 @@ def compute_price_deviation(
     return 0.0
 
 
-def compute_overall_score(items: List[Dict[str, Any]]) -> Tuple[Optional[int], Optional[str]]:
+def compute_overall_score(
+    items: List[Dict[str, Any]],
+) -> Tuple[Optional[int], Optional[str]]:
     """
     Compute overall fairness score deterministically.
     """
@@ -548,7 +628,9 @@ def compute_overall_score(items: List[Dict[str, Any]]) -> Tuple[Optional[int], O
         market_min = item.get("market_min_ils")
         market_max = item.get("market_max_ils")
         qty = item.get("qty") or 1
-        deviation = compute_price_deviation(price if price else None, market_min, market_max)
+        deviation = compute_price_deviation(
+            price if price else None, market_min, market_max
+        )
         if deviation is None or not price:
             continue
         grounded_items += 1
@@ -562,13 +644,27 @@ def compute_overall_score(items: List[Dict[str, Any]]) -> Tuple[Optional[int], O
         fairness_score = max(0, int(round(100 - min(1, avg_deviation) * 100)))
         return fairness_score, None
 
-    return None, "אין מספיק נתונים לציון כולל"
+    return None, "אין מספיק נתונים"
+
+
+def derive_price_check_label(
+    items: List[Dict[str, Any]], fairness_score: Optional[int]
+) -> str:
+    labels = {str(item.get("label") or "") for item in items}
+    if fairness_score is None:
+        return "אין מספיק נתונים"
+    if "חריג לבדיקה" in labels:
+        return "חריג לבדיקה"
+    if "מעל הטווח" in labels:
+        return "מעל הטווח"
+    return "בטווח זמין"
 
 
 def build_invoice_report_narrative(report: Dict[str, Any]) -> Dict[str, Any]:
     """
     Build a deterministic narrative for the invoice report.
     """
+
     def format_ils(value: Optional[int]) -> str:
         return f"₪{value:,.0f}" if value is not None else "-"
 
@@ -582,7 +678,7 @@ def build_invoice_report_narrative(report: Dict[str, Any]) -> Dict[str, Any]:
 
     summary = (
         f"בדקנו {len(items)} פריטים בחשבונית. "
-        f"סה\"כ החשבונית {format_ils(total_price)}, "
+        f'סה"כ החשבונית {format_ils(total_price)}, '
         f"מתוכם עבודה {format_ils(labor_ils)} וחלקים {format_ils(parts_ils)}."
     )
 
@@ -593,26 +689,29 @@ def build_invoice_report_narrative(report: Dict[str, Any]) -> Dict[str, Any]:
         invoice_price = item.get("price_ils")
         market_min = item.get("market_min_ils")
         market_max = item.get("market_max_ils")
-        verdict = item.get("verdict") or item.get("label") or "אין מספיק נתונים להשוואה"
+        verdict = item.get("verdict") or item.get("label") or "אין מספיק נתונים"
         if market_min is not None and market_max is not None:
             range_text = f"טווח שוק {format_ils(market_min)}–{format_ils(market_max)}"
         else:
-            range_text = "אין מספיק נתוני שוק ישראליים"
+            range_text = "אין מספיק נתוני שוק זמינים"
             missing_items += 1
         item_lines.append(
-            f"{desc}: מחיר חשבונית {format_ils(invoice_price)} מול {range_text} → {verdict}"
+            (
+                f"{desc}: מחיר חשבונית {format_ils(invoice_price)} "
+                f"מול {range_text} → {verdict}"
+            )
         )
 
     methodology = [
-        "מחירי השוק נאספו ממקורות ישראליים ברשת עם קישורים.",
+        "מחירי השוק נאספו ממקורות זמינים ברשת עם קישורים כאשר נמצאו כאלה.",
         "לא ניחשנו מחירים. כשאין מספיק מקורות מוצג שאין מספיק נתונים.",
         "החישוב בוצע לפי חוקים קבועים בקוד.",
     ]
     if missing_items:
-        methodology.append("חלק מהפריטים ללא השוואה בגלל מחסור במקורות ישראליים.")
-        methodology.append("הוספת מקורות מחיר בישראל תשפר את ההשוואה.")
+        methodology.append("חלק מהפריטים ללא השוואה בגלל מחסור במקורות זמינים.")
+        methodology.append("הוספת מקורות מחיר רלוונטיים תשפר את ההשוואה.")
     if report.get("fairness_score") is None:
-        methodology.append("אין מספיק נתונים לציון כולל.")
+        methodology.append("אין מספיק נתונים לקביעת אינדיקציה כוללת.")
 
     return {
         "summary": summary,
@@ -635,15 +734,15 @@ def cohort_price_samples(
     Filters by car context if provided.
     """
     from sqlalchemy import and_
-    
+
     query = db.session.query(ServiceInvoiceItem.price_ils).join(ServiceInvoice)
-    
+
     filters = [
         ServiceInvoiceItem.canonical_code == canonical_code,
         ServiceInvoiceItem.price_ils.isnot(None),
         ServiceInvoiceItem.price_ils > 0,
     ]
-    
+
     if make:
         filters.append(ServiceInvoice.make == make)
     if model:
@@ -660,10 +759,10 @@ def cohort_price_samples(
         filters.append(ServiceInvoice.region == region)
     if garage_type:
         filters.append(ServiceInvoice.garage_type == garage_type)
-    
+
     query = query.filter(and_(*filters))
     results = query.limit(1000).all()
-    
+
     return [r[0] for r in results if r[0] is not None]
 
 
@@ -673,19 +772,17 @@ def fallback_ranges(canonical_code: str) -> Dict[str, Any]:
     """
     try:
         data_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            "data",
-            "cost_ranges_il.json"
+            os.path.dirname(os.path.dirname(__file__)), "data", "cost_ranges_il.json"
         )
         with open(data_path, "r", encoding="utf-8") as f:
             ranges = json.load(f)
-        
+
         if canonical_code in ranges:
             min_price, max_price = ranges[canonical_code]
             return {"min": min_price, "max": max_price, "source": "fallback"}
     except Exception:
         pass
-    
+
     return {"min": None, "max": None, "source": "unknown"}
 
 
@@ -701,7 +798,7 @@ def build_report(
     Build the final report with grounded ranges, labels, and analysis.
     """
     now = _utcnow()
-    
+
     per_item = []
     red_flags = []
     sum_items = 0
@@ -717,7 +814,7 @@ def build_report(
     grounding_verified = grounding_status.get("verified", False)
     grounding_reason = grounding_status.get("reason")
     content_verified = grounding_reason == "verified_by_content"
-    
+
     for item in canonical_items:
         code = item["canonical_code"]
         price = item.get("price_ils") or 0
@@ -725,7 +822,7 @@ def build_report(
         sum_items += price
         total_labor += item.get("labor_ils") or 0
         total_parts += item.get("parts_ils") or 0
- 
+
         web_entry = (web_samples_map or {}).get(code, {})
         samples = []
         for sample in web_entry.get("samples") or []:
@@ -740,7 +837,7 @@ def build_report(
             if url and url not in sources_seen:
                 sources_seen.add(url)
                 grounding_sources.append({"url": url, "title": title})
- 
+
         market_min = market_max = market_median = None
         market_confidence = None
         market_label = None
@@ -749,69 +846,86 @@ def build_report(
             market_note = "אין מספיק נתונים להשוואה"
             samples = []
         else:
-            market_min, market_max, market_median, market_confidence, market_label = compute_market_range(samples)
+            market_min, market_max, market_median, market_confidence, market_label = (
+                compute_market_range(samples)
+            )
             if market_min is None:
                 market_note = "אין מספיק נתונים להשוואה"
             elif content_verified and not market_note:
                 market_note = "נאסף מהרשת ללא אימות אוטומטי"
         verdict = compute_item_verdict(price if price else None, market_min, market_max)
- 
-        if verdict == "גבוה מהשוק":
+
+        if verdict in {"מעל הטווח", "חריג לבדיקה"}:
             red_flags.append(f"{code}: מחיר גבוה מהשוק")
- 
+
         overpay = 0
         if market_max is not None and price:
             overpay = max(0, int(round(price - market_max * 1.1)))
             if overpay > 0:
                 discount_target += overpay
 
-        per_item.append({
-            "canonical_code": code,
-            "raw_description": item.get("raw_description"),
-            "price_ils": price,
-            "cohort_n": len(samples),
-            "market_median_ils": market_median,
-            "market_confidence": market_confidence,
-            "market_label": market_label,
-            "label": verdict,
-            "verdict": verdict,
-            "overpay_estimate_ils": overpay,
-            "source": "unverified" if not grounding_verified else ("web_grounding" if cleaned_sources else "no_grounding"),
-            "market_min_ils": market_min,
-            "market_max_ils": market_max,
-            "market_note": market_note,
-            "market_verification": "content_only" if content_verified and cleaned_sources else None,
-            "market_samples_n": len(samples),
-            "market_sources": cleaned_sources,
-            "market_notes": notes,
-            "qty": qty,
-        })
-    
+        per_item.append(
+            {
+                "canonical_code": code,
+                "raw_description": item.get("raw_description"),
+                "price_ils": price,
+                "cohort_n": len(samples),
+                "market_median_ils": market_median,
+                "market_confidence": market_confidence,
+                "market_label": market_label,
+                "label": verdict,
+                "verdict": verdict,
+                "overpay_estimate_ils": overpay,
+                "source": "unverified"
+                if not grounding_verified
+                else ("web_grounding" if cleaned_sources else "no_grounding"),
+                "market_min_ils": market_min,
+                "market_max_ils": market_max,
+                "market_note": market_note,
+                "market_verification": "content_only"
+                if content_verified and cleaned_sources
+                else None,
+                "market_samples_n": len(samples),
+                "market_sources": cleaned_sources,
+                "market_notes": notes,
+                "qty": qty,
+            }
+        )
+
     # Calculate labor share
     labor_share = total_labor / sum_items if sum_items > 0 else 0
     if labor_share > 0.55:
         red_flags.append("חלק העבודה גבוה מ-55%")
-    
+
     # Check discrepancy between total and sum of items
     discrepancy_pct = 0
     if total_price and sum_items:
         discrepancy_pct = abs(total_price - sum_items) / total_price * 100
         if discrepancy_pct > 12:
-            red_flags.append(f"פער של {discrepancy_pct:.1f}% בין הסכום הכולל לסכום הפריטים")
-    
+            red_flags.append(
+                f"פער של {discrepancy_pct:.1f}% בין הסכום הכולל לסכום הפריטים"
+            )
+
     # Fairness score
     fairness_score, fairness_note = compute_overall_score(per_item)
-    
+
     # Build negotiation script
     negotiation_lines = []
     if discount_target > 0:
-        negotiation_lines.append(f"לפי נתוני השוק, ניתן לנסות להוריד כ-₪{discount_target:,} מהמחיר הכולל")
+        negotiation_lines.append(
+            f"לפי נתוני השוק, ניתן לנסות להוריד כ-₪{discount_target:,} מהמחיר הכולל"
+        )
         for item in per_item:
             if item.get("overpay_estimate_ils", 0) > 0:
                 negotiation_lines.append(
-                    f"  - {item['canonical_code']}: מחיר גבוה ב-₪{item['overpay_estimate_ils']:,} מעל גבול השוק"
+                    (
+                        f"  - {item['canonical_code']}: מחיר גבוה "
+                        f"ב-₪{item['overpay_estimate_ils']:,} מעל גבול השוק"
+                    )
                 )
-    
+
+    price_check_label = derive_price_check_label(per_item, fairness_score)
+
     report = {
         "meta": {
             "car": {
@@ -835,8 +949,10 @@ def build_report(
         },
         "items": per_item,
         "red_flags": red_flags,
+        "price_check_label": price_check_label,
         "fairness_score": fairness_score,
-        "fairness_note": fairness_note,
+        "fairness_note": fairness_note
+        or "המדד המספרי, אם מוצג, הוא אינדיקציה משנית בלבד ואינו הוכחה לחיוב יתר.",
         "negotiation_script": negotiation_lines,
         "grounding_sources": grounding_sources,
         "grounding_status": grounding_status,
@@ -873,9 +989,13 @@ def validate_vision_payload(result: Dict[str, Any]) -> None:
         invoice_price = item.get("invoice_price_ils", item.get("price_ils"))
         if invoice_price is not None:
             if isinstance(invoice_price, bool):
-                raise ValueError("Line item invoice_price_ils must be a numeric value (not boolean).")
+                raise ValueError(
+                    "Line item invoice_price_ils must be a numeric value (not boolean)."
+                )
             if not isinstance(invoice_price, (int, float)):
-                raise ValueError("Line item invoice_price_ils must be a numeric value (not boolean).")
+                raise ValueError(
+                    "Line item invoice_price_ils must be a numeric value (not boolean)."
+                )
 
     benchmarks = result.get("benchmarks_web", [])
     if not isinstance(benchmarks, list):
@@ -920,16 +1040,12 @@ def vision_extract_invoice(
     DEPRECATED: Use vision_extract_invoice_with_web_benchmarks for new code.
     Kept for backward compatibility.
     """
-    import base64
     from google.genai import types as genai_types
-    
+
     ai_client = extensions.ai_client
     if not ai_client:
         raise RuntimeError("AI client not initialized")
-    
-    # Encode image as base64
-    image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
-    
+
     prompt = """
 אנא נתח את תמונת החשבונית המצורפת וחלץ את המידע הבא לפורמט JSON מדויק.
 
@@ -970,7 +1086,7 @@ def vision_extract_invoice(
 
 החזר אך ורק JSON תקין, ללא טקסט נוסף.
 """
-    
+
     try:
         response = ai_client.models.generate_content(
             model=GEMINI_VISION_MODEL_ID,
@@ -982,22 +1098,22 @@ def vision_extract_invoice(
                 response_mime_type="application/json",
             ),
         )
-        
+
         result_text = response.text
-        
+
         # Parse JSON response
         try:
             result = json.loads(result_text)
         except json.JSONDecodeError:
             # Try to extract JSON from response
-            json_match = re.search(r'\{[\s\S]*\}', result_text)
+            json_match = re.search(r"\{[\s\S]*\}", result_text)
             if json_match:
                 result = json.loads(json_match.group())
             else:
                 raise ValueError("Failed to parse model response as JSON")
-        
+
         return result
-        
+
     except Exception as e:
         current_app.logger.error(f"Vision extraction failed: {e}")
         raise
@@ -1013,91 +1129,88 @@ def vision_extract_invoice_with_web_benchmarks(
     AND get web-grounded benchmark samples for Israel market.
     Single model call for both OCR + grounding (warmup mode).
     """
-    import base64
     from google.genai import types as genai_types
 
     ai_client = extensions.ai_client
     if not ai_client:
         raise RuntimeError("AI client not initialized")
 
-    system_instruction = "You are a strict JSON extraction engine. Output must be valid JSON only."
-
     prompt = (
         "אתה מנתח/ת חשבונית טיפול רכב מישראל (תמונה). המשימה כפולה ובקריטיות גבוהה:\n\n"
         "(1) חילוץ נתונים מהחשבונית (OCR) + השחרה/הסרה של פרטים מזהים (Redaction).\n"
-        "(2) בנצ׳מרק מחירי שוק בישראל לכל שורת טיפול ע\"י חיפוש/grounding (מחירים ממקורות ישראליים בלבד).\n\n"
+        '(2) בנצ׳מרק מחירי שוק בישראל לכל שורת טיפול ע"י חיפוש/grounding (מחירים ממקורות ישראליים בלבד).\n\n'
         "כללים מחייבים:\n"
         "- החזר/י *אך ורק* JSON תקני. אין להחזיר טקסט חופשי. אין Markdown. אין הסברים.\n"
-        "- אם אין מידע: null / [] / \"unknown\". לא לנחש.\n"
+        '- אם אין מידע: null / [] / "unknown". לא לנחש.\n'
         "- חובה להשתמש בכלי google_search לכל חיפוש בנצ'מרק. לכל שורת טיפול חייב להתבצע חיפוש.\n"
         "- אסור להשתמש בזיכרון/הערכה כללית למחירים. כל מחיר חייב להגיע ממקור ישראלי עם URL.\n"
         "- אין להחזיר ציונים, הערכות או סיכומים; רק נתונים גולמיים (מחירים, דגימות, מקורות).\n"
         "- טיפוסים קשיחים: qty מספר (לא מחרוזת), invoice_price_ils מספר, market_samples_ils מערך מספרים, sources מערך של אובייקטים {url,title}.\n"
-        "- כל פרט מזהה שמופיע (שמות אנשים, טלפון, אימייל, כתובת, שם מוסך, מספר חשבונית/קבלה, מספר רישוי, VIN) חייב להיות מוחלף במחרוזת \"[REDACTED]\".\n"
+        '- כל פרט מזהה שמופיע (שמות אנשים, טלפון, אימייל, כתובת, שם מוסך, מספר חשבונית/קבלה, מספר רישוי, VIN) חייב להיות מוחלף במחרוזת "[REDACTED]".\n'
         "- בבנצ׳מרק: החזר/י אך ורק מספרים (market_samples_ils) וטווח מחיר (price_range_ils) וקישורים (sources). אסור להעתיק טקסט מהאתרים. אין ציטוטים.\n"
         "- הבנצ׳מרק חייב להתבסס על *שוק מוסכים ישראלי בלבד*:\n"
-        "  - כל שאילתה חייבת לכלול עברית + \"ישראל\" + \"₪\".\n"
-        "  - אם משתמשים באנגלית, חובה לציין \"Israel\" + ILS + ₪.\n"
+        '  - כל שאילתה חייבת לכלול עברית + "ישראל" + "₪".\n'
+        '  - אם משתמשים באנגלית, חובה לציין "Israel" + ILS + ₪.\n'
         "  - הימנע/י ממחירים בשווקים זרים.\n"
         "- אם לא נמצאו מקורות ישראליים רלוונטיים: החזר/י price_range_ils=null, confidence נמוך, והסבר/י ב-notes.\n\n"
         "תבניות שאילתות (להשתמש בהן, להתאים לכל שורת טיפול):\n"
-        "1) \"מחיר {service_he} {make} {model} {year} ישראל ₪ כולל עבודה וחלקים\"\n"
-        "2) \"טווח מחירים {service_he} במוסך בישראל ₪\"\n"
-        "3) \"מחיר {service_he} עבודה וחלקים ש\\\"ח מוסך {garage_type_he}\"\n"
-        "4) \"עלות {service_he} ש\\\"ח ישראל\"\n"
-        "5) (fallback) \"{service_en} price Israel ILS ₪ labor parts\"\n\n"
+        '1) "מחיר {service_he} {make} {model} {year} ישראל ₪ כולל עבודה וחלקים"\n'
+        '2) "טווח מחירים {service_he} במוסך בישראל ₪"\n'
+        '3) "מחיר {service_he} עבודה וחלקים ש\\"ח מוסך {garage_type_he}"\n'
+        '4) "עלות {service_he} ש\\"ח ישראל"\n'
+        '5) (fallback) "{service_en} price Israel ILS ₪ labor parts"\n\n'
         "הגדרות:\n"
-        "- garage_type_he: \"מורשה\" אם מופיע רמז למורשה/יבואן, אחרת \"פרטי\" אם נראה מוסך כללי, אחרת \"כללי\".\n"
-        "- service_he: ניסוח קצר בעברית לשירות (לדוגמה: \"החלפת שמן ופילטר\", \"רפידות בלם קדמיות\", \"כיוון פרונט\", \"בדיקת מחשב\").\n"
+        '- garage_type_he: "מורשה" אם מופיע רמז למורשה/יבואן, אחרת "פרטי" אם נראה מוסך כללי, אחרת "כללי".\n'
+        '- service_he: ניסוח קצר בעברית לשירות (לדוגמה: "החלפת שמן ופילטר", "רפידות בלם קדמיות", "כיוון פרונט", "בדיקת מחשב").\n'
         "- service_en: תרגום קצר במקרה הצורך.\n\n"
         "פורמט JSON חובה (אל תסטה ממנו):\n"
         "{\n"
-        "  \"extracted\": {\n"
-        "    \"car\": {\n"
-        "      \"make\": null,\n"
-        "      \"model\": null,\n"
-        "      \"year\": null,\n"
-        "      \"mileage\": null\n"
+        '  "extracted": {\n'
+        '    "car": {\n'
+        '      "make": null,\n'
+        '      "model": null,\n'
+        '      "year": null,\n'
+        '      "mileage": null\n'
         "    },\n"
-        "    \"invoice\": {\n"
-        "      \"date\": null,\n"
-        "      \"total_price_ils\": null,\n"
-        "      \"region\": null,\n"
-        "      \"garage_type\": \"dealer|private|unknown\"\n"
+        '    "invoice": {\n'
+        '      "date": null,\n'
+        '      "total_price_ils": null,\n'
+        '      "region": null,\n'
+        '      "garage_type": "dealer|private|unknown"\n'
         "    },\n"
-        "    \"line_items\": [\n"
+        '    "line_items": [\n'
         "      {\n"
-        "        \"description\": null,\n"
-        "        \"invoice_price_ils\": null,\n"
-        "        \"qty\": null\n"
+        '        "description": null,\n'
+        '        "invoice_price_ils": null,\n'
+        '        "qty": null\n'
         "      }\n"
         "    ],\n"
-        "    \"redaction\": {\n"
-        "      \"applied\": true,\n"
-        "      \"notes\": null\n"
+        '    "redaction": {\n'
+        '      "applied": true,\n'
+        '      "notes": null\n'
         "    },\n"
-        "    \"confidence\": {\n"
-        "      \"overall\": 0.0\n"
+        '    "confidence": {\n'
+        '      "overall": 0.0\n'
         "    }\n"
         "  },\n"
-        "  \"benchmarks_web\": [\n"
+        '  "benchmarks_web": [\n'
         "    {\n"
-        "      \"line_item_description\": null,\n"
-        "      \"suggested_service_type\": \"oil_change|filters|brake_pads_front|brake_discs_front|brake_pads_rear|battery|tires|ac_gas|spark_plugs|timing_belt|clutch|alternator|starter|suspension_arm|shock_absorber|wheel_alignment|diagnostic_scan|transmission_fluid|coolant|wipers|unknown\",\n"
-        "      \"search_queries\": [],\n"
-        "      \"market_samples_ils\": [],\n"
-        "      \"price_range_ils\": {\"min\": null, \"max\": null},\n"
-        "      \"sources\": [\n"
-        "        {\"url\": null, \"title\": null}\n"
+        '      "line_item_description": null,\n'
+        '      "suggested_service_type": "oil_change|filters|brake_pads_front|brake_discs_front|brake_pads_rear|battery|tires|ac_gas|spark_plugs|timing_belt|clutch|alternator|starter|suspension_arm|shock_absorber|wheel_alignment|diagnostic_scan|transmission_fluid|coolant|wipers|unknown",\n'
+        '      "search_queries": [],\n'
+        '      "market_samples_ils": [],\n'
+        '      "price_range_ils": {"min": null, "max": null},\n'
+        '      "sources": [\n'
+        '        {"url": null, "title": null}\n'
         "      ],\n"
-        "      \"confidence\": 0.0,\n"
-        "      \"notes\": null\n"
+        '      "confidence": 0.0,\n'
+        '      "notes": null\n'
         "    }\n"
         "  ]\n"
         "}\n\n"
         "הנחיות איכות לבנצ׳מרק:\n"
         "- עבור כל שורת טיפול: נסה/י להחזיר לפחות 10 מחירים שונים ב-market_samples_ils. אם לא אפשרי, החזר/י כמה שיש.\n"
-        "- נקה/י מחירים שאינם בש\"ח או שאינם רלוונטיים (למשל חלק בלבד בלי עבודה) אם ניתן לזהות זאת.\n"
+        '- נקה/י מחירים שאינם בש"ח או שאינם רלוונטיים (למשל חלק בלבד בלי עבודה) אם ניתן לזהות זאת.\n'
         "- עבור כל רשומת בנצ׳מרק: רשום/י את כל השאילתות שבוצעו בפועל ב-search_queries.\n"
         "- sources: נסה/י לכלול לפחות 2 מקורות כאשר אפשר, עם url + title + date_retrieved_utc + locality_hint.\n"
         "- confidence לבנצ׳מרק:\n"
@@ -1111,8 +1224,12 @@ def vision_extract_invoice_with_web_benchmarks(
         try:
             grounding_tool = genai_types.Tool(google_search=genai_types.GoogleSearch())
         except Exception as exc:
-            current_app.logger.error("Failed to initialize Google Search grounding tool.", exc_info=True)
-            raise RuntimeError("Google Search grounding unavailable for invoice benchmarks.") from exc
+            current_app.logger.error(
+                "Failed to initialize Google Search grounding tool.", exc_info=True
+            )
+            raise RuntimeError(
+                "Google Search grounding unavailable for invoice benchmarks."
+            ) from exc
         config_kwargs = {
             "response_mime_type": "application/json",
             "temperature": 0,
@@ -1167,7 +1284,10 @@ def vision_extract_invoice_with_web_benchmarks(
         if not result_text.strip():
             raise ValueError("Empty model response for invoice extraction.")
 
-        grounding_status = {"verified": False, "reason": "לא התקבלו מטא-נתונים מאומתים של grounding."}
+        grounding_status = {
+            "verified": False,
+            "reason": "לא התקבלו מטא-נתונים מאומתים של grounding.",
+        }
         try:
             candidates = getattr(response, "candidates", None)
             if candidates:
@@ -1175,16 +1295,21 @@ def vision_extract_invoice_with_web_benchmarks(
                 if grounding_chunks or citations:
                     grounding_status = {"verified": True}
         except Exception:
-            grounding_status = {"verified": False, "reason": "כשל באימות מקורות grounding."}
+            grounding_status = {
+                "verified": False,
+                "reason": "כשל באימות מקורות grounding.",
+            }
 
         try:
             result = json.loads(result_text)
         except json.JSONDecodeError:
-            json_match = re.search(r'\{[\s\S]*\}', result_text)
+            json_match = re.search(r"\{[\s\S]*\}", result_text)
             if json_match:
                 result = json.loads(json_match.group())
             else:
-                raise ValueError("Failed to parse model response as JSON for invoice extraction.")
+                raise ValueError(
+                    "Failed to parse model response as JSON for invoice extraction."
+                )
 
         if grounding_status.get("verified"):
             current_app.logger.info(
@@ -1196,7 +1321,9 @@ def vision_extract_invoice_with_web_benchmarks(
             try:
                 validate_vision_payload(result)
             except Exception:
-                current_app.logger.exception("Invalid vision payload for invoice extraction.")
+                current_app.logger.exception(
+                    "Invalid vision payload for invoice extraction."
+                )
                 raise
             result["grounding_status"] = grounding_status
             return result
@@ -1215,7 +1342,9 @@ def vision_extract_invoice_with_web_benchmarks(
         try:
             validate_vision_payload(wrapped_result)
         except Exception:
-            current_app.logger.exception("Invalid wrapped vision payload for invoice extraction.")
+            current_app.logger.exception(
+                "Invalid wrapped vision payload for invoice extraction."
+            )
             raise
         return wrapped_result
 
@@ -1236,7 +1365,10 @@ def fetch_text_web_benchmarks(
         return []
     ai_client = extensions.ai_client
     if not ai_client:
-        current_app.logger.warning("AI client not initialized for text web grounding (request_id=%s).", request_id)
+        current_app.logger.warning(
+            "AI client not initialized for text web grounding (request_id=%s).",
+            request_id,
+        )
         return []
 
     results: List[Dict[str, Any]] = []
@@ -1303,7 +1435,9 @@ def fetch_text_web_benchmarks(
 
         benchmark = None
         if isinstance(parsed, dict):
-            if isinstance(parsed.get("benchmarks_web"), list) and parsed.get("benchmarks_web"):
+            if isinstance(parsed.get("benchmarks_web"), list) and parsed.get(
+                "benchmarks_web"
+            ):
                 benchmark = parsed["benchmarks_web"][0]
             else:
                 benchmark = parsed
@@ -1316,11 +1450,15 @@ def fetch_text_web_benchmarks(
 
         sources = benchmark.get("sources") or []
         if isinstance(sources, list):
-            sources = [s for s in sources if isinstance(s, dict)][:WEB_GROUNDING_MAX_SOURCES]
+            sources = [s for s in sources if isinstance(s, dict)][
+                :WEB_GROUNDING_MAX_SOURCES
+            ]
         else:
             sources = []
 
-        benchmark["line_item_description"] = benchmark.get("line_item_description") or description
+        benchmark["line_item_description"] = (
+            benchmark.get("line_item_description") or description
+        )
         benchmark["sources"] = sources
         results.append(benchmark)
 
@@ -1347,15 +1485,22 @@ def match_web_benchmarks_to_items(
         # Try to find matching canonical item
         best_code = None
         bm_normalized = normalize_text(bm_desc)
-        bm_words = [w for w in bm_normalized.split() if len(w) > 2] if bm_normalized else []
+        bm_words = (
+            [w for w in bm_normalized.split() if len(w) > 2] if bm_normalized else []
+        )
 
         for item in canonical_items:
             item_desc = normalize_text(item.get("raw_description") or "")
             item_code = item.get("canonical_code", "")
             # Check if descriptions share significant overlap
-            if bm_normalized and item_desc and (
-                bm_normalized in item_desc or item_desc in bm_normalized
-                or any(w in item_desc for w in bm_words)
+            if (
+                bm_normalized
+                and item_desc
+                and (
+                    bm_normalized in item_desc
+                    or item_desc in bm_normalized
+                    or any(w in item_desc for w in bm_words)
+                )
             ):
                 best_code = item_code
                 break
@@ -1367,10 +1512,16 @@ def match_web_benchmarks_to_items(
                 best_code = code
 
         if best_code:
-            valid_samples = [int(round(s)) for s in bm_samples if isinstance(s, (int, float)) and s > 0]
+            valid_samples = [
+                int(round(s))
+                for s in bm_samples
+                if isinstance(s, (int, float)) and s > 0
+            ]
             sources = bm.get("sources") or []
             notes = bm.get("notes") or bm.get("note") or []
-            entry = matched.setdefault(best_code, {"samples": [], "sources": [], "notes": []})
+            entry = matched.setdefault(
+                best_code, {"samples": [], "sources": [], "notes": []}
+            )
             if valid_samples:
                 entry["samples"].extend(valid_samples)
             if sources:
@@ -1460,7 +1611,7 @@ def persist_invoice(
     Returns the invoice ID.
     """
     from datetime import date as date_type
-    
+
     # Parse invoice_date to date object if string
     invoice_date = ctx.get("invoice_date")
     if invoice_date and isinstance(invoice_date, str):
@@ -1472,7 +1623,7 @@ def persist_invoice(
         pass  # Already a date
     else:
         invoice_date = None
-    
+
     # Create invoice record
     invoice = ServiceInvoice(
         user_id=user_id,
@@ -1492,7 +1643,7 @@ def persist_invoice(
     )
     db.session.add(invoice)
     db.session.flush()  # Get the ID
-    
+
     # Create item records
     for item in canonical_items:
         invoice_item = ServiceInvoiceItem(
@@ -1507,14 +1658,14 @@ def persist_invoice(
             confidence=item.get("confidence"),
         )
         db.session.add(invoice_item)
-    
+
     # Increment user's counter
     user = User.query.get(user_id)
     if user:
         user.service_price_checks_count = (user.service_price_checks_count or 0) + 1
-    
+
     db.session.commit()
-    
+
     return invoice.id
 
 
@@ -1531,11 +1682,13 @@ def handle_invoice_analysis(
     Returns (report, invoice_id).
     """
     import time as pytime
-    
+
     start_time = pytime.time()
 
     # Extract data from image + web benchmarks (single call)
-    raw_result = vision_extract_invoice_with_web_benchmarks(image_bytes, mime_type, request_id)
+    raw_result = vision_extract_invoice_with_web_benchmarks(
+        image_bytes, mime_type, request_id
+    )
 
     extracted = raw_result.get("extracted", raw_result)
     benchmarks_web = raw_result.get("benchmarks_web", [])
@@ -1554,9 +1707,19 @@ def handle_invoice_analysis(
         request_id,
     )
     if benchmarks_web:
-        first_benchmark = benchmarks_web[0] if isinstance(benchmarks_web[0], dict) else {}
-        sources_count = len(first_benchmark.get("sources") or []) if isinstance(first_benchmark, dict) else 0
-        samples_count = len(extract_benchmark_samples(first_benchmark)) if isinstance(first_benchmark, dict) else 0
+        first_benchmark = (
+            benchmarks_web[0] if isinstance(benchmarks_web[0], dict) else {}
+        )
+        sources_count = (
+            len(first_benchmark.get("sources") or [])
+            if isinstance(first_benchmark, dict)
+            else 0
+        )
+        samples_count = (
+            len(extract_benchmark_samples(first_benchmark))
+            if isinstance(first_benchmark, dict)
+            else 0
+        )
         current_app.logger.info(
             "Invoice benchmark keys=%s sources_n=%s samples_n=%s request_id=%s",
             list(first_benchmark.keys()) if isinstance(first_benchmark, dict) else [],
@@ -1567,12 +1730,15 @@ def handle_invoice_analysis(
 
     if not benchmarks_web:
         try:
-            fallback_extracted = vision_extract_invoice(image_bytes, mime_type, request_id)
+            fallback_extracted = vision_extract_invoice(
+                image_bytes, mime_type, request_id
+            )
             if isinstance(fallback_extracted, dict):
                 extracted = fallback_extracted
         except Exception:
             current_app.logger.warning(
-                "Fallback vision extraction failed (request_id=%s).", request_id,
+                "Fallback vision extraction failed (request_id=%s).",
+                request_id,
                 exc_info=True,
             )
 
@@ -1589,7 +1755,8 @@ def handle_invoice_analysis(
         "year": (overrides or {}).get("year") or car_data.get("year"),
         "mileage": (overrides or {}).get("mileage") or car_data.get("mileage"),
         "region": (overrides or {}).get("region") or invoice_data.get("region"),
-        "garage_type": (overrides or {}).get("garage_type") or invoice_data.get("garage_type"),
+        "garage_type": (overrides or {}).get("garage_type")
+        or invoice_data.get("garage_type"),
         "invoice_date": invoice_data.get("date"),
         "total_price": invoice_data.get("total_price_ils"),
     }

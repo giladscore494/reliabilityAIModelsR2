@@ -4,21 +4,31 @@
 from datetime import datetime
 import json
 from io import BytesIO
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
 from app.legal import (
-    TERMS_VERSION, PRIVACY_VERSION,
-    INVOICE_FEATURE_KEY, INVOICE_FEATURE_CONSENT_VERSION,
-    INVOICE_EXT_PROCESSING_KEY, INVOICE_ANON_STORAGE_KEY,
-    INVOICE_EXT_PROCESSING_VERSION, INVOICE_ANON_STORAGE_VERSION,
-    has_accepted_feature, record_feature_acceptance,
+    TERMS_VERSION,
+    PRIVACY_VERSION,
+    INVOICE_FEATURE_KEY,
+    INVOICE_FEATURE_CONSENT_VERSION,
+    INVOICE_EXT_PROCESSING_KEY,
+    INVOICE_ANON_STORAGE_KEY,
+    INVOICE_EXT_PROCESSING_VERSION,
+    INVOICE_ANON_STORAGE_VERSION,
+    has_accepted_feature,
+    record_feature_acceptance,
 )
 from app.models import LegalAcceptance, LegalFeatureAcceptance, ServiceInvoice, User
 from app.services.service_prices_service import (
-    compute_percentiles, canonicalize_line_items, normalize_text,
-    deterministic_sanitize_no_pii, parse_price,
+    compute_percentiles,
+    canonicalize_line_items,
+    normalize_text,
+    deterministic_sanitize_no_pii,
+    parse_price,
+    compute_item_verdict,
+    derive_price_check_label,
 )
 from main import db
 
@@ -26,6 +36,7 @@ from main import db
 # ============================================
 # AUTH TESTS
 # ============================================
+
 
 def test_service_prices_page_requires_login(client):
     """GET /service-prices without login should redirect to login."""
@@ -51,13 +62,14 @@ def test_service_prices_page_accessible_when_logged_in(logged_in_client):
 # LEGAL ACCEPTANCE GATING TESTS
 # ============================================
 
+
 def test_analyze_invoice_requires_legal_acceptance(logged_in_client, app):
     """POST /api/service-prices/analyze without legal acceptance should return 428 LEGAL_ACCEPTANCE_REQUIRED."""
     client, user_id = logged_in_client
-    
+
     # Create a dummy image
     image_data = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
-    
+
     resp = client.post(
         "/api/service-prices/analyze",
         data={
@@ -65,7 +77,7 @@ def test_analyze_invoice_requires_legal_acceptance(logged_in_client, app):
         },
         content_type="multipart/form-data",
     )
-    
+
     assert resp.status_code in (403, 428)
     data = resp.get_json()
     assert data.get("error", {}).get("code") == "LEGAL_ACCEPTANCE_REQUIRED"
@@ -76,10 +88,11 @@ def test_analyze_invoice_requires_legal_acceptance(logged_in_client, app):
 # FEATURE CONSENT GATING TESTS
 # ============================================
 
+
 def test_analyze_invoice_requires_feature_consent(logged_in_client, app):
     """POST /api/service-prices/analyze with legal but without feature consent should return 428 FEATURE_CONSENT_REQUIRED."""
     client, user_id = logged_in_client
-    
+
     # Accept legal terms
     with app.app_context():
         db.session.add(
@@ -92,10 +105,10 @@ def test_analyze_invoice_requires_feature_consent(logged_in_client, app):
             )
         )
         db.session.commit()
-    
+
     # Create a dummy image
     image_data = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
-    
+
     resp = client.post(
         "/api/service-prices/analyze",
         data={
@@ -103,7 +116,7 @@ def test_analyze_invoice_requires_feature_consent(logged_in_client, app):
         },
         content_type="multipart/form-data",
     )
-    
+
     assert resp.status_code in (403, 428)
     data = resp.get_json()
     assert data.get("error", {}).get("code") == "FEATURE_CONSENT_REQUIRED"
@@ -113,7 +126,7 @@ def test_analyze_invoice_requires_feature_consent(logged_in_client, app):
 def test_vision_not_called_without_feature_consent(logged_in_client, app):
     """Ensure vision_extract_invoice is NOT called when feature consent is missing."""
     client, user_id = logged_in_client
-    
+
     # Accept legal terms
     with app.app_context():
         db.session.add(
@@ -126,18 +139,20 @@ def test_vision_not_called_without_feature_consent(logged_in_client, app):
             )
         )
         db.session.commit()
-    
-    with patch("app.services.service_prices_service.vision_extract_invoice") as mock_vision:
+
+    with patch(
+        "app.services.service_prices_service.vision_extract_invoice"
+    ) as mock_vision:
         image_data = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
-        
-        resp = client.post(
+
+        client.post(
             "/api/service-prices/analyze",
             data={
                 "invoice_image": (image_data, "test.png", "image/png"),
             },
             content_type="multipart/form-data",
         )
-        
+
         # Vision should NOT be called
         mock_vision.assert_not_called()
 
@@ -146,19 +161,26 @@ def test_vision_not_called_without_feature_consent(logged_in_client, app):
 # ACCEPTANCE ENDPOINT IDEMPOTENCY TESTS
 # ============================================
 
+
 def test_feature_consent_acceptance_is_idempotent(logged_in_client, app):
     """POST /api/legal/accept with feature_consents twice should create only one row."""
     client, user_id = logged_in_client
-    
+
     # First acceptance
-    resp = client.post("/api/legal/accept", json={
-        "legal_confirm": True,
-        "feature_consents": [
-            {"feature_key": INVOICE_FEATURE_KEY, "version": INVOICE_FEATURE_CONSENT_VERSION}
-        ]
-    })
+    resp = client.post(
+        "/api/legal/accept",
+        json={
+            "legal_confirm": True,
+            "feature_consents": [
+                {
+                    "feature_key": INVOICE_FEATURE_KEY,
+                    "version": INVOICE_FEATURE_CONSENT_VERSION,
+                }
+            ],
+        },
+    )
     assert resp.status_code == 200
-    
+
     with app.app_context():
         count = LegalFeatureAcceptance.query.filter_by(
             user_id=user_id,
@@ -166,16 +188,22 @@ def test_feature_consent_acceptance_is_idempotent(logged_in_client, app):
             version=INVOICE_FEATURE_CONSENT_VERSION,
         ).count()
         assert count == 1
-    
+
     # Second acceptance (should be idempotent)
-    resp = client.post("/api/legal/accept", json={
-        "legal_confirm": True,
-        "feature_consents": [
-            {"feature_key": INVOICE_FEATURE_KEY, "version": INVOICE_FEATURE_CONSENT_VERSION}
-        ]
-    })
+    resp = client.post(
+        "/api/legal/accept",
+        json={
+            "legal_confirm": True,
+            "feature_consents": [
+                {
+                    "feature_key": INVOICE_FEATURE_KEY,
+                    "version": INVOICE_FEATURE_CONSENT_VERSION,
+                }
+            ],
+        },
+    )
     assert resp.status_code == 200
-    
+
     with app.app_context():
         count = LegalFeatureAcceptance.query.filter_by(
             user_id=user_id,
@@ -188,23 +216,36 @@ def test_feature_consent_acceptance_is_idempotent(logged_in_client, app):
 def test_has_accepted_feature_returns_false_initially(logged_in_client, app):
     """has_accepted_feature should return False for new users."""
     _, user_id = logged_in_client
-    
+
     with app.app_context():
-        assert has_accepted_feature(user_id, INVOICE_FEATURE_KEY, INVOICE_FEATURE_CONSENT_VERSION) is False
+        assert (
+            has_accepted_feature(
+                user_id, INVOICE_FEATURE_KEY, INVOICE_FEATURE_CONSENT_VERSION
+            )
+            is False
+        )
 
 
 def test_has_accepted_feature_returns_true_after_acceptance(logged_in_client, app):
     """has_accepted_feature should return True after recording acceptance."""
     _, user_id = logged_in_client
-    
+
     with app.app_context():
-        record_feature_acceptance(user_id, INVOICE_FEATURE_KEY, INVOICE_FEATURE_CONSENT_VERSION)
-        assert has_accepted_feature(user_id, INVOICE_FEATURE_KEY, INVOICE_FEATURE_CONSENT_VERSION) is True
+        record_feature_acceptance(
+            user_id, INVOICE_FEATURE_KEY, INVOICE_FEATURE_CONSENT_VERSION
+        )
+        assert (
+            has_accepted_feature(
+                user_id, INVOICE_FEATURE_KEY, INVOICE_FEATURE_CONSENT_VERSION
+            )
+            is True
+        )
 
 
 # ============================================
 # PERCENTILES DETERMINISTIC CORRECTNESS TESTS
 # ============================================
+
 
 def test_compute_percentiles_empty_list():
     """compute_percentiles with empty list should return None values."""
@@ -227,7 +268,7 @@ def test_compute_percentiles_known_values():
     # 10 values: 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000
     prices = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
     result = compute_percentiles(prices)
-    
+
     # p50 (median) should be 550 (linear interpolation between 500 and 600)
     assert result["p50"] == 550
     # p75 should be at position 6.75, between 700 and 800
@@ -243,9 +284,24 @@ def test_compute_percentiles_unsorted_input():
     assert result["p50"] == 300  # Median of 100, 200, 300, 400, 500
 
 
+def test_compute_item_verdict_uses_trust_labels():
+    assert compute_item_verdict(None, 100, 200) == "אין מספיק נתונים"
+    assert compute_item_verdict(150, 100, 200) == "בטווח זמין"
+    assert compute_item_verdict(230, 100, 200) == "מעל הטווח"
+    assert compute_item_verdict(300, 100, 200) == "חריג לבדיקה"
+
+
+def test_derive_price_check_label_prefers_stronger_warning():
+    assert derive_price_check_label([], None) == "אין מספיק נתונים"
+    assert derive_price_check_label([{"label": "בטווח זמין"}], 82) == "בטווח זמין"
+    assert derive_price_check_label([{"label": "מעל הטווח"}], 55) == "מעל הטווח"
+    assert derive_price_check_label([{"label": "חריג לבדיקה"}], 35) == "חריג לבדיקה"
+
+
 # ============================================
 # CANONICALIZATION TESTS
 # ============================================
+
 
 def test_normalize_text():
     """normalize_text should lowercase, strip, and unify Hebrew final letters."""
@@ -272,7 +328,7 @@ def test_canonicalize_line_items_groups_by_code():
         {"description": "שמן מנוע", "price_ils": 200},
     ]
     result = canonicalize_line_items(items)
-    
+
     # Should be grouped into single oil_change entry
     oil_changes = [r for r in result if r["canonical_code"] == "oil_change"]
     assert len(oil_changes) == 1
@@ -285,7 +341,7 @@ def test_canonicalize_line_items_detects_labor():
         {"description": "עבודה התקנה", "price_ils": 200},
     ]
     result = canonicalize_line_items(items)
-    
+
     assert len(result) == 1
     assert result[0]["labor_ils"] == 200
     assert result[0]["parts_ils"] == 0
@@ -294,6 +350,7 @@ def test_canonicalize_line_items_detects_labor():
 # ============================================
 # SANITIZATION TESTS
 # ============================================
+
 
 def test_deterministic_sanitize_no_pii_redacts_phone():
     """deterministic_sanitize_no_pii should redact phone numbers."""
@@ -312,13 +369,8 @@ def test_deterministic_sanitize_no_pii_redacts_email():
 def test_deterministic_sanitize_no_pii_handles_nested():
     """deterministic_sanitize_no_pii should handle nested structures."""
     obj = {
-        "outer": {
-            "phone": "050-111-2222",
-            "inner": {
-                "email": "nested@test.com"
-            }
-        },
-        "list": ["052-333-4444"]
+        "outer": {"phone": "050-111-2222", "inner": {"email": "nested@test.com"}},
+        "list": ["052-333-4444"],
     }
     result = deterministic_sanitize_no_pii(obj)
     assert "[REDACTED]" in result["outer"]["phone"]
@@ -330,10 +382,11 @@ def test_deterministic_sanitize_no_pii_handles_nested():
 # SUCCESS PATH TEST (with mocked AI)
 # ============================================
 
+
 def test_analyze_invoice_success_path(logged_in_client, app):
     """Full success path: legal + feature consent + valid file -> persists and returns report."""
     client, user_id = logged_in_client
-    
+
     # Setup: accept legal and feature consent
     with app.app_context():
         db.session.add(
@@ -345,16 +398,25 @@ def test_analyze_invoice_success_path(logged_in_client, app):
                 accepted_ip="1.2.3.0",
             )
         )
-        record_feature_acceptance(user_id, INVOICE_EXT_PROCESSING_KEY, INVOICE_EXT_PROCESSING_VERSION)
-        record_feature_acceptance(user_id, INVOICE_ANON_STORAGE_KEY, INVOICE_ANON_STORAGE_VERSION)
+        record_feature_acceptance(
+            user_id, INVOICE_EXT_PROCESSING_KEY, INVOICE_EXT_PROCESSING_VERSION
+        )
+        record_feature_acceptance(
+            user_id, INVOICE_ANON_STORAGE_KEY, INVOICE_ANON_STORAGE_VERSION
+        )
         db.session.commit()
-        
+
         initial_count = User.query.get(user_id).service_price_checks_count or 0
-    
+
     # Mock the vision extraction
     mock_extraction = {
         "car": {"make": "Toyota", "model": "Corolla", "year": 2020, "mileage": 80000},
-        "invoice": {"date": "2026-01-15", "total_price_ils": 1500, "region": "center", "garage_type": "dealer"},
+        "invoice": {
+            "date": "2026-01-15",
+            "total_price_ils": 1500,
+            "region": "center",
+            "garage_type": "dealer",
+        },
         "line_items": [
             {"description": "החלפת שמן", "price_ils": 400, "qty": 1},
             {"description": "פילטר אוויר", "price_ils": 200, "qty": 1},
@@ -367,10 +429,13 @@ def test_analyze_invoice_success_path(logged_in_client, app):
         "extracted": mock_extraction,
         "benchmarks_web": [],
     }
-    
-    with patch("app.services.service_prices_service.vision_extract_invoice_with_web_benchmarks", return_value=mock_result):
+
+    with patch(
+        "app.services.service_prices_service.vision_extract_invoice_with_web_benchmarks",
+        return_value=mock_result,
+    ):
         image_data = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
-        
+
         resp = client.post(
             "/api/service-prices/analyze",
             data={
@@ -378,13 +443,13 @@ def test_analyze_invoice_success_path(logged_in_client, app):
             },
             content_type="multipart/form-data",
         )
-    
+
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["ok"] is True
     assert "invoice_id" in data.get("data", {})
     assert "report" in data.get("data", {})
-    
+
     # Verify persistence
     with app.app_context():
         invoice_id = data["data"]["invoice_id"]
@@ -393,7 +458,7 @@ def test_analyze_invoice_success_path(logged_in_client, app):
         assert invoice.user_id == user_id
         assert invoice.make == "Toyota"
         assert len(invoice.items) > 0
-        
+
         # Verify user counter incremented
         user = User.query.get(user_id)
         assert user.service_price_checks_count == initial_count + 1
@@ -402,7 +467,7 @@ def test_analyze_invoice_success_path(logged_in_client, app):
 def test_download_report_works(logged_in_client, app):
     """GET /api/service-prices/download/<id> should return JSON file."""
     client, user_id = logged_in_client
-    
+
     # Create a mock invoice
     with app.app_context():
         double_encoded_report = json.dumps(json.dumps({"fairness_score": 75}))
@@ -417,7 +482,7 @@ def test_download_report_works(logged_in_client, app):
         db.session.add(invoice)
         db.session.commit()
         invoice_id = invoice.id
-    
+
     resp = client.get(f"/api/service-prices/download/{invoice_id}")
     assert resp.status_code == 200
     assert resp.content_type == "application/json"
@@ -473,13 +538,15 @@ def test_service_prices_report_returns_200(logged_in_client, app):
 def test_download_report_not_found_for_other_user(logged_in_client, app):
     """GET /api/service-prices/download/<id> should return 404 for another user's invoice."""
     client, user_id = logged_in_client
-    
+
     # Create invoice for a different user
     with app.app_context():
-        other_user = User(google_id="other-google-id", email="other@example.com", name="Other")
+        other_user = User(
+            google_id="other-google-id", email="other@example.com", name="Other"
+        )
         db.session.add(other_user)
         db.session.commit()
-        
+
         invoice = ServiceInvoice(
             user_id=other_user.id,
             make="Test",
@@ -491,7 +558,7 @@ def test_download_report_not_found_for_other_user(logged_in_client, app):
         db.session.add(invoice)
         db.session.commit()
         invoice_id = invoice.id
-    
+
     resp = client.get(f"/api/service-prices/download/{invoice_id}")
     assert resp.status_code == 404
 
@@ -499,6 +566,7 @@ def test_download_report_not_found_for_other_user(logged_in_client, app):
 # ============================================
 # CONSENT GATING FOR ALL 4 REQUIREMENTS
 # ============================================
+
 
 def test_analyze_requires_all_four_consents(logged_in_client, app):
     """Ensure model not called when any of the 4 consents is missing."""
@@ -517,11 +585,15 @@ def test_analyze_requires_all_four_consents(logged_in_client, app):
 
     # 2. Legal only, no feature consents -> FEATURE_CONSENT_REQUIRED
     with app.app_context():
-        db.session.add(LegalAcceptance(
-            user_id=user_id, terms_version=TERMS_VERSION,
-            privacy_version=PRIVACY_VERSION,
-            accepted_at=datetime.utcnow(), accepted_ip="1.2.3.0",
-        ))
+        db.session.add(
+            LegalAcceptance(
+                user_id=user_id,
+                terms_version=TERMS_VERSION,
+                privacy_version=PRIVACY_VERSION,
+                accepted_at=datetime.utcnow(),
+                accepted_ip="1.2.3.0",
+            )
+        )
         db.session.commit()
 
     image_data = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
@@ -536,7 +608,9 @@ def test_analyze_requires_all_four_consents(logged_in_client, app):
 
     # 3. Legal + ext_processing but no anon_storage -> FEATURE_CONSENT_REQUIRED
     with app.app_context():
-        record_feature_acceptance(user_id, INVOICE_EXT_PROCESSING_KEY, INVOICE_EXT_PROCESSING_VERSION)
+        record_feature_acceptance(
+            user_id, INVOICE_EXT_PROCESSING_KEY, INVOICE_EXT_PROCESSING_VERSION
+        )
 
     image_data = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
     resp = client.post(
@@ -553,24 +627,43 @@ def test_analyze_requires_all_four_consents(logged_in_client, app):
 # WARMUP MODE: SINGLE MODEL CALL
 # ============================================
 
+
 def test_warmup_mode_calls_generate_content_once(logged_in_client, app):
     """In warmup mode, generate_content should be called exactly ONCE per analyze."""
     client, user_id = logged_in_client
 
     with app.app_context():
-        db.session.add(LegalAcceptance(
-            user_id=user_id, terms_version=TERMS_VERSION,
-            privacy_version=PRIVACY_VERSION,
-            accepted_at=datetime.utcnow(), accepted_ip="1.2.3.0",
-        ))
-        record_feature_acceptance(user_id, INVOICE_EXT_PROCESSING_KEY, INVOICE_EXT_PROCESSING_VERSION)
-        record_feature_acceptance(user_id, INVOICE_ANON_STORAGE_KEY, INVOICE_ANON_STORAGE_VERSION)
+        db.session.add(
+            LegalAcceptance(
+                user_id=user_id,
+                terms_version=TERMS_VERSION,
+                privacy_version=PRIVACY_VERSION,
+                accepted_at=datetime.utcnow(),
+                accepted_ip="1.2.3.0",
+            )
+        )
+        record_feature_acceptance(
+            user_id, INVOICE_EXT_PROCESSING_KEY, INVOICE_EXT_PROCESSING_VERSION
+        )
+        record_feature_acceptance(
+            user_id, INVOICE_ANON_STORAGE_KEY, INVOICE_ANON_STORAGE_VERSION
+        )
         db.session.commit()
 
     mock_result = {
         "extracted": {
-            "car": {"make": "Toyota", "model": "Corolla", "year": 2020, "mileage": 80000},
-            "invoice": {"date": "2026-01-15", "total_price_ils": 1500, "region": "center", "garage_type": "dealer"},
+            "car": {
+                "make": "Toyota",
+                "model": "Corolla",
+                "year": 2020,
+                "mileage": 80000,
+            },
+            "invoice": {
+                "date": "2026-01-15",
+                "total_price_ils": 1500,
+                "region": "center",
+                "garage_type": "dealer",
+            },
             "line_items": [
                 {"description": "החלפת שמן", "price_ils": 400, "qty": 1},
             ],
@@ -589,7 +682,10 @@ def test_warmup_mode_calls_generate_content_once(logged_in_client, app):
         ],
     }
 
-    with patch("app.services.service_prices_service.vision_extract_invoice_with_web_benchmarks", return_value=mock_result) as mock_fn:
+    with patch(
+        "app.services.service_prices_service.vision_extract_invoice_with_web_benchmarks",
+        return_value=mock_result,
+    ) as mock_fn:
         image_data = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
         resp = client.post(
             "/api/service-prices/analyze",
@@ -607,19 +703,37 @@ def test_unverified_grounding_preserves_usable_benchmarks(logged_in_client, app)
     client, user_id = logged_in_client
 
     with app.app_context():
-        db.session.add(LegalAcceptance(
-            user_id=user_id, terms_version=TERMS_VERSION,
-            privacy_version=PRIVACY_VERSION,
-            accepted_at=datetime.utcnow(), accepted_ip="1.2.3.0",
-        ))
-        record_feature_acceptance(user_id, INVOICE_EXT_PROCESSING_KEY, INVOICE_EXT_PROCESSING_VERSION)
-        record_feature_acceptance(user_id, INVOICE_ANON_STORAGE_KEY, INVOICE_ANON_STORAGE_VERSION)
+        db.session.add(
+            LegalAcceptance(
+                user_id=user_id,
+                terms_version=TERMS_VERSION,
+                privacy_version=PRIVACY_VERSION,
+                accepted_at=datetime.utcnow(),
+                accepted_ip="1.2.3.0",
+            )
+        )
+        record_feature_acceptance(
+            user_id, INVOICE_EXT_PROCESSING_KEY, INVOICE_EXT_PROCESSING_VERSION
+        )
+        record_feature_acceptance(
+            user_id, INVOICE_ANON_STORAGE_KEY, INVOICE_ANON_STORAGE_VERSION
+        )
         db.session.commit()
 
     mock_result = {
         "extracted": {
-            "car": {"make": "Toyota", "model": "Corolla", "year": 2020, "mileage": 80000},
-            "invoice": {"date": "2026-01-15", "total_price_ils": 1500, "region": "center", "garage_type": "dealer"},
+            "car": {
+                "make": "Toyota",
+                "model": "Corolla",
+                "year": 2020,
+                "mileage": 80000,
+            },
+            "invoice": {
+                "date": "2026-01-15",
+                "total_price_ils": 1500,
+                "region": "center",
+                "garage_type": "dealer",
+            },
             "line_items": [
                 {"description": "החלפת שמן", "price_ils": 400, "qty": 1},
             ],
@@ -631,14 +745,19 @@ def test_unverified_grounding_preserves_usable_benchmarks(logged_in_client, app)
                 "line_item_description": "החלפת שמן",
                 "market_samples_ils": [300, 350, 400, 450],
                 "price_range_ils": {"min": 300, "max": 450, "median": 375},
-                "sources": [{"url": "https://example.co.il/prices", "title": "מחיר החלפת שמן"}],
+                "sources": [
+                    {"url": "https://example.co.il/prices", "title": "מחיר החלפת שמן"}
+                ],
                 "notes": ["מקורות"],
             }
         ],
         "grounding_status": {"verified": False, "reason": "missing_grounding_metadata"},
     }
 
-    with patch("app.services.service_prices_service.vision_extract_invoice_with_web_benchmarks", return_value=mock_result):
+    with patch(
+        "app.services.service_prices_service.vision_extract_invoice_with_web_benchmarks",
+        return_value=mock_result,
+    ):
         image_data = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
         resp = client.post(
             "/api/service-prices/analyze",
@@ -661,19 +780,37 @@ def test_empty_benchmarks_still_returns_no_market_data(logged_in_client, app):
     client, user_id = logged_in_client
 
     with app.app_context():
-        db.session.add(LegalAcceptance(
-            user_id=user_id, terms_version=TERMS_VERSION,
-            privacy_version=PRIVACY_VERSION,
-            accepted_at=datetime.utcnow(), accepted_ip="1.2.3.0",
-        ))
-        record_feature_acceptance(user_id, INVOICE_EXT_PROCESSING_KEY, INVOICE_EXT_PROCESSING_VERSION)
-        record_feature_acceptance(user_id, INVOICE_ANON_STORAGE_KEY, INVOICE_ANON_STORAGE_VERSION)
+        db.session.add(
+            LegalAcceptance(
+                user_id=user_id,
+                terms_version=TERMS_VERSION,
+                privacy_version=PRIVACY_VERSION,
+                accepted_at=datetime.utcnow(),
+                accepted_ip="1.2.3.0",
+            )
+        )
+        record_feature_acceptance(
+            user_id, INVOICE_EXT_PROCESSING_KEY, INVOICE_EXT_PROCESSING_VERSION
+        )
+        record_feature_acceptance(
+            user_id, INVOICE_ANON_STORAGE_KEY, INVOICE_ANON_STORAGE_VERSION
+        )
         db.session.commit()
 
     mock_result = {
         "extracted": {
-            "car": {"make": "Toyota", "model": "Corolla", "year": 2020, "mileage": 80000},
-            "invoice": {"date": "2026-01-15", "total_price_ils": 1500, "region": "center", "garage_type": "dealer"},
+            "car": {
+                "make": "Toyota",
+                "model": "Corolla",
+                "year": 2020,
+                "mileage": 80000,
+            },
+            "invoice": {
+                "date": "2026-01-15",
+                "total_price_ils": 1500,
+                "region": "center",
+                "garage_type": "dealer",
+            },
             "line_items": [
                 {"description": "החלפת שמן", "price_ils": 400, "qty": 1},
             ],
@@ -684,9 +821,20 @@ def test_empty_benchmarks_still_returns_no_market_data(logged_in_client, app):
         "grounding_status": {"verified": False, "reason": "missing_grounding_metadata"},
     }
 
-    with patch("app.services.service_prices_service.vision_extract_invoice_with_web_benchmarks", return_value=mock_result), \
-        patch("app.services.service_prices_service.vision_extract_invoice", return_value=mock_result["extracted"]), \
-        patch("app.services.service_prices_service.fetch_text_web_benchmarks", return_value=[]) as mock_fetch:
+    with (
+        patch(
+            "app.services.service_prices_service.vision_extract_invoice_with_web_benchmarks",
+            return_value=mock_result,
+        ),
+        patch(
+            "app.services.service_prices_service.vision_extract_invoice",
+            return_value=mock_result["extracted"],
+        ),
+        patch(
+            "app.services.service_prices_service.fetch_text_web_benchmarks",
+            return_value=[],
+        ) as mock_fetch,
+    ):
         image_data = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
         resp = client.post(
             "/api/service-prices/analyze",
@@ -707,6 +855,7 @@ def test_empty_benchmarks_still_returns_no_market_data(logged_in_client, app):
 # BENCHMARK ITEM NEVER STORES WEB DATA
 # ============================================
 
+
 def test_benchmark_item_never_stores_web_data(logged_in_client, app):
     """ServicePriceBenchmarkItem should only contain invoice-derived data, never web samples."""
     from app.models import ServicePriceBenchmarkItem
@@ -714,19 +863,37 @@ def test_benchmark_item_never_stores_web_data(logged_in_client, app):
     client, user_id = logged_in_client
 
     with app.app_context():
-        db.session.add(LegalAcceptance(
-            user_id=user_id, terms_version=TERMS_VERSION,
-            privacy_version=PRIVACY_VERSION,
-            accepted_at=datetime.utcnow(), accepted_ip="1.2.3.0",
-        ))
-        record_feature_acceptance(user_id, INVOICE_EXT_PROCESSING_KEY, INVOICE_EXT_PROCESSING_VERSION)
-        record_feature_acceptance(user_id, INVOICE_ANON_STORAGE_KEY, INVOICE_ANON_STORAGE_VERSION)
+        db.session.add(
+            LegalAcceptance(
+                user_id=user_id,
+                terms_version=TERMS_VERSION,
+                privacy_version=PRIVACY_VERSION,
+                accepted_at=datetime.utcnow(),
+                accepted_ip="1.2.3.0",
+            )
+        )
+        record_feature_acceptance(
+            user_id, INVOICE_EXT_PROCESSING_KEY, INVOICE_EXT_PROCESSING_VERSION
+        )
+        record_feature_acceptance(
+            user_id, INVOICE_ANON_STORAGE_KEY, INVOICE_ANON_STORAGE_VERSION
+        )
         db.session.commit()
 
     mock_result = {
         "extracted": {
-            "car": {"make": "Toyota", "model": "Corolla", "year": 2020, "mileage": 80000},
-            "invoice": {"date": "2026-01-15", "total_price_ils": 1500, "region": "center", "garage_type": "dealer"},
+            "car": {
+                "make": "Toyota",
+                "model": "Corolla",
+                "year": 2020,
+                "mileage": 80000,
+            },
+            "invoice": {
+                "date": "2026-01-15",
+                "total_price_ils": 1500,
+                "region": "center",
+                "garage_type": "dealer",
+            },
             "line_items": [
                 {"description": "החלפת שמן", "price_ils": 400, "qty": 1},
             ],
@@ -745,7 +912,10 @@ def test_benchmark_item_never_stores_web_data(logged_in_client, app):
         ],
     }
 
-    with patch("app.services.service_prices_service.vision_extract_invoice_with_web_benchmarks", return_value=mock_result):
+    with patch(
+        "app.services.service_prices_service.vision_extract_invoice_with_web_benchmarks",
+        return_value=mock_result,
+    ):
         image_data = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
         resp = client.post(
             "/api/service-prices/analyze",
@@ -773,6 +943,7 @@ def test_benchmark_item_never_stores_web_data(logged_in_client, app):
 # ETA ENDPOINT
 # ============================================
 
+
 def test_eta_endpoint_returns_safe_values(logged_in_client, app):
     """GET /api/service-prices/eta should return safe values even with no data."""
     client, user_id = logged_in_client
@@ -799,8 +970,8 @@ def test_eta_endpoint_with_data(logged_in_client, app):
                 make="Test",
                 model="Car",
                 year=2020,
-                parsed_json='{}',
-                report_json='{}',
+                parsed_json="{}",
+                report_json="{}",
                 duration_ms=3000 + i * 1000,
             )
             db.session.add(inv)
@@ -826,6 +997,7 @@ def test_eta_endpoint_requires_login(client):
 # TIMING ESTIMATE ENDPOINT
 # ============================================
 
+
 def test_timing_estimate_invoice_returns_stats(logged_in_client, app):
     """GET /api/timing/estimate?kind=invoice should return computed stats."""
     client, user_id = logged_in_client
@@ -836,8 +1008,8 @@ def test_timing_estimate_invoice_returns_stats(logged_in_client, app):
             make="Test",
             model="Car",
             year=2020,
-            parsed_json='{}',
-            report_json='{}',
+            parsed_json="{}",
+            report_json="{}",
             duration_ms=30000,
         )
         inv_b = ServiceInvoice(
@@ -845,8 +1017,8 @@ def test_timing_estimate_invoice_returns_stats(logged_in_client, app):
             make="Test",
             model="Car",
             year=2021,
-            parsed_json='{}',
-            report_json='{}',
+            parsed_json="{}",
+            report_json="{}",
             duration_ms=40000,
         )
         db.session.add_all([inv_a, inv_b])
@@ -866,6 +1038,7 @@ def test_timing_estimate_invoice_returns_stats(logged_in_client, app):
 # HISTORY DETAIL ENDPOINT
 # ============================================
 
+
 def test_service_prices_history_detail(logged_in_client, app):
     """GET /service-prices/history/<id> should return invoice detail."""
     client, user_id = logged_in_client
@@ -877,7 +1050,7 @@ def test_service_prices_history_detail(logged_in_client, app):
             model="Civic",
             year=2021,
             total_price_ils=2000,
-            parsed_json='{}',
+            parsed_json="{}",
             report_json='{"fairness_score": 80, "items": []}',
         )
         db.session.add(inv)
@@ -911,8 +1084,8 @@ def test_service_prices_history_list_includes_duration(logged_in_client, app):
             model="Civic",
             year=2021,
             total_price_ils=2000,
-            parsed_json='{}',
-            report_json='{}',
+            parsed_json="{}",
+            report_json="{}",
             duration_ms=4321,
         )
         db.session.add(inv)
@@ -930,6 +1103,7 @@ def test_service_prices_history_list_includes_duration(logged_in_client, app):
 # ============================================
 # DASHBOARD EXCLUDES SERVICE PRICES HISTORY
 # ============================================
+
 
 def test_dashboard_hides_service_prices_tab(logged_in_client, app):
     """Dashboard page should not include service prices history UI."""

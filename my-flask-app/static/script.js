@@ -144,6 +144,11 @@
             missingInfo,
             verificationFocus,
             checksToVerify,
+            fixedSystemUnknowns: Array.isArray(data?.fixed_system_unknowns) ? data.fixed_system_unknowns.filter(Boolean) : [],
+            informationQualityExplanation: data?.information_quality_explanation || '',
+            sourceCount: Number.isFinite(Number(data?.source_count)) ? Number(data.source_count) : 0,
+            sourceScopeLabel: data?.source_scope_label || 'לא זוהה',
+            weaklySourced: Boolean(data?.weakly_sourced),
         };
     }
 
@@ -470,36 +475,6 @@
     window.showTimingBanner = showTimingBanner;
     window.hideTimingBanner = hideTimingBanner;
 
-    function getReliabilityLevel(score) {
-        const numericScore = Number(score);
-        if (score === null || score === undefined || Number.isNaN(numericScore)) {
-            return {
-                label: 'לא ידוע',
-                gradient: 'linear-gradient(135deg, #64748b, #475569)',
-                badgeClass: 'bg-slate-500/20 text-slate-200 border-slate-500/40'
-            };
-        }
-        if (numericScore >= 80) {
-            return {
-                label: 'גבוה',
-                gradient: 'linear-gradient(135deg, #22c55e, #15803d)',
-                badgeClass: 'bg-emerald-500/20 text-emerald-200 border-emerald-500/40'
-            };
-        }
-        if (numericScore >= 60) {
-            return {
-                label: 'בינוני',
-                gradient: 'linear-gradient(135deg, #fbbf24, #d97706)',
-                badgeClass: 'bg-amber-500/20 text-amber-200 border-amber-500/40'
-            };
-        }
-        return {
-            label: 'נמוך',
-            gradient: 'linear-gradient(135deg, #f97373, #b91c1c)',
-            badgeClass: 'bg-red-500/20 text-red-200 border-red-500/40'
-        };
-    }
-
     // טאבס
     window.openTab = function (evt, tabId) {
         const btns = document.querySelectorAll('.tab-btn');
@@ -626,6 +601,8 @@
             const sourceTag = data.source_tag || '';
             const mileageNote = data.mileage_note || '';
             const contextText = infoReview.report.based_on_available_information || '';
+            const sourceTransparency = `נמצאו ${infoReview.sourceCount} מקורות · סוג מקורות מזוהה: ${infoReview.sourceScopeLabel}`;
+            const escapedSourceTransparency = safe(sourceTransparency);
 
             const wrapper = document.createElement('div');
             wrapper.className = 'w-full rounded-3xl border border-slate-700/70 bg-slate-900/40 p-5 md:p-6 text-right';
@@ -678,6 +655,43 @@
                 wrapper.appendChild(focusList);
             }
 
+            const transparency = document.createElement('div');
+            transparency.className = 'mt-4 rounded-2xl border border-slate-700/70 bg-slate-950/40 p-4 text-sm text-slate-200';
+            transparency.innerHTML = `
+                <div class="font-semibold text-white">שקיפות מקורות</div>
+                <div class="mt-2">${escapedSourceTransparency}</div>
+                ${infoReview.weaklySourced ? '<div class="mt-2 text-amber-300">פחות משני מקורות נמצאו ולכן הניתוח מבוסס חלש.</div>' : ''}
+            `;
+            wrapper.appendChild(transparency);
+
+            if (infoReview.informationQualityExplanation) {
+                const explanation = document.createElement('div');
+                explanation.className = 'mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100';
+                explanation.innerHTML = `
+                    <div class="font-semibold text-white">למה איכות המידע אינה מלאה</div>
+                    <div class="mt-2">${safe(infoReview.informationQualityExplanation)}</div>
+                `;
+                wrapper.appendChild(explanation);
+            }
+
+            const unknowns = infoReview.fixedSystemUnknowns.length ? infoReview.fixedSystemUnknowns : [
+                'מצב מכני בפועל',
+                'תאונות שלא דווחו',
+                'איכות טיפולים שבוצעו',
+                'נהיגה אגרסיבית בעבר',
+                'תיקונים לא מתועדים',
+                'מצב גיר/מנוע בזמן אמת',
+            ];
+            const unknownsBlock = document.createElement('div');
+            unknownsBlock.className = 'mt-4 rounded-2xl border border-slate-700/70 bg-slate-950/40 p-4';
+            unknownsBlock.innerHTML = `
+                <div class="font-semibold text-white">מה המערכת לא יודעת</div>
+                <ul class="mt-2 list-disc list-inside space-y-1 text-sm text-slate-200">
+                    ${unknowns.map(item => `<li>${safe(item)}</li>`).join('')}
+                </ul>
+            `;
+            wrapper.appendChild(unknownsBlock);
+
             if (sourceTag) {
                 const p = document.createElement('p');
                 p.textContent = sourceTag;
@@ -720,7 +734,7 @@
                 html += '<p class="text-sm text-slate-400">לא דווחו תקלות נפוצות ספציפיות לדגם הזה בקילומטראז׳ הנתון.</p>';
             }
             if (checks.length) {
-                html += '<h4 class="mt-4 text-sm font-semibold text-white">בדיקות מומלצות לפני קניה</h4>';
+                html += '<h4 class="mt-4 text-sm font-semibold text-white">בדיקות מומלצות לפני החלטה</h4>';
                 html += '<ul class="list-disc list-inside space-y-1 text-sm text-slate-200">';
                 html += checks.map(x => `<li>${safe(x)}</li>`).join('');
                 html += '</ul>';
@@ -768,7 +782,7 @@
             const arr = Array.isArray(data.common_competitors_brief) ? data.common_competitors_brief : [];
             let html = '';
             if (arr.length) {
-                html += '<p class="text-sm text-slate-300 mb-3">דגמים נוספים שכדאי לבדוק מבחינת אמינות ואופי שימוש דומה:</p>';
+                html += '<p class="text-sm text-slate-300 mb-3">דגמים נוספים שכדאי לבדוק מבחינת תחזוקה כללית ואופי שימוש דומה:</p>';
                 html += '<ul class="space-y-2 text-sm text-slate-200">';
                 html += arr.map(c => `
                     <li class="bg-slate-900/40 border border-slate-700/70 rounded-xl px-3 py-2">
@@ -819,6 +833,14 @@
                 const checklist = rep.what_must_be_checked_before_a_decision || {};
                 const uncertainties = Array.isArray(rep.known_uncertainties) ? rep.known_uncertainties : [];
                 const costSensitivity = Array.isArray(rep.estimated_cost_sensitivity) ? rep.estimated_cost_sensitivity : [];
+                const unknowns = infoReview.fixedSystemUnknowns.length ? infoReview.fixedSystemUnknowns : [
+                    'מצב מכני בפועל',
+                    'תאונות שלא דווחו',
+                    'איכות טיפולים שבוצעו',
+                    'נהיגה אגרסיבית בעבר',
+                    'תיקונים לא מתועדים',
+                    'מצב גיר/מנוע בזמן אמת',
+                ];
                 html += `
                     <div class="space-y-3">
                         <p class="text-slate-200 text-sm">${safe(rep.based_on_available_information || '')}</p>
@@ -861,6 +883,12 @@
                             <h4 class="text-sm font-semibold text-white mb-1">אי-ודאויות ידועות</h4>
                             <ul class="list-disc list-inside text-sm text-slate-200 space-y-1">
                                 ${uncertainties.map(x=>`<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
+                            </ul>
+                        </div>
+                        <div>
+                            <h4 class="text-sm font-semibold text-white mb-1">מה המערכת לא יודעת</h4>
+                            <ul class="list-disc list-inside text-sm text-slate-200 space-y-1">
+                                ${unknowns.map(x=>`<li>${safe(x)}</li>`).join('')}
                             </ul>
                         </div>
                         <div>

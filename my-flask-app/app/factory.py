@@ -289,67 +289,6 @@ def apply_mileage_logic(model_output: dict, mileage_range: str) -> Tuple[dict, O
         return model_output, None
 
 
-def build_prompt(make, model, sub_model, year, fuel_type, transmission, mileage_range):
-    # Phase 1C: Sanitize user inputs to defend against prompt injection
-    safe_make = escape_prompt_input(make, max_length=120)
-    safe_model = escape_prompt_input(model, max_length=120)
-    safe_sub_model = escape_prompt_input(sub_model, max_length=120)
-    safe_mileage = escape_prompt_input(mileage_range, max_length=50)
-    safe_fuel = escape_prompt_input(fuel_type, max_length=50)
-    safe_trans = escape_prompt_input(transmission, max_length=50)
-    
-    # Wrap user inputs in explicit data-only boundaries
-    user_data = f"""רכב: {safe_make} {safe_model}
-תת-דגם/תצורה: {safe_sub_model if safe_sub_model else 'לא צוין'}
-שנת ייצור: {int(year)}
-טווח קילומטראז': {safe_mileage}
-סוג דלק: {safe_fuel}
-תיבת הילוכים: {safe_trans}"""
-    
-    bounded_user_data = wrap_user_input_in_boundary(user_data)
-    data_instruction = create_data_only_instruction()
-    
-    # final_line is intentionally fixed in English because downstream UX/tests
-    # require that exact sentence unchanged.
-    return f"""
-{data_instruction}
-
-אתה מומחה לאמינות רכבים בישראל עם גישה לחיפוש אינטרנטי.
-הניתוח חייב להתייחס ספציפית לטווח הקילומטראז' הנתון.
-החזר JSON בלבד:
-
-{{
-  "search_performed": true,
-  "score_breakdown": {{
-    "engine_transmission_score": "מספר (1-10)",
-    "electrical_score": "מספר (1-10)",
-    "suspension_brakes_score": "מספר (1-10)",
-    "maintenance_cost_score": "מספר (1-10)",
-    "satisfaction_score": "מספר (1-10)",
-    "recalls_score": "מספר (1-10)"
-  }},
-  "base_score_calculated": "מספר (0-100)",
-  "common_issues": ["תקלות נפוצות רלוונטיות לק\\"מ"],
-  "avg_repair_cost_ILS": "מספר ממוצע",
-  "issues_with_costs": [
-    {{"issue": "שם התקלה", "avg_cost_ILS": "מספר", "source": "מקור", "severity": "נמוך/בינוני/גבוה"}}
-  ],
-  "reliability_summary": "סיכום מקצועי בעברית שמסביר את הציון, יתרונות וחסרונות הרכב, ומאפייני האמינות בצורה מפורטת.",
-  "reliability_summary_simple": "הסבר מאוד פשוט וקצר בעברית, ברמה של נהג צעיר שלא מבין ברכבים. בלי מושגים טכניים ובלי קיצורים. להסביר במילים פשוטות למה הציון יצא גבוה/בינוני/נמוך ומה המשמעות ליום-יום (האם זה רכב שיכול לעשות מעט בעיות, הרבה בעיות, כמה להיזהר בקנייה וכו׳).",
-  "sources": ["רשימת אתרים"],
-  "recommended_checks": ["בדיקות מומלצות ספציפיות"],
-  "common_competitors_brief": [
-      {{"model": "שם מתחרה 1", "brief_summary": "אמינות בקצרה"}},
-      {{"model": "שם מתחרה 2", "brief_summary": "אמינות בקצרה"}}
-  ]
-}}
-
-{bounded_user_data}
-
-כתוב בעברית בלבד. החזר ONLY JSON, ללא טקסט נוסף.
-""".strip()
-
-
 def build_reliability_report_prompt(payload: dict, missing_info: list[str]) -> str:
     """Prompt for the strict reliability report JSON schema."""
     safe_make = escape_prompt_input(payload.get("make"), max_length=120)

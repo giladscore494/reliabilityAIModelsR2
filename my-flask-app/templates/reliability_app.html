@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>yedaarechevAI - בודק אמינות רכב</title>
+    <title>yedaarechevAI - סקירת רכב לפני החלטה</title>
     <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
 
     <script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio"></script>
@@ -73,13 +73,12 @@
              style="background: radial-gradient(circle, rgba(99,102,241,0.3) 0%, rgba(15,23,42,0) 70%);"></div>
 
         <div class="relative z-10 text-center max-w-4xl mx-auto mb-14 fade-in space-y-5">
-            <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase">בודק אמינות</p>
+            <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase">סקירת רכב</p>
             <h2 class="text-4xl md:text-6xl font-extrabold text-white leading-tight tracking-tight">
-                בדוק את אמינות הרכב שלך 
-                <span class="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">על בסיס מודל AI מתקדם</span>
+                סקירת מידע וסיכונים לרכב לפני החלטה
             </h2>
             <p class="text-xl md:text-2xl text-slate-400 max-w-2xl mx-auto leading-relaxed">
-                ניתוח אמינות מעמיק המבוסס על מיליוני נתונים, מותאם במיוחד לשוק הרכב הישראלי ולתנאי הארץ.
+                הניתוח מבוסס על מידע זמין, חיפוש רשת, נתוני משתמש ומקורות פתוחים. הוא מציף נקודות לבדיקה ואינו קובע את מצב הרכב בפועל.
             </p>
         </div>
 
@@ -451,8 +450,7 @@
 
         <div id="results-container" class="hidden w-full max-w-5xl mt-8 fade-in delay-300">
                 <p class="text-xs md:text-sm text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-4 leading-relaxed">
-                    הניתוח מבוסס על מידע זמין, נתוני משתמש שהוזנו ומודלי AI. הוא אינו מחליף בדיקת מוסך
-                    או בדיקות משפטיות/ביטוחיות לפני קנייה.
+                    הניתוח מבוסס על מידע זמין, חיפוש רשת, נתוני משתמש ומקורות פתוחים. הוא מציף נקודות לבדיקה ואינו קובע את מצב הרכב בפועל.
                 </p>
                 <div
                     class="bg-dark-lighter/80 backdrop-blur-xl p-6 md:p-8 rounded-[2rem] border border-slate-700/50 shadow-2xl text-slate-200">
@@ -464,13 +462,13 @@
                         <button class="tab-btn active" data-tab="summary">סיכום מנהלים</button>
                         <button class="tab-btn" data-tab="faults">תקלות נפוצות</button>
                         <button class="tab-btn" data-tab="costs">עלויות אחזקה</button>
-                    <button class="tab-btn" data-tab="report">דוח אמינות</button>
+                    <button class="tab-btn" data-tab="report">דוח סיכונים</button>
                     <button class="tab-btn" data-tab="competitors">מתחרים</button>
                 </div>
 
                 <div id="summary" class="tab-content active prose prose-invert max-w-none">
                     <div class="space-y-4">
-                        <h3 class="text-xl font-bold text-white">סיכום אמינות – הסבר פשוט</h3>
+                        <h3 class="text-xl font-bold text-white">סיכום מידע וסיכונים – הסבר פשוט</h3>
                         <p id="summary-simple-text" class="text-slate-200 leading-relaxed"></p>
 
                         <button

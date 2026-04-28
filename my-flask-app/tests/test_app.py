@@ -55,7 +55,9 @@ class _NavLinkParser(HTMLParser):
 
     def handle_endtag(self, tag):
         if tag == "a" and self._nav_depth and self._current_href:
-            label = " ".join(part.strip() for part in self._current_text if part.strip())
+            label = " ".join(
+                part.strip() for part in self._current_text if part.strip()
+            )
             self.links.append((self._current_href, label))
             self._current_href = None
             self._current_text = []
@@ -68,7 +70,7 @@ def _shared_nav_items(app):
     with app.test_request_context():
         return (
             (url_for("public.index"), "בית"),
-            (url_for("public.app_page"), "בודק אמינות"),
+            (url_for("public.app_page"), "סקירת רכב"),
             (url_for("comparison.compare_page"), "השוואת רכבים"),
             (url_for("advisor.recommendations"), "מנוע ההמלצות"),
             (url_for("dashboard.dashboard"), "היסטוריית חיפושים"),
@@ -92,11 +94,15 @@ def _assert_shared_nav(app, html):
         ("/dashboard", True),
     ],
 )
-def test_main_pages_render_shared_nav(client, logged_in_client, monkeypatch, path, requires_auth):
+def test_main_pages_render_shared_nav(
+    client, logged_in_client, monkeypatch, path, requires_auth
+):
     if path == "/recommendations":
         # Recommendations defaults to owner-only outside tests, so disable that gate
         # here to verify the shared navbar on the page itself.
-        monkeypatch.setitem(logged_in_client[0].application.config, "ADVISOR_OWNER_ONLY", False)
+        monkeypatch.setitem(
+            logged_in_client[0].application.config, "ADVISOR_OWNER_ONLY", False
+        )
     request_client = logged_in_client[0] if requires_auth else client
     resp = request_client.get(path)
     assert resp.status_code == 200
@@ -189,7 +195,9 @@ def test_quota_refund_on_failure(app, logged_in_client, monkeypatch):
         day_key, *_ = compute_quota_window(tz)
         quota = DailyQuotaUsage.query.filter_by(user_id=user_id, day=day_key).first()
         assert quota is None or quota.count == 0
-        reserved_active = QuotaReservation.query.filter_by(user_id=user_id, day=day_key, status="reserved").count()
+        reserved_active = QuotaReservation.query.filter_by(
+            user_id=user_id, day=day_key, status="reserved"
+        ).count()
         assert reserved_active == 0
 
 
@@ -215,7 +223,9 @@ def test_quota_atomic_limit(app, logged_in_client, monkeypatch):
 
     payload_ok = _valid_payload()
     payload_ok["legal_confirm"] = True
-    resp_ok = client.post("/analyze", json=payload_ok, headers={"Origin": "http://localhost"})
+    resp_ok = client.post(
+        "/analyze", json=payload_ok, headers={"Origin": "http://localhost"}
+    )
     data_ok = resp_ok.get_json()
     assert resp_ok.status_code == 200
     assert data_ok["ok"] is True
@@ -226,7 +236,9 @@ def test_quota_atomic_limit(app, logged_in_client, monkeypatch):
 
     payload_block = _valid_payload()
     payload_block["legal_confirm"] = True
-    resp_block = client.post("/analyze", json=payload_block, headers={"Origin": "http://localhost"})
+    resp_block = client.post(
+        "/analyze", json=payload_block, headers={"Origin": "http://localhost"}
+    )
     data_block = resp_block.get_json()
     assert resp_block.status_code == 429
     assert data_block["ok"] is False
@@ -237,7 +249,9 @@ def test_quota_atomic_limit(app, logged_in_client, monkeypatch):
         day_key, *_ = compute_quota_window(tz)
         quota = DailyQuotaUsage.query.filter_by(user_id=user_id, day=day_key).first()
         assert quota and quota.count == 1
-        reserved_active = QuotaReservation.query.filter_by(user_id=user_id, day=day_key, status="reserved").count()
+        reserved_active = QuotaReservation.query.filter_by(
+            user_id=user_id, day=day_key, status="reserved"
+        ).count()
         assert reserved_active == 0
 
 
@@ -265,7 +279,10 @@ def test_quota_finalized_when_history_save_fails(app, logged_in_client, monkeypa
 
     def commit_with_failure():
         # Fail only on the first commit that tries to persist SearchHistory
-        if any(isinstance(obj, main.SearchHistory) for obj in main.db.session.new) and not failure_state["raised"]:
+        if (
+            any(isinstance(obj, main.SearchHistory) for obj in main.db.session.new)
+            and not failure_state["raised"]
+        ):
             failure_state["raised"] = True
             raise RuntimeError("forced commit failure")
         return original_commit()
@@ -285,7 +302,9 @@ def test_quota_finalized_when_history_save_fails(app, logged_in_client, monkeypa
         day_key, *_ = compute_quota_window(tz)
         quota = DailyQuotaUsage.query.filter_by(user_id=user_id, day=day_key).first()
         assert quota and quota.count == 1
-        reserved_active = QuotaReservation.query.filter_by(user_id=user_id, day=day_key, status="reserved").count()
+        reserved_active = QuotaReservation.query.filter_by(
+            user_id=user_id, day=day_key, status="reserved"
+        ).count()
         assert reserved_active == 0
         assert SearchHistory.query.count() == 0
 
@@ -296,13 +315,19 @@ def test_ip_rate_limit_single_row(app):
         db.session.commit()
 
         now = datetime(2024, 1, 1, 12, 0, 0)
-        ok1, count1, _ = main.check_and_increment_ip_rate_limit("1.2.3.4", limit=5, now_utc=now)
-        ok2, count2, _ = main.check_and_increment_ip_rate_limit("1.2.3.4", limit=5, now_utc=now)
+        ok1, count1, _ = main.check_and_increment_ip_rate_limit(
+            "1.2.3.4", limit=5, now_utc=now
+        )
+        ok2, count2, _ = main.check_and_increment_ip_rate_limit(
+            "1.2.3.4", limit=5, now_utc=now
+        )
 
         assert ok1 and ok2
         assert count1 == 1
         assert count2 == 2
-        rows = IpRateLimit.query.filter_by(ip="1.2.3.4", window_start=now.replace(second=0, microsecond=0)).all()
+        rows = IpRateLimit.query.filter_by(
+            ip="1.2.3.4", window_start=now.replace(second=0, microsecond=0)
+        ).all()
         assert len(rows) == 1
         assert rows[0].count == 2
 
@@ -316,8 +341,12 @@ def test_quota_row_created_once(app, logged_in_client):
         QuotaReservation.query.delete()
         db.session.commit()
 
-        ok1, consumed1, reserved1, res_id1 = reserve_daily_quota(user_id, day_key, limit=3, request_id="req-1", now_utc=datetime.utcnow())
-        ok2, consumed2, reserved2, res_id2 = reserve_daily_quota(user_id, day_key, limit=3, request_id="req-2", now_utc=datetime.utcnow())
+        ok1, consumed1, reserved1, res_id1 = reserve_daily_quota(
+            user_id, day_key, limit=3, request_id="req-1", now_utc=datetime.utcnow()
+        )
+        ok2, consumed2, reserved2, res_id2 = reserve_daily_quota(
+            user_id, day_key, limit=3, request_id="req-2", now_utc=datetime.utcnow()
+        )
 
         assert ok1 is True
         assert ok2 is False
@@ -338,17 +367,25 @@ def test_login_redirects_to_oauth(client, monkeypatch):
         called["redirect_uri"] = redirect_uri
         return main.redirect("https://accounts.google.com/o/oauth2/auth")
 
-    monkeypatch.setattr(main.oauth.google, "authorize_redirect", fake_authorize_redirect)
+    monkeypatch.setattr(
+        main.oauth.google, "authorize_redirect", fake_authorize_redirect
+    )
     resp = client.get("/login")
     assert resp.status_code == 302
     assert "accounts.google.com" in resp.headers.get("Location", "")
     assert called["redirect_uri"].endswith("/auth")
+
+
 def test_login_returns_google_redirect(monkeypatch, client):
     # Avoid live calls to Google during tests
     def fake_authorize_redirect(redirect_uri):
-        return main.redirect(f"https://accounts.google.com/o/oauth2/v2/auth?redirect_uri={redirect_uri}")
+        return main.redirect(
+            f"https://accounts.google.com/o/oauth2/v2/auth?redirect_uri={redirect_uri}"
+        )
 
-    monkeypatch.setattr(main.oauth.google, "authorize_redirect", fake_authorize_redirect)
+    monkeypatch.setattr(
+        main.oauth.google, "authorize_redirect", fake_authorize_redirect
+    )
 
     resp = client.get("/login", base_url="https://yedaarechev.com")
     assert resp.status_code in (302, 303)

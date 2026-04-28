@@ -170,7 +170,7 @@
         <div class="flex flex-wrap gap-3 overflow-x-auto no-scrollbar pb-2">
             <button type="button" data-tab="reliability" id="tab-reliability"
                     class="dashboard-tab is-active whitespace-nowrap">
-                <span>בודק אמינות</span>
+                <span>סקירת רכב</span>
             </button>
             <button type="button" data-tab="comparisons" id="tab-comparisons"
                     class="dashboard-tab whitespace-nowrap">
@@ -521,6 +521,20 @@
         const competitors = Array.isArray(data.common_competitors_brief) ? data.common_competitors_brief : [];
         const sourceTag = data.source_tag || '';
         const reliabilityReport = data.reliability_report || {};
+        const sourceCount = Number.isFinite(Number(data.source_count)) ? Number(data.source_count) : sources.length;
+        const sourceScopeLabel = data.source_scope_label || 'לא זוהה';
+        const weaklySourced = Boolean(data.weakly_sourced);
+        const informationQualityExplanation = data.information_quality_explanation || '';
+        const fixedSystemUnknowns = Array.isArray(data.fixed_system_unknowns) && data.fixed_system_unknowns.length
+            ? data.fixed_system_unknowns
+            : [
+                'מצב מכני בפועל',
+                'תאונות שלא דווחו',
+                'איכות טיפולים שבוצעו',
+                'נהיגה אגרסיבית בעבר',
+                'תיקונים לא מתועדים',
+                'מצב גיר/מנוע בזמן אמת',
+            ];
 
         let issuesListHtml = '';
         if (issues.length) {
@@ -563,7 +577,14 @@
         if (sources.length) {
             sourcesHtml = `
                 <ul class="list-disc pr-5 space-y-1 text-xs text-slate-300">
-                    ${sources.map(s => `<li>${s}</li>`).join('')}
+                    ${sources.map((s) => {
+                        if (s && typeof s === 'object') {
+                            const title = escapeHtml(s.title || s.url || '');
+                            const url = escapeHtml(s.url || '');
+                            return `<li>${url ? `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">${title}</a>` : title}</li>`;
+                        }
+                        return `<li>${escapeHtml(s)}</li>`;
+                    }).join('')}
                 </ul>
             `;
         }
@@ -664,6 +685,7 @@
         const verificationFocusHtml = verificationFocus.length
             ? `<ul class="list-disc pr-5 space-y-1 text-xs text-slate-100">${verificationFocus.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul>`
             : '<p class="text-xs text-slate-400">אין מוקדי אימות מפורטים.</p>';
+        const fixedUnknownsHtml = `<ul class="list-disc pr-5 space-y-1 text-xs text-slate-100">${fixedSystemUnknowns.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul>`;
 
         const mileageNoteHtml = mileageNote
             ? `<div class="mt-2 text-[11px] text-amber-300">
@@ -715,6 +737,22 @@
                 </div>
             </section>
 
+            <section class="detail-section mb-4">
+                <div class="rounded-2xl border border-slate-700/70 bg-slate-950/40 p-4 text-xs text-slate-200">
+                    <div class="font-semibold text-white mb-2">שקיפות מקורות</div>
+                    <div>נמצאו ${escapeHtml(String(sourceCount))} מקורות · סוג מקורות מזוהה: ${escapeHtml(sourceScopeLabel)}</div>
+                    ${weaklySourced ? '<div class="mt-2 text-amber-300">פחות משני מקורות נמצאו ולכן הניתוח מבוסס חלש.</div>' : ''}
+                </div>
+            </section>
+
+            ${informationQualityExplanation ? `
+            <section class="detail-section mb-4">
+                <div class="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-100">
+                    <div class="font-semibold text-white mb-2">למה איכות המידע אינה מלאה</div>
+                    <div>${escapeHtml(informationQualityExplanation)}</div>
+                </div>
+            </section>` : ''}
+
             <section id="sec-summary" class="detail-section space-y-2 scroll-mt-32">
                 <h4 class="text-sm font-bold text-slate-100">
                     סיכום פשוט לנהג שלא מבין ברכבים
@@ -733,6 +771,10 @@
                 <div>
                     <div class="text-xs font-semibold text-slate-300 mb-2">מוקדי אימות מרכזיים</div>
                     ${verificationFocusHtml}
+                </div>
+                <div>
+                    <div class="text-xs font-semibold text-slate-300 mb-2">מה המערכת לא יודעת</div>
+                    ${fixedUnknownsHtml}
                 </div>
                 ${avgRepairHtml}
                 ${costSensitivityHtml ? `<div><div class="text-xs font-semibold text-slate-300 mb-2">טווחי עלות אפשריים</div>${costSensitivityHtml}</div>` : ''}
