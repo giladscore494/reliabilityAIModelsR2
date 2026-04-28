@@ -3,11 +3,9 @@
 
 import os
 import json
-import hashlib
 import logging
 import traceback
 import time as pytime
-from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 from flask import current_app
@@ -25,7 +23,13 @@ from app.quota import (
     QuotaInternalError,
     ModelOutputInvalidError,
 )
-from app.utils.http_helpers import api_ok, api_error, get_request_id, log_rejection, _utcnow
+from app.utils.http_helpers import (
+    _utcnow,
+    api_error,
+    api_ok,
+    get_request_id,
+    log_rejection,
+)
 from app.utils.sanitization import (
     sanitize_analyze_response,
     derive_missing_info,
@@ -38,7 +42,6 @@ from app.factory import (
     current_user_daily_limit,
     mileage_adjustment,
     normalize_text,
-    MAX_CACHE_DAYS,
 )
 
 logger = logging.getLogger(__name__)
@@ -54,6 +57,7 @@ _DEPRECATED_SCORE_KEYS = (
     "score_0_100",
     "banner_he",
 )
+
 
 def derive_information_quality_review(
     validated_input: Dict[str, Any],
@@ -132,28 +136,63 @@ def handle_analyze_request(
     }
 
     try:
-        validated = validate_analyze_request(data, allowed_fields=analyze_allowed_fields)
+        validated = validate_analyze_request(
+            data,
+            allowed_fields=analyze_allowed_fields,
+        )
 
-        logger.info(f"[ANALYZE 0/6] request_id={get_request_id()} user={user_id} payload validated")
-        final_make = normalize_text(validated.get('make'))
-        final_model = normalize_text(validated.get('model'))
-        final_sub_model = normalize_text(validated.get('sub_model'))
-        final_year = int(validated.get('year')) if validated.get('year') else None
-        final_mileage = str(validated.get('mileage_range'))
-        final_fuel = str(validated.get('fuel_type'))
-        final_trans = str(validated.get('transmission'))
-        usage_profile = validated.get("usage_profile") or {}
+        logger.info(
+            "[ANALYZE 0/6] request_id=%s user=%s payload validated",
+            get_request_id(),
+            user_id,
+        )
+        final_make = normalize_text(validated.get("make"))
+        final_model = normalize_text(validated.get("model"))
+        final_year = int(validated.get("year")) if validated.get("year") else None
+        final_mileage = str(validated.get("mileage_range"))
+        final_fuel = str(validated.get("fuel_type"))
+        final_trans = str(validated.get("transmission"))
         cache_key = None
 
         if not (final_make and final_model and final_year):
-            log_access_decision('/analyze', user_id, 'rejected', 'validation error: missing required fields')
-            return api_error("validation_error", "שגיאת קלט (שלב 0): נא למלא יצרן, דגם ושנה", status=400, details={"field": "payload"})
+            log_access_decision(
+                "/analyze",
+                user_id,
+                "rejected",
+                "validation error: missing required fields",
+            )
+            return api_error(
+                "validation_error",
+                "שגיאת קלט (שלב 0): נא למלא יצרן, דגם ושנה",
+                status=400,
+                details={"field": "payload"},
+            )
     except ValidationError as e:
-        log_access_decision('/analyze', user_id, 'rejected', f'validation error: {e.field}')
-        return api_error("validation_error", e.message, status=400, details={"field": e.field})
+        log_access_decision(
+            "/analyze",
+            user_id,
+            "rejected",
+            f"validation error: {e.field}",
+        )
+        return api_error(
+            "validation_error",
+            e.message,
+            status=400,
+            details={"field": e.field},
+        )
     except Exception:
-        log_access_decision('/analyze', user_id, 'rejected', 'validation error: invalid payload')
-        return api_error("validation_error", "שגיאת קלט (שלב 0): בקשת JSON לא תקינה.", status=400, details={"field": "payload"})
+        log_access_decision(
+            "/analyze",
+            user_id,
+            "rejected",
+            "validation error: invalid payload",
+        )
+        return api_error(
+            "validation_error",
+            "שגיאת קלט (שלב 0): בקשת JSON לא תקינה.",
+            status=400,
+            details={"field": "payload"},
+        )
 
     # 1) Cache disabled: always perform new AI analysis
     cache_hit = False
@@ -162,12 +201,14 @@ def handle_analyze_request(
     limit_val = current_user_daily_limit()
     if not bypass_owner:
         try:
-            allowed, consumed_count, reserved_count, reservation_id = reserve_daily_quota(
-                user_id,
-                day_key,
-                limit_val,
-                get_request_id(),
-                now_utc=_utcnow(),
+            allowed, consumed_count, reserved_count, reservation_id = (
+                reserve_daily_quota(
+                    user_id,
+                    day_key,
+                    limit_val,
+                    get_request_id(),
+                    now_utc=_utcnow(),
+                )
             )
         except QuotaInternalError:
             log_rejection("server_error", "quota subsystem failure")
@@ -178,7 +219,10 @@ def handle_analyze_request(
             )
         if not allowed:
             logger.warning(
-                "[QUOTA] reject request_id=%s user=%s consumed=%s reserved_active=%s limit=%s day=%s",
+                (
+                    "[QUOTA] reject request_id=%s user=%s consumed=%s "
+                    "reserved_active=%s limit=%s day=%s"
+                ),
                 get_request_id(),
                 user_id,
                 consumed_count,
@@ -201,7 +245,12 @@ def handle_analyze_request(
                 )
                 resp.headers["Retry-After"] = str(retry_after)
                 return resp
-            log_access_decision('/analyze', user_id, 'rejected', f'quota exceeded: {consumed_count}/{limit_val}')
+            log_access_decision(
+                "/analyze",
+                user_id,
+                "rejected",
+                f"quota exceeded: {consumed_count}/{limit_val}",
+            )
             remaining = max(0, limit_val - (consumed_count + reserved_count))
             resp = api_error(
                 "quota_exceeded",
@@ -235,9 +284,11 @@ def handle_analyze_request(
         # vehicle reliability factuality. Safe to skip if no data / consent.
         try:
             from app.utils.ai_context import build_user_context_for_reasoning
+
             _user_ctx = build_user_context_for_reasoning(user_id, validated)
             if _user_ctx:
                 import json as _json
+
                 prompt = (
                     f"{prompt}\n\n"
                     f"user_context_for_reasoning: "
@@ -253,7 +304,9 @@ def handle_analyze_request(
         if ai_error == "CALL_TIMEOUT":
             if not bypass_owner:
                 release_quota_reservation(reservation_id, user_id, day_key)
-            return api_error("ai_timeout", "תשובת ה-AI התעכבה. נסה שוב מאוחר יותר.", status=504)
+            return api_error(
+                "ai_timeout", "תשובת ה-AI התעכבה. נסה שוב מאוחר יותר.", status=504
+            )
         if model_output is None:
             raise ModelOutputInvalidError(ai_error or "MODEL_JSON_INVALID")
         if not isinstance(model_output, dict):
@@ -262,18 +315,29 @@ def handle_analyze_request(
     except ModelOutputInvalidError:
         if not bypass_owner:
             release_quota_reservation(reservation_id, user_id, day_key)
-        return api_error("model_json_invalid", "פלט ה-AI לא הובן. נסה שוב בעוד רגע.", status=502)
+        return api_error(
+            "model_json_invalid", "פלט ה-AI לא הובן. נסה שוב בעוד רגע.", status=502
+        )
     except Exception:
         if not bypass_owner:
             release_quota_reservation(reservation_id, user_id, day_key)
         log_rejection("server_error", "AI model call failed")
         traceback.print_exc()
-        return api_error("ai_call_failed", "שגיאה בתקשורת עם מנוע ה-AI. נסה שוב מאוחר יותר.", status=500)
+        return api_error(
+            "ai_call_failed",
+            "שגיאה בתקשורת עם מנוע ה-AI. נסה שוב מאוחר יותר.",
+            status=500,
+        )
 
     # Ensure reliability_report presence even if malformed
-    reliability_report = ai_output.get("reliability_report") if isinstance(ai_output, dict) else None
+    reliability_report = (
+        ai_output.get("reliability_report") if isinstance(ai_output, dict) else None
+    )
     if not isinstance(reliability_report, dict):
-        ai_output["reliability_report"] = {"available": False, "reason": "MISSING_OR_INVALID"}
+        ai_output["reliability_report"] = {
+            "available": False,
+            "reason": "MISSING_OR_INVALID",
+        }
 
     # defaults for search data
     ai_output.setdefault("ok", True)
@@ -297,9 +361,11 @@ def handle_analyze_request(
 
         sanitized_output: Dict[str, Any] = {}
         try:
-            ai_output['source_tag'] = f"מקור: ניתוח AI חדש (חיפוש {display_quota_count}/{limit_val})"
-            ai_output['mileage_note'] = det.get("mileage_note")
-            ai_output['km_warn'] = False
+            ai_output["source_tag"] = (
+                f"מקור: ניתוח AI חדש (חיפוש {display_quota_count}/{limit_val})"
+            )
+            ai_output["mileage_note"] = det.get("mileage_note")
+            ai_output["km_warn"] = False
             ai_output.pop("reliability_score", None)
             for deprecated_key in _DEPRECATED_SCORE_KEYS:
                 ai_output.pop(deprecated_key, None)
@@ -315,7 +381,7 @@ def handle_analyze_request(
                 fuel_type=final_fuel,
                 transmission=final_trans,
                 result_json=json.dumps(sanitized_output, ensure_ascii=False),
-                duration_ms=model_duration_ms
+                duration_ms=model_duration_ms,
             )
             db.session.add(new_log)
             db.session.commit()
@@ -335,10 +401,16 @@ def handle_analyze_request(
             release_quota_reservation(reservation_id, user_id, day_key)
         log_rejection("server_error", f"Post-processing failed: {type(e).__name__}")
         traceback.print_exc()
-        return api_error("analyze_postprocess_failed", "שגיאת שרת (שלב 5): נסה שוב מאוחר יותר.", status=500)
+        return api_error(
+            "analyze_postprocess_failed",
+            "שגיאת שרת (שלב 5): נסה שוב מאוחר יותר.",
+            status=500,
+        )
 
     if not bypass_owner:
-        reservation_finalized, quota_used_after = finalize_quota_reservation(reservation_id, user_id, day_key)
+        reservation_finalized, quota_used_after = finalize_quota_reservation(
+            reservation_id, user_id, day_key
+        )
         if not reservation_finalized:
             logger.error(
                 "[QUOTA] finalize failed request_id=%s reservation_id=%s",
@@ -346,14 +418,17 @@ def handle_analyze_request(
                 reservation_id,
             )
             release_quota_reservation(reservation_id, user_id, day_key)
-            return api_error("quota_finalize_failed", "שגיאת שרת בעת עדכון המכסה.", status=500)
+            return api_error(
+                "quota_finalize_failed", "שגיאת שרת בעת עדכון המכסה.", status=500
+            )
     else:
         quota_used_after = get_daily_quota_usage(user_id, day_key)
 
     logger.info(
         f"[QUOTA] method=POST path=/analyze uid={user_id} cache_hit={cache_hit} "
         f"consumed={quota_used_after} reserved_active={reserved_count} "
-        f"limit={limit_val} resets_at={resets_at.isoformat()} request_id={get_request_id()}"
+        f"limit={limit_val} resets_at={resets_at.isoformat()} "
+        f"request_id={get_request_id()}"
     )
 
     response_payload = dict(sanitized_output)

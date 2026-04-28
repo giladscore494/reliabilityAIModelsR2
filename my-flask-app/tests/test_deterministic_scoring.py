@@ -71,6 +71,34 @@ def test_information_review_marks_missing_sources_as_low_quality():
     assert result["data_quality_label"] == "חסרה"
     assert result["decision_readiness"] == "חסר מידע קריטי"
     assert any("מקורות חיצוניים" in item for item in result["missing_critical_info"])
+    assert result["source_count"] == 0
+    assert result["weakly_sourced"] is True
+    assert "לא נמצאו מקורות חיצוניים" in result["information_quality_explanation"]
+    assert "מצב מכני בפועל" in result["fixed_system_unknowns"]
+
+
+def test_information_review_detects_israeli_and_global_sources():
+    result = derive_information_quality_review(
+        _validated_payload(),
+        {},
+        model_output=_model_output(
+            sources=[
+                {
+                    "title": "מבחן דרך ישראלי",
+                    "url": "https://cars.example.co.il",
+                    "domain": "cars.example.co.il",
+                },
+                {
+                    "title": "Global source",
+                    "url": "https://example.com",
+                    "domain": "example.com",
+                },
+            ],
+        ),
+    )
+
+    assert result["source_count"] == 2
+    assert result["source_scope_label"] == "ישראליים וגלובליים"
 
 
 def test_information_review_uses_request_missing_fields():
@@ -105,10 +133,10 @@ def test_information_review_preserves_explicit_labels_when_valid():
 
 def test_information_review_carries_mileage_note():
     result = derive_information_quality_review(
-        _validated_payload(mileage_range="מעל 200,000 ק\"מ"),
+        _validated_payload(mileage_range='מעל 200,000 ק"מ'),
         {},
         model_output=_model_output(),
-        mileage_range="מעל 200,000 ק\"מ",
+        mileage_range='מעל 200,000 ק"מ',
     )
 
     assert "mileage_note" in result

@@ -23,7 +23,7 @@ import re
 _MAX_STR = 8000
 _MAX_LIST = 50
 _ZERO_WIDTH_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2066-\u2069]")
-_SAFE_URL_RE = re.compile(r'^https?://', re.IGNORECASE)
+_SAFE_URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 
 
 def _normalize_text(raw: str) -> str:
@@ -74,7 +74,6 @@ def _clamp_int(value: Any, *, lo: int, hi: int, default: int = 0) -> int:
     return max(lo, min(hi, n))
 
 
-
 def _sanitize_str_list(value: Any, *, max_items: int = _MAX_LIST) -> list:
     arr = _coerce_list(value)[:max_items]
     return [_escape(v) for v in arr]
@@ -105,7 +104,15 @@ def _sanitize_score_breakdown(value: Any) -> Dict[str, int]:
 
 # --- risk_signals sanitization helpers ---
 
-_SYSTEM_ALLOWED = {"engine", "transmission", "electrical", "cooling", "brakes", "suspension", "other"}
+_SYSTEM_ALLOWED = {
+    "engine",
+    "transmission",
+    "electrical",
+    "cooling",
+    "brakes",
+    "suspension",
+    "other",
+}
 _SEVERITY_RS_ALLOWED = {"low", "medium", "high"}
 _FREQ_ALLOWED = {"rare", "sometimes", "common"}
 _EVIDENCE_ALLOWED = {"weak", "medium", "strong"}
@@ -118,7 +125,9 @@ _MODEL_JSON_SENSITIVITY_ALLOWED = {"low", "normal", "high"}
 _CALIBRATION_SOURCE_ALLOWED = {"model_json", "none"}
 
 
-def _clamp_float(value: Any, lo: float = 0.0, hi: float = 1.0, default: float = 0.0) -> float:
+def _clamp_float(
+    value: Any, lo: float = 0.0, hi: float = 1.0, default: float = 0.0
+) -> float:
     try:
         if isinstance(value, bool):
             return default
@@ -154,7 +163,9 @@ def _sanitize_risk_signals(value: Any) -> Dict[str, Any]:
     out["vehicle_resolution"] = {
         "generation": _escape(vr.get("generation") or ""),
         "engine_family": _escape(vr.get("engine_family") or ""),
-        "transmission_type": _normalize_enum(vr.get("transmission_type"), _TRANS_TYPE_ALLOWED, "unknown"),
+        "transmission_type": _normalize_enum(
+            vr.get("transmission_type"), _TRANS_TYPE_ALLOWED, "unknown"
+        ),
         "confidence": _clamp_float(vr.get("confidence")),
     }
 
@@ -174,15 +185,23 @@ def _sanitize_risk_signals(value: Any) -> Dict[str, Any]:
     for item in raw_signals:
         if not isinstance(item, dict):
             continue
-        signals_out.append({
-            "system": _normalize_enum(item.get("system"), _SYSTEM_ALLOWED, "other"),
-            "issue": _escape(item.get("issue") or ""),
-            "severity": _normalize_enum(item.get("severity"), _SEVERITY_RS_ALLOWED, "medium"),
-            "repeat_frequency": _normalize_enum(item.get("repeat_frequency"), _FREQ_ALLOWED, "rare"),
-            "typical_timing": _escape(item.get("typical_timing") or ""),
-            "evidence_text": _escape(item.get("evidence_text") or ""),
-            "evidence_strength": _normalize_enum(item.get("evidence_strength"), _EVIDENCE_ALLOWED, "medium"),
-        })
+        signals_out.append(
+            {
+                "system": _normalize_enum(item.get("system"), _SYSTEM_ALLOWED, "other"),
+                "issue": _escape(item.get("issue") or ""),
+                "severity": _normalize_enum(
+                    item.get("severity"), _SEVERITY_RS_ALLOWED, "medium"
+                ),
+                "repeat_frequency": _normalize_enum(
+                    item.get("repeat_frequency"), _FREQ_ALLOWED, "rare"
+                ),
+                "typical_timing": _escape(item.get("typical_timing") or ""),
+                "evidence_text": _escape(item.get("evidence_text") or ""),
+                "evidence_strength": _normalize_enum(
+                    item.get("evidence_strength"), _EVIDENCE_ALLOWED, "medium"
+                ),
+            }
+        )
     out["systemic_issue_signals"] = signals_out
 
     # maintenance_cost_pressure
@@ -190,20 +209,22 @@ def _sanitize_risk_signals(value: Any) -> Dict[str, Any]:
     out["maintenance_cost_pressure"] = {
         "level": _normalize_enum(mcp.get("level"), _MCP_LEVEL_ALLOWED, "unknown"),
         "drivers": [_escape(d) for d in _coerce_list(mcp.get("drivers"))[:_MAX_LIST]],
-        "evidence_strength": _normalize_enum(mcp.get("evidence_strength"), _EVIDENCE_ALLOWED, "medium"),
+        "evidence_strength": _normalize_enum(
+            mcp.get("evidence_strength"), _EVIDENCE_ALLOWED, "medium"
+        ),
     }
 
     # confidence_meta
     cm = _coerce_dict(src.get("confidence_meta"))
     out["confidence_meta"] = {
         "data_completeness": _clamp_float(cm.get("data_completeness")),
-        "source_quality": _normalize_enum(cm.get("source_quality"), _SQ_ALLOWED, "medium"),
+        "source_quality": _normalize_enum(
+            cm.get("source_quality"), _SQ_ALLOWED, "medium"
+        ),
         "notes": _escape(cm.get("notes") or ""),
     }
 
     return out
-
-
 
 
 def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
@@ -217,7 +238,9 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
         out["error"] = _escape(src.get("error"))
 
     if "avg_repair_cost_ILS" in src:
-        out["avg_repair_cost_ILS"] = _clamp_int(src.get("avg_repair_cost_ILS"), lo=0, hi=1_000_000, default=0)
+        out["avg_repair_cost_ILS"] = _clamp_int(
+            src.get("avg_repair_cost_ILS"), lo=0, hi=1_000_000, default=0
+        )
 
     # strings
     for k in (
@@ -252,13 +275,19 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
         return out_list
 
     if "common_issues" in src:
-        out["common_issues"] = _sanitize_str_list(src.get("common_issues"), max_items=25)
+        out["common_issues"] = _sanitize_str_list(
+            src.get("common_issues"), max_items=25
+        )
 
     if "recommended_checks" in src:
-        out["recommended_checks"] = _sanitize_str_list(src.get("recommended_checks"), max_items=25)
+        out["recommended_checks"] = _sanitize_str_list(
+            src.get("recommended_checks"), max_items=25
+        )
 
     if "search_queries" in src:
-        out["search_queries"] = _sanitize_str_list(src.get("search_queries"), max_items=10)
+        out["search_queries"] = _sanitize_str_list(
+            src.get("search_queries"), max_items=10
+        )
     if "search_performed" in src:
         out["search_performed"] = bool(src.get("search_performed"))
     if "sources" in src:
@@ -272,7 +301,9 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
         issues_with_costs_out.append(
             {
                 "issue": _escape(row.get("issue")),
-                "avg_cost_ILS": _clamp_int(row.get("avg_cost_ILS"), lo=0, hi=1_000_000, default=0),
+                "avg_cost_ILS": _clamp_int(
+                    row.get("avg_cost_ILS"), lo=0, hi=1_000_000, default=0
+                ),
                 "source": _escape(row.get("source")),
                 "severity": _escape(row.get("severity")),
             }
@@ -296,7 +327,9 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
 
     sanitized_report = None
     if "reliability_report" in src:
-        sanitized_report = sanitize_reliability_report_response(src.get("reliability_report"))
+        sanitized_report = sanitize_reliability_report_response(
+            src.get("reliability_report")
+        )
         out["reliability_report"] = sanitized_report
 
     if "score_breakdown" in src:
@@ -324,7 +357,9 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
     }
     for field_name, allowed_values in optional_calibration_fields.items():
         if field_name in src:
-            out[field_name] = _normalize_optional_enum(src.get(field_name), allowed_values)
+            out[field_name] = _normalize_optional_enum(
+                src.get(field_name), allowed_values
+            )
 
     if "soft_floor_if_no_major_systemic" in src:
         raw_soft_floor = src.get("soft_floor_if_no_major_systemic")
@@ -348,17 +383,21 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
     dropped_keys = set(src.keys()) - set(out.keys())
     if dropped_keys:
         import logging
+
         logger = logging.getLogger(__name__)
         # Get request_id from context if available
         try:
             from flask import has_request_context, g
-            if has_request_context() and hasattr(g, 'request_id'):
+
+            if has_request_context() and hasattr(g, "request_id"):
                 request_id = g.request_id
             else:
                 request_id = "unknown"
         except Exception:
             request_id = "unknown"
-        logger.info(f"[SANITIZATION] Dropped keys in analyze response: {sorted(dropped_keys)} (request_id: {request_id})")
+        logger.info(
+            f"[SANITIZATION] Dropped keys in analyze response: {sorted(dropped_keys)} (request_id: {request_id})"
+        )
 
     return out
 
@@ -438,7 +477,11 @@ def _sanitize_recommended_car(item: Any) -> Dict[str, Any]:
                 out[k] = _clamp_int(v, lo=1990, hi=2100, default=0)
             elif k == "fit_score":
                 out[k] = _clamp_int(v, lo=0, hi=100, default=0)
-            elif "score" in k or "rating" in k or k in {"resale_value", "comfort_features", "suitability"}:
+            elif (
+                "score" in k
+                or "rating" in k
+                or k in {"resale_value", "comfort_features", "suitability"}
+            ):
                 out[k] = _clamp_int(v, lo=0, hi=10, default=0)
             else:
                 out[k] = _clamp_int(v, lo=0, hi=10_000_000, default=0)
@@ -471,7 +514,9 @@ def sanitize_advisor_api_response(payload: Any) -> Dict[str, Any]:
     out["search_queries"] = [_escape(q) for q in queries]
 
     cars = _coerce_list(src.get("recommended_cars"))[:10]
-    out["recommended_cars"] = [_sanitize_recommended_car(c) for c in cars if isinstance(c, dict)]
+    out["recommended_cars"] = [
+        _sanitize_recommended_car(c) for c in cars if isinstance(c, dict)
+    ]
 
     return out
 
@@ -486,8 +531,11 @@ def sanitize_advisor_response(payload: Any) -> Dict[str, Any]:
 # -----------------------------
 
 _CATEGORY_KEY_ALLOWED = {
-    "reliability_risk", "ownership_cost", "practicality_comfort",
-    "driving_performance", "safety",
+    "reliability_risk",
+    "ownership_cost",
+    "practicality_comfort",
+    "driving_performance",
+    "safety",
 }
 _WINNER_ALLOWED = {"car_1", "car_2", "car_3", "tie"}
 
@@ -528,13 +576,15 @@ def sanitize_comparison_narrative(narrative: Any) -> Optional[Dict[str, Any]]:
         why_list = _coerce_list(cat.get("why_it_scored_that_way"))[:3]
         why_out = [_escape(w) for w in why_list]
 
-        cats_out.append({
-            "category_key": cat_key,
-            "title_he": _escape(cat.get("title_he", "")),
-            "winner": winner,
-            "explanations": explanations_out,
-            "why_it_scored_that_way": why_out,
-        })
+        cats_out.append(
+            {
+                "category_key": cat_key,
+                "title_he": _escape(cat.get("title_he", "")),
+                "winner": winner,
+                "explanations": explanations_out,
+                "why_it_scored_that_way": why_out,
+            }
+        )
     out["category_explanations"] = cats_out
 
     # disclaimers
@@ -549,9 +599,7 @@ def sanitize_comparison_narrative(narrative: Any) -> Optional[Dict[str, Any]]:
 # -----------------------------
 
 _LEVEL_ALLOWED = {"low", "medium", "high"}
-_RELIABILITY_REPORT_FINAL_LINE = (
-    "This information highlights areas to verify and is not a substitute for a professional inspection."
-)
+_RELIABILITY_REPORT_FINAL_LINE = "This information highlights areas to verify and is not a substitute for a professional inspection."
 _DEFAULT_RISK_AREAS = [
     {
         "risk_area": "מנוע, גיר ומערכת קירור",
@@ -681,9 +729,7 @@ def _sanitize_key_risk_areas(value: Any) -> list:
             # Support legacy top_risks fields during the report-schema migration.
             risk_area = _escape(row.get("risk_area") or row.get("risk_title") or "")
             why_to_check = _escape(
-                row.get("why_to_check")
-                or row.get("why_it_matters")
-                or ""
+                row.get("why_to_check") or row.get("why_it_matters") or ""
             )
         else:
             risk_area = _escape(row)
@@ -729,8 +775,7 @@ def _sanitize_decision_checklist(value: Any) -> Dict[str, Any]:
         )
         or list(_DEFAULT_DECISION_CHECKLIST["documents_to_verify"]),
         "questions_to_ask_seller": _sanitize_str_list(
-            active_src.get("questions_to_ask_seller")
-            or active_src.get("ask_seller"),
+            active_src.get("questions_to_ask_seller") or active_src.get("ask_seller"),
             max_items=10,
         )
         or list(_DEFAULT_DECISION_CHECKLIST["questions_to_ask_seller"]),
@@ -782,7 +827,9 @@ def sanitize_reliability_report_response(
     Sanitize AI response for the vehicle reliability report (strict JSON schema).
     """
     src = _coerce_dict(response)
-    inferred_missing = list(missing_info) if missing_info else _derive_missing_info(payload)
+    inferred_missing = (
+        list(missing_info) if missing_info else _derive_missing_info(payload)
+    )
     inferred_missing = [_escape(m) for m in inferred_missing][:10]
 
     out: Dict[str, Any] = {}
@@ -881,15 +928,25 @@ def _classify_source_scope(source_items: Sequence[Any]) -> tuple[int, int]:
     for item in source_items:
         if isinstance(item, dict):
             raw = " ".join(
-                str(item.get(part) or "")
-                for part in ("domain", "url", "title")
+                str(item.get(part) or "") for part in ("domain", "url", "title")
             )
         else:
             raw = str(item or "")
         text = raw.strip().lower()
         if not text:
             continue
-        if any(marker in text for marker in (".il", "co.il", "gov.il", "org.il", "ישראל", "israel", "israeli")):
+        if any(
+            marker in text
+            for marker in (
+                ".il",
+                "co.il",
+                "gov.il",
+                "org.il",
+                "ישראל",
+                "israel",
+                "israeli",
+            )
+        ):
             israeli_count += 1
         else:
             global_count += 1
@@ -916,9 +973,7 @@ def _build_information_quality_explanation(
 
     if missing_critical_info:
         notes.append(
-            "חסרים פרטים מהותיים כמו "
-            + ", ".join(missing_critical_info[:3])
-            + "."
+            "חסרים פרטים מהותיים כמו " + ", ".join(missing_critical_info[:3]) + "."
         )
 
     clean_uncertainties = _dedupe_preserve_order(known_uncertainties, max_items=3)
@@ -939,7 +994,9 @@ def derive_information_status(
     report = (
         dict(sanitized_report)
         if isinstance(sanitized_report, dict)
-        else sanitize_reliability_report_response(src.get("reliability_report"), payload=payload)
+        else sanitize_reliability_report_response(
+            src.get("reliability_report"), payload=payload
+        )
         if src.get("reliability_report") is not None
         else {}
     )
@@ -953,7 +1010,11 @@ def derive_information_status(
             break
     report_missing = [
         _escape(item)
-        for item in (report.get("missing_info") if isinstance(report.get("missing_info"), list) else [])
+        for item in (
+            report.get("missing_info")
+            if isinstance(report.get("missing_info"), list)
+            else []
+        )
         if _escape(item) not in _NONCRITICAL_REQUEST_MISSING_LABELS
     ]
     flags_missing = _coerce_list(risk_signals.get("missing_data_flags"))
@@ -965,7 +1026,11 @@ def derive_information_status(
 
     explicit_missing = _coerce_list(src.get("missing_critical_info"))
     missing_candidates = (
-        (["מקורות חיצוניים מספקים לגבי הדגם/השנה הספציפיים"] if len(source_items) < 2 else [])
+        (
+            ["מקורות חיצוניים מספקים לגבי הדגם/השנה הספציפיים"]
+            if len(source_items) < 2
+            else []
+        )
         + explicit_missing
         + report_missing
         + flags_missing
@@ -1004,7 +1069,9 @@ def derive_information_status(
     derived_quality = "טובה"
     if len(source_items) < 2 or len(missing_critical_info) >= 4:
         derived_quality = "חסרה"
-    elif len(source_items) < 4 or len(missing_critical_info) >= 2 or known_uncertainties:
+    elif (
+        len(source_items) < 4 or len(missing_critical_info) >= 2 or known_uncertainties
+    ):
         derived_quality = "חלקית"
 
     data_quality_label = _sanitize_hebrew_label(
@@ -1060,12 +1127,10 @@ def derive_information_status(
 # Research refactor 2026-04-25
 # -----------------------------
 
-import re as _re_mod
-
 _PII_PATTERNS = [
-    _re_mod.compile(r'\b\d{2,3}-?\d{2,3}-?\d{2,3}\b'),  # Israeli license plate
-    _re_mod.compile(r'\b0\d{1,2}-?\d{7}\b'),  # Israeli phone
-    _re_mod.compile(r'\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'),  # email
+    re.compile(r"\b\d{2,3}-?\d{2,3}-?\d{2,3}\b"),  # Israeli license plate
+    re.compile(r"\b0\d{1,2}-?\d{7}\b"),  # Israeli phone
+    re.compile(r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b"),  # email
 ]
 
 
@@ -1085,19 +1150,31 @@ def sanitize_profile_for_storage(profile_json: dict) -> dict:
     Returns a new dict with only allowed fields.
     """
     allowed_keys = {
-        "budget", "min_year", "max_year", "fuel_preference", "transmission_preference",
-        "main_use", "annual_km_bucket", "body_style", "family_size_bucket",
-        "cargo_need", "maintenance_sensitivity", "comfort_importance",
-        "performance_importance", "reliability_importance", "safety_importance",
-        "age_bucket", "license_years_bucket",
+        "budget",
+        "min_year",
+        "max_year",
+        "fuel_preference",
+        "transmission_preference",
+        "main_use",
+        "annual_km_bucket",
+        "body_style",
+        "family_size_bucket",
+        "cargo_need",
+        "maintenance_sensitivity",
+        "comfort_importance",
+        "performance_importance",
+        "reliability_importance",
+        "safety_importance",
+        "age_bucket",
+        "license_years_bucket",
     }
-    
+
     result = {}
-    
+
     for key in allowed_keys:
         if key in profile_json:
             result[key] = profile_json[key]
-    
+
     # Convert exact age to bucket
     if "driver_age" in profile_json or "age" in profile_json:
         age = profile_json.get("driver_age") or profile_json.get("age")
@@ -1116,7 +1193,7 @@ def sanitize_profile_for_storage(profile_json: dict) -> dict:
                     result["age_bucket"] = "55+"
             except (ValueError, TypeError):
                 pass
-    
+
     # Convert exact license_years to bucket
     if "license_years" in profile_json:
         lic_years = profile_json["license_years"]
@@ -1133,7 +1210,7 @@ def sanitize_profile_for_storage(profile_json: dict) -> dict:
                     result["license_years_bucket"] = "10+"
             except (ValueError, TypeError):
                 pass
-    
+
     return result
 
 
@@ -1142,12 +1219,19 @@ def sanitize_context_for_ai(context: dict) -> dict:
     Sanitize context for AI reasoning. Keeps only reasoning-relevant keys.
     """
     allowed_keys = {
-        "current_or_previous_vehicle", "ownership_duration_bucket", "annual_km_bucket",
-        "main_use", "maintenance_sensitivity", "had_major_faults", "satisfaction_score",
-        "would_buy_again", "actual_fuel_consumption_bucket", "family_size_bucket",
+        "current_or_previous_vehicle",
+        "ownership_duration_bucket",
+        "annual_km_bucket",
+        "main_use",
+        "maintenance_sensitivity",
+        "had_major_faults",
+        "satisfaction_score",
+        "would_buy_again",
+        "actual_fuel_consumption_bucket",
+        "family_size_bucket",
         "cargo_need",
     }
-    
+
     result = {}
     for key in allowed_keys:
         if key in context:
@@ -1156,7 +1240,7 @@ def sanitize_context_for_ai(context: dict) -> dict:
             if isinstance(val, str):
                 val = val[:64]
             result[key] = val
-    
+
     return result
 
 
@@ -1166,59 +1250,117 @@ def sanitize_research_answer(question_key: str, answer):
     Raises ValidationError if invalid.
     """
     from app.utils.validation import ValidationError
-    
+
     # Define all allowed question keys
     allowed_keys = {
         # Owner profile flow
-        "has_current_vehicle", "make", "model", "year", "fuel_type", "transmission",
-        "mileage_bucket", "ownership_duration_bucket", "had_major_faults",
-        "satisfaction_score", "would_buy_again", "actual_fuel_consumption_bucket",
-        "main_use", "annual_km_bucket", "notes",
+        "has_current_vehicle",
+        "make",
+        "model",
+        "year",
+        "fuel_type",
+        "transmission",
+        "mileage_bucket",
+        "ownership_duration_bucket",
+        "had_major_faults",
+        "satisfaction_score",
+        "would_buy_again",
+        "actual_fuel_consumption_bucket",
+        "main_use",
+        "annual_km_bucket",
+        "notes",
         # Reliability flow
-        "ownership_status", "garage_type",
+        "ownership_status",
+        "garage_type",
         # Compare flow
         "subject_vehicle_slot",
         # Advisor flow
-        "sale_timeline_bucket", "ask_to_sale_gap_bucket", "purchase_reference_type",
-        "purchase_delta_bucket", "charging_location",
+        "sale_timeline_bucket",
+        "ask_to_sale_gap_bucket",
+        "purchase_reference_type",
+        "purchase_delta_bucket",
+        "charging_location",
     }
-    
+
     if question_key not in allowed_keys:
         raise ValidationError(question_key, f"Unknown question key: {question_key}")
-    
+
     # Enum validation
     enum_map = {
         "ownership_status": {"owner", "pre_purchase_research"},
         "garage_type": {"authorized", "independent", "both"},
         "subject_vehicle_slot": {"car_1", "car_2", "car_3", "unknown"},
-        "sale_timeline_bucket": {"under_14_days", "14_to_30_days", "31_to_60_days", "over_60_days", "not_sold"},
-        "ask_to_sale_gap_bucket": {"under_5_pct", "5_to_10_pct", "10_to_15_pct", "over_15_pct", "not_sold"},
+        "sale_timeline_bucket": {
+            "under_14_days",
+            "14_to_30_days",
+            "31_to_60_days",
+            "over_60_days",
+            "not_sold",
+        },
+        "ask_to_sale_gap_bucket": {
+            "under_5_pct",
+            "5_to_10_pct",
+            "10_to_15_pct",
+            "over_15_pct",
+            "not_sold",
+        },
         "purchase_reference_type": {"price_list", "published_ad"},
-        "purchase_delta_bucket": {"below_5_pct", "within_5_pct", "5_to_10_pct", "over_10_pct", "unknown"},
+        "purchase_delta_bucket": {
+            "below_5_pct",
+            "within_5_pct",
+            "5_to_10_pct",
+            "over_10_pct",
+            "unknown",
+        },
         "charging_location": {"home", "work", "public", "mixed"},
-        "mileage_bucket": {"0-50k", "50k-100k", "100k-150k", "150k-200k", "200k+", "unknown"},
-        "ownership_duration_bucket": {"less_than_6_months", "6_12_months", "1_2_years", "2_4_years", "4_plus_years"},
-        "annual_km_bucket": {"0-10000", "10000-15000", "15000-20000", "20000-30000", "30000+"},
-        "actual_fuel_consumption_bucket": {"very_low", "low", "average", "high", "very_high"},
+        "mileage_bucket": {
+            "0-50k",
+            "50k-100k",
+            "100k-150k",
+            "150k-200k",
+            "200k+",
+            "unknown",
+        },
+        "ownership_duration_bucket": {
+            "less_than_6_months",
+            "6_12_months",
+            "1_2_years",
+            "2_4_years",
+            "4_plus_years",
+        },
+        "annual_km_bucket": {
+            "0-10000",
+            "10000-15000",
+            "15000-20000",
+            "20000-30000",
+            "30000+",
+        },
+        "actual_fuel_consumption_bucket": {
+            "very_low",
+            "low",
+            "average",
+            "high",
+            "very_high",
+        },
         "fuel_type": {"gasoline", "diesel", "hybrid", "electric", "lpg", "other"},
         "transmission": {"manual", "automatic", "cvt", "dual_clutch", "other"},
         "main_use": {"city", "highway", "mixed", "other"},
     }
-    
+
     if question_key in enum_map:
         if not isinstance(answer, str):
             raise ValidationError(question_key, "Expected string value")
         if answer not in enum_map[question_key]:
             raise ValidationError(question_key, f"Invalid value: {answer}")
         return answer
-    
+
     # Boolean validation
     bool_keys = {"has_current_vehicle", "had_major_faults", "would_buy_again"}
     if question_key in bool_keys:
         if not isinstance(answer, bool):
             raise ValidationError(question_key, "Expected boolean value")
         return answer
-    
+
     # Integer validation (satisfaction_score, year)
     if question_key == "satisfaction_score":
         try:
@@ -1228,16 +1370,18 @@ def sanitize_research_answer(question_key: str, answer):
             return val
         except (ValueError, TypeError):
             raise ValidationError(question_key, "satisfaction_score must be an integer")
-    
+
     if question_key == "year":
         try:
             val = int(answer)
             if val < 1900 or val > 2030:
-                raise ValidationError(question_key, "year must be between 1900 and 2030")
+                raise ValidationError(
+                    question_key, "year must be between 1900 and 2030"
+                )
             return val
         except (ValueError, TypeError):
             raise ValidationError(question_key, "year must be an integer")
-    
+
     # String validation (make, model, notes)
     if question_key in {"make", "model"}:
         if not isinstance(answer, str):
@@ -1247,7 +1391,7 @@ def sanitize_research_answer(question_key: str, answer):
         if _contains_pii_strings(answer):
             raise ValidationError(question_key, "Contains prohibited information")
         return answer
-    
+
     # Free text (notes) - max 200 chars and PII check
     if question_key == "notes":
         if not isinstance(answer, str):
@@ -1255,8 +1399,11 @@ def sanitize_research_answer(question_key: str, answer):
         if len(answer) > 200:
             raise ValidationError(question_key, "Notes too long (max 200 chars)")
         if _contains_pii_strings(answer):
-            raise ValidationError(question_key, "Notes contain prohibited information (license plates, phone numbers, emails)")
+            raise ValidationError(
+                question_key,
+                "Notes contain prohibited information (license plates, phone numbers, emails)",
+            )
         return answer
-    
+
     # Default: accept as-is for unknown keys (shouldn't reach here due to allowlist)
     return answer
