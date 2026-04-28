@@ -124,8 +124,9 @@
     }
 
     function normalizeInfoReview(data) {
-        const report = (data && typeof data.reliability_report === 'object' && data.reliability_report) || {};
-        const checklist = (report && typeof report.what_must_be_checked_before_a_decision === 'object' && report.what_must_be_checked_before_a_decision) || {};
+        const asObject = (value) => (value && typeof value === 'object' ? value : {});
+        const report = asObject(data?.reliability_report);
+        const checklist = asObject(report.what_must_be_checked_before_a_decision);
         const missingInfo = Array.isArray(data?.missing_critical_info) ? data.missing_critical_info.filter(Boolean) : [];
         const verificationFocus = Array.isArray(data?.verification_focus) ? data.verification_focus.filter(Boolean) : [];
         const fallbackChecks = []

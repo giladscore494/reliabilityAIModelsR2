@@ -655,6 +655,7 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
 אל תוסיף הסברים מחוץ ל-JSON.
 אסור לנסח verdict, המלצת קנייה, או "שורה תחתונה".
 אסור להחזיר מפתחות score, risk_score, reliability_score, banner, estimated_reliability, base_score_calculated.
+שמור את הרשימה הזו מסונכרנת עם _DEPRECATED_SCORE_KEYS בקובץ analyze_service.py.
 אסור להחזיר בתוך reliability_report ציון, confidence, verdict, next step החלטי, או headline judgment.
 אסור להשתמש בניסוחים כגון "recommended", "good choice", "bad choice", "reliable", "worth it".
 Missing info שסיפק המשתמש: {missing_block}

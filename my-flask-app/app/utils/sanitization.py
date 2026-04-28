@@ -883,11 +883,13 @@ def derive_information_status(
         else {}
     )
     risk_signals = _coerce_dict(src.get("risk_signals"))
-    request_missing = [
-        _escape(item)
-        for item in _derive_missing_info(payload)
-        if _escape(item) in _CRITICAL_REQUEST_MISSING_LABELS
-    ][:10]
+    request_missing = []
+    for item in _derive_missing_info(payload):
+        escaped_item = _escape(item)
+        if escaped_item in _CRITICAL_REQUEST_MISSING_LABELS:
+            request_missing.append(escaped_item)
+        if len(request_missing) >= 10:
+            break
     report_missing = [
         _escape(item)
         for item in (report.get("missing_info") if isinstance(report.get("missing_info"), list) else [])

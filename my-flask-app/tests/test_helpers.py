@@ -82,7 +82,7 @@ class AnalyzeSanitizationTests(unittest.TestCase):
         self.assertNotIn("timeline_plan", sanitized)
         self.assertNotIn("sim_model", sanitized)
 
-    def test_sanitize_analyze_response_keeps_information_review_fields(self):
+    def test_sanitize_analyze_response_keeps_new_information_review_fields(self):
         raw = {
             "ok": True,
             "data_quality_label": "טובה",

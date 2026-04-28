@@ -190,6 +190,16 @@ _NEGLECT_MARKERS_WORD = (
     "abuse",
     "neglect",
 )
+_DEPRECATED_SCORE_KEYS = (
+    "base_score_calculated",
+    "estimated_reliability",
+    "model_reliability_score",
+    "model_reliability_label",
+    "deal_risk_score",
+    "deal_risk_label",
+    "score_0_100",
+    "banner_he",
+)
 
 
 def _safe_int(val: Any, lo: int = 0, hi: int = 1000, default: int = 0) -> int:
@@ -707,16 +717,7 @@ def handle_analyze_request(
             ai_output['mileage_note'] = det.get("mileage_note")
             ai_output['km_warn'] = False
             ai_output.pop("reliability_score", None)
-            for deprecated_key in (
-                "base_score_calculated",
-                "estimated_reliability",
-                "model_reliability_score",
-                "model_reliability_label",
-                "deal_risk_score",
-                "deal_risk_label",
-                "score_0_100",
-                "banner_he",
-            ):
+            for deprecated_key in _DEPRECATED_SCORE_KEYS:
                 ai_output.pop(deprecated_key, None)
             sanitized_output = sanitize_analyze_response(ai_output)
 
