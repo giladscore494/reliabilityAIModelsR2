@@ -433,6 +433,21 @@ def handle_analyze_request(
 
     response_payload = dict(sanitized_output)
     response_payload["history_id"] = history_id
+    response_payload["request_id"] = get_request_id()
+    report_payload = (
+        response_payload.get("reliability_report")
+        if isinstance(response_payload.get("reliability_report"), dict)
+        else {}
+    )
+    for field_name in (
+        "based_on_available_information",
+        "key_risk_areas_to_examine",
+        "what_must_be_checked_before_a_decision",
+        "known_uncertainties",
+        "estimated_cost_sensitivity",
+    ):
+        if field_name in report_payload and field_name not in response_payload:
+            response_payload[field_name] = report_payload[field_name]
 
     # PostHog: analyze_completed
     try:

@@ -126,9 +126,20 @@
     function normalizeInfoReview(data) {
         const asObject = (value) => (value && typeof value === 'object' ? value : {});
         const report = asObject(data?.reliability_report);
-        const checklist = asObject(report.what_must_be_checked_before_a_decision);
+        const checklist = asObject(data?.what_must_be_checked_before_a_decision || report.what_must_be_checked_before_a_decision);
         const missingInfo = Array.isArray(data?.missing_critical_info) ? data.missing_critical_info.filter(Boolean) : [];
         const verificationFocus = Array.isArray(data?.verification_focus) ? data.verification_focus.filter(Boolean) : [];
+        const riskAreas = Array.isArray(data?.key_risk_areas_to_examine || report.key_risk_areas_to_examine)
+            ? (data?.key_risk_areas_to_examine || report.key_risk_areas_to_examine).filter(Boolean)
+            : [];
+        const knownUncertainties = Array.isArray(data?.known_uncertainties || report.known_uncertainties)
+            ? (data?.known_uncertainties || report.known_uncertainties).filter(Boolean)
+            : [];
+        const estimatedCostSensitivity = Array.isArray(data?.estimated_cost_sensitivity || report.estimated_cost_sensitivity)
+            ? (data?.estimated_cost_sensitivity || report.estimated_cost_sensitivity).filter(Boolean)
+            : [];
+        const basedOnAvailableInformation =
+            data?.based_on_available_information || report.based_on_available_information || '';
         const fallbackChecks = []
             .concat(Array.isArray(checklist.mechanical_inspection_points) ? checklist.mechanical_inspection_points : [])
             .concat(Array.isArray(checklist.documents_to_verify) ? checklist.documents_to_verify : [])
@@ -139,16 +150,25 @@
             .slice(0, 5);
         return {
             report,
+            checklist,
             dataQualityLabel: data?.data_quality_label || 'חלקית',
             decisionReadiness: data?.decision_readiness || 'נדרש אימות נוסף',
             missingInfo,
             verificationFocus,
+            riskAreas,
+            knownUncertainties,
+            estimatedCostSensitivity,
+            basedOnAvailableInformation,
             checksToVerify,
-            fixedSystemUnknowns: Array.isArray(data?.fixed_system_unknowns) ? data.fixed_system_unknowns.filter(Boolean) : [],
-            informationQualityExplanation: data?.information_quality_explanation || '',
-            sourceCount: Number.isFinite(Number(data?.source_count)) ? Number(data.source_count) : 0,
-            sourceScopeLabel: data?.source_scope_label || 'לא זוהה',
-            weaklySourced: Boolean(data?.weakly_sourced),
+            sources: Array.isArray(data?.sources) ? data.sources.filter(Boolean) : [],
+        };
+    }
+
+    function normalizeAnalyzeResponse(payload) {
+        const result = payload?.result || payload?.report || payload?.analysis || payload?.data || payload;
+        return {
+            requestId: payload?.request_id || result?.request_id || null,
+            result,
         };
     }
 
@@ -305,6 +325,73 @@
         resultReadyPanel?.classList.add('hidden');
         closeReliabilityResult();
         resetReliabilityResearchCard();
+        clearAnalyzeError();
+    }
+
+    function clearAnalyzeError() {
+        analyzeErrorPanel?.classList.add('hidden');
+        if (analyzeErrorTitle) analyzeErrorTitle.textContent = 'אירעה שגיאה';
+        if (analyzeErrorMessage) analyzeErrorMessage.textContent = '';
+        if (analyzeErrorMeta) analyzeErrorMeta.innerHTML = '';
+        if (analyzeErrorDebug) {
+            analyzeErrorDebug.textContent = '';
+            analyzeErrorDebug.classList.add('hidden');
+        }
+    }
+
+    function showAnalyzeError(message, meta = {}) {
+        const items = [];
+        if (meta.requestId) {
+            items.push(['Request ID', meta.requestId]);
+        }
+        if (meta.status !== undefined && meta.status !== null && meta.status !== '') {
+            items.push(['HTTP', String(meta.status)]);
+        }
+        if (meta.type) {
+            items.push(['Type', meta.type]);
+        }
+
+        closeReliabilityResult();
+        hideReliabilityResearchCard();
+        resultReadyPanel?.classList.add('hidden');
+        resultsContainer?.classList.add('hidden');
+
+        if (analyzeErrorTitle) {
+            analyzeErrorTitle.textContent = meta.title || 'אירעה שגיאה בניתוח';
+        }
+        if (analyzeErrorMessage) {
+            analyzeErrorMessage.textContent = message;
+        }
+        if (analyzeErrorMeta) {
+            analyzeErrorMeta.innerHTML = items
+                .map(([label, value]) => `
+                    <div class="rounded-2xl border border-red-500/20 bg-slate-950/40 p-3">
+                        <dt class="text-xs uppercase tracking-wide text-red-200/70">${escapeHtml(label)}</dt>
+                        <dd class="mt-1 font-semibold text-white">${escapeHtml(value)}</dd>
+                    </div>
+                `)
+                .join('');
+        }
+
+        const debugLines = [];
+        if (meta.details) {
+            debugLines.push(`details: ${meta.details}`);
+        }
+        if (ANALYZE_DEBUG_MODE && meta.rawPreview) {
+            debugLines.push(`raw_preview: ${meta.rawPreview}`);
+        }
+        if (analyzeErrorDebug) {
+            if (debugLines.length) {
+                analyzeErrorDebug.textContent = debugLines.join('\n');
+                analyzeErrorDebug.classList.remove('hidden');
+            } else {
+                analyzeErrorDebug.textContent = '';
+                analyzeErrorDebug.classList.add('hidden');
+            }
+        }
+
+        analyzeErrorPanel?.classList.remove('hidden');
+        analyzeErrorPanel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     const makeSelect = document.getElementById('make');
@@ -314,6 +401,11 @@
     const submitBtn = document.getElementById('submit-button');
     const resultsContainer = document.getElementById('results-container');
     const resultReadyPanel = document.getElementById('reliabilityResultReadyPanel');
+    const analyzeErrorPanel = document.getElementById('analyze-error-panel');
+    const analyzeErrorTitle = document.getElementById('analyze-error-title');
+    const analyzeErrorMessage = document.getElementById('analyze-error-message');
+    const analyzeErrorMeta = document.getElementById('analyze-error-meta');
+    const analyzeErrorDebug = document.getElementById('analyze-error-debug');
     const openResultButton = document.getElementById('reliabilityOpenResultButton');
     const legalCheckbox = document.getElementById('legal-confirm');
     const legalError = document.getElementById('legal-error');
@@ -348,6 +440,16 @@
     let lastAnalyzePayload = null;
     let reliabilityResearchTrackedForHistory = null;
     let resultReadyPanelTrackedForHistory = null;
+    let analyzeInFlight = false;
+    let currentAnalyzeToken = 0;
+    const ANALYZE_DEBUG_MODE = (() => {
+        try {
+            const params = new URLSearchParams(window.location.search || '');
+            return params.get('debug') === '1' || ['localhost', '127.0.0.1'].includes(window.location.hostname);
+        } catch (err) {
+            return false;
+        }
+    })();
 
     const summarySimpleEl = document.getElementById('summary-simple-text');
     const summaryDetailedEl = document.getElementById('summary-detailed-text');
@@ -586,23 +688,18 @@
     }
 
 
-    function renderResults(data, options = {}) {
+    function renderAnalyzeResult(data, options = {}) {
         if (!resultsContainer) return;
-
-        if (data && data.ok === false) {
-            alert(data.message || data.error || 'שגיאת מודל: פלט לא תקין.');
-            return;
-        }
         const safe = (v) => escapeHtml(v);
+        const infoReview = normalizeInfoReview(data);
+        const checklist = infoReview.checklist || {};
+
+        clearAnalyzeError();
 
         if (scoreContainer) {
             scoreContainer.innerHTML = '';
-            const infoReview = normalizeInfoReview(data);
             const sourceTag = data.source_tag || '';
             const mileageNote = data.mileage_note || '';
-            const contextText = infoReview.report.based_on_available_information || '';
-            const sourceTransparency = `נמצאו ${infoReview.sourceCount} מקורות · סוג מקורות מזוהה: ${infoReview.sourceScopeLabel}`;
-            const escapedSourceTransparency = safe(sourceTransparency);
 
             const wrapper = document.createElement('div');
             wrapper.className = 'w-full rounded-3xl border border-slate-700/70 bg-slate-900/40 p-5 md:p-6 text-right';
@@ -632,10 +729,10 @@
             systemLine.textContent = 'המערכת לא קובעת אם לקנות את הרכב, אלא מציפה נקודות לבדיקה.';
             wrapper.appendChild(systemLine);
 
-            if (contextText) {
+            if (infoReview.basedOnAvailableInformation) {
                 const detail = document.createElement('p');
                 detail.className = 'mt-3 text-sm text-slate-400 leading-relaxed';
-                detail.textContent = contextText;
+                detail.textContent = infoReview.basedOnAvailableInformation;
                 wrapper.appendChild(detail);
             }
 
@@ -655,42 +752,17 @@
                 wrapper.appendChild(focusList);
             }
 
-            const transparency = document.createElement('div');
-            transparency.className = 'mt-4 rounded-2xl border border-slate-700/70 bg-slate-950/40 p-4 text-sm text-slate-200';
-            transparency.innerHTML = `
-                <div class="font-semibold text-white">שקיפות מקורות</div>
-                <div class="mt-2">${escapedSourceTransparency}</div>
-                ${infoReview.weaklySourced ? '<div class="mt-2 text-amber-300">פחות משני מקורות נמצאו ולכן הניתוח מבוסס חלש.</div>' : ''}
-            `;
-            wrapper.appendChild(transparency);
-
-            if (infoReview.informationQualityExplanation) {
-                const explanation = document.createElement('div');
-                explanation.className = 'mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100';
-                explanation.innerHTML = `
-                    <div class="font-semibold text-white">למה איכות המידע אינה מלאה</div>
-                    <div class="mt-2">${safe(infoReview.informationQualityExplanation)}</div>
+            if (infoReview.knownUncertainties.length) {
+                const unknownsBlock = document.createElement('div');
+                unknownsBlock.className = 'mt-4 rounded-2xl border border-slate-700/70 bg-slate-950/40 p-4';
+                unknownsBlock.innerHTML = `
+                    <div class="font-semibold text-white">אי-ודאויות ידועות</div>
+                    <ul class="mt-2 list-disc list-inside space-y-1 text-sm text-slate-200">
+                        ${infoReview.knownUncertainties.slice(0, 4).map(item => `<li>${safe(item)}</li>`).join('')}
+                    </ul>
                 `;
-                wrapper.appendChild(explanation);
+                wrapper.appendChild(unknownsBlock);
             }
-
-            const unknowns = infoReview.fixedSystemUnknowns.length ? infoReview.fixedSystemUnknowns : [
-                'מצב מכני בפועל',
-                'תאונות שלא דווחו',
-                'איכות טיפולים שבוצעו',
-                'נהיגה אגרסיבית בעבר',
-                'תיקונים לא מתועדים',
-                'מצב גיר/מנוע בזמן אמת',
-            ];
-            const unknownsBlock = document.createElement('div');
-            unknownsBlock.className = 'mt-4 rounded-2xl border border-slate-700/70 bg-slate-950/40 p-4';
-            unknownsBlock.innerHTML = `
-                <div class="font-semibold text-white">מה המערכת לא יודעת</div>
-                <ul class="mt-2 list-disc list-inside space-y-1 text-sm text-slate-200">
-                    ${unknowns.map(item => `<li>${safe(item)}</li>`).join('')}
-                </ul>
-            `;
-            wrapper.appendChild(unknownsBlock);
 
             if (sourceTag) {
                 const p = document.createElement('p');
@@ -709,97 +781,72 @@
             scoreContainer.appendChild(wrapper);
         }
 
-        // סיכומים
         if (summarySimpleEl) {
-            summarySimpleEl.textContent = (data.reliability_summary_simple || '').trim() || 'אין סיכום פשוט זמין.';
+            summarySimpleEl.textContent = (infoReview.basedOnAvailableInformation || '').trim() || 'אין סיכום זמין.';
         }
         if (summaryDetailedEl) {
-            summaryDetailedEl.textContent = (data.reliability_summary || '').trim() || 'אין סיכום מקצועי זמין.';
+            const detailLines = [
+                `מצב הבדיקה: ${infoReview.decisionReadiness}`,
+                infoReview.missingInfo.length ? `מידע קריטי חסר: ${infoReview.missingInfo.join(' • ')}` : '',
+                infoReview.verificationFocus.length ? `מוקדי אימות: ${infoReview.verificationFocus.join(' • ')}` : '',
+            ].filter(Boolean);
+            summaryDetailedEl.textContent = detailLines.join('\n') || 'אין סיכום מקצועי זמין.';
         }
         if (summaryDetailedBlock && !summaryDetailedBlock.classList.contains('hidden')) {
             // להשאיר פתוח אם המשתמש כבר פתח
         }
 
-        // תקלות נפוצות
         if (faultsContainer) {
-            const arr = Array.isArray(data.common_issues) ? data.common_issues : [];
-            const checks = Array.isArray(data.recommended_checks) ? data.recommended_checks : [];
+            const arr = infoReview.riskAreas;
             let html = '';
             if (arr.length) {
-                html += '<h4 class="text-base font-semibold text-white mb-2">תקלות נפוצות על פי הנתונים</h4>';
+                html += '<h4 class="text-base font-semibold text-white mb-2">תחומי סיכון מרכזיים לבדיקה</h4>';
                 html += '<ul class="list-disc list-inside space-y-1 text-sm text-slate-200">';
-                html += arr.map(x => `<li>${safe(x)}</li>`).join('');
+                html += arr.map(item => {
+                    if (item && typeof item === 'object') {
+                        return `<li><span class="font-semibold">${safe(item.risk_area || '')}</span>${item.why_to_check ? ` – ${safe(item.why_to_check)}` : ''}</li>`;
+                    }
+                    return `<li>${safe(item)}</li>`;
+                }).join('');
                 html += '</ul>';
             } else {
-                html += '<p class="text-sm text-slate-400">לא דווחו תקלות נפוצות ספציפיות לדגם הזה בקילומטראז׳ הנתון.</p>';
-            }
-            if (checks.length) {
-                html += '<h4 class="mt-4 text-sm font-semibold text-white">בדיקות מומלצות לפני החלטה</h4>';
-                html += '<ul class="list-disc list-inside space-y-1 text-sm text-slate-200">';
-                html += checks.map(x => `<li>${safe(x)}</li>`).join('');
-                html += '</ul>';
+                html += '<p class="text-sm text-slate-400">לא התקבלו תחומי סיכון מפורטים.</p>';
             }
             faultsContainer.innerHTML = html;
         }
 
-        // עלויות
         if (costsContainer) {
-            const avg = data.avg_repair_cost_ILS;
-            const list = Array.isArray(data.issues_with_costs) ? data.issues_with_costs : [];
+            const list = infoReview.estimatedCostSensitivity;
             let html = '';
-            if (avg !== undefined && avg !== null && avg !== '') {
-                html += `<p class="text-sm text-slate-300 mb-3">עלות תיקון ממוצעת משוערת: <span class="font-semibold">${safe(avg)} ₪</span></p>`;
-            }
             if (list.length) {
-                html += '<div class="space-y-2">';
-                html += list.map(row => {
-                    const issue = safe(row.issue || '');
-                    const cost = safe(row.avg_cost_ILS || '');
-                    const severity = safe(row.severity || '');
-                    const src = safe(row.source || '');
-                    return `
-                        <div class="flex flex-wrap items-center justify-between gap-2 text-sm bg-slate-900/40 border border-slate-700/70 rounded-xl px-3 py-2">
-                            <div class="flex-1">
-                                <div class="font-semibold text-slate-100">${issue}</div>
-                                <div class="text-[11px] text-slate-400">${src}</div>
-                            </div>
-                            <div class="flex flex-col items-end text-xs text-slate-200">
-                                <span class="font-bold">${cost} ₪</span>
-                                <span class="mt-0.5 px-2 py-0.5 rounded-full border border-slate-600 text-[11px]">${severity}</span>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-                html += '</div>';
+                html += '<h4 class="text-base font-semibold text-white mb-2">רגישות עלויות משוערת</h4>';
+                html += '<ul class="list-disc list-inside space-y-1 text-sm text-slate-200">';
+                html += list.map(item => `<li>${safe(item)}</li>`).join('');
+                html += '</ul>';
             } else {
-                html += '<p class="text-sm text-slate-400">אין פירוט עלויות ספציפי, אך ניתן להניח עלויות תחזוקה ממוצעות בקטגוריה.</p>';
+                html += '<p class="text-sm text-slate-400">לא התקבל פירוט על רגישות העלויות.</p>';
             }
             costsContainer.innerHTML = html;
         }
 
-        // מתחרים
         if (competitorsContainer) {
-            const arr = Array.isArray(data.common_competitors_brief) ? data.common_competitors_brief : [];
+            const arr = infoReview.knownUncertainties;
             let html = '';
             if (arr.length) {
-                html += '<p class="text-sm text-slate-300 mb-3">דגמים נוספים שכדאי לבדוק מבחינת תחזוקה כללית ואופי שימוש דומה:</p>';
+                html += '<p class="text-sm text-slate-300 mb-3">נקודות שבהן עדיין חסר מידע או נדרש אימות נוסף:</p>';
                 html += '<ul class="space-y-2 text-sm text-slate-200">';
-                html += arr.map(c => `
-                    <li class="bg-slate-900/40 border border-slate-700/70 rounded-xl px-3 py-2">
-                        <span class="font-semibold">${safe(c.model || '')}</span>
-                        <span class="text-slate-300"> – ${safe(c.brief_summary || '')}</span>
-                    </li>
+                html += arr.map(item => `
+                    <li class="bg-slate-900/40 border border-slate-700/70 rounded-xl px-3 py-2">${safe(item)}</li>
                 `).join('');
                 html += '</ul>';
             } else {
-                html += '<p class="text-sm text-slate-400">לא הוגדרו מתחרים ספציפיים לדגם זה.</p>';
+                html += '<p class="text-sm text-slate-400">לא דווחו אי-ודאויות נוספות.</p>';
             }
             competitorsContainer.innerHTML = html;
         }
 
-        // מקורות
         if (sourcesListEl && sourcesBlockEl) {
-            const sources = Array.isArray(data.sources) ? data.sources : [];
+            const sources = infoReview.sources;
             sourcesListEl.innerHTML = '';
             if (!sources.length) {
                 sourcesBlockEl.classList.add('hidden');
@@ -820,34 +867,27 @@
             }
         }
 
-        // דוח אמינות
         if (reportContainer) {
-            const rep = data.reliability_report || {};
+            const riskAreas = infoReview.riskAreas;
+            const uncertainties = infoReview.knownUncertainties;
+            const costSensitivity = infoReview.estimatedCostSensitivity;
             let html = '';
-            if (rep.available === false) {
-                html = '<p class="text-sm text-slate-400">דוח אמינות לא זמין לפלט זה (MISSING_OR_INVALID).</p>';
-            } else if (Object.keys(rep).length === 0) {
-                html = '<p class="text-sm text-slate-400">הדוח לא סופק על ידי המודל.</p>';
+            if (
+                !infoReview.basedOnAvailableInformation &&
+                !riskAreas.length &&
+                !uncertainties.length &&
+                !costSensitivity.length &&
+                !Object.keys(checklist).length
+            ) {
+                html = '<p class="text-sm text-slate-400">לא התקבלו פרטי ניתוח להצגה.</p>';
             } else {
-                const riskAreas = Array.isArray(rep.key_risk_areas_to_examine) ? rep.key_risk_areas_to_examine : [];
-                const checklist = rep.what_must_be_checked_before_a_decision || {};
-                const uncertainties = Array.isArray(rep.known_uncertainties) ? rep.known_uncertainties : [];
-                const costSensitivity = Array.isArray(rep.estimated_cost_sensitivity) ? rep.estimated_cost_sensitivity : [];
-                const unknowns = infoReview.fixedSystemUnknowns.length ? infoReview.fixedSystemUnknowns : [
-                    'מצב מכני בפועל',
-                    'תאונות שלא דווחו',
-                    'איכות טיפולים שבוצעו',
-                    'נהיגה אגרסיבית בעבר',
-                    'תיקונים לא מתועדים',
-                    'מצב גיר/מנוע בזמן אמת',
-                ];
                 html += `
                     <div class="space-y-3">
-                        <p class="text-slate-200 text-sm">${safe(rep.based_on_available_information || '')}</p>
+                        <p class="text-slate-200 text-sm">${safe(infoReview.basedOnAvailableInformation || '')}</p>
                         <div>
                             <h4 class="text-sm font-semibold text-white mb-1">תחומי סיכון מרכזיים לבדיקה</h4>
                             <ul class="list-disc list-inside text-sm text-slate-200 space-y-1">
-                                ${riskAreas.slice(0,6).map(r => `<li><span class="font-semibold">${safe(r.risk_area||'')}</span>${r.why_to_check ? ` – ${safe(r.why_to_check)}` : ''}</li>`).join('') || '<li class="text-slate-400">אין תחומי סיכון מפורטים.</li>'}
+                                ${riskAreas.slice(0, 6).map(r => `<li><span class="font-semibold">${safe(r.risk_area || '')}</span>${r.why_to_check ? ` – ${safe(r.why_to_check)}` : ''}</li>`).join('') || '<li class="text-slate-400">אין תחומי סיכון מפורטים.</li>'}
                             </ul>
                         </div>
                         <div>
@@ -856,25 +896,25 @@
                                 <div>
                                     <div class="font-semibold text-white mb-1">נקודות בדיקה מכניות</div>
                                     <ul class="list-disc list-inside space-y-1">
-                                        ${(checklist.mechanical_inspection_points||[]).map(x=>`<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין נתונים</li>'}
+                                        ${(checklist.mechanical_inspection_points || []).map(x => `<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין נתונים</li>'}
                                     </ul>
                                 </div>
                                 <div>
                                     <div class="font-semibold text-white mb-1">מסמכים לאימות</div>
                                     <ul class="list-disc list-inside space-y-1">
-                                        ${(checklist.documents_to_verify||[]).map(x=>`<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין נתונים</li>'}
+                                        ${(checklist.documents_to_verify || []).map(x => `<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין נתונים</li>'}
                                     </ul>
                                 </div>
                                 <div>
                                     <div class="font-semibold text-white mb-1">שאלות למוכר</div>
                                     <ul class="list-disc list-inside space-y-1">
-                                        ${(checklist.questions_to_ask_seller||[]).map(x=>`<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין נתונים</li>'}
+                                        ${(checklist.questions_to_ask_seller || []).map(x => `<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין נתונים</li>'}
                                     </ul>
                                 </div>
                                 <div>
                                     <div class="font-semibold text-white mb-1">דגלים אדומים</div>
                                     <ul class="list-disc list-inside space-y-1">
-                                        ${(checklist.red_flags_to_look_for||[]).map(x=>`<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין נתונים</li>'}
+                                        ${(checklist.red_flags_to_look_for || []).map(x => `<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין נתונים</li>'}
                                     </ul>
                                 </div>
                             </div>
@@ -882,22 +922,15 @@
                         <div>
                             <h4 class="text-sm font-semibold text-white mb-1">אי-ודאויות ידועות</h4>
                             <ul class="list-disc list-inside text-sm text-slate-200 space-y-1">
-                                ${uncertainties.map(x=>`<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
-                            </ul>
-                        </div>
-                        <div>
-                            <h4 class="text-sm font-semibold text-white mb-1">מה המערכת לא יודעת</h4>
-                            <ul class="list-disc list-inside text-sm text-slate-200 space-y-1">
-                                ${unknowns.map(x=>`<li>${safe(x)}</li>`).join('')}
+                                ${uncertainties.map(x => `<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
                             </ul>
                         </div>
                         <div>
                             <h4 class="text-sm font-semibold text-white mb-1">רגישות עלויות משוערת</h4>
                             <ul class="list-disc list-inside text-sm text-slate-200 space-y-1">
-                                ${costSensitivity.map(x=>`<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
+                                ${costSensitivity.map(x => `<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
                             </ul>
                         </div>
-                        <p class="text-xs text-slate-400">${safe(rep.final_line || '')}</p>
                     </div>
                 `;
             }
@@ -916,7 +949,6 @@
             search_history_id: currentHistoryId,
         });
 
-        // Render feedback CTA
         renderFeedbackCTA(resultsContainer, currentHistoryId);
         closeReliabilityResult();
         if (options.openImmediately) {
@@ -979,56 +1011,151 @@
 
     async function handleSubmit(e) {
         e.preventDefault();
+        if (analyzeInFlight) {
+            return;
+        }
         if (!validateLegal()) return;
         if (!(await ensureLegalAcceptance())) return;
 
-        resetResultFlowState();
-        isLoading = true;
-        lastAnalyzePayload = collectFormData();
-        const payload = { ...lastAnalyzePayload, legal_confirm: true };
-        trackAnalytics('result_requested', { flow_type: 'reliability' });
-        if (!payload.make || !payload.model || !payload.year) {
-            alert('נא למלא יצרן, דגם ושנתון.');
+        const formPayload = collectFormData();
+        if (!formPayload.make || !formPayload.model || !formPayload.year) {
+            showAnalyzeError('נא למלא יצרן, דגם ושנתון.', { type: 'backend_error' });
             return;
         }
 
+        resetResultFlowState();
+        isLoading = true;
+        analyzeInFlight = true;
+        const token = ++currentAnalyzeToken;
+        lastAnalyzePayload = formPayload;
+        const payload = { ...lastAnalyzePayload, legal_confirm: true };
+        trackAnalytics('result_requested', { flow_type: 'reliability' });
+        console.info('[ANALYZE_START]', { token });
         setSubmitting(true);
         showTimingBanner('analyze');
-        
-        try {
-            const res = await safeFetchJson('/analyze', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include',
-                body: JSON.stringify(payload)
-            });
 
-            if (!res || res.ok === false) {
-                const code = res && res.error && res.error.code;
-                if (code === 'unauthenticated') {
-                    alert('נדרשת התחברות. אנא התחבר למערכת.');
-                    window.location.href = '/login';
-                    return;
-                }
-                const message = (res && res.error && res.error.message) || 'שגיאת שרת. אנא נסה שוב מאוחר יותר.';
-                showRequestAwareError(message, res && res.request_id);
+        let showCompletionMessage = false;
+        try {
+            let response;
+            try {
+                response = await fetch('/analyze', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-Token': getCSRFToken(),
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify(payload)
+                });
+            } catch (err) {
+                if (token !== currentAnalyzeToken) return;
+                showAnalyzeError('שגיאת רשת בשליחת הבקשה.', {
+                    type: 'network_error',
+                    details: err.message,
+                });
                 return;
             }
 
-            const payloadFromApi = res.data || {};
-            renderResults(payloadFromApi);
-        } catch (err) {
-            console.error(err);
-            alert('שגיאה כללית בשליחת הבקשה. אנא נסה שוב מאוחר יותר.');
+            if (token !== currentAnalyzeToken) return;
+            console.info('[ANALYZE_HTTP]', { status: response.status });
+
+            let rawText = '';
+            try {
+                rawText = await response.text();
+            } catch (err) {
+                if (token !== currentAnalyzeToken) return;
+                showAnalyzeError('לא הצלחנו לקרוא את תגובת השרת', {
+                    type: 'network_error',
+                    status: response.status,
+                    details: err.message,
+                });
+                return;
+            }
+
+            if (token !== currentAnalyzeToken) return;
+
+            let payloadFromApi;
+            try {
+                payloadFromApi = rawText ? JSON.parse(rawText) : {};
+            } catch (err) {
+                showAnalyzeError('השרת החזיר תגובה שלא ניתן לקרוא', {
+                    type: 'json_parse_error',
+                    status: response.status,
+                    rawPreview: rawText.slice(0, 300)
+                });
+                return;
+            }
+
+            if (token !== currentAnalyzeToken) return;
+            console.info('[ANALYZE_PAYLOAD_KEYS]', Object.keys(payloadFromApi || {}));
+
+            if (!response.ok) {
+                showAnalyzeError('השרת החזיר שגיאה', {
+                    type: 'backend_error',
+                    status: response.status,
+                    requestId: payloadFromApi?.request_id,
+                    details: payloadFromApi?.error?.message || payloadFromApi?.error || payloadFromApi?.message,
+                });
+                if (payloadFromApi?.error?.code === 'unauthenticated') {
+                    window.location.href = '/login';
+                }
+                return;
+            }
+
+            if (!payloadFromApi || typeof payloadFromApi !== 'object') {
+                showAnalyzeError('השרת החזיר תשובה חלקית', {
+                    type: 'backend_error',
+                    status: response.status,
+                });
+                return;
+            }
+
+            if (payloadFromApi.ok === false) {
+                showAnalyzeError('השרת החזיר שגיאה', {
+                    type: 'backend_error',
+                    status: response.status,
+                    requestId: payloadFromApi.request_id,
+                    details: payloadFromApi?.error?.message || payloadFromApi?.error || payloadFromApi?.message,
+                });
+                return;
+            }
+
+            const normalized = normalizeAnalyzeResponse(payloadFromApi);
+            if (!normalized.result || typeof normalized.result !== 'object') {
+                showAnalyzeError('השרת החזיר תשובה חלקית', {
+                    type: 'backend_error',
+                    status: response.status,
+                    requestId: normalized.requestId,
+                    details: 'missing result payload',
+                });
+                return;
+            }
+
+            if (token !== currentAnalyzeToken) return;
+            console.info('[ANALYZE_RENDER_START]', { requestId: normalized.requestId });
+            try {
+                renderAnalyzeResult(normalized.result);
+            } catch (err) {
+                console.error('[ANALYZE_RENDER_ERROR]', err, payloadFromApi);
+                showAnalyzeError('הניתוח הצליח אך הייתה בעיה בהצגת התוצאה', {
+                    type: 'render_error',
+                    requestId: normalized.requestId,
+                    details: err.message
+                });
+                return;
+            }
+            console.info('[ANALYZE_RENDER_DONE]', { requestId: normalized.requestId });
+            showCompletionMessage = true;
         } finally {
+            if (token !== currentAnalyzeToken) return;
             if (!isResultReady) {
                 hideReliabilityResearchCard();
                 resultReadyPanel?.classList.add('hidden');
             }
             isLoading = false;
-            hideTimingBanner(true);
+            analyzeInFlight = false;
+            hideTimingBanner(showCompletionMessage);
             setSubmitting(false);
         }
     }
@@ -1428,7 +1555,8 @@
 
     // Expose for compare page use
     window.renderFeedbackCTA = renderFeedbackCTA;
-    window.renderResults = renderResults;
+    window.renderResults = renderAnalyzeResult;
+    window.renderAnalyzeResult = renderAnalyzeResult;
 
     // Public example page bootstrap: if server injected example data, render it.
     const exampleDataEl = document.getElementById('example-data');
@@ -1436,7 +1564,7 @@
         try {
             const exampleData = JSON.parse(exampleDataEl.textContent || '{}');
             if (exampleData && Object.keys(exampleData).length > 0) {
-                renderResults(exampleData, { openImmediately: true });
+                renderAnalyzeResult(exampleData, { openImmediately: true });
             }
         } catch (e) {
             console.error('[EXAMPLE] failed to parse example data', e);
