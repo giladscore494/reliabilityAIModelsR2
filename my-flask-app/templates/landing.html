@@ -62,11 +62,11 @@
                         </div>
                         <h1 class="text-4xl md:text-6xl font-extrabold text-white leading-tight tracking-tight mb-5">
                             לפני שקונים רכב,
-                            <span class="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">בודקים אמינות וסיכון</span>
+                            <span class="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">מקבלים סיקור מבוסס מידע זמין</span>
                             בכמה שניות.
                         </h1>
                         <p class="text-lg md:text-xl text-slate-300 max-w-2xl leading-relaxed mx-auto lg:mx-0 mb-7">
-                            מזינים יצרן, דגם ושנתון — ומקבלים ציון אמינות, תקלות נפוצות ומה לבדוק לפני העסקה.
+                            מזינים יצרן, דגם ושנתון — ומקבלים נקודות לבדיקה, חוסרי מידע, שאלות למוכר וטווחי עלות אפשריים.
                         </p>
                         <div class="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start items-center">
                             {% if current_user.is_authenticated %}
@@ -89,19 +89,19 @@
                                     <p class="text-sm text-slate-400">דוגמה לתוצאה</p>
                                     <h2 class="text-2xl font-bold text-white">Toyota Corolla 2020</h2>
                                 </div>
-                                <div class="w-40 max-w-full rounded-3xl border border-emerald-500/30 bg-emerald-500/10 px-5 py-4 text-right shadow-lg shadow-emerald-900/20">
-                                    <div class="text-xs text-emerald-200/80 mb-1">אמינות מוערכת</div>
-                                    <div class="text-xl font-black text-emerald-100">גבוהה</div>
+                                <div class="w-56 max-w-full rounded-3xl border border-sky-500/30 bg-sky-500/10 px-5 py-4 text-right shadow-lg shadow-sky-900/20">
+                                    <div class="text-xs text-sky-200/80 mb-1">סיקור מבוסס מידע זמין</div>
+                                    <div class="text-xl font-black text-sky-100">איכות מידע: חלקית</div>
                                 </div>
                             </div>
                             <div class="space-y-4">
-                                <div class="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4">
-                                    <div class="text-sm text-emerald-200 font-bold mb-1">אמינות מוערכת: גבוהה</div>
-                                    <p class="text-sm text-slate-200">ביצועים עקביים, פחות תקלות מהמקובל בקטגוריה.</p>
+                                <div class="rounded-2xl border border-slate-500/30 bg-slate-500/10 p-4">
+                                    <div class="text-sm text-slate-100 font-bold mb-1">נקודות לבדיקה</div>
+                                    <p class="text-sm text-slate-200">אימות היסטוריית טיפולים, מצב גיר, מסמכים וקמפיינים שבוצעו.</p>
                                 </div>
                                 <div class="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
-                                    <div class="text-sm text-amber-200 font-bold mb-1">רמת סיכון: בינונית</div>
-                                    <p class="text-sm text-slate-200">כדאי לבדוק היסטוריית טיפולים ומצב גיר מול מחיר העסקה.</p>
+                                    <div class="text-sm text-amber-200 font-bold mb-1">חוסרי מידע</div>
+                                    <p class="text-sm text-slate-200">אין להסתמך רק על הנתונים הציבוריים בלי מסמכים, שאלות למוכר וטווחי עלות אפשריים.</p>
                                 </div>
                             </div>
                         </div>
@@ -162,17 +162,20 @@
                 var examples = (body.data && body.data.examples) || [];
                 if (!examples.length) { container.parentElement.style.display = 'none'; return; }
                 examples.forEach(function(ex) {
-                    var score = ex.score || '—';
-                    var scoreColor = score >= 75 ? 'emerald' : (score >= 55 ? 'amber' : 'red');
+                    var quality = ex.data_quality_label || 'חלקית';
+                    var qualityColor = quality === 'טובה' ? 'emerald' : (quality === 'חסרה' ? 'rose' : 'amber');
+                    var badgeText = 'איכות מידע: ' + quality;
+                    var secondary = ex.top_missing_info || ex.top_verification_focus || ex.decision_readiness || '';
                     var card = document.createElement('a');
                     card.href = '/example/' + ex.slug;
                     card.className = 'rounded-2xl border border-slate-700/60 bg-dark-lighter/70 p-6 hover:border-primary/40 transition-all hover:-translate-y-1 block';
                     card.innerHTML =
                         '<div class="flex items-start justify-between mb-3">' +
                             '<div><p class="text-white font-bold text-lg">' + (ex.label || '') + '</p></div>' +
-                            '<div class="px-3 py-1.5 rounded-full text-xs font-bold bg-' + scoreColor + '-500/15 text-' + scoreColor + '-300 border border-' + scoreColor + '-500/30">' + score + '</div>' +
+                            '<div class="px-3 py-1.5 rounded-full text-xs font-bold bg-' + qualityColor + '-500/15 text-' + qualityColor + '-300 border border-' + qualityColor + '-500/30">' + badgeText + '</div>' +
                         '</div>' +
                         '<p class="text-slate-400 text-sm leading-relaxed mb-4">' + (ex.summary || '') + '</p>' +
+                        (secondary ? '<p class="text-slate-300 text-xs leading-relaxed mb-4">' + secondary + '</p>' : '') +
                         '<span class="text-primary text-sm font-semibold">צפה בניתוח מלא &larr;</span>';
                     container.appendChild(card);
                 });

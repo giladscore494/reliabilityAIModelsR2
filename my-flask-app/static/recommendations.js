@@ -1242,7 +1242,7 @@
         // Safe innerHTML: renderCarCard escapes all dynamic values.
         tableWrapper.innerHTML = `
             <div class="mb-2 text-[11px] text-slate-400">
-                לכל רכב מוצגת כרטיסייה נפרדת עם התאמת העדפות לצד סיכונים והסתייגויות נפרדים. Fit Score אינו ציון אמינות ואינו אישור קנייה.
+                לכל רכב מוצגת כרטיסייה נפרדת עם התאמת העדפות לצד סיכונים והסתייגויות נפרדים. Fit Score אינו מדד לאמינות ואינו אישור קנייה.
             </div>
             <div class="space-y-4">
                 ${cardsHtml}

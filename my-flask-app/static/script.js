@@ -123,6 +123,30 @@
         alert(`${message}${suffix}`);
     }
 
+    function normalizeInfoReview(data) {
+        const asObject = (value) => (value && typeof value === 'object' ? value : {});
+        const report = asObject(data?.reliability_report);
+        const checklist = asObject(report.what_must_be_checked_before_a_decision);
+        const missingInfo = Array.isArray(data?.missing_critical_info) ? data.missing_critical_info.filter(Boolean) : [];
+        const verificationFocus = Array.isArray(data?.verification_focus) ? data.verification_focus.filter(Boolean) : [];
+        const fallbackChecks = []
+            .concat(Array.isArray(checklist.mechanical_inspection_points) ? checklist.mechanical_inspection_points : [])
+            .concat(Array.isArray(checklist.documents_to_verify) ? checklist.documents_to_verify : [])
+            .concat(Array.isArray(checklist.questions_to_ask_seller) ? checklist.questions_to_ask_seller : [])
+            .concat(Array.isArray(checklist.red_flags_to_look_for) ? checklist.red_flags_to_look_for : []);
+        const checksToVerify = (missingInfo.length ? missingInfo : verificationFocus.length ? verificationFocus : fallbackChecks)
+            .filter(Boolean)
+            .slice(0, 5);
+        return {
+            report,
+            dataQualityLabel: data?.data_quality_label || 'חלקית',
+            decisionReadiness: data?.decision_readiness || 'נדרש אימות נוסף',
+            missingInfo,
+            verificationFocus,
+            checksToVerify,
+        };
+    }
+
     function researchPromptSeenKey(flowType, historyId) {
         return `research_prompt_seen_${flowType}_${historyId}`;
     }
@@ -596,72 +620,75 @@
         }
         const safe = (v) => escapeHtml(v);
 
-        // Temporary compatibility keeps estimated_reliability/base_score_calculated alive,
-        // while the UI prefers the new dual-score fields when they exist.
         if (scoreContainer) {
             scoreContainer.innerHTML = '';
-            const estimated = data.model_reliability_label || data.estimated_reliability || '';
-            const modelScore = data.model_reliability_score ?? data.base_score_calculated;
-            const dealRiskLabel = data.deal_risk_label || '';
-            const dealRiskScore = data.deal_risk_score;
+            const infoReview = normalizeInfoReview(data);
             const sourceTag = data.source_tag || '';
             const mileageNote = data.mileage_note || '';
+            const contextText = infoReview.report.based_on_available_information || '';
 
             const wrapper = document.createElement('div');
-            wrapper.className = 'flex flex-col gap-3 mb-6 items-center';
-
-            const circle = document.createElement('div');
-            const levelClass = {
-                'גבוה': 'from-emerald-400 to-emerald-700 shadow-emerald-500/30',
-                'בינוני': 'from-amber-300 to-amber-600 shadow-amber-400/30',
-                'נמוך': 'from-rose-400 to-red-700 shadow-red-500/30',
-                'לא ידוע': 'from-slate-400 to-slate-600 shadow-slate-500/30'
-            }[estimated] || 'from-slate-400 to-slate-600 shadow-slate-500/30';
-            circle.className = `score-circle w-32 h-32 rounded-full bg-gradient-to-br ${levelClass} flex items-center justify-center shadow-lg`;
-            const label = document.createElement('div');
-            label.className = 'text-2xl font-black text-white';
-            label.textContent = estimated || 'לא ידוע';
-            circle.appendChild(label);
-            wrapper.appendChild(circle);
+            wrapper.className = 'w-full rounded-3xl border border-slate-700/70 bg-slate-900/40 p-5 md:p-6 text-right';
 
             const headline = document.createElement('div');
-            headline.className = 'text-xl md:text-2xl font-bold text-white';
-            headline.textContent = estimated ? `אמינות מוערכת: ${estimated}` : 'אמינות מוערכת: לא ידוע';
+            headline.className = 'text-2xl md:text-3xl font-black text-white';
+            headline.textContent = 'לפי המידע הזמין';
             wrapper.appendChild(headline);
 
-            if (modelScore !== null && modelScore !== undefined && modelScore !== '') {
-                const detail = document.createElement('div');
-                detail.className = 'text-sm text-slate-300';
-                detail.textContent = `ציון אמינות דגם: ${Number(modelScore).toFixed(0)}/100`;
+            const quality = document.createElement('div');
+            quality.className = 'mt-3 text-sm md:text-base text-slate-200';
+            quality.textContent = `איכות המידע לניתוח: ${infoReview.dataQualityLabel}`;
+            wrapper.appendChild(quality);
+
+            const readiness = document.createElement('div');
+            readiness.className = 'mt-2 text-sm text-slate-300';
+            readiness.textContent = `מצב הבדיקה: ${infoReview.decisionReadiness}`;
+            wrapper.appendChild(readiness);
+
+            const verify = document.createElement('div');
+            verify.className = 'mt-4 text-sm text-slate-200';
+            verify.textContent = `לפני החלטה יש לאמת: ${infoReview.checksToVerify.length ? infoReview.checksToVerify.join(' • ') : 'בדיקת מוסך, מסמכים ועדכוני יצרן.'}`;
+            wrapper.appendChild(verify);
+
+            const systemLine = document.createElement('div');
+            systemLine.className = 'mt-3 text-sm text-slate-300';
+            systemLine.textContent = 'המערכת לא קובעת אם לקנות את הרכב, אלא מציפה נקודות לבדיקה.';
+            wrapper.appendChild(systemLine);
+
+            if (contextText) {
+                const detail = document.createElement('p');
+                detail.className = 'mt-3 text-sm text-slate-400 leading-relaxed';
+                detail.textContent = contextText;
                 wrapper.appendChild(detail);
             }
 
-            if (dealRiskLabel || dealRiskScore !== null && dealRiskScore !== undefined) {
-                const detail = document.createElement('div');
-                detail.className = 'text-sm text-slate-300';
-                const riskScoreText = (dealRiskScore !== null && dealRiskScore !== undefined && dealRiskScore !== '')
-                    ? ` (${Number(dealRiskScore).toFixed(0)}/100)`
-                    : '';
-                detail.textContent = `סיכון עסקה: ${dealRiskLabel || 'לא ידוע'}${riskScoreText}`;
-                wrapper.appendChild(detail);
-            }
+            if (infoReview.verificationFocus.length) {
+                const focusTitle = document.createElement('div');
+                focusTitle.className = 'mt-4 text-xs font-semibold text-slate-400';
+                focusTitle.textContent = 'מוקדי אימות מרכזיים';
+                wrapper.appendChild(focusTitle);
 
-            const subtitle = document.createElement('div');
-            subtitle.className = 'text-xs text-slate-400';
-            subtitle.textContent = 'מבוסס על ניתוח AI';
-            wrapper.appendChild(subtitle);
+                const focusList = document.createElement('ul');
+                focusList.className = 'mt-2 list-disc list-inside space-y-1 text-sm text-slate-200';
+                infoReview.verificationFocus.slice(0, 4).forEach(item => {
+                    const li = document.createElement('li');
+                    li.textContent = item;
+                    focusList.appendChild(li);
+                });
+                wrapper.appendChild(focusList);
+            }
 
             if (sourceTag) {
                 const p = document.createElement('p');
                 p.textContent = sourceTag;
-                p.className = 'text-[11px] text-slate-500';
+                p.className = 'mt-4 text-[11px] text-slate-500';
                 wrapper.appendChild(p);
             }
 
             if (mileageNote) {
                 const p = document.createElement('p');
                 p.textContent = mileageNote;
-                p.className = 'text-xs bg-amber-950/40 text-amber-300 border border-amber-700/60 rounded-lg px-3 py-2';
+                p.className = 'mt-3 text-xs bg-amber-950/40 text-amber-300 border border-amber-700/60 rounded-lg px-3 py-2';
                 wrapper.appendChild(p);
             }
 
@@ -1209,14 +1236,11 @@
             
             // Hebrew labels
             const labels = {
-                'estimated_reliability': 'אמינות מוערכת',
-                'avg_repair_cost_ILS': 'עלות תיקון ממוצעת (₪)',
-                'engine_transmission_score': 'מנוע ותיבת הילוכים',
-                'electrical_score': 'חשמל ואלקטרוניקה',
-                'suspension_brakes_score': 'מתלים ובלמים',
-                'maintenance_cost_score': 'עלויות תחזוקה',
-                'satisfaction_score': 'שביעות רצון',
-                'recalls_score': 'זכורות וכשלים'
+                'data_quality_label': 'איכות מידע',
+                'decision_readiness': 'מצב בדיקה',
+                'top_missing_info': 'חוסר מידע מרכזי',
+                'top_verification_focus': 'מוקד אימות מרכזי',
+                'avg_repair_cost_ILS': 'עלות תיקון ממוצעת (₪)'
             };
             
             // Build comparison HTML
@@ -1237,45 +1261,56 @@
                     <div class="space-y-3">
             `;
             
-            // Compare estimated reliability (categorical)
-            const rel1 = item1.result?.estimated_reliability || 'לא ידוע';
-            const rel2 = item2.result?.estimated_reliability || 'לא ידוע';
+            const missing1 = Array.isArray(item1.result?.missing_critical_info) ? item1.result.missing_critical_info[0] : '—';
+            const missing2 = Array.isArray(item2.result?.missing_critical_info) ? item2.result.missing_critical_info[0] : '—';
+            const focus1 = Array.isArray(item1.result?.verification_focus) ? item1.result.verification_focus[0] : '—';
+            const focus2 = Array.isArray(item2.result?.verification_focus) ? item2.result.verification_focus[0] : '—';
+            const quality1 = item1.result?.data_quality_label || 'חלקית';
+            const quality2 = item2.result?.data_quality_label || 'חלקית';
+            const readiness1 = item1.result?.decision_readiness || 'נדרש אימות נוסף';
+            const readiness2 = item2.result?.decision_readiness || 'נדרש אימות נוסף';
 
             html += `
                 <div class="flex justify-between items-center py-2 border-b border-slate-700/50">
-                    <span class="text-slate-300">${labels['estimated_reliability']}</span>
+                    <span class="text-slate-300">${labels['data_quality_label']}</span>
                     <div class="flex gap-4 items-center">
-                        <span class="font-bold text-white">${escapeHtml(rel1)}</span>
+                        <span class="font-bold text-white">${escapeHtml(quality1)}</span>
                         <span class="text-slate-500">←→</span>
-                        <span class="font-bold text-white">${escapeHtml(rel2)}</span>
+                        <span class="font-bold text-white">${escapeHtml(quality2)}</span>
                     </div>
                 </div>
             `;
 
-            // Compare breakdown scores if available
-            if (item1.result?.score_breakdown && item2.result?.score_breakdown) {
-                const breakdown1 = item1.result.score_breakdown;
-                const breakdown2 = item2.result.score_breakdown;
-                
-                Object.keys(labels).forEach(key => {
-                    if (key === 'estimated_reliability' || key === 'avg_repair_cost_ILS') return;
-                    
-                    const val1 = breakdown1[key] || 0;
-                    const val2 = breakdown2[key] || 0;
-                    const diff = val1 - val2;
-                    const diffColor = diff > 0 ? 'text-green-400' : diff < 0 ? 'text-red-400' : 'text-slate-400';
-                    
-                    html += `
-                        <div class="flex justify-between items-center py-2 border-b border-slate-700/50">
-                            <span class="text-slate-300 text-sm">${labels[key]}</span>
-                            <div class="flex gap-4 items-center">
-                                <span class="text-white">${val1}</span>
-                                <span class="${diffColor} text-sm">${diff > 0 ? '+' : ''}${diff}</span>
-                                <span class="text-white">${val2}</span>
-                            </div>
+            [
+                [labels['decision_readiness'], readiness1, readiness2],
+                [labels['top_missing_info'], missing1, missing2],
+                [labels['top_verification_focus'], focus1, focus2],
+            ].forEach(([label, val1, val2]) => {
+                html += `
+                    <div class="flex justify-between items-center py-2 border-b border-slate-700/50">
+                        <span class="text-slate-300 text-sm">${label}</span>
+                        <div class="flex gap-4 items-center">
+                            <span class="text-white max-w-[10rem] text-right">${escapeHtml(val1 || '—')}</span>
+                            <span class="text-slate-500">←→</span>
+                            <span class="text-white max-w-[10rem] text-right">${escapeHtml(val2 || '—')}</span>
                         </div>
-                    `;
-                });
+                    </div>
+                `;
+            });
+
+            const avg1 = item1.result?.avg_repair_cost_ILS;
+            const avg2 = item2.result?.avg_repair_cost_ILS;
+            if (avg1 !== undefined || avg2 !== undefined) {
+                html += `
+                    <div class="flex justify-between items-center py-2 border-b border-slate-700/50">
+                        <span class="text-slate-300 text-sm">${labels['avg_repair_cost_ILS']}</span>
+                        <div class="flex gap-4 items-center">
+                            <span class="text-white">${escapeHtml(avg1 ?? '—')}</span>
+                            <span class="text-slate-500">←→</span>
+                            <span class="text-white">${escapeHtml(avg2 ?? '—')}</span>
+                        </div>
+                    </div>
+                `;
             }
             
             // Add duration comparison if available

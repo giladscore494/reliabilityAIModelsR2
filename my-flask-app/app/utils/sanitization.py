@@ -216,14 +216,6 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
     if "error" in src:
         out["error"] = _escape(src.get("error"))
 
-    # numbers
-    if "base_score_calculated" in src:
-        out["base_score_calculated"] = _clamp_int(src.get("base_score_calculated"), lo=0, hi=100, default=0)
-
-    for score_key in ("model_reliability_score", "deal_risk_score"):
-        if score_key in src:
-            out[score_key] = _clamp_int(src.get(score_key), lo=0, hi=100, default=0)
-
     if "avg_repair_cost_ILS" in src:
         out["avg_repair_cost_ILS"] = _clamp_int(src.get("avg_repair_cost_ILS"), lo=0, hi=1_000_000, default=0)
 
@@ -302,19 +294,16 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
     if competitors_out:
         out["common_competitors_brief"] = competitors_out
 
-    # strict score_breakdown
+    sanitized_report = None
+    if "reliability_report" in src:
+        sanitized_report = sanitize_reliability_report_response(src.get("reliability_report"))
+        out["reliability_report"] = sanitized_report
+
     if "score_breakdown" in src:
         out["score_breakdown"] = _sanitize_score_breakdown(src.get("score_breakdown"))
 
-    if "reliability_report" in src:
-        out["reliability_report"] = sanitize_reliability_report_response(src.get("reliability_report"))
-
-    if "estimated_reliability" in src:
-        out["estimated_reliability"] = _escape(src.get("estimated_reliability"))
-
-    for label_key in ("model_reliability_label", "deal_risk_label"):
-        if label_key in src:
-            out[label_key] = _escape(src.get(label_key))
+    info_status = derive_information_status(src, sanitized_report=sanitized_report)
+    out.update(info_status)
 
     if "calibration_applied" in src:
         out["calibration_applied"] = bool(src.get("calibration_applied"))
@@ -825,6 +814,162 @@ def sanitize_reliability_report_response(
     out["final_line"] = _RELIABILITY_REPORT_FINAL_LINE
 
     return out
+
+
+_DATA_QUALITY_ALLOWED = {"חסרה", "חלקית", "טובה"}
+_DECISION_READINESS_ALLOWED = {
+    "חסר מידע קריטי",
+    "נדרש אימות נוסף",
+    "מוכן לבדיקה מקצועית",
+}
+_DEFAULT_MISSING_INFO_ITEM = "היסטוריית טיפולים ומסמכי הרכב הספציפי"
+_DEFAULT_FOCUS_ITEMS = [
+    "בדיקת מוסך מלאה למנוע, גיר, קירור ומערכות בטיחות",
+    "אימות היסטוריית טיפולים, קמפיינים ועדכוני יצרן",
+]
+_CRITICAL_REQUEST_MISSING_LABELS = {
+    "תת-דגם/תצורה",
+    "רמת גימור/מנוע",
+    "מנוע/נפח",
+    "קילומטראז׳ מדויק",
+    "טווח קילומטראז׳",
+    "היסטוריית בעלויות",
+}
+_NONCRITICAL_REQUEST_MISSING_LABELS = {
+    "אחוז נסיעה עירונית",
+    "תקציב רכישה",
+    "תקציב מינימלי",
+    "תקציב מקסימלי",
+}
+
+
+def _sanitize_hebrew_label(value: Any, allowed: set[str], default: str) -> str:
+    """Return a validated Hebrew label or a safe default when the value is invalid."""
+    if isinstance(value, str):
+        cleaned = _escape(value)
+        if cleaned in allowed:
+            return cleaned
+    return default
+
+
+def _dedupe_preserve_order(items: Sequence[Any], *, max_items: int = 8) -> list[str]:
+    """Deduplicate escaped items while preserving input order and capping the result size."""
+    result: list[str] = []
+    seen = set()
+    for item in items:
+        text = _escape(item)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+        if len(result) >= max_items:
+            break
+    return result
+
+
+def derive_information_status(
+    response: Any,
+    *,
+    payload: Optional[Mapping[str, Any]] = None,
+    sanitized_report: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Derive data quality, readiness, missing info, and verification focus for the review UI."""
+    src = _coerce_dict(response)
+    report = (
+        dict(sanitized_report)
+        if isinstance(sanitized_report, dict)
+        else sanitize_reliability_report_response(src.get("reliability_report"), payload=payload)
+        if src.get("reliability_report") is not None
+        else {}
+    )
+    risk_signals = _coerce_dict(src.get("risk_signals"))
+    request_missing = []
+    for item in _derive_missing_info(payload):
+        escaped_item = _escape(item)
+        if escaped_item in _CRITICAL_REQUEST_MISSING_LABELS:
+            request_missing.append(escaped_item)
+        if len(request_missing) >= 10:
+            break
+    report_missing = [
+        _escape(item)
+        for item in (report.get("missing_info") if isinstance(report.get("missing_info"), list) else [])
+        if _escape(item) not in _NONCRITICAL_REQUEST_MISSING_LABELS
+    ]
+    flags_missing = _coerce_list(risk_signals.get("missing_data_flags"))
+    source_items = _coerce_list(src.get("sources"))
+    recommended_checks = _coerce_list(src.get("recommended_checks"))
+    checklist = _coerce_dict(report.get("what_must_be_checked_before_a_decision"))
+    risk_areas = _coerce_list(report.get("key_risk_areas_to_examine"))
+    known_uncertainties = _coerce_list(report.get("known_uncertainties"))
+
+    explicit_missing = _coerce_list(src.get("missing_critical_info"))
+    missing_candidates = (
+        (["מקורות חיצוניים מספקים לגבי הדגם/השנה הספציפיים"] if len(source_items) < 2 else [])
+        + explicit_missing
+        + report_missing
+        + flags_missing
+        + ([] if explicit_missing else request_missing)
+    )
+    missing_critical_info = _dedupe_preserve_order(missing_candidates, max_items=8)
+    if not missing_critical_info:
+        missing_critical_info = [_DEFAULT_MISSING_INFO_ITEM]
+
+    risk_area_titles = []
+    for row in risk_areas:
+        if isinstance(row, dict):
+            risk_area = row.get("risk_area")
+            why = row.get("why_to_check")
+            risk_area_titles.append(
+                f"{risk_area}: {why}" if risk_area and why else (risk_area or why or "")
+            )
+        else:
+            risk_area_titles.append(row)
+
+    explicit_verification = _coerce_list(src.get("verification_focus"))
+    verification_candidates = (
+        explicit_verification
+        if explicit_verification
+        else risk_area_titles
+        + recommended_checks
+        + _coerce_list(checklist.get("mechanical_inspection_points"))[:2]
+        + _coerce_list(checklist.get("documents_to_verify"))[:2]
+        + _coerce_list(checklist.get("questions_to_ask_seller"))[:2]
+        + _coerce_list(checklist.get("red_flags_to_look_for"))[:2]
+    )
+    verification_focus = _dedupe_preserve_order(verification_candidates, max_items=8)
+    if not verification_focus:
+        verification_focus = list(_DEFAULT_FOCUS_ITEMS)
+
+    derived_quality = "טובה"
+    if len(source_items) < 2 or len(missing_critical_info) >= 4:
+        derived_quality = "חסרה"
+    elif len(source_items) < 4 or len(missing_critical_info) >= 2 or known_uncertainties:
+        derived_quality = "חלקית"
+
+    data_quality_label = _sanitize_hebrew_label(
+        src.get("data_quality_label"),
+        _DATA_QUALITY_ALLOWED,
+        derived_quality,
+    )
+
+    derived_readiness = "מוכן לבדיקה מקצועית"
+    if data_quality_label == "חסרה" or len(missing_critical_info) >= 4:
+        derived_readiness = "חסר מידע קריטי"
+    elif missing_critical_info or verification_focus or known_uncertainties:
+        derived_readiness = "נדרש אימות נוסף"
+
+    decision_readiness = _sanitize_hebrew_label(
+        src.get("decision_readiness"),
+        _DECISION_READINESS_ALLOWED,
+        derived_readiness,
+    )
+
+    return {
+        "data_quality_label": data_quality_label,
+        "decision_readiness": decision_readiness,
+        "missing_critical_info": missing_critical_info,
+        "verification_focus": verification_focus,
+    }
 
 
 # -----------------------------

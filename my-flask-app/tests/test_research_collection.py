@@ -182,7 +182,7 @@ def test_owner_advisor_page_renders_research_fields(logged_in_client, app):
         in html
     )
     assert (
-        "Fit Score = רמת התאמה להעדפות שהוזנו בשאלון, ולא ציון אמינות או כדאיות קנייה."
+        "Fit Score = רמת התאמה להעדפות שהוזנו בשאלון, ולא מדד לאמינות או לכדאיות קנייה."
         in html
     )
 

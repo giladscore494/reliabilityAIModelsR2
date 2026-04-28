@@ -8,6 +8,7 @@ from flask_login import current_user
 
 from app.models import SearchHistory
 from app.utils.http_helpers import api_ok, is_owner_user
+from app.utils.sanitization import sanitize_analyze_response
 
 bp = Blueprint('examples', __name__)
 
@@ -53,10 +54,7 @@ def list_examples():
         except (json.JSONDecodeError, TypeError):
             rj = {}
 
-        score = (
-            rj.get("model_reliability_score")
-            or rj.get("base_score_calculated")
-        )
+        rj = sanitize_analyze_response(rj)
         summary = (
             rj.get("reliability_summary_simple")
             or rj.get("reliability_summary")
@@ -71,7 +69,10 @@ def list_examples():
             "model": r.model,
             "year": r.year,
             "label": f"{r.make} {r.model} {r.year}",
-            "score": score,
             "summary": summary,
+            "data_quality_label": rj.get("data_quality_label"),
+            "decision_readiness": rj.get("decision_readiness"),
+            "top_missing_info": (rj.get("missing_critical_info") or [None])[0],
+            "top_verification_focus": (rj.get("verification_focus") or [None])[0],
         })
     return api_ok({"examples": examples})
