@@ -377,8 +377,8 @@
         if (meta.details) {
             debugLines.push(`details: ${meta.details}`);
         }
-        if (ANALYZE_DEBUG_MODE && meta.rawPreview) {
-            debugLines.push(`raw_preview: ${meta.rawPreview}`);
+        if (ANALYZE_DEBUG_MODE && meta.raw_preview) {
+            debugLines.push(`raw_preview: ${meta.raw_preview}`);
         }
         if (analyzeErrorDebug) {
             if (debugLines.length) {
@@ -1086,7 +1086,7 @@
                 showAnalyzeError('השרת החזיר תגובה שלא ניתן לקרוא', {
                     type: 'json_parse_error',
                     status: response.status,
-                    rawPreview: rawText.slice(0, 300)
+                    raw_preview: rawText.slice(0, 300)
                 });
                 return;
             }

@@ -172,6 +172,19 @@ def test_static_assets_non_empty(client):
     assert len(navbar_resp.data) > 0
 
 
+def test_static_script_contains_staged_analyze_error_handling(client):
+    resp = client.get("/static/script.js")
+    body = resp.get_data(as_text=True)
+
+    assert resp.status_code == 200
+    assert "showAnalyzeError(" in body
+    assert 'console.info(\'[ANALYZE_START]\'' in body
+    assert "normalizeAnalyzeResponse(payload)" in body
+    assert "rawText = await response.text();" in body
+    assert "if (analyzeInFlight) {" in body
+    assert "alert('שגיאה כללית בשליחת הבקשה. אנא נסה שוב מאוחר יותר.')" not in body
+
+
 def test_security_scan_paths_fast_404(client):
     assert client.get("/.env").status_code == 404
     assert client.get("/wp-admin").status_code == 404
@@ -425,7 +438,10 @@ def test_dashboard_handles_double_encoded_leasing_json(app, logged_in_client):
             frame_input_json='{"max_bik": 3500, "source": "catalog"}',
             candidates_json="[]",
             prefs_json="{}",
-            gemini_response_json='"{\\"top3\\": [{\\"make\\": \\"Toyota\\", \\"model\\": \\"Corolla\\"}]}"',
+            gemini_response_json=(
+                '"{\\"top3\\": [{\\"make\\": \\"Toyota\\", '
+                '\\"model\\": \\"Corolla\\"}]}"'
+            ),
             request_id="req-test",
             duration_ms=3210,
         )
