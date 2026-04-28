@@ -30,7 +30,13 @@ def test_analyze_returns_information_review_fields(logged_in_client, monkeypatch
         return (
             {
                 "ok": True,
-                "sources": [{"title": "Source", "url": "https://example.com", "domain": "example.com"}],
+                "sources": [
+                    {
+                        "title": "Source",
+                        "url": "https://example.com",
+                        "domain": "example.com",
+                    }
+                ],
                 "recommended_checks": ["אימות היסטוריית טיפולים"],
                 "reliability_report": {
                     "based_on_available_information": "מידע חלקי",
@@ -55,6 +61,58 @@ def test_analyze_returns_information_review_fields(logged_in_client, monkeypatch
     assert "base_score_calculated" not in data
 
 
+def test_analyze_success_payload_includes_request_id_and_flattened_report_fields(
+    logged_in_client, monkeypatch
+):
+    client = _setup_client(logged_in_client)
+
+    def fake_ai(_prompt):
+        return (
+            {
+                "ok": True,
+                "sources": [
+                    {
+                        "title": "Source",
+                        "url": "https://example.com",
+                        "domain": "example.com",
+                    }
+                ],
+                "reliability_report": {
+                    "based_on_available_information": "מידע קיים",
+                    "key_risk_areas_to_examine": [
+                        {
+                            "risk_area": "גיר",
+                            "why_to_check": "יש לאמת היסטוריית טיפולים",
+                        }
+                    ],
+                    "what_must_be_checked_before_a_decision": {
+                        "mechanical_inspection_points": ["בדיקת גיר"],
+                    },
+                    "known_uncertainties": ["היסטוריית טיפולים מלאה לא הוצגה"],
+                    "estimated_cost_sensitivity": ["תיקון גיר עלול להיות יקר"],
+                },
+            },
+            None,
+        )
+
+    monkeypatch.setattr(main, "call_gemini_grounded_once", fake_ai)
+    resp = client.post("/analyze", json=_base_payload(), headers={"Origin": "http://localhost"})
+    payload = resp.get_json()
+    data = payload["data"]
+
+    assert resp.status_code == 200
+    assert payload["request_id"]
+    assert data["request_id"] == payload["request_id"]
+    assert data["based_on_available_information"] == "מידע קיים"
+    assert data["key_risk_areas_to_examine"][0]["risk_area"] == "גיר"
+    assert (
+        data["what_must_be_checked_before_a_decision"]["mechanical_inspection_points"]
+        == ["בדיקת גיר"]
+    )
+    assert "היסטוריית טיפולים מלאה לא הוצגה" in data["known_uncertainties"]
+    assert data["estimated_cost_sensitivity"] == ["תיקון גיר עלול להיות יקר"]
+
+
 def test_analyze_derives_missing_source_gap(logged_in_client, monkeypatch):
     client = _setup_client(logged_in_client)
 
@@ -75,7 +133,9 @@ def test_analyze_derives_missing_source_gap(logged_in_client, monkeypatch):
     assert any("מקורות חיצוניים" in item for item in data["missing_critical_info"])
 
 
-def test_search_details_normalizes_old_history_to_information_review(logged_in_client, app):
+def test_search_details_normalizes_old_history_to_information_review(
+    logged_in_client, app
+):
     client, user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
@@ -89,7 +149,10 @@ def test_search_details_normalizes_old_history_to_information_review(logged_in_c
                 mileage_range="50-100k",
                 fuel_type="בנזין",
                 transmission="אוטומטית",
-                result_json=json.dumps({"reliability_summary": "ok"}, ensure_ascii=False),
+                result_json=json.dumps(
+                    {"reliability_summary": "ok"},
+                    ensure_ascii=False,
+                ),
             )
         )
         db.session.commit()
