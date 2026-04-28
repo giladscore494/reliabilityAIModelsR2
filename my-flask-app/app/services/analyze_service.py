@@ -27,7 +27,11 @@ from app.quota import (
     ModelOutputInvalidError,
 )
 from app.utils.http_helpers import api_ok, api_error, get_request_id, log_rejection, _utcnow
-from app.utils.sanitization import sanitize_analyze_response, derive_missing_info
+from app.utils.sanitization import (
+    sanitize_analyze_response,
+    derive_missing_info,
+    derive_information_status,
+)
 from app.utils.validation import validate_analyze_request, ValidationError
 from app.factory import (
     build_combined_prompt,
@@ -464,183 +468,25 @@ def compute_reliability_score_and_banner(
     model_output: Any = None,
     mileage_range: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Compute dual reliability outputs from model JSON + deterministic penalties.
-
-    The model output is the primary engine. No external baseline dictionary remains
-    in active use. Optional calibration comes only from model JSON fields; missing
-    calibration fields never penalize the score and never break analysis.
-    """
-    estimate_label = _normalized_reliability_estimate(overall_reliability_estimate)
-    if not isinstance(risk_signals, dict) or not risk_signals:
-        if estimate_label:
-            score = _bound_score(_MODEL_PRIMARY_BASE_SCORE + _overall_reliability_adjustment(estimate_label))
-            deal_risk_score = 0
-            deal_risk_label = _deal_risk_label(deal_risk_score)
-            return {
-                "score_0_100": score,
-                "banner_he": _banner_from_score(score),
-                "confidence_label": "low",
-                "model_reliability_score": score,
-                "model_reliability_label": _banner_from_score(score),
-                "deal_risk_score": deal_risk_score,
-                "deal_risk_label": deal_risk_label,
-                "calibration_applied": False,
-                "calibration_source": "none",
-                "calibration_delta": 0,
-                "reliability_bias": None,
-                "recall_penalty_sensitivity": None,
-                "maintenance_penalty_sensitivity": None,
-                "systemic_penalty_sensitivity": None,
-                "soft_floor_if_no_major_systemic": None,
-                "calibration_confidence": None,
-                "mileage_note": None,
-            }
-        return {
-            "score_0_100": 0,
-            "banner_he": "לא ידוע",
-            "confidence_label": "low",
-            "model_reliability_score": 0,
-            "model_reliability_label": "לא ידוע",
-            "deal_risk_score": 0,
-            "deal_risk_label": "לא ידוע",
-            "calibration_applied": False,
-            "calibration_source": "none",
-            "calibration_delta": 0,
-            "reliability_bias": None,
-            "recall_penalty_sensitivity": None,
-            "maintenance_penalty_sensitivity": None,
-            "systemic_penalty_sensitivity": None,
-            "soft_floor_if_no_major_systemic": None,
-            "calibration_confidence": None,
-            "mileage_note": None,
-        }
-
-    base = _MODEL_PRIMARY_BASE_SCORE + _overall_reliability_adjustment(estimate_label)
-    base = max(15, min(95, base))
-
-    recalls = risk_signals.get("recalls") if isinstance(risk_signals.get("recalls"), dict) else {}
-
-    # ── Step 2: systemic issue penalties ──
-    systemic_penalty = 0.0
-    signals = risk_signals.get("systemic_issue_signals")
-    has_meaningful_issues = False
-    has_major_systemic_issue = False
-    if isinstance(signals, list):
-        for sig in signals[:_MAX_SIGNALS]:
-            if not isinstance(sig, dict):
-                continue
-            if (
-                _contains_vehicle_specific_neglect_claim(sig.get("issue"))
-                or _contains_vehicle_specific_neglect_claim(sig.get("evidence_text"))
-                or _contains_vehicle_specific_neglect_claim(sig.get("typical_timing"))
-            ):
-                continue
-
-            severity = str(sig.get("severity", "")).lower()
-            if severity not in ("low", "medium", "high"):
-                continue
-
-            penalty = _SEVERITY_PENALTY.get(severity, 0)
-            systemic_penalty += penalty
-
-            if severity in ("medium", "high"):
-                has_meaningful_issues = True
-            if severity == "high":
-                has_major_systemic_issue = True
-    systemic_penalty = min(systemic_penalty, _SYSTEMIC_PENALTY_CAP)
-
-    # ── Step 3: recall penalty (severity-based, not count-based) ──
-    raw_recall_items = recalls.get("items")
-    recall_items = raw_recall_items if isinstance(raw_recall_items, list) else []
-    recall_penalty = 0.0
-    has_meaningful_recalls = False
-    for item in recall_items[:20]:
-        if not isinstance(item, dict):
-            continue
-        sev = str(item.get("severity", "")).lower()
-        pen = _RECALL_SEVERITY_PENALTY.get(sev, 0)
-        recall_penalty += pen
-        if sev in ("medium", "high"):
-            has_meaningful_recalls = True
-    recall_penalty = min(recall_penalty, _RECALL_TOTAL_CAP)
-
-    # Fallback: if LLM returned old format (count/high_severity_count) without items
-    if not recall_items:
-        recall_count = _safe_int(recalls.get("count"), lo=0, hi=100)
-        high_sev_count = _safe_int(recalls.get("high_severity_count"), lo=0, hi=100)
-        if recall_count > 0:
-            recall_penalty = min(
-                high_sev_count * _RECALL_SEVERITY_PENALTY["high"]
-                + max(0, recall_count - high_sev_count) * _RECALL_SEVERITY_PENALTY["medium"],
-                _RECALL_TOTAL_CAP,
-            )
-            has_meaningful_recalls = high_sev_count > 0 or recall_count >= 3
-
-    # ── Step 4: maintenance cost pressure (disabled — cost ≠ reliability) ──
-    mcp_penalty = 0
-    mcp_level = ""
-    mcp = risk_signals.get("maintenance_cost_pressure")
-    if isinstance(mcp, dict):
-        mcp_level = str(mcp.get("level", "unknown")).lower()
-
-    calibration = _compute_model_json_calibration(
-        model_output if isinstance(model_output, dict) else None,
-        has_major_systemic_issue=has_major_systemic_issue,
+    """Compute information-quality outputs for the reliability review flow."""
+    payload = model_output if isinstance(model_output, dict) else {}
+    mileage_note = mileage_adjustment(mileage_range or "")[1]
+    info_status = derive_information_status(
+        {
+            "search_performed": payload.get("search_performed"),
+            "sources": payload.get("sources"),
+            "recommended_checks": payload.get("recommended_checks"),
+            "reliability_report": payload.get("reliability_report"),
+            "risk_signals": risk_signals if isinstance(risk_signals, dict) else {},
+            "missing_critical_info": payload.get("missing_critical_info"),
+            "verification_focus": payload.get("verification_focus"),
+            "data_quality_label": payload.get("data_quality_label"),
+            "decision_readiness": payload.get("decision_readiness"),
+        },
+        payload=validated_input,
     )
-    # calibration scales disabled — scoring is deterministic only
-
-    # ── Step 5: total penalty with cap ──
-    total_penalty = systemic_penalty + recall_penalty + mcp_penalty
-    penalty_cap = base * _PENALTY_CAP_FRACTION
-    total_penalty = min(total_penalty, penalty_cap)
-
-    # ── Step 6: clean bonus ──
-    bonus = 0
-    if (
-        not has_meaningful_issues
-        and not has_meaningful_recalls
-    ):
-        bonus = _CLEAN_BONUS
-
-    model_reliability_score = _bound_score(base - total_penalty + bonus + calibration["delta"])
-    if calibration["soft_floor"] is not None:
-        model_reliability_score = max(model_reliability_score, calibration["soft_floor"])
-    # Code-side floor: LLM's overall assessment protects against
-    # accumulated minor/medium penalties dragging a reliable car down.
-    # Disabled when any high-severity systemic issue exists.
-    _ESTIMATE_FLOOR = {"high": 75, "medium": 55}
-    if estimate_label in _ESTIMATE_FLOOR and not has_major_systemic_issue:
-        model_reliability_score = max(model_reliability_score, _ESTIMATE_FLOOR[estimate_label])
-    model_reliability_score = _bound_score(model_reliability_score)
-    model_reliability_label = _banner_from_score(model_reliability_score)
-
-    mileage_delta, mileage_note = mileage_adjustment(mileage_range or "")
-    mileage_risk = abs(min(mileage_delta, 0))
-    deal_risk_score = _bound_score((systemic_penalty * 2.0) + (recall_penalty * 2.5) + (mcp_penalty * 3.0) + mileage_risk)
-    deal_risk_label = _deal_risk_label(deal_risk_score)
-
-    # Confidence is messaging only and no longer uses hidden model-entry boosts.
-    confidence = _compute_confidence_category(risk_signals)
-
-    return {
-        "score_0_100": model_reliability_score,
-        "banner_he": model_reliability_label,
-        "confidence_label": confidence,
-        "model_reliability_score": model_reliability_score,
-        "model_reliability_label": model_reliability_label,
-        "deal_risk_score": deal_risk_score,
-        "deal_risk_label": deal_risk_label,
-        "calibration_applied": calibration["applied"],
-        "calibration_source": calibration["source"],
-        "calibration_delta": calibration["delta"],
-        "reliability_bias": calibration["reliability_bias"],
-        "recall_penalty_sensitivity": calibration["recall_penalty_sensitivity"],
-        "maintenance_penalty_sensitivity": calibration["maintenance_penalty_sensitivity"],
-        "systemic_penalty_sensitivity": calibration["systemic_penalty_sensitivity"],
-        "soft_floor_if_no_major_systemic": calibration["soft_floor_if_no_major_systemic"],
-        "calibration_confidence": calibration["calibration_confidence"],
-        "mileage_note": mileage_note,
-    }
+    info_status["mileage_note"] = mileage_note
+    return info_status
 
 
 def handle_analyze_request(
@@ -842,7 +688,7 @@ def handle_analyze_request(
     ai_output.setdefault("sources", [])
 
     try:
-        # --- Deterministic scoring (model output is primary; no external baseline dict) ---
+        # --- Information-quality review summary ---
         det = compute_reliability_score_and_banner(
             validated,
             ai_output.get("risk_signals"),
@@ -850,25 +696,10 @@ def handle_analyze_request(
             model_output=ai_output,
             mileage_range=final_mileage,
         )
-        ai_output["model_reliability_score"] = det["model_reliability_score"]
-        ai_output["model_reliability_label"] = det["model_reliability_label"]
-        ai_output["deal_risk_score"] = det["deal_risk_score"]
-        ai_output["deal_risk_label"] = det["deal_risk_label"]
-        ai_output["calibration_applied"] = det["calibration_applied"]
-        ai_output["calibration_source"] = det["calibration_source"]
-        for key in (
-            "reliability_bias",
-            "recall_penalty_sensitivity",
-            "maintenance_penalty_sensitivity",
-            "systemic_penalty_sensitivity",
-            "soft_floor_if_no_major_systemic",
-            "calibration_confidence",
-        ):
-            ai_output[key] = det[key]
-
-        # Temporary UI compatibility until the frontend fully migrates to dual scores.
-        ai_output["base_score_calculated"] = det["model_reliability_score"]
-        ai_output["estimated_reliability"] = det["model_reliability_label"]
+        ai_output["data_quality_label"] = det["data_quality_label"]
+        ai_output["decision_readiness"] = det["decision_readiness"]
+        ai_output["missing_critical_info"] = det["missing_critical_info"]
+        ai_output["verification_focus"] = det["verification_focus"]
 
         sanitized_output: Dict[str, Any] = {}
         try:
@@ -876,6 +707,17 @@ def handle_analyze_request(
             ai_output['mileage_note'] = det.get("mileage_note")
             ai_output['km_warn'] = False
             ai_output.pop("reliability_score", None)
+            for deprecated_key in (
+                "base_score_calculated",
+                "estimated_reliability",
+                "model_reliability_score",
+                "model_reliability_label",
+                "deal_risk_score",
+                "deal_risk_label",
+                "score_0_100",
+                "banner_he",
+            ):
+                ai_output.pop(deprecated_key, None)
             sanitized_output = sanitize_analyze_response(ai_output)
 
             new_log = SearchHistory(

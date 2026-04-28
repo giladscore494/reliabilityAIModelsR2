@@ -104,12 +104,13 @@ def test_main_pages_render_shared_nav(client, logged_in_client, monkeypatch, pat
     _assert_shared_nav(request_client.application, html)
 
 
-def test_landing_preview_uses_verbal_reliability_demo(client):
+def test_landing_preview_uses_information_review_demo(client):
     resp = client.get("/")
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
-    assert "אמינות מוערכת: גבוהה" in html
-    assert "רמת סיכון: בינונית" in html
+    assert "סיקור מבוסס מידע זמין" in html
+    assert "נקודות לבדיקה" in html
+    assert "חוסרי מידע" in html
     assert "ניתוחים אמיתיים לדוגמה" in html
     assert "/100" not in html
 

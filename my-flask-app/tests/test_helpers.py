@@ -73,7 +73,6 @@ class AnalyzeSanitizationTests(unittest.TestCase):
     def test_sanitize_analyze_response_drops_removed_sections(self):
         raw = {
             "ok": True,
-            "base_score_calculated": 70,
             "micro_reliability": {"adjusted_score": 50},
             "timeline_plan": {"horizon_months": 36},
             "sim_model": {"defaults": {"annual_km": 12000}},
@@ -83,19 +82,21 @@ class AnalyzeSanitizationTests(unittest.TestCase):
         self.assertNotIn("timeline_plan", sanitized)
         self.assertNotIn("sim_model", sanitized)
 
-    def test_sanitize_analyze_response_keeps_new_reliability_fields(self):
+    def test_sanitize_analyze_response_keeps_information_review_fields(self):
         raw = {
             "ok": True,
-            "base_score_calculated": 70,
-            "overall_reliability_estimate": "HIGH",
-            "overall_reliability_reasoning": "<b>strong long-term record</b>",
-            "reliability_factors_summary": "<i>severity/frequency moderate</i>",
+            "data_quality_label": "טובה",
+            "decision_readiness": "מוכן לבדיקה מקצועית",
+            "missing_critical_info": ["<b>ספר טיפולים</b>"],
+            "verification_focus": ["<i>בדיקת גיר</i>"],
         }
         sanitized = sanitize_analyze_response(raw)
-        self.assertEqual(sanitized["overall_reliability_estimate"], "high")
-        self.assertIn("overall_reliability_reasoning", sanitized)
-        self.assertIn("reliability_factors_summary", sanitized)
-        self.assertIn("&lt;b&gt;", sanitized["overall_reliability_reasoning"])
+        self.assertEqual(sanitized["data_quality_label"], "טובה")
+        self.assertEqual(sanitized["decision_readiness"], "מוכן לבדיקה מקצועית")
+        self.assertTrue(
+            any("&lt;b&gt;ספר טיפולים" in item for item in sanitized["missing_critical_info"])
+        )
+        self.assertIn("&lt;i&gt;בדיקת גיר", sanitized["verification_focus"][0])
 
     def test_sanitize_analyze_response_keeps_issue_text_in_risk_signals(self):
         raw = {

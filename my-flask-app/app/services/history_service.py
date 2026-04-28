@@ -10,11 +10,11 @@ from flask import current_app
 from app.extensions import db
 from app.models import SearchHistory, AdvisorHistory, LeasingAdvisorHistory
 from app.utils.http_helpers import api_ok, api_error, get_request_id
-from app.utils.sanitization import sanitize_analyze_response
-
-_DEAL_RISK_MEDIUM_THRESHOLD = 25
-_DEAL_RISK_HIGH_THRESHOLD = 55
-
+from app.utils.sanitization import (
+    sanitize_analyze_response,
+    sanitize_reliability_report_response,
+    derive_information_status,
+)
 
 def safe_json_obj(value, default=None):
     """Safely decode value into dict/list, including a double-encoded JSON string."""
@@ -113,55 +113,15 @@ def build_leasing_data(entries: list) -> list:
     return result
 
 
-def _bounded_score(value: Any) -> Optional[int]:
-    try:
-        if value is None or isinstance(value, bool):
-            return None
-        return max(0, min(100, int(round(float(value)))))
-    except Exception:
-        return None
-
-
-def _derive_label_from_score(score: Optional[int]) -> Optional[str]:
-    if score is None:
-        return None
-    if score >= 80:
-        return "גבוה"
-    if score >= 60:
-        return "בינוני"
-    return "נמוך"
-
-
 def _normalize_reliability_history_payload(raw: Any) -> Dict[str, Any]:
     payload = dict(raw) if isinstance(raw, dict) else {}
-
-    model_score = _bounded_score(
-        payload.get("model_reliability_score", payload.get("base_score_calculated"))
-    )
-    model_label = payload.get("model_reliability_label") or payload.get("estimated_reliability")
-    if not model_label:
-        model_label = _derive_label_from_score(model_score) or "לא ידוע"
-
-    if model_score is not None:
-        payload["model_reliability_score"] = model_score
-        payload["base_score_calculated"] = model_score
-    payload["model_reliability_label"] = model_label
-    payload["estimated_reliability"] = model_label
-
-    deal_risk_score = _bounded_score(payload.get("deal_risk_score"))
-    if deal_risk_score is not None:
-        payload["deal_risk_score"] = deal_risk_score
-        payload["deal_risk_label"] = payload.get("deal_risk_label") or (
-            "גבוה"
-            if deal_risk_score >= _DEAL_RISK_HIGH_THRESHOLD
-            else "בינוני"
-            if deal_risk_score >= _DEAL_RISK_MEDIUM_THRESHOLD
-            else "נמוך"
+    sanitized_report = sanitize_reliability_report_response(payload.get("reliability_report"))
+    payload["reliability_report"] = sanitized_report
+    payload.update(
+        derive_information_status(
+            payload,
+            sanitized_report=sanitized_report,
         )
-
-    payload["calibration_applied"] = bool(payload.get("calibration_applied", False))
-    payload["calibration_source"] = payload.get("calibration_source") or (
-        "model_json" if payload["calibration_applied"] else "none"
     )
     return payload
 
@@ -237,61 +197,6 @@ def search_details_response(search_id: int, user_id: int):
         raw = json.loads(s.result_json)
 
         raw = _normalize_reliability_history_payload(raw)
-        est = raw.get("model_reliability_label") or raw.get("estimated_reliability")
-        estimated_map = {
-            "low": "נמוך",
-            "medium": "בינוני",
-            "high": "גבוה",
-            "unknown": "לא ידוע",
-            "נמוך": "נמוך",
-            "בינוני": "בינוני",
-            "גבוה": "גבוה",
-            "לא ידוע": "לא ידוע",
-            "": "לא ידוע",
-            None: "לא ידוע",
-        }
-        derived = None
-        est_norm = str(est).strip().lower() if est is not None else "unknown"
-        if estimated_map.get(est_norm) is None or estimated_map.get(est_norm) == "לא ידוע":
-            try:
-                if "model_reliability_score" in raw:
-                    base_val = float(raw["model_reliability_score"])
-                    if base_val >= 80:
-                        derived = "גבוה"
-                    elif base_val >= 60:
-                        derived = "בינוני"
-                    else:
-                        derived = "נמוך"
-                elif "base_score_calculated" in raw:
-                    base_val = float(raw["base_score_calculated"])
-                    if base_val >= 80:
-                        derived = "גבוה"
-                    elif base_val >= 60:
-                        derived = "בינוני"
-                    else:
-                        derived = "נמוך"
-                elif "reliability_score" in raw:
-                    rel_val = float(raw["reliability_score"])
-                    if rel_val >= 7:
-                        derived = "גבוה"
-                    elif rel_val >= 4:
-                        derived = "בינוני"
-                    else:
-                        derived = "נמוך"
-            except Exception:
-                derived = None
-        final_est = estimated_map.get(est_norm)
-        if final_est is None or final_est == "לא ידוע":
-            final_est = derived or "לא ידוע"
-
-        raw["model_reliability_label"] = final_est
-        raw["estimated_reliability"] = final_est
-        raw.pop("reliability_score", None)
-
-        allowed_set = {"נמוך", "בינוני", "גבוה", "לא ידוע"}
-        if raw["estimated_reliability"] not in allowed_set:
-            raw["estimated_reliability"] = "לא ידוע"
-
         data_safe = sanitize_analyze_response(raw)
         return api_ok({"meta": meta, "data": data_safe})
     except Exception as e:
