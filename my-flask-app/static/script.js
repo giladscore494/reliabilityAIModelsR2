@@ -1015,27 +1015,31 @@
             return;
         }
         if (!validateLegal()) return;
-        if (!(await ensureLegalAcceptance())) return;
 
-        const formPayload = collectFormData();
-        if (!formPayload.make || !formPayload.model || !formPayload.year) {
-            showAnalyzeError('נא למלא יצרן, דגם ושנתון.', { type: 'backend_error' });
-            return;
-        }
-
-        resetResultFlowState();
-        isLoading = true;
         analyzeInFlight = true;
         const token = ++currentAnalyzeToken;
-        lastAnalyzePayload = formPayload;
-        const payload = { ...lastAnalyzePayload, legal_confirm: true };
-        trackAnalytics('result_requested', { flow_type: 'reliability' });
-        console.info('[ANALYZE_START]', { token });
-        setSubmitting(true);
-        showTimingBanner('analyze');
-
         let showCompletionMessage = false;
+        let timingStarted = false;
+        setSubmitting(true);
+
         try {
+            if (!(await ensureLegalAcceptance())) return;
+
+            const formPayload = collectFormData();
+            if (!formPayload.make || !formPayload.model || !formPayload.year) {
+                showAnalyzeError('נא למלא יצרן, דגם ושנתון.', { type: 'backend_error' });
+                return;
+            }
+
+            resetResultFlowState();
+            isLoading = true;
+            lastAnalyzePayload = formPayload;
+            const payload = { ...lastAnalyzePayload, legal_confirm: true };
+            trackAnalytics('result_requested', { flow_type: 'reliability' });
+            console.info('[ANALYZE_START]', { token });
+            showTimingBanner('analyze');
+            timingStarted = true;
+
             let response;
             try {
                 response = await fetch('/analyze', {
@@ -1155,7 +1159,7 @@
             }
             isLoading = false;
             analyzeInFlight = false;
-            hideTimingBanner(showCompletionMessage);
+            hideTimingBanner(timingStarted && showCompletionMessage);
             setSubmitting(false);
         }
     }
