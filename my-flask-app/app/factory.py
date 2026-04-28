@@ -654,7 +654,9 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
 כל הערכים בעברית בלבד, למעט final_line שחייב להישאר באנגלית בדיוק כפי שניתן וללא שום שינוי.
 אל תוסיף הסברים מחוץ ל-JSON.
 אסור לנסח verdict, המלצת קנייה, או "שורה תחתונה".
-אסור להחזיר מפתחות score, risk_score, reliability_score, banner, estimated_reliability, base_score_calculated.
+אסור להחזיר מפתחות score, risk_score, reliability_score, banner, estimated_reliability,
+base_score_calculated, model_reliability_score, model_reliability_label, deal_risk_score,
+deal_risk_label, score_0_100, banner_he.
 שמור את הרשימה הזו מסונכרנת עם _DEPRECATED_SCORE_KEYS בקובץ analyze_service.py.
 אסור להחזיר בתוך reliability_report ציון, confidence, verdict, next step החלטי, או headline judgment.
 אסור להשתמש בניסוחים כגון "recommended", "good choice", "bad choice", "reliable", "worth it".
