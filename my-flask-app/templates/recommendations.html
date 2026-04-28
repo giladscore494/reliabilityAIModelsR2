@@ -271,7 +271,7 @@
                         </p>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div class="flex items-center justify-between gap-4">
-                                <span class="text-sm text-slate-200">אמינות לאורך זמן</span>
+                                <span class="text-sm text-slate-200">פשטות תחזוקה לאורך זמן</span>
                                 <input type="range" id="w_reliability" min="1" max="5" step="1" value="5"
                                        class="w-40 accent-primary">
                             </div>
@@ -396,13 +396,13 @@
 
                     <div class="rounded-2xl border border-primary/25 bg-primary/8 p-4 md:p-5 space-y-2">
                         <p class="text-sm md:text-base font-semibold text-white">
-                            כדי לבדוק כדאיות עסקה על רכב ספציפי, יש להיכנס לבודק האמינות.
+                            כדי לבדוק נקודות סיכון על רכב ספציפי, יש להיכנס לסקירת הרכב.
                         </p>
                         <div class="inline-flex items-center rounded-full border border-primary/40 bg-slate-900/50 px-3 py-1 text-[11px] font-medium text-primary">
-                            <a href="{{ url_for('public.app_page') }}" class="hover:underline">בודק האמינות</a>
+                            <a href="{{ url_for('public.app_page') }}" class="hover:underline">סקירת הרכב</a>
                         </div>
                         <p class="text-xs md:text-sm leading-6 text-slate-300">
-                            בודק האמינות מיועד לבדיקה ממוקדת יותר של סיכוני אמינות, עלויות נפוצות ונקודות לבדיקה לפני קנייה.
+                            סקירת הרכב מיועדת לבדיקה ממוקדת יותר של סיכונים, עלויות נפוצות ונקודות לאימות לפני החלטה.
                         </p>
                         <p class="text-[11px] leading-5 text-slate-400">
                             המידע בשאלון ההמלצות אינו מחליף בדיקת רכב לפני קנייה. בנוסף, יש לבדוק עבר ביטוחי, היסטוריית טיפולים, ולבצע בדיקה אצל גורם מקצועי מוסמך לפני קנייה.
@@ -502,7 +502,7 @@
                             <div>
                                 <h2 class="text-xl md:text-2xl font-bold text-white mb-1">תוצאות המלצה מותאמות אישית</h2>
                                 <p class="text-slate-400 text-xs md:text-sm">
-                                    הרשימה מסודרת לפי Fit Score – התאמה למה שביקשת בשאלון, ולא לפי אמינות או כדאיות קנייה.
+                                    הרשימה מסודרת לפי Fit Score – התאמה למה שביקשת בשאלון, ולא לפי מצב מכני בפועל או כדאיות קנייה.
                                 </p>
                             </div>
                             <div id="advisor-search-queries" class="text-[11px] text-slate-400 max-w-md md:text-right"></div>
@@ -510,6 +510,10 @@
 
                         <div class="rounded-2xl border border-slate-700 bg-slate-900/50 px-4 py-3 text-xs md:text-sm text-slate-200">
                             Fit Score = רמת התאמה להעדפות שהוזנו בשאלון, ולא מדד לאמינות או לכדאיות קנייה.
+                        </div>
+
+                        <div class="rounded-2xl border border-slate-700 bg-slate-900/50 px-4 py-3 text-xs md:text-sm text-slate-200">
+                            אינדיקציית התחזוקה מבוססת על מידע כללי ודגמי, ולא קובעת את מצב הרכב הספציפי.
                         </div>
 
                         <!-- סיכום פרופיל נהג לפי הטופס -->
@@ -538,7 +542,7 @@
                     בהמשך ייפתח לשימוש לכלל המשתמשים באתר.
                 </p>
                 <p class="text-xs text-slate-500">
-                    בינתיים ניתן להשתמש במנוע בדיקת אמינות הרכב ולשמור חיפושים בדשבורד.
+                    בינתיים ניתן להשתמש בסקירת הרכב ולשמור חיפושים בדשבורד.
                 </p>
             </section>
         {% endif %}

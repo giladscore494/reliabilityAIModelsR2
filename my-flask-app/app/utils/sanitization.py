@@ -822,6 +822,14 @@ _DECISION_READINESS_ALLOWED = {
     "נדרש אימות נוסף",
     "מוכן לבדיקה מקצועית",
 }
+_FIXED_SYSTEM_UNKNOWNS = [
+    "מצב מכני בפועל",
+    "תאונות שלא דווחו",
+    "איכות טיפולים שבוצעו",
+    "נהיגה אגרסיבית בעבר",
+    "תיקונים לא מתועדים",
+    "מצב גיר/מנוע בזמן אמת",
+]
 _DEFAULT_MISSING_INFO_ITEM = "היסטוריית טיפולים ומסמכי הרכב הספציפי"
 _DEFAULT_FOCUS_ITEMS = [
     "בדיקת מוסך מלאה למנוע, גיר, קירור ומערכות בטיחות",
@@ -865,6 +873,59 @@ def _dedupe_preserve_order(items: Sequence[Any], *, max_items: int = 8) -> list[
         if len(result) >= max_items:
             break
     return result
+
+
+def _classify_source_scope(source_items: Sequence[Any]) -> tuple[int, int]:
+    israeli_count = 0
+    global_count = 0
+    for item in source_items:
+        if isinstance(item, dict):
+            raw = " ".join(
+                str(item.get(part) or "")
+                for part in ("domain", "url", "title")
+            )
+        else:
+            raw = str(item or "")
+        text = raw.strip().lower()
+        if not text:
+            continue
+        if any(marker in text for marker in (".il", "co.il", "gov.il", "org.il", "ישראל", "israel", "israeli")):
+            israeli_count += 1
+        else:
+            global_count += 1
+    return israeli_count, global_count
+
+
+def _build_information_quality_explanation(
+    data_quality_label: str,
+    *,
+    missing_critical_info: Sequence[str],
+    source_count: int,
+    known_uncertainties: Sequence[Any],
+) -> str:
+    if data_quality_label not in {"חסרה", "חלקית"}:
+        return ""
+
+    notes: list[str] = []
+    if source_count == 0:
+        notes.append("לא נמצאו מקורות חיצוניים זמינים לניתוח הזה.")
+    elif source_count == 1:
+        notes.append("נמצא מקור אחד בלבד ולכן הבסיס הראייתי חלש.")
+    elif source_count < 4:
+        notes.append(f"נמצאו {source_count} מקורות בלבד ולכן הכיסוי חלקי.")
+
+    if missing_critical_info:
+        notes.append(
+            "חסרים פרטים מהותיים כמו "
+            + ", ".join(missing_critical_info[:3])
+            + "."
+        )
+
+    clean_uncertainties = _dedupe_preserve_order(known_uncertainties, max_items=3)
+    if clean_uncertainties:
+        notes.append("נשארו אי-ודאויות ידועות: " + ", ".join(clean_uncertainties) + ".")
+
+    return " ".join(notes).strip()
 
 
 def derive_information_status(
@@ -964,11 +1025,34 @@ def derive_information_status(
         derived_readiness,
     )
 
+    source_count = len(source_items)
+    israeli_count, global_count = _classify_source_scope(source_items)
+    if israeli_count and global_count:
+        source_scope_label = "ישראליים וגלובליים"
+    elif israeli_count:
+        source_scope_label = "ישראליים"
+    elif global_count:
+        source_scope_label = "גלובליים"
+    else:
+        source_scope_label = "לא זוהה"
+
+    information_quality_explanation = _build_information_quality_explanation(
+        data_quality_label,
+        missing_critical_info=missing_critical_info,
+        source_count=source_count,
+        known_uncertainties=known_uncertainties,
+    )
+
     return {
         "data_quality_label": data_quality_label,
         "decision_readiness": decision_readiness,
         "missing_critical_info": missing_critical_info,
         "verification_focus": verification_focus,
+        "fixed_system_unknowns": list(_FIXED_SYSTEM_UNKNOWNS),
+        "information_quality_explanation": information_quality_explanation,
+        "source_count": source_count,
+        "source_scope_label": source_scope_label,
+        "weakly_sourced": source_count < 2,
     }
 
 

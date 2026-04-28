@@ -68,7 +68,7 @@ def _shared_nav_items(app):
     with app.test_request_context():
         return (
             (url_for("public.index"), "בית"),
-            (url_for("public.app_page"), "בודק אמינות"),
+            (url_for("public.app_page"), "סקירת רכב"),
             (url_for("comparison.compare_page"), "השוואת רכבים"),
             (url_for("advisor.recommendations"), "מנוע ההמלצות"),
             (url_for("dashboard.dashboard"), "היסטוריית חיפושים"),

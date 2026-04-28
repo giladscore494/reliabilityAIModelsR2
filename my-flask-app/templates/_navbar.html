@@ -5,7 +5,7 @@
 {% set display_name = (user_obj.name.split(' ')[0] if user_obj and user_obj.name else ('אורח' if is_authenticated else '')) %}
 {% set nav_items = [
   {'label': 'בית', 'endpoint': 'public.index', 'active': 'landing'},
-  {'label': 'בודק אמינות', 'endpoint': 'public.app_page', 'active': 'app'},
+  {'label': 'סקירת רכב', 'endpoint': 'public.app_page', 'active': 'app'},
   {'label': 'השוואת רכבים', 'endpoint': 'comparison.compare_page', 'active': 'compare'},
   {'label': 'מנוע ההמלצות', 'endpoint': 'advisor.recommendations', 'active': 'advisor'},
   {'label': 'היסטוריית חיפושים', 'endpoint': 'dashboard.dashboard', 'active': 'dashboard'},

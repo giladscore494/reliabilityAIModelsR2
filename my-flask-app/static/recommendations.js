@@ -324,7 +324,7 @@
     const methodLabelMap = {
         fuel_method: "שיטת חישוב צריכת דלק/חשמל",
         fee_method: "שיטת חישוב אגרה",
-        reliability_method: "שיטת חישוב אמינות",
+        reliability_method: "שיטת אינדיקציית תחזוקה",
         maintenance_method: "שיטת חישוב עלות אחזקה",
         safety_method: "שיטת חישוב בטיחות",
         insurance_method: "שיטת חישוב ביטוח",
@@ -776,7 +776,7 @@
 
             <div class="flex flex-wrap gap-2 mt-1">
                 <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/10 text-[11px] text-primary border border-primary/40">
-                    משקל אמינות: ${safe(wReliability)}/5
+                    משקל תחזוקה: ${safe(wReliability)}/5
                 </span>
                 <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/10 text-[11px] text-primary border border-primary/40">
                     חיסכון בדלק: ${safe(wFuel)}/5
@@ -815,12 +815,12 @@
             return { label: 'לא ידוע', className: 'bg-slate-500/20 text-slate-200 border-slate-500/40' };
         }
         if (score >= 7) {
-            return { label: 'גבוה', className: 'bg-emerald-500/20 text-emerald-200 border-emerald-500/40' };
+            return { label: 'נמוכה', className: 'bg-emerald-500/20 text-emerald-200 border-emerald-500/40' };
         }
         if (score >= 4) {
-            return { label: 'בינוני', className: 'bg-amber-500/20 text-amber-200 border-amber-500/40' };
+            return { label: 'בינונית', className: 'bg-amber-500/20 text-amber-200 border-amber-500/40' };
         }
-        return { label: 'נמוך', className: 'bg-red-500/20 text-red-200 border-red-500/40' };
+        return { label: 'גבוהה', className: 'bg-red-500/20 text-red-200 border-red-500/40' };
     }
 
     function renderHighlightCards(cars) {
@@ -865,12 +865,12 @@
             const relScore = getReliabilityScore(mostReliable);
             const relGrade = getReliabilityGrade(relScore);
             cards.push({
-                label: 'הכי חזק באמינות',
-                badge: 'אמינות',
+                label: 'פרופיל תחזוקה פשוט יותר',
+                badge: 'אינדיקציית תחזוקה',
                 car: mostReliable,
-                chip: relScore != null ? `אמינות: ${relGrade.label}` : '',
+                chip: relScore != null ? `רגישות תחזוקה: ${relGrade.label}` : '',
                 grade: relGrade,
-                text: 'דגש על מינימום תקלות לאור נתוני אמינות והיסטוריית תקלות ביחס לשאר הדגמים שהוצגו.'
+                text: 'האינדיקציה מבוססת על מידע כללי ודגמי לגבי תחזוקה ותקלות, ולא קובעת את מצב הרכב הספציפי.'
             });
         }
 
@@ -909,7 +909,7 @@
                         ` : ''}
                         ${grade ? `
                             <div class="mt-1 inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold ${gradeClass}">
-                                רמת אמינות: ${gradeLabel}
+                                אינדיקציית תחזוקה כללית: ${gradeLabel}
                             </div>
                         ` : ''}
                     </div>
@@ -1030,7 +1030,7 @@
                         <span class="text-[11px] text-slate-400">התאמת העדפות בלבד</span>
                         ${reliabilityValue != null ? `
                             <span class="inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold ${reliabilityGrade.className}">
-                                רמת אמינות: ${escapeHtml(reliabilityGrade.label)}
+                                רגישות תחזוקה: ${escapeHtml(reliabilityGrade.label)}
                             </span>
                         ` : ''}
                         ${marketSupply ? `
@@ -1082,7 +1082,7 @@
                             </tr>` : ''}
 
                             <tr>
-                                <th class="px-2 py-1 font-semibold text-slate-300">רמת אמינות</th>
+                                <th class="px-2 py-1 font-semibold text-slate-300">אינדיקציית תחזוקה כללית</th>
                                 <td class="px-2 py-1 text-slate-100">${safeReliabilityGrade}</td>
                             </tr>
                             ${reliabilityMethod ? `

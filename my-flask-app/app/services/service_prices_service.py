@@ -497,14 +497,16 @@ def compute_item_verdict(
     Classify invoice price vs. market range deterministically.
     """
     if invoice_price is None or market_min is None or market_max is None:
-        return "אין מספיק נתונים להשוואה"
+        return "אין מספיק נתונים"
     low_threshold = market_min * 0.9
     high_threshold = market_max * 1.1
     if invoice_price < low_threshold:
-        return "נמוך מהשוק"
+        return "חריג לבדיקה"
     if invoice_price <= high_threshold:
-        return "תואם שוק"
-    return "גבוה מהשוק"
+        return "בטווח זמין"
+    if invoice_price > market_max * 1.3:
+        return "חריג לבדיקה"
+    return "מעל הטווח"
 
 
 def classify_market_verdict(
@@ -562,7 +564,18 @@ def compute_overall_score(items: List[Dict[str, Any]]) -> Tuple[Optional[int], O
         fairness_score = max(0, int(round(100 - min(1, avg_deviation) * 100)))
         return fairness_score, None
 
-    return None, "אין מספיק נתונים לציון כולל"
+    return None, "אין מספיק נתונים"
+
+
+def derive_price_check_label(items: List[Dict[str, Any]], fairness_score: Optional[int]) -> str:
+    labels = {str(item.get("label") or "") for item in items}
+    if fairness_score is None:
+        return "אין מספיק נתונים"
+    if "חריג לבדיקה" in labels:
+        return "חריג לבדיקה"
+    if "מעל הטווח" in labels:
+        return "מעל הטווח"
+    return "בטווח זמין"
 
 
 def build_invoice_report_narrative(report: Dict[str, Any]) -> Dict[str, Any]:
@@ -593,26 +606,26 @@ def build_invoice_report_narrative(report: Dict[str, Any]) -> Dict[str, Any]:
         invoice_price = item.get("price_ils")
         market_min = item.get("market_min_ils")
         market_max = item.get("market_max_ils")
-        verdict = item.get("verdict") or item.get("label") or "אין מספיק נתונים להשוואה"
+        verdict = item.get("verdict") or item.get("label") or "אין מספיק נתונים"
         if market_min is not None and market_max is not None:
             range_text = f"טווח שוק {format_ils(market_min)}–{format_ils(market_max)}"
         else:
-            range_text = "אין מספיק נתוני שוק ישראליים"
+            range_text = "אין מספיק נתוני שוק זמינים"
             missing_items += 1
         item_lines.append(
             f"{desc}: מחיר חשבונית {format_ils(invoice_price)} מול {range_text} → {verdict}"
         )
 
     methodology = [
-        "מחירי השוק נאספו ממקורות ישראליים ברשת עם קישורים.",
+        "מחירי השוק נאספו ממקורות זמינים ברשת עם קישורים כאשר נמצאו כאלה.",
         "לא ניחשנו מחירים. כשאין מספיק מקורות מוצג שאין מספיק נתונים.",
         "החישוב בוצע לפי חוקים קבועים בקוד.",
     ]
     if missing_items:
-        methodology.append("חלק מהפריטים ללא השוואה בגלל מחסור במקורות ישראליים.")
-        methodology.append("הוספת מקורות מחיר בישראל תשפר את ההשוואה.")
+        methodology.append("חלק מהפריטים ללא השוואה בגלל מחסור במקורות זמינים.")
+        methodology.append("הוספת מקורות מחיר רלוונטיים תשפר את ההשוואה.")
     if report.get("fairness_score") is None:
-        methodology.append("אין מספיק נתונים לציון כולל.")
+        methodology.append("אין מספיק נתונים לקביעת אינדיקציה כוללת.")
 
     return {
         "summary": summary,
@@ -756,7 +769,7 @@ def build_report(
                 market_note = "נאסף מהרשת ללא אימות אוטומטי"
         verdict = compute_item_verdict(price if price else None, market_min, market_max)
  
-        if verdict == "גבוה מהשוק":
+        if verdict in {"מעל הטווח", "חריג לבדיקה"}:
             red_flags.append(f"{code}: מחיר גבוה מהשוק")
  
         overpay = 0
@@ -812,6 +825,8 @@ def build_report(
                     f"  - {item['canonical_code']}: מחיר גבוה ב-₪{item['overpay_estimate_ils']:,} מעל גבול השוק"
                 )
     
+    price_check_label = derive_price_check_label(per_item, fairness_score)
+
     report = {
         "meta": {
             "car": {
@@ -835,8 +850,9 @@ def build_report(
         },
         "items": per_item,
         "red_flags": red_flags,
+        "price_check_label": price_check_label,
         "fairness_score": fairness_score,
-        "fairness_note": fairness_note,
+        "fairness_note": fairness_note or "המדד המספרי, אם מוצג, הוא אינדיקציה משנית בלבד ואינו הוכחה לחיוב יתר.",
         "negotiation_script": negotiation_lines,
         "grounding_sources": grounding_sources,
         "grounding_status": grounding_status,

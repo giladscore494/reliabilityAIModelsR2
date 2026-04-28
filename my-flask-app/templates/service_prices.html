@@ -242,10 +242,11 @@
                         </div>
                     </div>
 
-                    <!-- Fairness Score -->
+                    <!-- Price Check Summary -->
                     <div id="fairnessScore" class="text-center p-6 bg-slate-800/50 rounded-2xl mb-6">
-                        <div class="text-6xl font-black mb-2" id="scoreValue">--</div>
-                        <div class="text-slate-400">ציון הוגנות</div>
+                        <div class="text-4xl md:text-5xl font-black mb-2" id="scoreValue">--</div>
+                        <div class="text-slate-400">אינדיקציית חריגות מחיר</div>
+                        <div id="secondaryScore" class="text-sm text-slate-500 mt-2"></div>
                         <div id="fairnessNote" class="text-sm text-slate-500 mt-1"></div>
                     </div>
 
@@ -329,6 +330,16 @@
             return meta ? meta.getAttribute('content') : '';
         }
 
+        function escapeHtml(value) {
+            if (value === null || value === undefined) return '';
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         // DOM Elements
         const dropZone = document.getElementById('dropZone');
         const invoiceInput = document.getElementById('invoiceInput');
@@ -397,7 +408,7 @@
                     <svg class="mx-auto h-12 w-12 text-success mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
                     </svg>
-                    <p class="text-lg text-success font-semibold">${file.name}</p>
+                    <p class="text-lg text-success font-semibold">${escapeHtml(file.name)}</p>
                     <p class="text-sm text-slate-400">${(file.size / 1024).toFixed(1)} KB</p>
                 `;
                 
@@ -576,17 +587,20 @@
             
             // Fairness Score
             const scoreValue = document.getElementById('scoreValue');
+            const secondaryScore = document.getElementById('secondaryScore');
             const fairnessNote = document.getElementById('fairnessNote');
+            const priceCheckLabel = report.price_check_label || 'אין מספיק נתונים';
+            scoreValue.textContent = priceCheckLabel;
+            scoreValue.className = 'text-4xl md:text-5xl font-black mb-2 ' +
+                (priceCheckLabel === 'בטווח זמין' ? 'text-success' :
+                 priceCheckLabel === 'מעל הטווח' ? 'text-warning' :
+                 priceCheckLabel === 'חריג לבדיקה' ? 'text-danger' : 'text-slate-400');
             if (report.fairness_score === null || report.fairness_score === undefined) {
-                scoreValue.textContent = '--';
-                scoreValue.className = 'text-6xl font-black mb-2 text-slate-400';
-                fairnessNote.textContent = report.fairness_note || 'אין מספיק נתונים לציון כולל';
+                secondaryScore.textContent = '';
+                fairnessNote.textContent = report.fairness_note || 'אין מספיק נתונים';
             } else {
-                scoreValue.textContent = report.fairness_score;
-                scoreValue.className = 'text-6xl font-black mb-2 ' +
-                    (report.fairness_score >= 70 ? 'text-success' :
-                     report.fairness_score >= 50 ? 'text-warning' : 'text-danger');
-                fairnessNote.textContent = report.fairness_note || '';
+                secondaryScore.textContent = `מדד משני פנימי: ${report.fairness_score}/100`;
+                fairnessNote.textContent = (report.fairness_note || 'המדד המספרי הוא אינדיקציה משנית בלבד.') + ' הוא אינו הוכחה לחיוב יתר.';
             }
             
             // Totals
@@ -615,7 +629,7 @@
             const redFlagsList = document.getElementById('redFlagsList');
             if (report.red_flags && report.red_flags.length > 0) {
                 redFlagsSection.classList.remove('hidden');
-                redFlagsList.innerHTML = report.red_flags.map(flag => `<li>• ${flag}</li>`).join('');
+                redFlagsList.innerHTML = report.red_flags.map(flag => `<li>• ${escapeHtml(flag)}</li>`).join('');
             } else {
                 redFlagsSection.classList.add('hidden');
             }
@@ -623,24 +637,25 @@
             // Items Table
             const itemsTableBody = document.getElementById('itemsTableBody');
             itemsTableBody.innerHTML = report.items.map(item => {
-                const labelClass = getLabelClass(item.label);
+                const itemLabel = item.label || 'אין מספיק נתונים';
+                const labelClass = getLabelClass(itemLabel);
                 const marketRange = (item.market_min_ils !== null && item.market_min_ils !== undefined &&
                     item.market_max_ils !== null && item.market_max_ils !== undefined)
                     ? `₪${item.market_min_ils.toLocaleString()}–₪${item.market_max_ils.toLocaleString()}`
                     : '-';
                 const marketMedian = item.market_median_ils ? `₪${item.market_median_ils.toLocaleString()}` : '-';
-                const marketLabel = item.market_label || 'אין מספיק נתונים להשוואה';
+                const marketLabel = item.market_label || 'אין מספיק נתונים';
                 return `
                     <tr>
                         <td class="py-3 px-2">
-                            <div class="font-medium text-white">${item.canonical_code}</div>
-                            <div class="text-xs text-slate-500 truncate max-w-xs">${item.raw_description || ''}</div>
+                            <div class="font-medium text-white">${escapeHtml(item.canonical_code)}</div>
+                            <div class="text-xs text-slate-500 truncate max-w-xs">${escapeHtml(item.raw_description || '')}</div>
                         </td>
                         <td class="py-3 px-2 font-semibold">₪${(item.price_ils || 0).toLocaleString()}</td>
                         <td class="py-3 px-2 text-slate-400">${marketRange}</td>
                         <td class="py-3 px-2 text-slate-400">${marketMedian}</td>
-                        <td class="py-3 px-2 text-slate-400">${marketLabel}</td>
-                        <td class="py-3 px-2 ${labelClass}">${item.label}</td>
+                        <td class="py-3 px-2 text-slate-400">${escapeHtml(item.market_label || marketLabel)}</td>
+                        <td class="py-3 px-2 ${labelClass}">${escapeHtml(itemLabel)}</td>
                     </tr>
                 `;
             }).join('');
@@ -650,7 +665,7 @@
             const negotiationList = document.getElementById('negotiationList');
             if (report.negotiation_script && report.negotiation_script.length > 0) {
                 negotiationSection.classList.remove('hidden');
-                negotiationList.innerHTML = report.negotiation_script.map(line => `<li>${line}</li>`).join('');
+                negotiationList.innerHTML = report.negotiation_script.map(line => `<li>${escapeHtml(line)}</li>`).join('');
             } else {
                 negotiationSection.classList.add('hidden');
             }
@@ -664,8 +679,8 @@
         }
 
         function getLabelClass(label) {
-            if (label.includes('נמוך') || label.includes('תואם')) return 'label-good';
-            if (label.includes('גבוה')) return 'label-expensive';
+            if (label.includes('בטווח')) return 'label-good';
+            if (label.includes('מעל')) return 'label-expensive';
             if (label.includes('חריג')) return 'label-extreme';
             return 'label-fair';
         }
@@ -692,7 +707,7 @@
                             <div class="bg-slate-800/50 rounded-xl p-4 flex items-center justify-between">
                                 <div>
                                     <div class="font-medium text-white">
-                                        ${inv.make || ''} ${inv.model || ''} ${inv.year || ''}
+                                        ${escapeHtml(inv.make || '')} ${escapeHtml(inv.model || '')} ${escapeHtml(inv.year || '')}
                                     </div>
                                     <div class="text-sm text-slate-400">
                                         ${new Date(inv.created_at).toLocaleDateString('he-IL')} · 

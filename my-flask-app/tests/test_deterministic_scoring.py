@@ -1,6 +1,6 @@
 """Tests for information-quality review calculation."""
 
-from app.services.analyze_service import compute_reliability_score_and_banner
+from app.services.analyze_service import derive_information_quality_review
 
 
 def _validated_payload(**overrides):
@@ -49,7 +49,7 @@ def _model_output(**overrides):
 
 
 def test_information_review_is_ready_when_sources_and_focus_exist():
-    result = compute_reliability_score_and_banner(
+    result = derive_information_quality_review(
         _validated_payload(),
         {"missing_data_flags": []},
         model_output=_model_output(),
@@ -62,7 +62,7 @@ def test_information_review_is_ready_when_sources_and_focus_exist():
 
 
 def test_information_review_marks_missing_sources_as_low_quality():
-    result = compute_reliability_score_and_banner(
+    result = derive_information_quality_review(
         _validated_payload(),
         {},
         model_output=_model_output(sources=[]),
@@ -74,7 +74,7 @@ def test_information_review_marks_missing_sources_as_low_quality():
 
 
 def test_information_review_uses_request_missing_fields():
-    result = compute_reliability_score_and_banner(
+    result = derive_information_quality_review(
         _validated_payload(sub_model=None, mileage_range=None, ownership_history=None),
         {},
         model_output=_model_output(),
@@ -86,7 +86,7 @@ def test_information_review_uses_request_missing_fields():
 
 
 def test_information_review_preserves_explicit_labels_when_valid():
-    result = compute_reliability_score_and_banner(
+    result = derive_information_quality_review(
         _validated_payload(),
         {},
         model_output=_model_output(
@@ -104,7 +104,7 @@ def test_information_review_preserves_explicit_labels_when_valid():
 
 
 def test_information_review_carries_mileage_note():
-    result = compute_reliability_score_and_banner(
+    result = derive_information_quality_review(
         _validated_payload(mileage_range="מעל 200,000 ק\"מ"),
         {},
         model_output=_model_output(),
