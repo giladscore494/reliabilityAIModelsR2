@@ -60,6 +60,15 @@
     {% include '_navbar.html' %}
 
     <main class="flex-grow">
+        <!-- How-to-read banner -->
+        <div class="bg-gradient-to-r from-primary/10 to-secondary/10 border-b border-primary/20">
+            <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-3">
+                <p class="text-slate-300 text-xs md:text-sm text-center leading-relaxed">
+                    💡 <strong class="text-white">איך לקרוא את הניתוח:</strong> המערכת מציפה תחומי סיכון ונקודות לבדיקה — לא קובעת אם לקנות. השתמש בממצאים כהכנה לבדיקת מוסך ושיחה עם המוכר.
+                </p>
+            </div>
+        </div>
+
         <!-- Example banner -->
         <div class="bg-gradient-to-r from-amber-600/20 to-amber-500/10 border-b border-amber-500/30">
             <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -116,33 +125,33 @@
 
                     <!-- Faults (common_issues + recommended_checks) -->
                     <div class="example-section">
-                        <h3 class="section-title">תקלות נפוצות ובדיקות מומלצות</h3>
+                        <h3 class="section-title">תחומי סיכון ובדיקות מומלצות</h3>
                         <div id="faults"></div>
                     </div>
 
                     <!-- Costs -->
                     <div class="example-section">
-                        <h3 class="section-title">עלויות אחזקה</h3>
+                        <h3 class="section-title">רגישות עלויות</h3>
                         <div id="costs"></div>
                     </div>
 
                     <!-- Reliability report -->
                     <div class="example-section">
-                        <h3 class="section-title">דוח בדיקה מפורט</h3>
+                        <h3 class="section-title">מה לבדוק לפני החלטה</h3>
                         <div id="report"></div>
                     </div>
 
-                    <!-- Competitors -->
+                    <!-- Competitors = knownUncertainties -->
                     <div class="example-section">
-                        <h3 class="section-title">מתחרים מומלצים</h3>
+                        <h3 class="section-title">מה עוד לא ידוע</h3>
                         <div id="competitors"></div>
                     </div>
                 </div>
 
                 <!-- Bottom CTA -->
                 <div class="mt-10 rounded-[2rem] border border-slate-700/70 bg-dark-lighter/70 p-8 text-center">
-                        <h3 class="text-2xl font-extrabold text-white mb-3">מוכנים לבדוק את הרכב שלכם?</h3>
-                        <p class="text-slate-400 mb-6">התחברו עם Google וקבלו סקירת סיכונים מבוססת מידע לרכב שאתם שוקלים לקנות.</p>
+                        <h3 class="text-2xl font-extrabold text-white mb-3">מוכנים לדעת מה לבדוק ברכב שלכם?</h3>
+                        <p class="text-slate-400 mb-6">התחברו עם Google וקבלו סקירת תחומי סיכון ורשימת נקודות לבדיקה לפני הקנייה.</p>
                     <a href="{{ url_for('public.login') }}"
                        class="inline-flex items-center justify-center px-8 py-4 rounded-2xl bg-gradient-to-r from-primary to-secondary text-white font-black text-lg shadow-xl shadow-primary/20 hover:scale-[1.02] transition-transform"
                        onclick="if(typeof posthog!=='undefined')try{posthog.capture('signup_clicked',{source:'example'})}catch(e){}">

@@ -812,6 +812,25 @@
             } else {
                 html += '<p class="text-sm text-slate-400">לא התקבלו תחומי סיכון מפורטים.</p>';
             }
+
+            // Legacy / fallback: common_issues
+            const commonIssues = Array.isArray(data.common_issues) ? data.common_issues.filter(Boolean) : [];
+            if (commonIssues.length) {
+                html += '<h5 class="text-sm font-semibold text-slate-300 mt-4 mb-1">תקלות מתועדות בדגם</h5>';
+                html += '<ul class="list-disc list-inside space-y-1 text-sm text-slate-300">';
+                html += commonIssues.map(item => `<li>${safe(item)}</li>`).join('');
+                html += '</ul>';
+            }
+
+            // Legacy / fallback: recommended_checks
+            const recommendedChecks = Array.isArray(data.recommended_checks) ? data.recommended_checks.filter(Boolean) : [];
+            if (recommendedChecks.length) {
+                html += '<h5 class="text-sm font-semibold text-slate-300 mt-4 mb-1">בדיקות קונקרטיות מומלצות</h5>';
+                html += '<ul class="list-disc list-inside space-y-1 text-sm text-slate-300">';
+                html += recommendedChecks.map(item => `<li>${safe(item)}</li>`).join('');
+                html += '</ul>';
+            }
+
             faultsContainer.innerHTML = html;
         }
 
@@ -826,6 +845,29 @@
             } else {
                 html += '<p class="text-sm text-slate-400">לא התקבל פירוט על רגישות העלויות.</p>';
             }
+
+            // Legacy / fallback: avg_repair_cost_ILS and issues_with_costs
+            const avgCost = data.avg_repair_cost_ILS;
+            const issuesWithCosts = Array.isArray(data.issues_with_costs) ? data.issues_with_costs.filter(Boolean) : [];
+            if (avgCost || issuesWithCosts.length) {
+                html += '<h5 class="text-sm font-semibold text-slate-300 mt-4 mb-1">טווחי עלויות משוערים</h5>';
+                if (avgCost) {
+                    html += `<p class="text-sm text-slate-200 mb-1">עלות תיקון ממוצעת: <span class="font-semibold">${safe(String(avgCost))} ₪</span></p>`;
+                }
+                if (issuesWithCosts.length) {
+                    html += '<ul class="list-disc list-inside space-y-1 text-sm text-slate-300">';
+                    html += issuesWithCosts.map(item => {
+                        if (item && typeof item === 'object') {
+                            const label = safe(item.issue || item.name || '');
+                            const cost = safe(item.cost_ILS || item.cost || '');
+                            return `<li>${label}${cost ? ` – ${cost} ₪` : ''}</li>`;
+                        }
+                        return `<li>${safe(item)}</li>`;
+                    }).join('');
+                    html += '</ul>';
+                }
+            }
+
             costsContainer.innerHTML = html;
         }
 
@@ -833,14 +875,14 @@
             const arr = infoReview.knownUncertainties;
             let html = '';
             if (arr.length) {
-                html += '<p class="text-sm text-slate-300 mb-3">נקודות שבהן עדיין חסר מידע או נדרש אימות נוסף:</p>';
+                html += '<p class="text-sm text-slate-300 mb-3">נקודות שעדיין חסר עליהן מידע ושכדאי לוודא מול המוכר/מוסך בדיקה:</p>';
                 html += '<ul class="space-y-2 text-sm text-slate-200">';
                 html += arr.map(item => `
                     <li class="bg-slate-900/40 border border-slate-700/70 rounded-xl px-3 py-2">${safe(item)}</li>
                 `).join('');
                 html += '</ul>';
             } else {
-                html += '<p class="text-sm text-slate-400">לא דווחו אי-ודאויות נוספות.</p>';
+                html += '<p class="text-sm text-slate-400">לא דווחו נקודות פתוחות נוספות.</p>';
             }
             competitorsContainer.innerHTML = html;
         }

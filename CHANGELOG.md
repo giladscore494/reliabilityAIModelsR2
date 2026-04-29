@@ -1,6 +1,19 @@
 # Changelog
 
-## 2026-04-07
+## 2026-04-29
+### Decision-Support Positioning Alignment
+
+- **`landing.html`**: Updated title, Hero headline, sub-headline, and CTA copy to lead with "לפני שתחתום על הרכב הבא – דע מה לבדוק." Replaced "ציון אמינות" / "בדיקת אמינות" language with "תחומי סיכון", "מה לבדוק לפני קנייה". Added explanatory sub-text alongside CTA: "כלי שמכין אותך לבדיקה — לא ממליץ לקנות או לא לקנות." Updated gallery CTA text and disclaimer copy.
+- **`example.html`**: Added "how-to-read" banner at the top of example pages explaining the analysis surfaces risk areas rather than making buy/no-buy decisions. Renamed section headings from "תקלות נפוצות / עלויות אחזקה / מתחרים" to "תחומי סיכון / רגישות עלויות / מה עוד לא ידוע" to align with the new positioning.
+- **`reliability_app.html`**: Renamed "אי-ודאויות" tab label → **"מה עוד לא ידוע"** for accessibility and human-friendliness. `data-tab="competitors"` attribute unchanged to preserve JS tab-switching.
+- **`script.js`**:
+  - Updated `competitorsContainer` intro text to be more actionable ("נקודות שעדיין חסר עליהן מידע ושכדאי לוודא מול המוכר/מוסך בדיקה").
+  - `faultsContainer`: when `data.common_issues` or `data.recommended_checks` exist, they are rendered as sub-lists "תקלות מתועדות בדגם" / "בדיקות קונקרטיות מומלצות" inside the "תחומי סיכון" tab — restoring concrete value for history records using the legacy schema.
+  - `costsContainer`: when `data.avg_repair_cost_ILS` or `data.issues_with_costs` exist, they are rendered as a "טווחי עלויות משוערים" sub-block inside the "רגישות עלויות" tab.
+- **`tests/test_app.py`**: Replaced fragile string-matching assertions (`console.info('[ANALYZE_START]'`, `rawText = await response.text();`, etc.) with a size-based sanity check and functional marker checks. Kept assertions for `showAnalyzeError(` and absence of legacy `alert(...)`.
+- **`tests/test_reliability_fallback.py`**: Added three new error-contract tests (`test_analyze_error_contract_*`) that verify `/analyze` always returns `request_id`, `ok: false`, and `error.message` for validation failures, AI failures, and `ok=false` AI responses.
+
+
 ### Task 1 — PostHog Analytics (7-point funnel)
 - Added `posthog` SDK and `app/utils/analytics.py` with `track_event()` helper (silent no-op when `POSTHOG_API_KEY` is missing).
 - Instrumented 7 funnel events: `landing_viewed`, `example_viewed`, `signup_clicked`, `signup_completed`, `analyze_completed`, `compare_completed`, `feedback_given`.

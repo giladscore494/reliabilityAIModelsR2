@@ -169,3 +169,64 @@ def test_search_details_normalizes_old_history_to_information_review(
     ]
     assert "estimated_reliability" not in payload
     assert "base_score_calculated" not in payload
+
+
+# ---------------------------------------------------------------------------
+# Error-contract tests: verify /analyze error responses always include
+# request_id + error.message, regardless of error type.
+# ---------------------------------------------------------------------------
+
+def test_analyze_error_contract_validation_failure(logged_in_client):
+    """A schema-validation error (HTTP 400) must include request_id and error.message."""
+    client, _ = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+    resp = client.post(
+        "/analyze",
+        json={"make": "", "model": "", "year": "", "legal_confirm": True},
+        headers={"Origin": "http://localhost"},
+    )
+    data = resp.get_json()
+    assert resp.status_code == 400
+    assert data["ok"] is False
+    assert "request_id" in data and data["request_id"]
+    assert "error" in data
+    assert "message" in data["error"]
+    assert data["error"]["message"]
+
+
+def test_analyze_error_contract_ai_failure(logged_in_client, monkeypatch):
+    """An AI/server failure (HTTP 500) must include request_id, ok=False, and error.message."""
+    client, _ = logged_in_client
+    monkeypatch.setenv("SIMULATE_AI_FAIL", "1")
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+    resp = client.post(
+        "/analyze",
+        json=_base_payload(),
+        headers={"Origin": "http://localhost"},
+    )
+    data = resp.get_json()
+    assert resp.status_code >= 500
+    assert data["ok"] is False
+    assert "request_id" in data and data["request_id"]
+    assert "error" in data
+    assert "message" in data["error"]
+    assert data["error"]["message"]
+
+
+def test_analyze_error_contract_ok_false_response(logged_in_client, monkeypatch):
+    """When quota is exceeded, the API must return ok=False with request_id and error.message."""
+    import main as main_module
+    client, user_id = logged_in_client
+    monkeypatch.setattr(main_module, "USER_DAILY_LIMIT", 0)
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+    resp = client.post(
+        "/analyze",
+        json=_base_payload(),
+        headers={"Origin": "http://localhost"},
+    )
+    data = resp.get_json()
+    assert data["ok"] is False
+    assert "request_id" in data and data["request_id"]
+    assert "error" in data
+    assert "message" in data["error"]
+    assert data["error"]["message"]
