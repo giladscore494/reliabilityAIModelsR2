@@ -875,7 +875,7 @@
             const arr = infoReview.knownUncertainties;
             let html = '';
             if (arr.length) {
-                html += '<p class="text-sm text-slate-300 mb-3">נקודות שעדיין חסר עליהן מידע ושכדאי לוודא מול המוכר/מוסך בדיקה:</p>';
+                html += '<p class="text-sm text-slate-300 mb-3">נקודות שעדיין חסר עליהם מידע ושכדאי לוודא מול המוכר/מוסך בדיקה:</p>';
                 html += '<ul class="space-y-2 text-sm text-slate-200">';
                 html += arr.map(item => `
                     <li class="bg-slate-900/40 border border-slate-700/70 rounded-xl px-3 py-2">${safe(item)}</li>
