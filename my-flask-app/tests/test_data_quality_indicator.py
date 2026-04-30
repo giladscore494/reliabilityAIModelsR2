@@ -265,6 +265,8 @@ class TestScriptJsContainsDQIMarkers:
         assert "aria-valuenow" in body
 
     def test_system_disclaimer_present(self, client):
+        # Intentionally checks the exact legal positioning disclaimer.
+        # If this wording changes, it must be a deliberate product decision.
         resp = client.get("/static/script.js")
         body = resp.get_data(as_text=True)
         assert "המערכת לא קובעת אם לקנות את הרכב, אלא מציפה מה לבדוק" in body

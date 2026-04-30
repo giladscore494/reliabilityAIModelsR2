@@ -186,8 +186,6 @@
         const sourceScopeLabel = data.source_scope_label || '';
         const weaklySourced = data.weakly_sourced === true;
         const decisionReadiness = infoReview.decisionReadiness || '';
-        const sourceTag = data.source_tag || '';
-        const mileageNote = data.mileage_note || '';
 
         const wrapper = document.createElement('div');
         wrapper.className = 'w-full rounded-3xl border border-slate-700/70 bg-slate-900/40 p-5 md:p-6 text-right';
@@ -302,6 +300,9 @@
             });
             wrapper.appendChild(focusList);
         }
+
+        const sourceTag = data.source_tag || '';
+        const mileageNote = data.mileage_note || '';
 
         if (sourceTag) {
             const p = document.createElement('p');
