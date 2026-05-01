@@ -1909,30 +1909,40 @@ def sanitize_decision_result(
         return fallback
     slot_keys = _ordered_compare_slot_keys(cars_selected_slots or {}, (computed_result or {}).get("cars") or {})
     overall = decision_result.get("overall_decision") if isinstance(decision_result.get("overall_decision"), dict) else {}
-    sanitized = {
+    sanitized: Dict[str, Any] = {
         "overall_decision": {
             "label": _decision_label(overall.get("label"), slot_keys),
             "text": _sanitize_decision_text(overall.get("text"), request_id, "overall_decision.text") or fallback["overall_decision"]["text"],
         },
         "category_decisions": [],
         "key_differences": [],
-        "choose_car_1_if": _sanitize_decision_list(decision_result.get("choose_car_1_if"), request_id, "choose_car_1_if"),
-        "choose_car_2_if": _sanitize_decision_list(decision_result.get("choose_car_2_if"), request_id, "choose_car_2_if"),
-        "avoid_or_check_car_1_if": _sanitize_decision_list(decision_result.get("avoid_or_check_car_1_if"), request_id, "avoid_or_check_car_1_if"),
-        "avoid_or_check_car_2_if": _sanitize_decision_list(decision_result.get("avoid_or_check_car_2_if"), request_id, "avoid_or_check_car_2_if"),
         "competitors_to_consider": [],
         "practical_summary": _sanitize_decision_text(decision_result.get("practical_summary"), request_id, "practical_summary") or fallback["practical_summary"],
     }
+    for slot_key in slot_keys:
+        choose_key = f"choose_{slot_key}_if"
+        avoid_key = f"avoid_or_check_{slot_key}_if"
+        sanitized[choose_key] = (
+            _sanitize_decision_list(decision_result.get(choose_key), request_id, choose_key)
+            or fallback.get(choose_key, [])
+        )
+        sanitized[avoid_key] = (
+            _sanitize_decision_list(decision_result.get(avoid_key), request_id, avoid_key)
+            or fallback.get(avoid_key, [])
+        )
     raw_categories = decision_result.get("category_decisions") if isinstance(decision_result.get("category_decisions"), list) else []
     by_key = {item.get("category_key"): item for item in raw_categories if isinstance(item, dict)}
+    fallback_by_key = {fb_item["category_key"]: fb_item for fb_item in fallback["category_decisions"]}
     for key, name in DECISION_CATEGORY_DEFINITIONS:
         item = by_key.get(key) or {}
+        fallback_item = fallback_by_key.get(key) or {}
         sanitized["category_decisions"].append({
             "category_key": key,
             "category_name_he": _sanitize_decision_text(item.get("category_name_he") or name, request_id, f"category_decisions.{key}.name") or name,
             "preferred": _decision_label(item.get("preferred"), slot_keys),
-            "why": _sanitize_decision_text(item.get("why"), request_id, f"category_decisions.{key}.why") or "אין מספיק מידע מאומת בקטגוריה זו.",
-            "important_caveat": _sanitize_optional_decision_text(item.get("important_caveat"), request_id, f"category_decisions.{key}.important_caveat"),
+            # Fallback precedence: AI text → deterministic fallback → hardcoded default
+            "why": _sanitize_decision_text(item.get("why"), request_id, f"category_decisions.{key}.why") or fallback_item.get("why") or "אין מספיק מידע מאומת בקטגוריה זו.",
+            "important_caveat": _sanitize_optional_decision_text(item.get("important_caveat"), request_id, f"category_decisions.{key}.important_caveat") or fallback_item.get("important_caveat") or "יש לאמת נתונים מול מקורות רשמיים ובדיקת רכב בפועל.",
         })
     raw_diffs = decision_result.get("key_differences") if isinstance(decision_result.get("key_differences"), list) else []
     for idx, item in enumerate(raw_diffs[:8]):
