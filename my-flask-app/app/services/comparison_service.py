@@ -1813,7 +1813,7 @@ def build_compare_writer_prompt(
                     or slot_key,
                     120,
                 ),
-                "selection_input": {
+                "user_selection": {
                     "make": _truncate_text(
                         ((cars_selected_slots or {}).get(slot_key, {}) or {}).get(
                             "make"
