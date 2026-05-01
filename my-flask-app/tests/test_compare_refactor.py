@@ -825,3 +825,112 @@ def test_compare_stage_b_forbidden_score_text_is_sanitized():
     assert "84/100" not in serialized
     assert cleaned["overall_decision"]["text"] != "84/100"
     assert "תקנה" not in cleaned["practical_summary"]
+
+
+def test_sanitize_decision_result_fills_missing_per_car_arrays_from_fallback():
+    """Missing choose_car_X_if / avoid_or_check_car_X_if must be filled from fallback."""
+    from app.services.comparison_service import sanitize_decision_result
+
+    slots = {"car_1": {"display_name": "Toyota Corolla"}, "car_2": {"display_name": "Hyundai Elantra"}}
+    # AI writer omits per-car arrays entirely
+    cleaned = sanitize_decision_result(
+        {"overall_decision": {"label": "car_1", "text": "טויוטה עדיפה."}},
+        slots,
+        {"cars": {"car_1": {}, "car_2": {}}},
+        "test-req",
+    )
+    assert isinstance(cleaned["choose_car_1_if"], list) and len(cleaned["choose_car_1_if"]) > 0
+    assert isinstance(cleaned["choose_car_2_if"], list) and len(cleaned["choose_car_2_if"]) > 0
+    assert isinstance(cleaned["avoid_or_check_car_1_if"], list) and len(cleaned["avoid_or_check_car_1_if"]) > 0
+    assert isinstance(cleaned["avoid_or_check_car_2_if"], list) and len(cleaned["avoid_or_check_car_2_if"]) > 0
+
+
+def test_sanitize_decision_result_fills_empty_per_car_arrays_from_fallback():
+    """Empty choose_car_X_if / avoid_or_check_car_X_if lists must be filled from fallback."""
+    from app.services.comparison_service import sanitize_decision_result
+
+    slots = {"car_1": {"display_name": "Toyota Corolla"}, "car_2": {"display_name": "Hyundai Elantra"}}
+    cleaned = sanitize_decision_result(
+        {
+            "overall_decision": {"label": "car_1", "text": "טויוטה עדיפה."},
+            "choose_car_1_if": [],
+            "choose_car_2_if": [],
+            "avoid_or_check_car_1_if": [],
+            "avoid_or_check_car_2_if": [],
+        },
+        slots,
+        {"cars": {"car_1": {}, "car_2": {}}},
+        "test-req",
+    )
+    assert len(cleaned["choose_car_1_if"]) > 0
+    assert len(cleaned["choose_car_2_if"]) > 0
+    assert len(cleaned["avoid_or_check_car_1_if"]) > 0
+    assert len(cleaned["avoid_or_check_car_2_if"]) > 0
+
+
+def test_sanitize_decision_result_supports_car_3():
+    """car_3 slot must also receive populated choose/avoid arrays."""
+    from app.services.comparison_service import sanitize_decision_result
+
+    slots = {
+        "car_1": {"display_name": "Toyota Corolla"},
+        "car_2": {"display_name": "Hyundai Elantra"},
+        "car_3": {"display_name": "Alfa Romeo Stelvio"},
+    }
+    # AI omits car_3 arrays
+    cleaned = sanitize_decision_result(
+        {
+            "overall_decision": {"label": "car_1", "text": "טויוטה עדיפה."},
+            "choose_car_1_if": ["מתאים למשפחה"],
+            "choose_car_2_if": ["מתאים לעיר"],
+        },
+        slots,
+        {"cars": {"car_1": {}, "car_2": {}, "car_3": {}}},
+        "test-req",
+    )
+    assert "choose_car_3_if" in cleaned
+    assert isinstance(cleaned["choose_car_3_if"], list) and len(cleaned["choose_car_3_if"]) > 0
+    assert "avoid_or_check_car_3_if" in cleaned
+    assert isinstance(cleaned["avoid_or_check_car_3_if"], list) and len(cleaned["avoid_or_check_car_3_if"]) > 0
+    # car_3 fallback should provide non-empty content
+    assert len(cleaned["choose_car_3_if"][0]) > 0
+
+
+def test_sanitize_decision_result_fills_missing_why_from_fallback():
+    """category_decisions.why must be filled from fallback when AI omits it."""
+    from app.services.comparison_service import sanitize_decision_result
+
+    slots = {"car_1": {"display_name": "Toyota"}, "car_2": {"display_name": "Hyundai"}}
+    cleaned = sanitize_decision_result(
+        {
+            "overall_decision": {"label": "car_1", "text": "בחר בטויוטה."},
+            "category_decisions": [
+                {"category_key": "pricing_and_value", "preferred": "car_1", "why": ""},
+            ],
+        },
+        slots,
+        {"cars": {"car_1": {}, "car_2": {}}},
+        "test-req",
+    )
+    pricing_item = next(d for d in cleaned["category_decisions"] if d["category_key"] == "pricing_and_value")
+    assert pricing_item["why"] and len(pricing_item["why"]) > 0
+
+
+def test_sanitize_decision_result_fills_missing_important_caveat_from_fallback():
+    """category_decisions.important_caveat must be filled from fallback when AI omits it."""
+    from app.services.comparison_service import sanitize_decision_result
+
+    slots = {"car_1": {"display_name": "Toyota"}, "car_2": {"display_name": "Hyundai"}}
+    cleaned = sanitize_decision_result(
+        {
+            "overall_decision": {"label": "car_1", "text": "בחר בטויוטה."},
+            "category_decisions": [
+                {"category_key": "official_safety", "preferred": "car_1", "why": "שניהם 5 כוכבים.", "important_caveat": None},
+            ],
+        },
+        slots,
+        {"cars": {"car_1": {}, "car_2": {}}},
+        "test-req",
+    )
+    safety_item = next(d for d in cleaned["category_decisions"] if d["category_key"] == "official_safety")
+    assert safety_item["important_caveat"] is not None and len(safety_item["important_caveat"]) > 0
