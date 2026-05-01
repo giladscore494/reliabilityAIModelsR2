@@ -348,6 +348,120 @@ def test_compare_three_cars_stage_b_slot_schema_parsed_into_narrative(app, logge
     assert payload["ai"]["status"] == "ok"
 
 
+def test_compare_stage_b_empty_decision_arrays_are_backfilled(app, logged_in_client, monkeypatch):
+    client, _user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    grounded_output = _grounded_output_fixture()
+    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(grounded_output))
+
+    def fake_stage_b(_prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC):
+        return {
+            "decision_result": {
+                "overall_decision": {"label": "car_1", "text": "לטויוטה יש עדיפות קלה בתמונה הכוללת."},
+                "category_decisions": [
+                    {
+                        "category_key": "pricing_and_value",
+                        "category_name_he": "מחיר ותמורה",
+                        "preferred": "car_1",
+                        "why": "היא משתלמת יותר.",
+                        "important_caveat": "בדקו היסטוריית טיפולים מלאה.",
+                    }
+                ],
+                "key_differences": [
+                    {
+                        "title": "אופי שימוש",
+                        "car_1": "מתאימה יותר לשימוש רגוע.",
+                        "car_2": "מרגישה מעט חדה יותר.",
+                        "meaning_for_buyer": "תלוי במה חשוב לך ביום יום.",
+                    }
+                ],
+                "choose_car_1_if": [],
+                "choose_car_2_if": [],
+                "avoid_or_check_car_1_if": [],
+                "avoid_or_check_car_2_if": [],
+                "competitors_to_consider": [],
+                "practical_summary": "בדקו מצב ועלויות לפני החלטה.",
+            },
+            "sources": [],
+        }, None
+
+    monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", fake_stage_b)
+
+    resp = client.post(
+        "/api/compare",
+        json={
+            "cars": [
+                {"make": "Toyota", "model": "Corolla", "year": 2020},
+                {"make": "Honda", "model": "Civic", "year": 2020},
+            ],
+            "legal_confirm": True,
+        },
+        headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+    )
+    assert resp.status_code == 200
+    decision = resp.get_json()["data"]["decision_result"]
+    assert decision["choose_car_1_if"]
+    assert decision["choose_car_2_if"]
+    assert decision["avoid_or_check_car_1_if"]
+    assert decision["avoid_or_check_car_2_if"]
+
+
+def test_compare_stage_b_missing_per_car_keys_are_backfilled_for_car_3(app, logged_in_client, monkeypatch):
+    client, _user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    grounded_output = _grounded_output_fixture_three_cars()
+    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(grounded_output))
+
+    def fake_stage_b(_prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC):
+        return {
+            "decision_result": {
+                "overall_decision": {"label": "car_3", "text": "לרכב השלישי יש עדיפות קלה."},
+                "category_decisions": [
+                    {
+                        "category_key": "powertrain_and_performance",
+                        "category_name_he": "מכלולים וביצועים",
+                        "preferred": "car_3",
+                        "why": "הוא חד יותר לנהיגה.",
+                        "important_caveat": "בדקו צמיגים ובלמים.",
+                    }
+                ],
+                "key_differences": [
+                    {
+                        "title": "תחושת נהיגה",
+                        "car_1": "רגועה יותר.",
+                        "car_2": "מאוזנת.",
+                        "car_3": "חדה יותר.",
+                        "meaning_for_buyer": "משפיע בעיקר על מי שנהנה מנהיגה.",
+                    }
+                ],
+                "competitors_to_consider": [],
+                "practical_summary": "השלישי מתאים יותר למי שמחפש תחושה דינמית.",
+            },
+            "sources": [],
+        }, None
+
+    monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", fake_stage_b)
+
+    resp = client.post(
+        "/api/compare",
+        json={
+            "cars": [
+                {"make": "Toyota", "model": "Corolla", "year": 2020},
+                {"make": "Honda", "model": "Civic", "year": 2020},
+                {"make": "Mazda", "model": "3", "year": 2020},
+            ],
+            "legal_confirm": True,
+        },
+        headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+    )
+    assert resp.status_code == 200
+    decision = resp.get_json()["data"]["decision_result"]
+    assert decision["choose_car_3_if"]
+    assert decision["avoid_or_check_car_3_if"]
+
+
 def test_compare_stage_a_timeout_returns_503_with_retryable_error(app, logged_in_client, monkeypatch):
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
@@ -559,6 +673,61 @@ def test_compare_ai_regenerate_keeps_usable_long_narrative(app, logged_in_client
     assert regen_payload["narrative"]["overall_summary"]
     assert len(regen_payload["narrative"]["overall_summary"].split()) == 80
     assert regen_payload["narrative"]["category_explanations"][0]["explanations"]["car_1"]
+
+
+def test_compare_ai_regenerate_backfills_missing_decision_arrays(app, logged_in_client, monkeypatch):
+    client, _user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    grounded_output = _grounded_output_fixture()
+    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(grounded_output))
+    monkeypatch.setattr(
+        comparison_service,
+        "call_gemini_compare_writer",
+        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: ({
+            "decision_result": {
+                "overall_decision": {"label": "car_1", "text": "לטויוטה יש עדיפות קלה."},
+                "category_decisions": [
+                    {
+                        "category_key": "pricing_and_value",
+                        "category_name_he": "מחיר ותמורה",
+                        "preferred": "car_1",
+                        "why": "היא נראית משתלמת יותר.",
+                        "important_caveat": "בדקו היסטוריית טיפולים מלאה.",
+                    }
+                ],
+                "practical_summary": "בדקו מצב ועלויות לפני החלטה.",
+            },
+            "sources": [],
+        }, None),
+    )
+
+    first = client.post(
+        "/api/compare",
+        json={
+            "cars": [
+                {"make": "Toyota", "model": "Corolla", "year": 2020},
+                {"make": "Honda", "model": "Civic", "year": 2020},
+            ],
+            "legal_confirm": True,
+        },
+        headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+    )
+    assert first.status_code == 200
+    comparison_id = first.get_json()["data"]["comparison_id"]
+
+    regen = client.post(
+        f"/api/compare/ai-regenerate?comparison_id={comparison_id}",
+        json={"legal_confirm": True},
+        headers={"Origin": "http://localhost", "Referer": "http://localhost/compare"},
+        environ_overrides={"HTTP_ORIGIN": "http://localhost", "HTTP_REFERER": "http://localhost/compare"},
+    )
+    assert regen.status_code == 200
+    decision = regen.get_json()["data"]["decision_result"]
+    assert decision["choose_car_1_if"]
+    assert decision["choose_car_2_if"]
+    assert decision["avoid_or_check_car_1_if"]
+    assert decision["avoid_or_check_car_2_if"]
 
 
 def test_compare_stage_a_json_invalid_returns_503_without_persisting_success(app, logged_in_client, monkeypatch):
