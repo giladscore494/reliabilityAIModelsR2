@@ -227,6 +227,78 @@ class TestComparisonCacheHit:
         assert data["narrative"]["category_explanations"][0]["category_key"] == "ownership_cost"
         assert data["ai"]["stage_b"]["narrative"] == "Recovered summary from cache."
 
+    def test_cache_normalizes_incomplete_decision_result_before_response(self, app, logged_in_client):
+        client, user_id = logged_in_client
+        client.post("/api/legal/accept", json={"legal_confirm": True})
+
+        cars_selected = [
+            {"make": "Toyota", "model": "Camry", "year": 2020},
+            {"make": "Honda", "model": "Accord", "year": 2020},
+        ]
+        computed_result = {
+            "overall_winner": "car_1",
+            "cars": {"car_1": {}, "car_2": {}},
+            "category_winners": {"ownership_cost": "car_1"},
+            "decision_result": {
+                "overall_decision": {"label": "car_1", "text": "לטויוטה יש עדיפות קלה."},
+                "category_decisions": [
+                    {
+                        "category_key": "pricing_and_value",
+                        "category_name_he": "מחיר ותמורה",
+                        "preferred": "car_1",
+                        "why": "היא משתלמת יותר.",
+                        "important_caveat": "בדקו היסטוריית טיפולים.",
+                    }
+                ],
+                "choose_car_1_if": [],
+                "choose_car_2_if": [],
+                "avoid_or_check_car_1_if": [],
+                "avoid_or_check_car_2_if": [],
+                "practical_summary": "בדקו מצב ועלויות לפני החלטה.",
+            },
+        }
+        from app.services.comparison_service import compute_request_hash
+        request_hash = compute_request_hash(cars_selected)
+
+        with app.app_context():
+            cached_row = ComparisonHistory(
+                created_at=datetime.utcnow(),
+                user_id=user_id,
+                session_id="test-session",
+                cars_selected=json.dumps(cars_selected),
+                model_json_raw=json.dumps({}),
+                computed_result=json.dumps(computed_result),
+                sources_index=json.dumps({}),
+                model_name="test-model",
+                grounding_enabled=True,
+                prompt_version="v1",
+                request_hash=request_hash,
+                duration_ms=1000,
+            )
+            db.session.add(cached_row)
+            db.session.commit()
+            cached_id = cached_row.id
+
+        resp = client.post(
+            "/api/compare",
+            json={"cars": cars_selected, "legal_confirm": True},
+            headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+        )
+
+        assert resp.status_code == 200
+        data = resp.get_json()["data"]
+        assert data["cached"] is True
+        assert data["decision_result"]["choose_car_1_if"]
+        assert data["decision_result"]["choose_car_2_if"]
+        assert data["decision_result"]["avoid_or_check_car_1_if"]
+        assert data["decision_result"]["avoid_or_check_car_2_if"]
+
+        with app.app_context():
+            healed = ComparisonHistory.query.get(cached_id)
+            stored = json.loads(healed.computed_result)
+            assert stored["decision_result"]["choose_car_1_if"]
+            assert stored["decision_result"]["avoid_or_check_car_2_if"]
+
     def test_full_stage_a_failure_not_cached_as_success(self, app, logged_in_client, monkeypatch):
         from app.services import comparison_service
 

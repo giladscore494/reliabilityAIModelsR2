@@ -310,3 +310,49 @@ class TestCompareDetailAPI:
         assert resp.content_type == "application/json"
         data = resp.get_json()
         assert data["ok"] is False
+
+    def test_detail_normalizes_legacy_incomplete_decision_result(self, app, logged_in_client):
+        client, user_id = logged_in_client
+
+        with app.app_context():
+            record = ComparisonHistory(
+                user_id=user_id,
+                cars_selected=json.dumps([
+                    {"make": "Toyota", "model": "Corolla", "year": 2020},
+                    {"make": "Honda", "model": "Civic", "year": 2020},
+                ]),
+                computed_result=json.dumps({
+                    "overall_winner": "car_1",
+                    "cars": {"car_1": {}, "car_2": {}},
+                    "category_winners": {"ownership_cost": "car_1"},
+                    "decision_result": {
+                        "overall_decision": {"label": "car_1", "text": "לטויוטה יש עדיפות קלה."},
+                        "category_decisions": [
+                            {
+                                "category_key": "pricing_and_value",
+                                "category_name_he": "מחיר ותמורה",
+                                "preferred": "car_1",
+                                "why": "היא משתלמת יותר.",
+                                "important_caveat": "בדקו היסטוריית טיפולים.",
+                            }
+                        ],
+                        "practical_summary": "בדקו מצב ועלויות לפני החלטה.",
+                    },
+                }),
+                model_json_raw=json.dumps({}),
+                sources_index=json.dumps({}),
+                model_name="gemini-3.1-flash",
+                prompt_version="v1",
+            )
+            db.session.add(record)
+            db.session.commit()
+            record_id = record.id
+
+        resp = client.get(f"/api/compare/{record_id}")
+
+        assert resp.status_code == 200
+        decision = resp.get_json()["data"]["decision_result"]
+        assert decision["choose_car_1_if"]
+        assert decision["choose_car_2_if"]
+        assert decision["avoid_or_check_car_1_if"]
+        assert decision["avoid_or_check_car_2_if"]

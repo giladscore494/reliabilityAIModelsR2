@@ -825,3 +825,82 @@ def test_compare_stage_b_forbidden_score_text_is_sanitized():
     assert "84/100" not in serialized
     assert cleaned["overall_decision"]["text"] != "84/100"
     assert "תקנה" not in cleaned["practical_summary"]
+
+
+def test_sanitize_decision_result_fills_missing_per_car_arrays_from_structured_content():
+    from app.services.comparison_service import sanitize_decision_result
+
+    slots = map_cars_to_slots([
+        {"make": "Toyota", "model": "Corolla", "year": 2020},
+        {"make": "Honda", "model": "Civic", "year": 2020},
+    ])
+    cleaned = sanitize_decision_result(
+        {
+            "overall_decision": {"label": "car_1", "text": "לטויוטה יש עדיפות קלה בתמונה הכוללת."},
+            "category_decisions": [
+                {
+                    "category_key": "pricing_and_value",
+                    "category_name_he": "מחיר ותמורה",
+                    "preferred": "car_1",
+                    "why": "היא נראית משתלמת יותר.",
+                    "important_caveat": "בדקו היסטוריית טיפולים מלאה.",
+                }
+            ],
+            "key_differences": [
+                {
+                    "title": "אופי שימוש",
+                    "car_1": "מתאימה יותר לשימוש יומי רגוע.",
+                    "car_2": "מרגישה דינמית יותר.",
+                    "meaning_for_buyer": "הבחירה תלויה בעדיפות שלך.",
+                }
+            ],
+            "choose_car_1_if": [],
+            "choose_car_2_if": [],
+            "avoid_or_check_car_1_if": [],
+            "avoid_or_check_car_2_if": [],
+            "practical_summary": "בדקו שימוש, מצב ועלויות לפני החלטה.",
+        },
+        slots,
+        {"overall_winner": "car_1", "cars": {"car_1": {}, "car_2": {}}, "category_winners": {"ownership_cost": "car_1"}},
+        "req",
+    )
+
+    assert cleaned["choose_car_1_if"]
+    assert cleaned["choose_car_2_if"]
+    assert cleaned["avoid_or_check_car_1_if"]
+    assert cleaned["avoid_or_check_car_2_if"]
+
+
+def test_sanitize_decision_result_populates_car_3_arrays():
+    from app.services.comparison_service import sanitize_decision_result
+
+    slots = map_cars_to_slots([
+        {"make": "Toyota", "model": "Corolla", "year": 2020},
+        {"make": "Honda", "model": "Civic", "year": 2020},
+        {"make": "Mazda", "model": "3", "year": 2020},
+    ])
+    cleaned = sanitize_decision_result(
+        {
+            "overall_decision": {"label": "car_3", "text": "לרכב השלישי יש עדיפות קלה."},
+            "category_decisions": [
+                {
+                    "category_key": "powertrain_and_performance",
+                    "category_name_he": "מכלולים וביצועים",
+                    "preferred": "car_3",
+                    "why": "הוא מרגיש חד יותר בכביש.",
+                    "important_caveat": "בדקו מצב צמיגים ובלמים.",
+                }
+            ],
+            "practical_summary": "השלישי מתאים יותר למי שמחפש תחושה דינמית.",
+        },
+        slots,
+        {
+            "overall_winner": "car_3",
+            "cars": {"car_1": {}, "car_2": {}, "car_3": {}},
+            "category_winners": {"driving_performance": "car_3"},
+        },
+        "req",
+    )
+
+    assert cleaned["choose_car_3_if"]
+    assert cleaned["avoid_or_check_car_3_if"]

@@ -141,6 +141,24 @@ def _normalize_compare_writer_winner(value: Any, allowed_slot_keys: List[str]) -
     return None
 
 
+def _extract_decision_slot_keys(decision_result: Any) -> List[str]:
+    if not isinstance(decision_result, dict):
+        return []
+    extracted: List[str] = []
+    for key in decision_result.keys():
+        match = _DECISION_SLOT_FIELD_RE.match(str(key))
+        if match:
+            extracted.append(match.group(1))
+    key_differences = decision_result.get("key_differences")
+    for item in key_differences if isinstance(key_differences, list) else []:
+        if not isinstance(item, dict):
+            continue
+        for key in item.keys():
+            if isinstance(key, str) and _COMPARE_SLOT_RE.match(key):
+                extracted.append(key)
+    return _ordered_compare_slot_keys(extracted)
+
+
 def _segment_text_tokens(car_slot: Optional[Dict[str, Any]], grounded_car_data: Optional[Dict[str, Any]]) -> str:
     car_slot = car_slot or {}
     grounded_car_data = grounded_car_data or {}
@@ -265,9 +283,9 @@ COMPARE_STAGE_A_TIMEOUT_SEC = int(os.environ.get("COMPARE_STAGE_A_TIMEOUT_SEC", 
 COMPARE_STAGE_A_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_STAGE_A_MAX_OUTPUT_TOKENS", "4096"))
 COMPARE_STAGE_A_TEMPERATURE = float(os.environ.get("COMPARE_STAGE_A_TEMPERATURE", "0.25"))
 COMPARE_WRITER_TIMEOUT_SEC = int(os.environ.get("COMPARE_WRITER_TIMEOUT_SEC", "30"))
-# Stage B returns a full structured narrative in Hebrew; 2500 leaves room for
-# summary + winner + four categories + caveats without truncating to summary-only JSON.
-COMPARE_WRITER_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_WRITER_MAX_OUTPUT_TOKENS", "2500"))
+# Stage B now emits full decision_result content for up to three cars, including
+# per-car guidance arrays, so leave more room to avoid truncating those fields.
+COMPARE_WRITER_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_WRITER_MAX_OUTPUT_TOKENS", "3200"))
 COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS", "500"))
 COMPARE_WRITER_PROMPT_CHAR_CAP = int(os.environ.get("COMPARE_WRITER_PROMPT_CHAR_CAP", "16000"))
 TIE_THRESHOLD = 5  # Score delta below this = "tie" (צמוד)
@@ -359,6 +377,7 @@ BUYER_PROFILE_PRIORITY_MIN = 0
 BUYER_PROFILE_PRIORITY_MAX = 10
 CAR_PROFILE_MAX_NESTING_DEPTH = 5
 _COMPARE_SLOT_RE = re.compile(r"^car_(\d+)$")
+_DECISION_SLOT_FIELD_RE = re.compile(r"^(?:choose|avoid_or_check)_(car_\d+)_if$")
 
 # Segment inference is intentionally lightweight and deterministic because compare
 # currently has no authoritative taxonomy field. We infer from visible name/body
@@ -1234,6 +1253,11 @@ def build_compare_writer_prompt(
         ((grounded_output or {}).get("cars") or {}) if isinstance(grounded_output, dict) else {},
     )
     allowed_labels = slot_keys + ["tie", "depends", "unknown"]
+    per_slot_schema_lines = []
+    for slot_key in slot_keys:
+        per_slot_schema_lines.append(f'    "choose_{slot_key}_if": ["string"],')
+        per_slot_schema_lines.append(f'    "avoid_or_check_{slot_key}_if": ["string"],')
+    key_difference_fields = ",".join(f'"{slot_key}":"string"' for slot_key in slot_keys)
     deterministic_preferences = {
         "overall": _normalize_compare_writer_winner(computed_result.get("overall_winner"), slot_keys) or "depends",
         "legacy_category_winners": {
@@ -1272,14 +1296,11 @@ Return ONLY valid JSON with EXACTLY this top-level schema:
 {{
   "decision_result": {{
     "overall_decision": {{"label":"{'|'.join(allowed_labels)}","text":"Hebrew practical decision summary without scores"}},
+{chr(10).join(per_slot_schema_lines)}
     "category_decisions": [
       {{"category_key":"pricing_and_value","category_name_he":"מחיר ותמורה","preferred":"{'|'.join(allowed_labels)}","why":"string","important_caveat":"string|null"}}
     ],
-    "key_differences": [{{"title":"string","car_1":"string","car_2":"string","meaning_for_buyer":"string"}}],
-    "choose_car_1_if": ["string"],
-    "choose_car_2_if": ["string"],
-    "avoid_or_check_car_1_if": ["string"],
-    "avoid_or_check_car_2_if": ["string"],
+    "key_differences": [{{"title":"string",{key_difference_fields},"meaning_for_buyer":"string"}}],
     "competitors_to_consider": [{{"model":"string","why_consider":"string"}}],
     "practical_summary":"Hebrew practical paragraph. Neutral. No first person. No direct buy/don't-buy command."
   }},
@@ -1294,6 +1315,9 @@ HARD RULES:
 5. Google-grounded factual claims must keep source URLs. If official safety/prices/trims/fees/recalls/warranty are unavailable, use null/unknown or an explicit caveat.
 6. Fill all decision_categories from MODEL_PAYLOAD. Use preferred="unknown" or "depends" when evidence is insufficient.
 7. buyer_profile is preference context only; it may affect fit explanation only and never overrides car facts.
+8. For EVERY selected car, `choose_car_X_if` and `avoid_or_check_car_X_if` must contain 1-3 non-empty Hebrew strings whenever MODEL_PAYLOAD includes any usable evidence for that car.
+9. Never return [] for per-car arrays if `overall_decision`, `category_decisions`, `key_differences`, or the evidence snapshot can support safe fallback wording.
+10. If evidence is thin, write cautious guidance about fit, trade-offs, and what to verify before purchase instead of leaving arrays empty.
 """
     if len(prompt) > COMPARE_WRITER_PROMPT_CHAR_CAP:
         prompt = prompt[:COMPARE_WRITER_PROMPT_CHAR_CAP]
@@ -1850,13 +1874,140 @@ def _sanitize_decision_list(value: Any, request_id: Optional[str], field_path: s
     return out
 
 
+def _decision_category_name_he(category_key: Any) -> str:
+    normalized_key = str(category_key or "").strip()
+    for key, name in DECISION_CATEGORY_DEFINITIONS:
+        if key == normalized_key:
+            return name
+    return CATEGORY_LABELS_HE.get(normalized_key) or normalized_key.replace("_", " ").strip()
+
+
+def _append_unique_text(target: List[str], text: str, max_items: int = 2) -> None:
+    normalized = " ".join(str(text or "").split()).strip()
+    if not normalized or normalized in target or len(target) >= max_items:
+        return
+    target.append(normalized)
+
+
+def _join_hebrew_labels(labels: List[str]) -> str:
+    normalized = [str(label or "").strip() for label in labels if str(label or "").strip()]
+    if not normalized:
+        return ""
+    if len(normalized) == 1:
+        return normalized[0]
+    if len(normalized) == 2:
+        return f"{normalized[0]} ו{normalized[1]}"
+    return f"{', '.join(normalized[:-1])} ו{normalized[-1]}"
+
+
+def _build_slot_guidance_lists(
+    slot_key: str,
+    cars_selected_slots: Dict[str, Dict[str, Any]],
+    computed_result: Dict[str, Any],
+    source_decision_result: Any,
+) -> Tuple[List[str], List[str]]:
+    category_items = source_decision_result.get("category_decisions") if isinstance(source_decision_result, dict) and isinstance(source_decision_result.get("category_decisions"), list) else []
+    key_differences = source_decision_result.get("key_differences") if isinstance(source_decision_result, dict) and isinstance(source_decision_result.get("key_differences"), list) else []
+    overall = source_decision_result.get("overall_decision") if isinstance(source_decision_result, dict) and isinstance(source_decision_result.get("overall_decision"), dict) else {}
+    practical_summary = _sanitize_decision_text(
+        source_decision_result.get("practical_summary") if isinstance(source_decision_result, dict) else None,
+        None,
+        f"{slot_key}.practical_summary",
+    )
+    slot_keys = _ordered_compare_slot_keys(
+        cars_selected_slots,
+        computed_result.get("cars") or {},
+        _extract_decision_slot_keys(source_decision_result),
+    )
+    car_label = ((cars_selected_slots.get(slot_key) or {}).get("display_name") or slot_key).strip()
+    category_advantages: List[str] = []
+    category_tradeoffs: List[str] = []
+    shared_caveats: List[str] = []
+
+    for item in category_items:
+        if not isinstance(item, dict):
+            continue
+        category_name = _decision_category_name_he(item.get("category_key") or item.get("category_name_he"))
+        preferred = _decision_label(item.get("preferred"), slot_keys)
+        if preferred == slot_key:
+            _append_unique_text(category_advantages, category_name)
+        elif preferred not in {"unknown", "depends", "tie"}:
+            _append_unique_text(category_tradeoffs, category_name)
+        caveat = _sanitize_optional_decision_text(
+            item.get("important_caveat"),
+            None,
+            f"{slot_key}.important_caveat",
+        )
+        if caveat:
+            _append_unique_text(shared_caveats, caveat, max_items=1)
+
+    for category_key, winner in ((computed_result.get("category_winners") or {}).items() if isinstance(computed_result, dict) else []):
+        normalized_winner = _normalize_compare_writer_winner(winner, slot_keys)
+        category_name = _decision_category_name_he(category_key)
+        if normalized_winner == slot_key:
+            _append_unique_text(category_advantages, category_name)
+        elif normalized_winner not in {None, "unknown", "depends", "tie"}:
+            _append_unique_text(category_tradeoffs, category_name)
+
+    diff_insight = ""
+    for item in key_differences:
+        if not isinstance(item, dict):
+            continue
+        title = _sanitize_decision_text(item.get("title"), None, f"{slot_key}.diff_title")
+        detail = _sanitize_decision_text(item.get(slot_key), None, f"{slot_key}.diff_value")
+        if title and detail:
+            diff_insight = f"{title}: {detail}"
+            break
+
+    choose_items: List[str] = []
+    avoid_items: List[str] = []
+    if category_advantages:
+        _append_unique_text(
+            choose_items,
+            f"אם חשובים לך במיוחד {_join_hebrew_labels(category_advantages[:2])}.",
+        )
+    if _decision_label(overall.get("label"), slot_keys) == slot_key:
+        _append_unique_text(
+            choose_items,
+            "אם בתמונה הכוללת זו נראית הבחירה הסבירה יותר עבורך, בכפוף למצב הרכב בפועל.",
+        )
+    elif diff_insight:
+        _append_unique_text(choose_items, f"אם הפער הבא מתאים לשימוש שלך: {diff_insight}")
+    elif practical_summary:
+        _append_unique_text(choose_items, f"אם הכיוון הכללי של ההשוואה מתאים לך: {practical_summary}")
+
+    if category_tradeoffs:
+        _append_unique_text(
+            avoid_items,
+            f"בדוק אם הפשרה ב{_join_hebrew_labels(category_tradeoffs[:2])} מקובלת עליך מול החלופות.",
+        )
+    if shared_caveats:
+        _append_unique_text(avoid_items, shared_caveats[0])
+    _append_unique_text(
+        avoid_items,
+        "בדוק היסטוריית טיפולים, תאונות, אחריות ועלויות אחזקה לפני החלטה.",
+    )
+
+    if not choose_items:
+        _append_unique_text(
+            choose_items,
+            f"אם {car_label} מתאים לצרכים שלך אחרי בדיקת מצב, היסטוריה ועלויות צפויות.",
+        )
+    return choose_items[:2], avoid_items[:2]
+
+
 def build_deterministic_decision_result(
     cars_selected_slots: Dict[str, Dict[str, Any]],
     computed_result: Optional[Dict[str, Any]] = None,
+    source_decision_result: Any = None,
 ) -> Dict[str, Any]:
     """Fallback decision layer for legacy cache or failed Stage B."""
     computed_result = computed_result if isinstance(computed_result, dict) else {}
-    slot_keys = _ordered_compare_slot_keys(cars_selected_slots, computed_result.get("cars") or {})
+    slot_keys = _ordered_compare_slot_keys(
+        cars_selected_slots,
+        computed_result.get("cars") or {},
+        _extract_decision_slot_keys(source_decision_result),
+    )
     winner = _normalize_compare_writer_winner(computed_result.get("overall_winner"), slot_keys)
     if winner in slot_keys:
         label = winner
@@ -1887,14 +2038,14 @@ def build_deterministic_decision_result(
         "practical_summary": "הבחירה הסבירה יותר תלויה בשימוש, בתקציב, במצב הרכב בפועל ובבדיקה מקצועית לפני החלטה.",
     }
     for slot_key in slot_keys:
-        car_info = cars_selected_slots.get(slot_key) or {}
-        car_label = car_info.get("display_name") or slot_key
-        result[f"choose_{slot_key}_if"] = [
-            f"{car_label} – מתאים לצרכים שלך אחרי בדיקת היסטוריה, מצב מכני ועלויות צפויות."
-        ]
-        result[f"avoid_or_check_{slot_key}_if"] = [
-            f"{car_label} – יש פער במידע על טיפולים, תאונות, אחריות או מצב מכני."
-        ]
+        choose_items, avoid_items = _build_slot_guidance_lists(
+            slot_key,
+            cars_selected_slots,
+            computed_result,
+            source_decision_result,
+        )
+        result[f"choose_{slot_key}_if"] = choose_items
+        result[f"avoid_or_check_{slot_key}_if"] = avoid_items
     return result
 
 
@@ -1904,25 +2055,37 @@ def sanitize_decision_result(
     computed_result: Optional[Dict[str, Any]] = None,
     request_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    fallback = build_deterministic_decision_result(cars_selected_slots or {}, computed_result or {})
+    slot_keys = _ordered_compare_slot_keys(
+        cars_selected_slots or {},
+        (computed_result or {}).get("cars") or {},
+        _extract_decision_slot_keys(decision_result),
+    )
+    fallback = build_deterministic_decision_result(
+        cars_selected_slots or {},
+        computed_result or {},
+        decision_result,
+    )
     if not isinstance(decision_result, dict):
         return fallback
-    slot_keys = _ordered_compare_slot_keys(cars_selected_slots or {}, (computed_result or {}).get("cars") or {})
     overall = decision_result.get("overall_decision") if isinstance(decision_result.get("overall_decision"), dict) else {}
+    overall_label = _decision_label(overall.get("label"), slot_keys)
+    if overall_label == "unknown":
+        overall_label = fallback["overall_decision"]["label"]
     sanitized = {
         "overall_decision": {
-            "label": _decision_label(overall.get("label"), slot_keys),
+            "label": overall_label,
             "text": _sanitize_decision_text(overall.get("text"), request_id, "overall_decision.text") or fallback["overall_decision"]["text"],
         },
         "category_decisions": [],
         "key_differences": [],
-        "choose_car_1_if": _sanitize_decision_list(decision_result.get("choose_car_1_if"), request_id, "choose_car_1_if"),
-        "choose_car_2_if": _sanitize_decision_list(decision_result.get("choose_car_2_if"), request_id, "choose_car_2_if"),
-        "avoid_or_check_car_1_if": _sanitize_decision_list(decision_result.get("avoid_or_check_car_1_if"), request_id, "avoid_or_check_car_1_if"),
-        "avoid_or_check_car_2_if": _sanitize_decision_list(decision_result.get("avoid_or_check_car_2_if"), request_id, "avoid_or_check_car_2_if"),
         "competitors_to_consider": [],
         "practical_summary": _sanitize_decision_text(decision_result.get("practical_summary"), request_id, "practical_summary") or fallback["practical_summary"],
     }
+    for slot_key in slot_keys:
+        choose_key = f"choose_{slot_key}_if"
+        avoid_key = f"avoid_or_check_{slot_key}_if"
+        sanitized[choose_key] = _sanitize_decision_list(decision_result.get(choose_key), request_id, choose_key) or fallback[choose_key]
+        sanitized[avoid_key] = _sanitize_decision_list(decision_result.get(avoid_key), request_id, avoid_key) or fallback[avoid_key]
     raw_categories = decision_result.get("category_decisions") if isinstance(decision_result.get("category_decisions"), list) else []
     by_key = {item.get("category_key"): item for item in raw_categories if isinstance(item, dict)}
     for key, name in DECISION_CATEGORY_DEFINITIONS:
@@ -1938,12 +2101,13 @@ def sanitize_decision_result(
     for idx, item in enumerate(raw_diffs[:8]):
         if not isinstance(item, dict):
             continue
-        sanitized["key_differences"].append({
+        cleaned_diff = {
             "title": _sanitize_decision_text(item.get("title"), request_id, f"key_differences.{idx}.title"),
-            "car_1": _sanitize_decision_text(item.get("car_1"), request_id, f"key_differences.{idx}.car_1"),
-            "car_2": _sanitize_decision_text(item.get("car_2"), request_id, f"key_differences.{idx}.car_2"),
             "meaning_for_buyer": _sanitize_decision_text(item.get("meaning_for_buyer"), request_id, f"key_differences.{idx}.meaning_for_buyer"),
-        })
+        }
+        for slot_key in slot_keys:
+            cleaned_diff[slot_key] = _sanitize_decision_text(item.get(slot_key), request_id, f"key_differences.{idx}.{slot_key}")
+        sanitized["key_differences"].append(cleaned_diff)
     raw_competitors = decision_result.get("competitors_to_consider") if isinstance(decision_result.get("competitors_to_consider"), list) else []
     for idx, item in enumerate(raw_competitors[:5]):
         if not isinstance(item, dict):
@@ -1955,13 +2119,22 @@ def sanitize_decision_result(
     return sanitized
 
 
-def _validate_decision_writer_response(payload: Any, cars_selected_slots: Optional[Dict[str, Dict[str, Any]]] = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def _validate_decision_writer_response(
+    payload: Any,
+    cars_selected_slots: Optional[Dict[str, Dict[str, Any]]] = None,
+    computed_result: Optional[Dict[str, Any]] = None,
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     if not isinstance(payload, dict):
         return None, "payload_not_object"
     if not isinstance(payload.get("decision_result"), dict):
         return None, "missing_decision_result"
     return {
-        "decision_result": sanitize_decision_result(payload.get("decision_result"), cars_selected_slots or {}, None, get_request_id()),
+        "decision_result": sanitize_decision_result(
+            payload.get("decision_result"),
+            cars_selected_slots or {},
+            computed_result or {},
+            get_request_id(),
+        ),
         "sources": _normalize_sources(payload.get("sources")),
     }, None
 
@@ -1972,6 +2145,9 @@ def _summarize_compare_writer_payload(payload: Any) -> Dict[str, Any]:
             "is_object": False,
             "top_level_keys": [],
         }
+
+    decision_result = payload.get("decision_result") if isinstance(payload.get("decision_result"), dict) else {}
+    decision_slot_keys = _extract_decision_slot_keys(decision_result)
 
     categories = payload.get("categories") if isinstance(payload.get("categories"), list) else []
     categories_with_explanations = 0
@@ -1985,6 +2161,8 @@ def _summarize_compare_writer_payload(payload: Any) -> Dict[str, Any]:
     return {
         "is_object": True,
         "top_level_keys": sorted(payload.keys()),
+        "has_decision_result": bool(decision_result),
+        "decision_slot_keys": decision_slot_keys,
         "has_summary": bool(str(payload.get("summary") or "").strip()),
         "has_categories": isinstance(payload.get("categories"), list),
         "category_count": len(categories),
@@ -2358,6 +2536,12 @@ def resolve_comparison_narrative(
         stored_narrative = computed_result.get("narrative")
         if isinstance(stored_narrative, dict):
             candidates.append(stored_narrative)
+        stored_decision_result = computed_result.get("decision_result")
+        if isinstance(stored_decision_result, dict):
+            candidates.append(convert_decision_result_to_narrative(
+                {"decision_result": sanitize_decision_result(stored_decision_result, {}, computed_result, None)},
+                {},
+            ))
         if any(key in computed_result for key in ("overall_summary", "category_explanations", "disclaimers_he")):
             candidates.append({
                 "overall_summary": computed_result.get("overall_summary"),
@@ -2369,6 +2553,11 @@ def resolve_comparison_narrative(
     if isinstance(ai_payload, dict):
         stage_b = ai_payload.get("stage_b")
         if isinstance(stage_b, dict):
+            if isinstance(stage_b.get("decision_result"), dict):
+                candidates.append(convert_decision_result_to_narrative(
+                    {"decision_result": sanitize_decision_result(stage_b.get("decision_result"), {}, computed_result or {}, None)},
+                    {},
+                ))
             raw_categories = stage_b.get("categories")
             if not isinstance(raw_categories, list):
                 raw_categories = stage_b.get("category_explanations")
@@ -2419,11 +2608,15 @@ def build_ai_payload(
     status: str,
     reason: Optional[str],
 ) -> Dict[str, Any]:
+    stage_b_payload = _build_stage_b_payload(narrative) or {}
+    decision_result = computed_result.get("decision_result") if isinstance(computed_result.get("decision_result"), dict) else None
+    if decision_result:
+        stage_b_payload["decision_result"] = decision_result
     return {
         "status": status,
         "reason": reason,
         "stage_a": _build_stage_a_summary(computed_result),
-        "stage_b": _build_stage_b_payload(narrative),
+        "stage_b": stage_b_payload or None,
     }
 
 
@@ -2447,6 +2640,55 @@ def convert_writer_response_to_narrative(validated_payload: Dict[str, Any], cars
         "overall_summary": validated_payload.get("summary", ""),
         "category_explanations": category_explanations,
         "disclaimers_he": validated_payload.get("caveats", []),
+    }
+
+
+def convert_decision_result_to_narrative(validated_payload: Dict[str, Any], cars_selected_slots: Dict) -> Dict[str, Any]:
+    decision_result = validated_payload.get("decision_result") if isinstance(validated_payload, dict) else {}
+    if not isinstance(decision_result, dict):
+        return build_deterministic_fallback_narrative(cars_selected_slots, {})
+
+    car_keys = _ordered_compare_slot_keys(
+        cars_selected_slots,
+        _extract_decision_slot_keys(decision_result),
+    )
+    category_explanations = []
+    disclaimers: List[str] = []
+    for cat in decision_result.get("category_decisions") if isinstance(decision_result.get("category_decisions"), list) else []:
+        if not isinstance(cat, dict):
+            continue
+        explanations = {}
+        preferred = _decision_label(cat.get("preferred"), car_keys)
+        for car_key in car_keys:
+            choose_items = decision_result.get(f"choose_{car_key}_if") if isinstance(decision_result.get(f"choose_{car_key}_if"), list) else []
+            avoid_items = decision_result.get(f"avoid_or_check_{car_key}_if") if isinstance(decision_result.get(f"avoid_or_check_{car_key}_if"), list) else []
+            if preferred == car_key and choose_items:
+                explanations[car_key] = str(choose_items[0]).strip()
+            elif avoid_items:
+                explanations[car_key] = str(avoid_items[0]).strip()
+            elif str(cat.get("why") or "").strip():
+                explanations[car_key] = str(cat.get("why") or "").strip()
+        caveat = str(cat.get("important_caveat") or "").strip()
+        if caveat:
+            _append_unique_text(disclaimers, caveat, max_items=3)
+        why_list = [text for text in (str(cat.get("why") or "").strip(), caveat) if text]
+        category_explanations.append({
+            "category_key": cat.get("category_key") or "",
+            "title_he": cat.get("category_name_he") or "",
+            "winner": preferred,
+            "explanations": explanations,
+            "why_it_scored_that_way": why_list[:2],
+        })
+    overall = decision_result.get("overall_decision") if isinstance(decision_result.get("overall_decision"), dict) else {}
+    summary = (
+        str(decision_result.get("practical_summary") or "").strip()
+        or str(overall.get("text") or "").strip()
+        or DECISION_TEXT_FALLBACK_HE
+    )
+    return {
+        "overall_summary": summary,
+        "category_explanations": category_explanations,
+        "disclaimers_he": disclaimers,
     }
 
 
@@ -3520,6 +3762,7 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
             # Validate that required fields parsed to expected types
             cache_valid = (
                 isinstance(cars_selected, list) and
+                len(cars_selected) >= 2 and
                 isinstance(computed_result, dict)
             )
 
@@ -3549,12 +3792,9 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                         logger.warning(f"[COMPARISON] self-heal commit failed: {heal_err}")
                         db.session.rollback()
 
-                # Reconstruct slots from cached list; guard against corrupted non-list data
-                if isinstance(cars_selected, list):
-                    cached_slots = map_cars_to_slots(cars_selected)
-                else:
-                    logger.warning(f"[COMPARISON] cars_selected not a list in cache row {cached.id}, using as-is")
-                    cached_slots = cars_selected if isinstance(cars_selected, dict) else {}
+                cached_slots = map_cars_to_slots(cars_selected) if isinstance(cars_selected, list) else {}
+                if not cached_slots:
+                    cached_slots = cars_selected_slots
 
                 narrative = resolve_comparison_narrative(
                     computed_result if isinstance(computed_result, dict) else None
@@ -3565,8 +3805,18 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                     computed_result if isinstance(computed_result, dict) else {},
                     request_id,
                 )
-                if isinstance(computed_result, dict) and not isinstance(computed_result.get("decision_result"), dict):
+                if isinstance(computed_result, dict) and computed_result.get("decision_result") != decision_result:
                     computed_result["decision_result"] = decision_result
+                    cached.computed_result = json.dumps(computed_result, ensure_ascii=False)
+                    try:
+                        db.session.commit()
+                    except Exception as heal_err:
+                        logger.warning(f"[COMPARISON] decision_result cache heal failed: {heal_err}")
+                        db.session.rollback()
+                ai_payload = build_stored_comparison_ai_payload(
+                    computed_result if isinstance(computed_result, dict) else None,
+                    narrative,
+                )
                 return api_ok({
                     "cached": True,
                     "comparison_id": cached.id,
@@ -3578,10 +3828,7 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                     "decision_result": decision_result,
                     "sources_index": sources_index if sources_index else {},
                     "assumptions": assumptions,
-                    "ai": build_stored_comparison_ai_payload(
-                        computed_result if isinstance(computed_result, dict) else None,
-                        narrative,
-                    ),
+                    "ai": ai_payload,
                 })
             else:
                 # Cache row is corrupted (cannot parse to expected types)
@@ -3650,6 +3897,8 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     stage_b_error = None
     narrative = None
     stage_b_reason = None
+    validated_decision = None
+    decision_validation_reason = None
     writer_prompt = build_compare_writer_prompt(cars_selected_slots, server_computed_result, model_output, buyer_profile)
     stage_b_start = pytime.perf_counter()
     stage_b_output, stage_b_error = call_gemini_compare_writer(writer_prompt)
@@ -3660,6 +3909,12 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
         stage_a_partial,
         _summarize_compare_writer_payload(stage_b_output),
     )
+    if isinstance(stage_b_output, dict):
+        validated_decision, decision_validation_reason = _validate_decision_writer_response(
+            stage_b_output,
+            cars_selected_slots,
+            server_computed_result,
+        )
     if stage_b_error:
         logger.warning(f"[COMPARISON] stage_b call failed request_id={request_id} error={stage_b_error}")
         stage_b_reason = "stage_b_error"
@@ -3718,9 +3973,10 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                     _inc_compare_metric("compare_ai_fallback_used_total")
                     narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
     elif isinstance(stage_b_output, dict):
-        validated_writer, validation_reason = _validate_compare_writer_response(stage_b_output)
-        if validated_writer:
-            narrative = sanitize_comparison_narrative(convert_writer_response_to_narrative(validated_writer, cars_selected_slots))
+        if validated_decision:
+            narrative = sanitize_comparison_narrative(
+                convert_decision_result_to_narrative(validated_decision, cars_selected_slots)
+            )
             logger.info(
                 "[COMPARISON] narrative generated request_id=%s narrative_shape=%s",
                 request_id,
@@ -3728,6 +3984,7 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
             )
             stage_b_reason = None
         else:
+            validated_writer, validation_reason = _validate_compare_writer_response(stage_b_output)
             raw_narrative = stage_b_output.get("narrative")
             salvaged_narrative = _salvage_partial_writer_output(
                 stage_b_output,
@@ -3770,13 +4027,12 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
         )
 
     computed_result = enforce_authoritative_numbers(server_computed_result, stage_b_output, request_id)
-    validated_decision, decision_validation_reason = _validate_decision_writer_response(stage_b_output, cars_selected_slots)
     if validated_decision:
         decision_result = validated_decision["decision_result"]
     else:
         if decision_validation_reason:
             logger.warning("[COMPARISON] decision_result fallback request_id=%s reason=%s", request_id, decision_validation_reason)
-        decision_result = build_deterministic_decision_result(cars_selected_slots, computed_result)
+        decision_result = build_deterministic_decision_result(cars_selected_slots, computed_result, stage_b_output)
     ai_status = "ok"
     ai_reason = None
     if stage_a_partial:
@@ -3924,19 +4180,26 @@ def get_comparison_detail(comparison_id: int, user_id: Optional[int]) -> Optiona
         assumptions = model_output.get("assumptions", {}) if model_output else {}
 
         narrative = resolve_comparison_narrative(computed_result if isinstance(computed_result, dict) else None)
-        cars_selected_slots = map_cars_to_slots(cars_selected) if isinstance(cars_selected, list) else cars_selected
+        cars_selected_slots = map_cars_to_slots(cars_selected) if isinstance(cars_selected, list) else {}
         decision_result = sanitize_decision_result(
             computed_result.get("decision_result") if isinstance(computed_result, dict) else None,
             cars_selected_slots if isinstance(cars_selected_slots, dict) else {},
             computed_result if isinstance(computed_result, dict) else {},
             get_request_id(),
         )
-        if isinstance(computed_result, dict) and not isinstance(computed_result.get("decision_result"), dict):
+        if isinstance(computed_result, dict) and computed_result.get("decision_result") != decision_result:
             computed_result["decision_result"] = decision_result
         ai_payload = build_stored_comparison_ai_payload(
             computed_result if isinstance(computed_result, dict) else None,
             narrative,
         )
+        if isinstance(computed_result, dict) and record.computed_result != json.dumps(computed_result, ensure_ascii=False):
+            record.computed_result = json.dumps(computed_result, ensure_ascii=False)
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                current_app.logger.warning("Failed to self-heal comparison detail id=%s", comparison_id)
 
         # Reconstruct stable car slots
 
@@ -3997,6 +4260,8 @@ def regenerate_comparison_ai(comparison_id: int, user_id: int) -> Optional[Dict[
 
     narrative = None
     reason = None
+    validated_decision = None
+    decision_validation_reason = None
     if stage_b_error:
         reason = "stage_b_error"
         _inc_compare_metric("compare_ai_regenerate_fallback_total")
@@ -4009,9 +4274,15 @@ def regenerate_comparison_ai(comparison_id: int, user_id: int) -> Optional[Dict[
             comparison_id,
             _summarize_compare_writer_payload(stage_b_output),
         )
-        validated_writer, validation_reason = _validate_compare_writer_response(stage_b_output)
-        if validated_writer:
-            narrative = sanitize_comparison_narrative(convert_writer_response_to_narrative(validated_writer, cars_selected_slots))
+        validated_decision, decision_validation_reason = _validate_decision_writer_response(
+            stage_b_output,
+            cars_selected_slots,
+            server_computed_result,
+        )
+        if validated_decision:
+            narrative = sanitize_comparison_narrative(
+                convert_decision_result_to_narrative(validated_decision, cars_selected_slots)
+            )
             current_app.logger.info(
                 "[COMPARISON] compare_ai_regenerate accepted request_id=%s comparison_id=%s narrative_shape=%s",
                 get_request_id(),
@@ -4019,6 +4290,7 @@ def regenerate_comparison_ai(comparison_id: int, user_id: int) -> Optional[Dict[
                 _summarize_comparison_narrative_shape(narrative),
             )
         else:
+            validated_writer, validation_reason = _validate_compare_writer_response(stage_b_output)
             raw_narrative = stage_b_output.get("narrative")
             salvaged_narrative = _salvage_partial_writer_output(
                 stage_b_output,
@@ -4063,11 +4335,17 @@ def regenerate_comparison_ai(comparison_id: int, user_id: int) -> Optional[Dict[
             _summarize_comparison_narrative_shape(narrative),
         )
 
-    validated_decision, _decision_reason = _validate_decision_writer_response(stage_b_output, cars_selected_slots)
     if validated_decision:
         decision_result = validated_decision["decision_result"]
     else:
-        decision_result = build_deterministic_decision_result(cars_selected_slots, server_computed_result)
+        if decision_validation_reason:
+            current_app.logger.warning(
+                "[COMPARISON] compare_ai_regenerate decision_result fallback request_id=%s comparison_id=%s reason=%s",
+                get_request_id(),
+                comparison_id,
+                decision_validation_reason,
+            )
+        decision_result = build_deterministic_decision_result(cars_selected_slots, server_computed_result, stage_b_output)
     server_computed_result["decision_result"] = decision_result
     ai_payload = build_ai_payload(server_computed_result, narrative, "ok" if reason is None else "fallback", reason)
     current_app.logger.info(
