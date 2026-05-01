@@ -13,7 +13,7 @@ import re
 import time as pytime
 from typing import Any, Dict, List, Optional, Tuple
 
-from flask import current_app
+from flask import current_app, has_app_context
 
 from app.extensions import db
 from app.models import ComparisonHistory
@@ -1811,7 +1811,8 @@ def _sanitize_decision_text(value: Any, request_id: Optional[str], field_path: s
     if not text:
         return ""
     if _is_forbidden_decision_text(text):
-        current_app.logger.warning(
+        active_logger = current_app.logger if has_app_context() else logger
+        active_logger.warning(
             "[COMPARISON] decision_result text sanitized request_id=%s field=%s",
             request_id or "unknown",
             field_path,
@@ -3795,7 +3796,6 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
         if decision_validation_reason:
             logger.warning("[COMPARISON] decision_result fallback request_id=%s reason=%s", request_id, decision_validation_reason)
         decision_result = build_deterministic_decision_result(cars_selected_slots, computed_result)
-    computed_result["decision_result"] = decision_result
     ai_status = "ok"
     ai_reason = None
     if stage_a_partial:
@@ -3817,6 +3817,7 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
 
     # Include narrative in computed_result for storage
     stored_computed = dict(computed_result)
+    stored_computed["decision_result"] = decision_result
     if narrative:
         stored_computed["narrative"] = narrative
     stored_computed["ai"] = ai_payload

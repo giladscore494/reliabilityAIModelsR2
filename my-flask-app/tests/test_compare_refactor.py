@@ -454,8 +454,8 @@ class TestCompareWriterPromptAndValidation:
         prompt = build_compare_writer_prompt(cars_selected_slots, computed_result, {"cars": {}, "assumptions": {}})
 
         assert '"cars":{"car_1"' in prompt
-        assert '"car_3":{"label":"Mazda 3 2020"}' in prompt
-        assert '"winner": "car_1|car_2|car_3|tie"' in prompt
+        assert '"car_3":{"label":"Mazda 3 2020","evidence"' in prompt
+        assert '"label":"car_1|car_2|car_3|tie|depends|unknown"' in prompt
         assert "carA|carB|tie" not in prompt
 
     def test_writer_validator_accepts_extra_keys_and_truncates_long_fields(self):

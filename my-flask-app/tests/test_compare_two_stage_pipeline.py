@@ -421,7 +421,7 @@ def test_stage_a_config_is_bounded_and_tools_disabled(app, monkeypatch):
     assert err is None
     assert isinstance(out, dict)
     cfg = captured["config"]
-    assert int(getattr(cfg, "max_output_tokens", 0)) == 2048
+    assert int(getattr(cfg, "max_output_tokens", 0)) == comparison_service.COMPARE_STAGE_A_MAX_OUTPUT_TOKENS
     assert not getattr(cfg, "tools", None)
     assert getattr(cfg, "automatic_function_calling", None) is None
 
