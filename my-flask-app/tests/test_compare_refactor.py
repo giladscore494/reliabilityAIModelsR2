@@ -14,6 +14,7 @@ import pytest
 from app.models import ComparisonHistory
 from app.services.comparison_service import (
     build_display_name,
+    build_checked_versions,
     map_cars_to_slots,
     determine_winner,
     compute_comparison_results,
@@ -51,6 +52,51 @@ class TestBuildDisplayName:
 
     def test_empty_car(self):
         assert build_display_name({}) == ""
+
+
+# ============================================================
+# checked_version tests
+# ============================================================
+
+class TestBuildCheckedVersions:
+    def test_generalizes_transmission_and_exposes_uncertainty(self):
+        cars_selected = {
+            "car_1": {
+                "make": "Volkswagen",
+                "model": "Golf",
+                "year": 2020,
+                "engine_type": "בנזין",
+                "gearbox": "רובוטית",
+                "display_name": "Volkswagen Golf 2020",
+            }
+        }
+        grounded = {
+            "cars": {
+                "car_1": {
+                    "facts": {"fuel_type": "petrol"},
+                    "sources": ["https://example.com/golf"],
+                    "car_profile": {
+                        "vehicle_identity": {"make": "Volkswagen", "model": "Golf", "year": "2020"},
+                        "recommended_trim": {"trim_name": "Style", "confidence": "low"},
+                        "powertrain_specs": {
+                            "engine": "1.5 TSI",
+                            "gearbox": "DSG 7",
+                            "drivetrain": "FWD",
+                            "seats": 5,
+                            "sources": ["https://example.com/spec"],
+                        },
+                    },
+                }
+            }
+        }
+
+        checked = build_checked_versions(cars_selected, grounded)
+
+        assert checked["car_1"]["transmission"] == "רובוטית"
+        assert checked["car_1"]["trim"] == "לא מאומת"
+        assert checked["car_1"]["data_basis"] == "mixed"
+        assert checked["car_1"]["confidence"] == "medium"
+        assert "ערכים כלליים" in checked["car_1"]["notes"]
 
 
 # ============================================================

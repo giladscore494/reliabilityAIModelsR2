@@ -95,6 +95,195 @@ def build_display_name(car: Dict[str, Any]) -> str:
     return " ".join(p for p in parts if p).strip()
 
 
+CHECKED_VERSION_UNKNOWN_HE = "לא ידוע / לבדיקה"
+CHECKED_VERSION_NOT_VERIFIED_HE = "לא מאומת"
+CHECKED_VERSION_DATA_BASIS_ALLOWED = {"user_input", "verified_source", "ai_inference", "mixed"}
+CHECKED_VERSION_CONFIDENCE_ALLOWED = {"high", "medium", "low", "unverified"}
+
+
+def _normalize_general_transmission_label(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return CHECKED_VERSION_UNKNOWN_HE
+
+    lowered = text.lower()
+    if any(token in lowered for token in ("dsg", "dct", "dual clutch", "dual-clutch", "robot", "רובוט")):
+        return "רובוטית"
+    if any(token in lowered for token in ("cvt", "רציפ", "continuously variable")):
+        return "רציפה"
+    if any(token in lowered for token in ("manual", "ידני", "ידנית")):
+        return "ידנית"
+    if any(token in lowered for token in ("unknown", "not verified", "needs verification", "לא ידוע", "לבדיקה", "לא מאומת")):
+        return CHECKED_VERSION_UNKNOWN_HE
+    if any(token in lowered for token in ("automatic", "auto", "אוטומט", "planetary", "פלנטר")):
+        return "אוטומטית"
+    return text[:80]
+
+
+def _normalize_checked_version_text(value: Any, default: str = "") -> str:
+    text = " ".join(str(value or "").split()).strip()
+    return text[:180] if text else default
+
+
+def _sanitize_checked_versions(payload: Any, slot_keys: List[str]) -> Dict[str, Dict[str, str]]:
+    if not isinstance(payload, dict):
+        return {}
+
+    sanitized: Dict[str, Dict[str, str]] = {}
+    for slot_key in slot_keys:
+        raw = payload.get(slot_key)
+        if not isinstance(raw, dict):
+            continue
+        data_basis = raw.get("data_basis")
+        confidence = raw.get("confidence")
+        sanitized[slot_key] = {
+            "make": _normalize_checked_version_text(raw.get("make")),
+            "model": _normalize_checked_version_text(raw.get("model")),
+            "year": _normalize_checked_version_text(raw.get("year")),
+            "trim": _normalize_checked_version_text(raw.get("trim")),
+            "engine_type": _normalize_checked_version_text(raw.get("engine_type")),
+            "transmission": _normalize_general_transmission_label(raw.get("transmission")),
+            "drivetrain": _normalize_checked_version_text(raw.get("drivetrain")),
+            "seats": _normalize_checked_version_text(raw.get("seats")),
+            "data_basis": data_basis if data_basis in CHECKED_VERSION_DATA_BASIS_ALLOWED else "ai_inference",
+            "confidence": confidence if confidence in CHECKED_VERSION_CONFIDENCE_ALLOWED else "low",
+            "notes": _normalize_checked_version_text(raw.get("notes")),
+        }
+    return sanitized
+
+
+def build_checked_versions(
+    cars_selected_slots: Dict[str, Dict[str, Any]],
+    grounded_output: Optional[Dict[str, Any]],
+    ai_checked_versions: Optional[Dict[str, Dict[str, str]]] = None,
+) -> Dict[str, Dict[str, str]]:
+    slot_keys = _ordered_compare_slot_keys(
+        cars_selected_slots or {},
+        ((grounded_output or {}).get("cars") or {}) if isinstance(grounded_output, dict) else {},
+        ai_checked_versions or {},
+    )
+    ai_checked_versions = _sanitize_checked_versions(ai_checked_versions, slot_keys)
+    grounded_cars = ((grounded_output or {}).get("cars") or {}) if isinstance(grounded_output, dict) else {}
+    result: Dict[str, Dict[str, str]] = {}
+
+    for slot_key in slot_keys:
+        selection = (cars_selected_slots or {}).get(slot_key, {}) or {}
+        grounded_car = grounded_cars.get(slot_key, {}) if isinstance(grounded_cars.get(slot_key, {}), dict) else {}
+        profile = grounded_car.get("car_profile") if isinstance(grounded_car.get("car_profile"), dict) else {}
+        identity = profile.get("vehicle_identity") if isinstance(profile.get("vehicle_identity"), dict) else {}
+        powertrain = profile.get("powertrain_specs") if isinstance(profile.get("powertrain_specs"), dict) else {}
+        recommended_trim = profile.get("recommended_trim") if isinstance(profile.get("recommended_trim"), dict) else {}
+        trims = profile.get("trim_levels_israel") if isinstance(profile.get("trim_levels_israel"), list) else []
+
+        make = (
+            _normalize_checked_version_text(identity.get("make"))
+            or _normalize_checked_version_text(selection.get("make"))
+        )
+        model = (
+            _normalize_checked_version_text(identity.get("model"))
+            or _normalize_checked_version_text(selection.get("model"))
+        )
+        year = (
+            _normalize_checked_version_text(identity.get("year"))
+            or _normalize_checked_version_text(selection.get("year"))
+            or _normalize_checked_version_text(selection.get("year_start"))
+        )
+
+        trim_confidence = str(recommended_trim.get("confidence") or "").strip().lower()
+        trim = _normalize_checked_version_text(recommended_trim.get("trim_name"))
+        if not trim and len(trims) == 1 and isinstance(trims[0], dict):
+            trim = _normalize_checked_version_text(trims[0].get("trim_name"))
+        if not trim or trim_confidence == "low":
+            trim = CHECKED_VERSION_NOT_VERIFIED_HE
+
+        engine_type = (
+            _normalize_checked_version_text(powertrain.get("engine"))
+            or _normalize_checked_version_text(selection.get("engine_type"))
+            or _normalize_checked_version_text((grounded_car.get("facts") or {}).get("fuel_type"))
+            or CHECKED_VERSION_UNKNOWN_HE
+        )
+        transmission = _normalize_general_transmission_label(
+            powertrain.get("gearbox") or selection.get("gearbox")
+        )
+        drivetrain = _normalize_checked_version_text(
+            powertrain.get("drivetrain"),
+            CHECKED_VERSION_NOT_VERIFIED_HE,
+        )
+        seats_value = powertrain.get("seats")
+        seats = (
+            _normalize_checked_version_text(seats_value)
+            if seats_value not in (None, "")
+            else CHECKED_VERSION_NOT_VERIFIED_HE
+        )
+
+        has_profile = bool(profile)
+        has_sources = bool(
+            powertrain.get("sources")
+            or profile.get("sources")
+            or grounded_car.get("sources")
+            or (trims[0].get("source") if trims and isinstance(trims[0], dict) else None)
+        )
+        has_user_specific = bool(selection.get("year") or selection.get("engine_type") or selection.get("gearbox"))
+
+        if has_sources and has_user_specific:
+            data_basis = "mixed"
+        elif has_sources:
+            data_basis = "verified_source"
+        elif has_profile and has_user_specific:
+            data_basis = "mixed"
+        elif has_profile:
+            data_basis = "ai_inference"
+        else:
+            data_basis = "user_input"
+
+        if has_sources and year and trim != CHECKED_VERSION_NOT_VERIFIED_HE:
+            confidence = "high"
+        elif has_sources and year:
+            confidence = "medium"
+        elif has_profile or has_user_specific:
+            confidence = "low"
+        else:
+            confidence = "unverified"
+
+        note_parts: List[str] = []
+        if has_user_specific and (selection.get("engine_type") or selection.get("gearbox")):
+            note_parts.append("סוג המנוע או התיבה נבחרו כערכים כלליים בטופס ויש לאמת מול מפרט היבואן או רישיון הרכב.")
+        if trim == CHECKED_VERSION_NOT_VERIFIED_HE:
+            note_parts.append("רמת הגימור לא אומתה במידע הזמין.")
+        if not year:
+            note_parts.append("השנתון המדויק לא אומת.")
+        if data_basis in {"mixed", "ai_inference"}:
+            note_parts.append("ההשוואה מתייחסת לגרסה מייצגת לפי המידע הזמין וייתכנו הבדלים בין רמות גימור, מנועים ותיבות הילוכים.")
+        if not note_parts:
+            note_parts.append("יש לאמת את המפרט מול מקור רשמי לפני החלטת רכישה.")
+
+        fallback = {
+            "make": make,
+            "model": model,
+            "year": year or CHECKED_VERSION_NOT_VERIFIED_HE,
+            "trim": trim,
+            "engine_type": engine_type,
+            "transmission": transmission,
+            "drivetrain": drivetrain,
+            "seats": seats,
+            "data_basis": data_basis,
+            "confidence": confidence,
+            "notes": " ".join(note_parts[:2]),
+        }
+
+        merged = dict(fallback)
+        ai_version = ai_checked_versions.get(slot_key) or {}
+        for key, value in ai_version.items():
+            if value:
+                merged[key] = value
+        if not merged.get("transmission"):
+            merged["transmission"] = CHECKED_VERSION_UNKNOWN_HE
+        merged["transmission"] = _normalize_general_transmission_label(merged.get("transmission"))
+        result[slot_key] = merged
+
+    return result
+
+
 def map_cars_to_slots(validated_cars: List[Dict]) -> Dict[str, Dict]:
     """Map validated cars to stable slot keys: car_1, car_2, car_3.
     Each slot includes the original selection fields plus display_name.
@@ -1243,10 +1432,19 @@ def build_compare_writer_prompt(
         },
         "balanced_comparison": bool(((computed_result.get("comparison_status") or {}).get("balanced", True))),
     }
+    checked_version_seed = build_checked_versions(cars_selected_slots, grounded_output)
     model_payload = {
         "cars": {
             slot_key: {
                 "label": _truncate_text(((cars_selected_slots or {}).get(slot_key, {}) or {}).get("display_name") or slot_key, 120),
+                "selection_input": {
+                    "make": _truncate_text(((cars_selected_slots or {}).get(slot_key, {}) or {}).get("make"), 80),
+                    "model": _truncate_text(((cars_selected_slots or {}).get(slot_key, {}) or {}).get("model"), 80),
+                    "year": _truncate_text(((cars_selected_slots or {}).get(slot_key, {}) or {}).get("year") or ((cars_selected_slots or {}).get(slot_key, {}) or {}).get("year_start"), 40),
+                    "engine_type": _truncate_text(((cars_selected_slots or {}).get(slot_key, {}) or {}).get("engine_type"), 80),
+                    "transmission": _truncate_text(((cars_selected_slots or {}).get(slot_key, {}) or {}).get("gearbox"), 80),
+                },
+                "checked_version_seed": checked_version_seed.get(slot_key) or {},
                 "evidence": _evidence_snapshot(slot_key),
             }
             for slot_key in slot_keys
@@ -1281,6 +1479,12 @@ Return ONLY valid JSON with EXACTLY this top-level schema:
     "competitors_to_consider": [{{"model":"string","why_consider":"string"}}],
     "practical_summary":"Hebrew practical paragraph. Neutral. No first person. No direct buy/don't-buy command."
   }},
+  "checked_versions": {{
+    {",".join(
+        f'"{slot_key}":{{"make":"string","model":"string","year":"string","trim":"string","engine_type":"string","transmission":"string","drivetrain":"string","seats":"string","data_basis":"user_input|verified_source|ai_inference|mixed","confidence":"high|medium|low|unverified","notes":"string"}}'
+        for slot_key in slot_keys
+    )}
+  }},
   "sources": ["url"]
 }}
 
@@ -1295,6 +1499,9 @@ HARD RULES:
 8. For EVERY selected car, `choose_car_X_if` and `avoid_or_check_car_X_if` must contain 1-3 non-empty Hebrew strings whenever MODEL_PAYLOAD includes any usable evidence for that car.
 9. Never return [] for per-car arrays if `overall_decision`, `category_decisions`, `key_differences`, or the evidence snapshot can support safe fallback wording.
 10. If evidence is thin, write cautious guidance about fit, trade-offs, and what to verify before purchase instead of leaving arrays empty.
+11. `checked_versions` is mandatory for every selected car. It must clearly state the representative version being discussed, including uncertainty when trim, transmission, engine, or year are not fully verified.
+12. In `checked_versions.transmission`, use general labels only: אוטומטית, רובוטית, רציפה, ידנית, לא ידוע / לבדיקה. Do not use DSG, DCT, DHT, or CVT as the visible default transmission label.
+13. If the user selected a general engine/transmission value, do not present it as a fully verified exact specification. Use `notes` to explain that it still requires verification against the importer spec or vehicle license.
 """
     return prompt
 
@@ -2116,6 +2323,13 @@ def _validate_decision_writer_response(
             computed_result or {},
             get_request_id(),
         ),
+        "checked_versions": _sanitize_checked_versions(
+            payload.get("checked_versions"),
+            _ordered_compare_slot_keys(
+                cars_selected_slots or {},
+                (computed_result or {}).get("cars") or {},
+            ),
+        ),
         "sources": _normalize_sources(payload.get("sources")),
     }, None
 
@@ -2143,6 +2357,7 @@ def _summarize_compare_writer_payload(payload: Any) -> Dict[str, Any]:
         "is_object": True,
         "top_level_keys": sorted(payload.keys()),
         "has_decision_result": bool(decision_result),
+        "checked_versions_count": len(payload.get("checked_versions") or {}) if isinstance(payload.get("checked_versions"), dict) else 0,
         "decision_slot_keys": decision_slot_keys,
         "has_summary": bool(str(payload.get("summary") or "").strip()),
         "has_categories": isinstance(payload.get("categories"), list),
@@ -3780,14 +3995,23 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                 narrative = resolve_comparison_narrative(
                     computed_result if isinstance(computed_result, dict) else None
                 )
+                checked_versions = build_checked_versions(
+                    cached_slots if isinstance(cached_slots, dict) else {},
+                    model_output if isinstance(model_output, dict) else {},
+                    computed_result.get("checked_versions") if isinstance(computed_result, dict) else None,
+                )
                 decision_result = sanitize_decision_result(
                     computed_result.get("decision_result") if isinstance(computed_result, dict) else None,
                     cached_slots if isinstance(cached_slots, dict) else {},
                     computed_result if isinstance(computed_result, dict) else {},
                     request_id,
                 )
-                if isinstance(computed_result, dict) and computed_result.get("decision_result") != decision_result:
+                if isinstance(computed_result, dict) and (
+                    computed_result.get("decision_result") != decision_result
+                    or computed_result.get("checked_versions") != checked_versions
+                ):
                     computed_result["decision_result"] = decision_result
+                    computed_result["checked_versions"] = checked_versions
                     cached.computed_result = json.dumps(computed_result, ensure_ascii=False)
                     try:
                         db.session.commit()
@@ -3809,6 +4033,7 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                     "computed_result": computed_result,
                     "narrative": narrative,
                     "decision_result": decision_result,
+                    "checked_versions": checked_versions,
                     "sources_index": sources_index if sources_index else {},
                     "assumptions": assumptions,
                     "ai": ai_payload,
@@ -4027,6 +4252,11 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
         if decision_validation_reason:
             logger.warning("[COMPARISON] decision_result fallback request_id=%s reason=%s", request_id, decision_validation_reason)
         decision_result = build_deterministic_decision_result(cars_selected_slots, computed_result, stage_b_output)
+    checked_versions = build_checked_versions(
+        cars_selected_slots,
+        model_output,
+        validated_decision.get("checked_versions") if validated_decision else None,
+    )
     ai_status = "ok"
     ai_reason = None
     if stage_a_partial:
@@ -4049,6 +4279,7 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     # Include narrative in computed_result for storage
     stored_computed = dict(computed_result)
     stored_computed["decision_result"] = decision_result
+    stored_computed["checked_versions"] = checked_versions
     if narrative:
         stored_computed["narrative"] = narrative
     stored_computed["ai"] = ai_payload
@@ -4099,6 +4330,7 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
         "computed_result": computed_result,
         "narrative": narrative,
         "decision_result": decision_result,
+        "checked_versions": checked_versions,
         "sources_index": sources_index,
         "assumptions": {},
         "ai": ai_payload,

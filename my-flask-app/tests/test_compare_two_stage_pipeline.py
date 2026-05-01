@@ -45,6 +45,17 @@ def _grounded_output_fixture():
                     "fun_to_drive": "medium",
                 },
                 "facts": {"horsepower": 138, "weight_kg": 1310, "body_type": "sedan", "fuel_type": "petrol"},
+                "car_profile": {
+                    "vehicle_identity": {"make": "Toyota", "model": "Corolla", "year": "2020"},
+                    "recommended_trim": {"trim_name": "Sun", "confidence": "medium"},
+                    "powertrain_specs": {
+                        "engine": "1.8 Hybrid",
+                        "gearbox": "CVT",
+                        "drivetrain": "FWD",
+                        "seats": 5,
+                        "sources": ["https://example.com/toyota/spec"],
+                    },
+                },
                 "short_notes": ["מוניטין אמינות חזק", "אחזקה צפויה ונפוצה"],
                 "sources": ["https://example.com/toyota"],
             },
@@ -79,6 +90,17 @@ def _grounded_output_fixture():
                     "fun_to_drive": "high",
                 },
                 "facts": {"horsepower": 158, "weight_kg": 1325, "body_type": "sedan", "fuel_type": "petrol"},
+                "car_profile": {
+                    "vehicle_identity": {"make": "Honda", "model": "Civic", "year": "2020"},
+                    "recommended_trim": {"trim_name": "Sport", "confidence": "medium"},
+                    "powertrain_specs": {
+                        "engine": "1.5 Turbo",
+                        "gearbox": "Automatic",
+                        "drivetrain": "FWD",
+                        "seats": 5,
+                        "sources": ["https://example.com/honda/spec"],
+                    },
+                },
                 "short_notes": ["קצת יותר מהנה לנהיגה"],
                 "sources": ["https://example.com/honda"],
             },
@@ -295,6 +317,78 @@ def test_compare_stage_b_json_schema_parsed_into_narrative(app, logged_in_client
     assert payload["ai"]["reason"] is None
 
 
+def test_compare_response_includes_checked_versions(app, logged_in_client, monkeypatch):
+    client, _user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(_grounded_output_fixture()))
+
+    def fake_stage_b(_prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC):
+        return {
+            "decision_result": {
+                "overall_decision": {"label": "car_1", "text": "לטויוטה יש עדיפות קלה בתמונה הכוללת."},
+                "category_decisions": [],
+                "key_differences": [],
+                "competitors_to_consider": [],
+                "practical_summary": "ההשוואה תלויה גם בהתאמה לשימוש ובבדיקה בפועל.",
+                "choose_car_1_if": ["מחפשים מוניטין אמינות חזק."],
+                "choose_car_2_if": ["חשוב יותר אופי נהיגה מעט חד יותר."],
+                "avoid_or_check_car_1_if": ["לאמת רמת גימור ורשימת אבזור."],
+                "avoid_or_check_car_2_if": ["לאמת היסטוריית טיפולים ותיבה."],
+            },
+            "checked_versions": {
+                "car_1": {
+                    "make": "Toyota",
+                    "model": "Corolla",
+                    "year": "2020",
+                    "trim": "Sun",
+                    "engine_type": "1.8 Hybrid",
+                    "transmission": "CVT",
+                    "drivetrain": "FWD",
+                    "seats": "5",
+                    "data_basis": "mixed",
+                    "confidence": "medium",
+                    "notes": "סוג התיבה עדיין דורש אימות מול מפרט היבואן.",
+                },
+                "car_2": {
+                    "make": "Honda",
+                    "model": "Civic",
+                    "year": "2020",
+                    "trim": "Sport",
+                    "engine_type": "1.5 Turbo",
+                    "transmission": "Automatic",
+                    "drivetrain": "FWD",
+                    "seats": "5",
+                    "data_basis": "mixed",
+                    "confidence": "medium",
+                    "notes": "רמת הגימור נבחרה לפי המידע הזמין.",
+                },
+            },
+            "sources": ["https://example.com/toyota/spec"],
+        }, None
+
+    monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", fake_stage_b)
+
+    resp = client.post(
+        "/api/compare",
+        json={
+            "cars": [
+                {"make": "Toyota", "model": "Corolla", "year": 2020, "engine_type": "היברידי", "gearbox": "רציפה"},
+                {"make": "Honda", "model": "Civic", "year": 2020, "engine_type": "בנזין", "gearbox": "אוטומטית"},
+            ],
+            "legal_confirm": True,
+        },
+        headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+    )
+
+    assert resp.status_code == 200
+    payload = resp.get_json()["data"]
+    assert payload["checked_versions"]["car_1"]["transmission"] == "רציפה"
+    assert payload["checked_versions"]["car_1"]["trim"] == "Sun"
+    assert payload["checked_versions"]["car_1"]["notes"]
+    assert payload["checked_versions"]["car_2"]["data_basis"] == "mixed"
+
+
 def test_compare_three_cars_stage_b_slot_schema_parsed_into_narrative(app, logged_in_client, monkeypatch):
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
@@ -346,6 +440,21 @@ def test_compare_three_cars_stage_b_slot_schema_parsed_into_narrative(app, logge
     assert set(payload["narrative"]["category_explanations"][0]["explanations"].keys()) == {"car_1", "car_2", "car_3"}
     assert payload["ai"]["stage_a"]["winner"] == expected["overall_winner"]
     assert payload["ai"]["status"] == "ok"
+
+
+def test_compare_writer_prompt_requires_checked_versions():
+    cars_selected = {
+        "car_1": {"make": "Toyota", "model": "Corolla", "year": 2020, "engine_type": "היברידי", "gearbox": "רציפה", "display_name": "Toyota Corolla 2020"},
+        "car_2": {"make": "Honda", "model": "Civic", "year": 2020, "engine_type": "בנזין", "gearbox": "אוטומטית", "display_name": "Honda Civic 2020"},
+    }
+    grounded = _grounded_output_fixture()
+    computed = comparison_service.compute_comparison_results(grounded)
+
+    prompt = comparison_service.build_compare_writer_prompt(cars_selected, computed, grounded)
+
+    assert '"checked_versions"' in prompt
+    assert "Do not use DSG" in prompt
+    assert "לא ידוע / לבדיקה" in prompt
 
 
 def test_compare_stage_b_empty_decision_arrays_are_backfilled(app, logged_in_client, monkeypatch):
