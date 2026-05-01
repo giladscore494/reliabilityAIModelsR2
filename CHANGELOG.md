@@ -2,6 +2,17 @@
 
 ## [Unreleased] – 2026-05-01
 
+### Comparison Decision Refactor
+- Comparison responses now include decision-based `decision_result` for practical buyer guidance.
+- Comparison UI no longer renders visible numeric score cards, category weights, or winner-score framing.
+- `/api/compare` accepts optional sanitized `buyer_profile` for preference-fit explanation only.
+- Comparison Stage A now asks for richer grounded vehicle facts including pricing, trims, license fee, safety, warranty, recalls, specs, and ownership notes.
+- User-facing comparison text is sanitized against score-like wording and direct-purchase language.
+
+### Recommendations
+- Recommendation UI now frames Fit Score as `התאמת העדפות` only, not vehicle quality, reliability truth, or purchase worthiness.
+- Advisor prompt now requests richer grounded fields for safety, license fee, trims, warranty, competitors, best-for/not-ideal-for, and practical summaries.
+
 ### Added
 - `/analyze` endpoint now returns `vehicle_profile` with: pricing (new/used ILS), license fee (official or unknown), trim levels, recommended trim, powertrain specs, fuel consumption, official safety rating, warranty, recalls (Israel), ownership cost notes, competitors, best_for/not_ideal_for, buyer_summary.
 - New "כרטיס רכב" tab in `reliability_app.html` displaying all `vehicle_profile` sections.

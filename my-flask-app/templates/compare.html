@@ -2034,7 +2034,7 @@
             const summaryEl = document.getElementById('narrativeOverallSummary');
             const disclaimersEl = document.getElementById('narrativeDisclaimers');
             if (categoryContainer) categoryContainer.innerHTML = '';
-            if (summaryEl) summaryEl.textContent = 'הסבר AI לא זמין כרגע; מוצגת השוואה מספרית.';
+            if (summaryEl) summaryEl.textContent = 'הסבר AI לא זמין כרגע; מוצג סיכום החלטה בסיסי.';
             if (disclaimersEl) disclaimersEl.textContent = 'אפשר לנסות שוב.';
             console.warn('[COMPARE] narrative hidden fallback', {
                 reason: getNarrativeFailureReason(result),
@@ -2076,14 +2076,9 @@
                     if (!categoryKey || !String(explanationText || '').trim()) {
                         return '';
                     }
-                    const categoryScore = result?.computed_result?.cars?.[carKey]?.categories?.[categoryKey]?.score;
-                    const scoreText = categoryScore != null ? `${Number(categoryScore).toFixed(0)}/100` : '—';
                     return `
                         <div class="rounded-xl border border-slate-700/60 bg-slate-900/40 p-3 space-y-1">
-                            <div class="flex items-center justify-between gap-3">
-                                <div class="text-xs font-semibold text-white">${escapeHtml(CATEGORY_NAMES[categoryKey] || categoryKey)}</div>
-                                <div class="text-[11px] text-slate-400">${escapeHtml(scoreText)}</div>
-                            </div>
+                            <div class="text-xs font-semibold text-white">${escapeHtml(CATEGORY_NAMES[categoryKey] || categoryKey)}</div>
                             <p class="text-xs leading-6 text-slate-300">${escapeHtml(explanationText)}</p>
                         </div>
                     `;
@@ -2099,7 +2094,7 @@
                             <div class="text-sm font-bold" style="color: ${accent.color || '#ffffff'}">
                                 ${escapeHtml((result?.cars_selected || {})[carKey]?.display_name || carKey)}
                             </div>
-                            <div class="text-[11px] text-slate-400">למה הציון נראה כך</div>
+                            <div class="text-[11px] text-slate-400">למה זה משנה</div>
                         </div>
                         <div class="space-y-2">
                             ${rows}
