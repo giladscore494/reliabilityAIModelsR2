@@ -101,6 +101,24 @@
         .car-title { color: var(--accent); }
         .car-score { color: var(--accent); }
 
+        /* Car result chip styles */
+        .car-result-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            border: 1.5px solid var(--chip-color);
+            color: var(--chip-color);
+            background: color-mix(in srgb, var(--chip-color) 12%, transparent);
+            white-space: nowrap;
+        }
+        .car-result-chip.car-chip-1 { --chip-color: #ef4444; }
+        .car-result-chip.car-chip-2 { --chip-color: #3b82f6; }
+        .car-result-chip.car-chip-3 { --chip-color: #22c55e; }
+
         /* Autocomplete styles */
         .autocomplete-container { position: relative; }
         .autocomplete-input {
@@ -208,7 +226,7 @@
                     <!-- Car Slot 1 -->
                     <div class="car-slot-container car-accent-1 border-2 rounded-xl p-4 bg-slate-800/30" data-slot="1" style="border-color: var(--accent);">
                         <div class="flex items-center justify-between mb-4">
-                            <h4 class="text-lg font-bold car-title">רכב 1 <span class="text-secondary">*</span></h4>
+                            <h4 id="slot-title-1" class="text-lg font-bold car-title">רכב 1 <span class="text-secondary">*</span></h4>
                             <button type="button" class="clear-slot-btn hidden px-3 py-1 text-xs bg-slate-700 hover:bg-red-600 rounded-full text-slate-300 hover:text-white transition-colors">
                                 נקה
                             </button>
@@ -258,7 +276,7 @@
                     <!-- Car Slot 2 -->
                     <div class="car-slot-container car-accent-2 border-2 rounded-xl p-4 bg-slate-800/30" data-slot="2" style="border-color: var(--accent);">
                         <div class="flex items-center justify-between mb-4">
-                            <h4 class="text-lg font-bold car-title">רכב 2 <span class="text-secondary">*</span></h4>
+                            <h4 id="slot-title-2" class="text-lg font-bold car-title">רכב 2 <span class="text-secondary">*</span></h4>
                             <button type="button" class="clear-slot-btn hidden px-3 py-1 text-xs bg-slate-700 hover:bg-red-600 rounded-full text-slate-300 hover:text-white transition-colors">
                                 נקה
                             </button>
@@ -308,7 +326,7 @@
                     <!-- Car Slot 3 (optional) -->
                     <div class="car-slot-container car-accent-3 border-2 rounded-xl p-4 bg-slate-800/30" data-slot="3" style="border-color: var(--accent);">
                         <div class="flex items-center justify-between mb-4">
-                            <h4 class="text-lg font-bold car-title">רכב 3 <span class="text-slate-500">(אופציונלי)</span></h4>
+                            <h4 id="slot-title-3" class="text-lg font-bold car-title">רכב 3 <span class="text-slate-500">(אופציונלי)</span></h4>
                             <button type="button" class="clear-slot-btn hidden px-3 py-1 text-xs bg-slate-700 hover:bg-red-600 rounded-full text-slate-300 hover:text-white transition-colors">
                                 נקה
                             </button>
@@ -476,18 +494,6 @@
                     </div>
                 </div>
 
-                <!-- Narrative Summary (from 2nd LLM call) -->
-                <div id="narrativeSection" class="hidden narrative-section space-y-4">
-                    <h3 class="text-xl font-bold text-white">סיכום ההשוואה</h3>
-                    <p id="narrativeOverallSummary" class="text-slate-200 leading-relaxed"></p>
-                    <div id="narrativeCategoryExplanations" class="space-y-3"></div>
-                    <div id="narrativeDisclaimers" class="text-xs text-slate-400 mt-4"></div>
-                    <button id="aiRetryBtn" type="button" class="hidden mt-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-full transition-all">
-                        נסה שוב
-                    </button>
-                </div>
-                
-                
                 <!-- Category Comparisons - responsive with overflow for wide content -->
                 <div id="categoriesSection" class="space-y-4 overflow-x-auto">
                     <!-- Categories will be rendered here -->
@@ -1077,6 +1083,7 @@
             dropdown.classList.remove('open');
             dropdown.innerHTML = '';
             updateClearButton(slotSuffix);
+            updateSlotTitle(slotSuffix, car.make, car.model);
             updateCompareButton();
         }
 
@@ -1093,6 +1100,7 @@
                 yearSelect.innerHTML = '<option value="">בחר רכב תחילה</option>';
                 yearSelect.disabled = true;
                 updateClearButton(slotSuffix);
+                resetSlotTitle(slotSuffix);
                 updateCompareButton();
             }
         });
@@ -1149,6 +1157,7 @@
                 if (engineSelect) engineSelect.value = 'בנזין';
                 if (gearSelect) gearSelect.value = 'אוטומטית';
                 updateClearButton(slotSuffix);
+                resetSlotTitle(slotSuffix);
                 updateCompareButton();
             });
         }
@@ -1224,6 +1233,7 @@
             if (car.gearbox && gearSelect) gearSelect.value = car.gearbox;
             
             updateClearButton(slotSuffix);
+            updateSlotTitle(slotSuffix, car.make, car.model);
         }
         
         updateCompareButton();
@@ -1326,6 +1336,30 @@
             } else {
                 clearBtn.classList.add('hidden');
             }
+        }
+    }
+
+    function updateSlotTitle(slotSuffix, make, model) {
+        const titleEl = document.getElementById(`slot-title-${slotSuffix}`);
+        if (!titleEl) return;
+        const name = [make, model].filter(Boolean).join(' ').trim();
+        if (name) {
+            const suffix = Number(slotSuffix) === 3
+                ? '<span class="text-slate-500">(אופציונלי)</span>'
+                : '<span class="text-secondary">*</span>';
+            titleEl.innerHTML = escapeHtml(name) + ' ' + suffix;
+        }
+    }
+
+    function resetSlotTitle(slotSuffix) {
+        const titleEl = document.getElementById(`slot-title-${slotSuffix}`);
+        if (!titleEl) return;
+        if (Number(slotSuffix) === 1) {
+            titleEl.innerHTML = 'רכב 1 <span class="text-secondary">*</span>';
+        } else if (Number(slotSuffix) === 2) {
+            titleEl.innerHTML = 'רכב 2 <span class="text-secondary">*</span>';
+        } else {
+            titleEl.innerHTML = 'רכב 3 <span class="text-slate-500">(אופציונלי)</span>';
         }
     }
     
@@ -1642,18 +1676,25 @@
         return (decision?.category_decisions || []).find(item => item && item.category_key === key) || null;
     }
 
-    function renderCategoryDecisionCard(decision, key, fallbackTitle) {
+    function renderCategoryDecisionCard(decision, key, fallbackTitle, carsSelected, carKeys) {
         const item = findCategoryDecision(decision, key);
         const title = item?.category_name_he || fallbackTitle;
         const pref = item?.preferred && item.preferred !== 'unknown' ? item.preferred : 'depends';
-        const prefText = pref.startsWith('car_') ? `עדיפות: ${escapeHtml(pref.replace('car_', 'רכב '))}` : 'עדיפות: תלוי שימוש ומצב בפועל';
+        let prefDisplay;
+        if (pref.startsWith('car_') && carsSelected) {
+            const carIdx = parseInt(pref.replace('car_', ''), 10);
+            const carDisplayName = carsSelected[pref]?.display_name || `רכב ${carIdx}`;
+            prefDisplay = `<span class="car-result-chip car-chip-${carIdx}">${escapeHtml(carDisplayName)}</span>`;
+        } else {
+            prefDisplay = `<span class="rounded-full border border-slate-600 bg-slate-900/60 px-3 py-1 text-xs text-slate-300">תלוי שימוש ומצב בפועל</span>`;
+        }
         return `
             <article class="rounded-2xl border border-slate-700/70 bg-dark-lighter/70 p-4 md:p-5 space-y-2">
                 <div class="flex items-center justify-between gap-3">
                     <h4 class="text-lg font-bold text-white">${escapeHtml(title)}</h4>
-                    <span class="rounded-full border border-slate-600 bg-slate-900/60 px-3 py-1 text-xs text-slate-300">${prefText}</span>
+                    ${prefDisplay}
                 </div>
-                <p class="text-sm leading-7 text-slate-300"><span class="font-bold text-slate-100">למה זה משנה:</span> ${escapeHtml(item?.why || 'אין מספיק מידע מאומת בקטגוריה זו.')}</p>
+                ${item?.why ? `<p class="text-sm leading-7 text-slate-300">${escapeHtml(item.why)}</p>` : ''}
                 ${item?.important_caveat ? `<p class="text-xs leading-6 text-amber-200"><span class="font-bold">מה לבדוק:</span> ${escapeHtml(item.important_caveat)}</p>` : ''}
             </article>
         `;
@@ -1669,23 +1710,29 @@
         };
         const keyDiffs = Array.isArray(decision?.key_differences) ? decision.key_differences : [];
         const competitors = Array.isArray(decision?.competitors_to_consider) ? decision.competitors_to_consider : [];
+        const gridCols = carKeys.length >= 3 ? 'md:grid-cols-3' : 'md:grid-cols-2';
         return `
-            <section class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <section class="grid grid-cols-1 ${gridCols} gap-4">
                 <article class="rounded-2xl border border-slate-700/70 bg-slate-900/50 p-4">
                     <h4 class="text-lg font-bold text-white mb-3">למי כל רכב מתאים</h4>
-                    ${carKeys.slice(0, 2).map((ck, index) => `
+                    ${carKeys.map((ck, index) => `
                         <div class="mb-3">
-                            <div class="font-bold text-slate-100">${escapeHtml(carName(carsSelected, ck))} – מתאים יותר אם</div>
-                            <ul class="mt-1 text-sm leading-7 text-slate-300">${renderBulletList(index === 0 ? decision.choose_car_1_if : decision.choose_car_2_if)}</ul>
+                            <div class="font-bold text-slate-100 flex items-center gap-2 flex-wrap">
+                                <span class="car-result-chip car-chip-${index + 1}">${escapeHtml(carName(carsSelected, ck))}</span>
+                                <span class="text-slate-400 text-sm">– מתאים יותר אם</span>
+                            </div>
+                            <ul class="mt-1 text-sm leading-7 text-slate-300">${renderBulletList(decision[`choose_car_${index + 1}_if`])}</ul>
                         </div>
                     `).join('')}
                 </article>
                 <article class="rounded-2xl border border-slate-700/70 bg-slate-900/50 p-4">
                     <h4 class="text-lg font-bold text-white mb-3">מה לבדוק לפני החלטה</h4>
-                    ${carKeys.slice(0, 2).map((ck, index) => `
+                    ${carKeys.map((ck, index) => `
                         <div class="mb-3">
-                            <div class="font-bold text-slate-100">${escapeHtml(carName(carsSelected, ck))}</div>
-                            <ul class="mt-1 text-sm leading-7 text-slate-300">${renderBulletList(index === 0 ? decision.avoid_or_check_car_1_if : decision.avoid_or_check_car_2_if)}</ul>
+                            <div class="font-bold text-slate-100 flex items-center gap-2 flex-wrap">
+                                <span class="car-result-chip car-chip-${index + 1}">${escapeHtml(carName(carsSelected, ck))}</span>
+                            </div>
+                            <ul class="mt-1 text-sm leading-7 text-slate-300">${renderBulletList(decision[`avoid_or_check_car_${index + 1}_if`])}</ul>
                         </div>
                     `).join('')}
                 </article>
@@ -1696,27 +1743,33 @@
                     ${keyDiffs.length ? keyDiffs.map(diff => `
                         <div class="rounded-xl bg-slate-900/50 border border-slate-700/60 p-3">
                             <div class="font-bold text-slate-100 mb-2">${escapeHtml(diff.title || 'פער שחשוב להבין')}</div>
-                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm text-slate-300">
-                                <div><span class="text-slate-500">רכב 1:</span> ${escapeHtml(diff.car_1 || '')}</div>
-                                <div><span class="text-slate-500">רכב 2:</span> ${escapeHtml(diff.car_2 || '')}</div>
-                                <div><span class="text-slate-500">משמעות:</span> ${escapeHtml(diff.meaning_for_buyer || '')}</div>
+                            <div class="space-y-2">
+                                ${carKeys.map((ck, index) => diff[`car_${index + 1}`] ? `
+                                    <div class="flex items-start gap-2 text-sm text-slate-300">
+                                        <span class="car-result-chip car-chip-${index + 1} shrink-0">${escapeHtml(carName(carsSelected, ck))}</span>
+                                        <span>${escapeHtml(diff[`car_${index + 1}`])}</span>
+                                    </div>
+                                ` : '').filter(Boolean).join('')}
+                                ${diff.meaning_for_buyer ? `<div class="text-xs text-slate-400 border-t border-slate-700/40 pt-2 mt-1"><span class="font-medium text-slate-300">משמעות לרוכש:</span> ${escapeHtml(diff.meaning_for_buyer)}</div>` : ''}
                             </div>
                         </div>
                     `).join('') : '<p class="text-sm text-slate-400">אין פערים מרכזיים מנוסחים במידע הזמין.</p>'}
                 </div>
             </section>
-            ${renderCategoryDecisionCard(decision, 'pricing_and_value', 'מחיר ותמורה')}
-            ${renderCategoryDecisionCard(decision, 'trim_and_equipment', 'רמות גימור ואבזור')}
-            ${renderCategoryDecisionCard(decision, 'license_fee_and_running_cost', 'אגרה ועלויות שוטפות')}
-            ${renderCategoryDecisionCard(decision, 'powertrain_and_performance', 'מכלולים וביצועים')}
-            ${renderCategoryDecisionCard(decision, 'fuel_consumption', 'צריכת דלק/חשמל')}
-            ${renderCategoryDecisionCard(decision, 'official_safety', 'בטיחות רשמית')}
-            ${renderCategoryDecisionCard(decision, 'reliability_and_risk', 'אמינות וסיכונים')}
-            ${renderCategoryDecisionCard(decision, 'resale_and_market_confidence', 'סחירות ועלויות אחזקה')}
-            <section class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                ${carKeys.slice(0, 2).map(ck => `
+            ${renderCategoryDecisionCard(decision, 'pricing_and_value', 'מחיר ותמורה', carsSelected, carKeys)}
+            ${renderCategoryDecisionCard(decision, 'trim_and_equipment', 'רמות גימור ואבזור', carsSelected, carKeys)}
+            ${renderCategoryDecisionCard(decision, 'license_fee_and_running_cost', 'אגרה ועלויות שוטפות', carsSelected, carKeys)}
+            ${renderCategoryDecisionCard(decision, 'powertrain_and_performance', 'מכלולים וביצועים', carsSelected, carKeys)}
+            ${renderCategoryDecisionCard(decision, 'fuel_consumption', 'צריכת דלק/חשמל', carsSelected, carKeys)}
+            ${renderCategoryDecisionCard(decision, 'official_safety', 'בטיחות רשמית', carsSelected, carKeys)}
+            ${renderCategoryDecisionCard(decision, 'reliability_and_risk', 'אמינות וסיכונים', carsSelected, carKeys)}
+            ${renderCategoryDecisionCard(decision, 'resale_and_market_confidence', 'סחירות ועלויות אחזקה', carsSelected, carKeys)}
+            <section class="grid grid-cols-1 ${gridCols} gap-4">
+                ${carKeys.map((ck, index) => `
                     <article class="rounded-2xl border border-slate-700/70 bg-slate-900/50 p-4">
-                        <h4 class="text-lg font-bold text-white mb-2">נתונים חשובים – ${escapeHtml(carName(carsSelected, ck))}</h4>
+                        <div class="mb-2">
+                            <span class="car-result-chip car-chip-${index + 1}">${escapeHtml(carName(carsSelected, ck))}</span>
+                        </div>
                         <ul class="text-sm leading-7 text-slate-300">
                             <li>מחיר: ${escapeHtml(carProfileLine(ck, 'pricing_israel.used_price_range_ils') || carProfileLine(ck, 'pricing_israel.new_price_range_ils') || 'לא נמצא במקור מאומת')}</li>
                             <li>בטיחות רשמית: ${escapeHtml(carProfileLine(ck, 'official_safety.rating') || 'לא נמצא מקור רשמי')}</li>
@@ -1765,8 +1818,6 @@
         const reasonsList = document.getElementById('reasonsList');
         reasonsList.innerHTML = '<li>הפירוט מוצג לפי התאמה, פערים ומה לבדוק לפני החלטה.</li>';
 
-        renderNarrative(result, carKeys);
-
         const categoriesSection = document.getElementById('categoriesSection');
         categoriesSection.innerHTML = renderDecisionSections(decision, carsSelected, carKeys, result);
         isLoading = false;
@@ -1784,347 +1835,6 @@
             resultReadyPanel?.classList.add('hidden');
             openCompareResult({ userInitiated: false });
         }
-    }
-    
-    // ============================================================
-    // NARRATIVE RENDERING
-    // ============================================================
-    
-    async function regenerateAiExplanation() {
-        if (!currentHistoryId) return;
-        const aiRetryBtn = document.getElementById('aiRetryBtn');
-        if (aiRetryBtn) {
-            aiRetryBtn.disabled = true;
-            aiRetryBtn.textContent = 'טוען...';
-        }
-        try {
-            const response = await fetch(`/api/compare/ai-regenerate?comparison_id=${encodeURIComponent(currentHistoryId)}`, {
-                method: 'POST',
-                credentials: 'include',
-                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
-                body: JSON.stringify({ legal_confirm: true })
-            });
-            const payload = await response.json();
-            if (response.ok && payload.ok && comparisonResult) {
-                comparisonResult.ai = payload.data?.ai || comparisonResult.ai;
-                comparisonResult.narrative = payload.data?.narrative || comparisonResult.narrative;
-                const carKeys = Object.keys(comparisonResult.cars_selected || {}).filter(k => k.startsWith('car_'));
-                renderNarrative(comparisonResult, carKeys);
-            }
-        } catch (error) {
-            console.error('[COMPARE] AI regenerate failed', error);
-        } finally {
-            if (aiRetryBtn) {
-                aiRetryBtn.disabled = false;
-                aiRetryBtn.textContent = 'נסה שוב';
-            }
-        }
-    }
-
-    function normalizeNarrativeText(value) {
-        if (value === null || value === undefined) return '';
-        return String(value).trim();
-    }
-
-    function normalizeNarrativeCategoryItem(categoryItem) {
-        if (!categoryItem || typeof categoryItem !== 'object') {
-            return null;
-        }
-        const rawExplanations = categoryItem.explanations && typeof categoryItem.explanations === 'object'
-            ? categoryItem.explanations
-            : {};
-        const fallbackText = normalizeNarrativeText(
-            categoryItem.why || categoryItem.text || categoryItem.summary || ''
-        );
-        const explanations = {};
-        ['car_1', 'car_2', 'car_3'].forEach((carKey) => {
-            const text = normalizeNarrativeText(rawExplanations[carKey] || fallbackText);
-            if (text) {
-                explanations[carKey] = text;
-            }
-        });
-        const whyListSource = Array.isArray(categoryItem.why_it_scored_that_way)
-            ? categoryItem.why_it_scored_that_way
-            : (Array.isArray(categoryItem.tips) ? categoryItem.tips : []);
-        const whyList = whyListSource
-            .map(normalizeNarrativeText)
-            .filter(Boolean);
-        if (!whyList.length && fallbackText) {
-            whyList.push(fallbackText);
-        }
-        return {
-            category_key: normalizeNarrativeText(categoryItem.category_key || categoryItem.name),
-            title_he: normalizeNarrativeText(categoryItem.title_he || ''),
-            winner: normalizeNarrativeText(categoryItem.winner || ''),
-            explanations,
-            why_it_scored_that_way: whyList,
-        };
-    }
-
-    function describeNarrativeCandidate(candidate) {
-        if (!candidate || typeof candidate !== 'object') {
-            return {
-                isObject: false,
-                hasSummary: false,
-                hasCategoryExplanations: false,
-                hasPerCarExplanations: false,
-                hasDisclaimers: false,
-                categoryCount: 0,
-            };
-        }
-        const rawCategories = Array.isArray(candidate.category_explanations)
-            ? candidate.category_explanations
-            : (Array.isArray(candidate.categories) ? candidate.categories : []);
-        const rawDisclaimers = Array.isArray(candidate.disclaimers_he)
-            ? candidate.disclaimers_he
-            : (Array.isArray(candidate.caveats) ? candidate.caveats : []);
-        const hasPerCarExplanations = rawCategories.some((item) => {
-            const explanations = item && typeof item === 'object' && item.explanations && typeof item.explanations === 'object'
-                ? item.explanations
-                : {};
-            return Object.values(explanations).some(value => normalizeNarrativeText(value));
-        });
-        return {
-            isObject: true,
-            hasSummary: Boolean(normalizeNarrativeText(
-                candidate.overall_summary || candidate.narrative || candidate.summary || ''
-            )),
-            hasCategoryExplanations: rawCategories.length > 0,
-            hasPerCarExplanations,
-            hasDisclaimers: rawDisclaimers.some(item => normalizeNarrativeText(item)),
-            categoryCount: rawCategories.length,
-        };
-    }
-
-    function isNarrativeUsable(candidate) {
-        if (!candidate || typeof candidate !== 'object') {
-            return false;
-        }
-        if (normalizeNarrativeText(candidate.overall_summary)) {
-            return true;
-        }
-        if (Array.isArray(candidate.disclaimers_he) && candidate.disclaimers_he.some(item => normalizeNarrativeText(item))) {
-            return true;
-        }
-        return Array.isArray(candidate.category_explanations) && candidate.category_explanations.some((categoryItem) => {
-            if (!categoryItem || typeof categoryItem !== 'object') {
-                return false;
-            }
-            const explanations = categoryItem.explanations && typeof categoryItem.explanations === 'object'
-                ? categoryItem.explanations
-                : {};
-            if (Object.values(explanations).some(value => normalizeNarrativeText(value))) {
-                return true;
-            }
-            return Array.isArray(categoryItem.why_it_scored_that_way)
-                && categoryItem.why_it_scored_that_way.some(value => normalizeNarrativeText(value));
-        });
-    }
-
-    function normalizeNarrativeCandidate(candidate) {
-        if (!candidate || typeof candidate !== 'object') {
-            return null;
-        }
-        const rawCategories = Array.isArray(candidate.category_explanations)
-            ? candidate.category_explanations
-            : (Array.isArray(candidate.categories) ? candidate.categories : []);
-        const rawDisclaimers = Array.isArray(candidate.disclaimers_he)
-            ? candidate.disclaimers_he
-            : (Array.isArray(candidate.caveats) ? candidate.caveats : []);
-        const normalized = {
-            overall_summary: normalizeNarrativeText(
-                candidate.overall_summary || candidate.narrative || candidate.summary || ''
-            ),
-            category_explanations: rawCategories
-                .map(normalizeNarrativeCategoryItem)
-                .filter(Boolean),
-            disclaimers_he: rawDisclaimers
-                .map(normalizeNarrativeText)
-                .filter(Boolean),
-        };
-        return isNarrativeUsable(normalized) ? normalized : null;
-    }
-
-    function getNarrativeFailureReason(result) {
-        if (!result || typeof result !== 'object') {
-            return 'no compare result payload';
-        }
-        const ai = result?.ai || {};
-        const candidateShapes = [
-            ['result.narrative', describeNarrativeCandidate(result?.narrative)],
-            ['result.computed_result.narrative', describeNarrativeCandidate(result?.computed_result?.narrative)],
-            ['result', describeNarrativeCandidate(result)],
-            ['ai.stage_b', describeNarrativeCandidate(ai?.stage_b)],
-        ];
-        const hasObjectCandidate = candidateShapes.some(([, shape]) => shape.isObject);
-        if (!hasObjectCandidate) {
-            return 'no narrative payload';
-        }
-        if (ai?.status === 'partial_fallback') {
-            return 'partial_stage_a fallback path used';
-        }
-        if (!candidateShapes.some(([, shape]) => shape.hasSummary)) {
-            if (!candidateShapes.some(([, shape]) => shape.hasCategoryExplanations)) {
-                return 'summary missing and category explanations missing';
-            }
-            if (!candidateShapes.some(([, shape]) => shape.hasPerCarExplanations)) {
-                return 'summary missing and no usable per-car explanation content after normalization';
-            }
-        }
-        if (!candidateShapes.some(([, shape]) => shape.hasPerCarExplanations)) {
-            return 'per-car explanation blocks were empty';
-        }
-        return 'no usable explanation content after normalization';
-    }
-
-    function resolveNarrative(result) {
-        const ai = result?.ai || {};
-        const candidates = [
-            { source: 'result.narrative', value: result?.narrative },
-            { source: 'result.computed_result.narrative', value: result?.computed_result?.narrative },
-            { source: 'result', value: result },
-            { source: 'ai.stage_b', value: ai?.stage_b },
-        ];
-        for (const candidate of candidates) {
-            const normalized = normalizeNarrativeCandidate(candidate.value);
-            console.debug('[COMPARE] narrative candidate inspected', {
-                source: candidate.source,
-                shape: describeNarrativeCandidate(candidate.value),
-                normalizedUsable: Boolean(normalized),
-            });
-            if (normalized) {
-                console.debug('[COMPARE] narrative candidate selected', {
-                    source: candidate.source,
-                    shape: describeNarrativeCandidate(candidate.value),
-                });
-                return normalized;
-            }
-        }
-        console.warn('[COMPARE] narrative resolution failed', {
-            aiStatus: ai?.status || null,
-            aiReason: ai?.reason || null,
-            reason: getNarrativeFailureReason(result),
-            statusGateReason: 'not_applied_in_current_ui',
-            mobileRenderPath: 'shared_desktop_and_mobile_render_path',
-        });
-        return null;
-    }
-
-    function renderNarrative(result, carKeys) {
-        const ai = result?.ai || {};
-        const narrative = resolveNarrative(result);
-        const section = document.getElementById('narrativeSection');
-        const aiRetryBtn = document.getElementById('aiRetryBtn');
-        const categoryContainer = document.getElementById('narrativeCategoryExplanations');
-        const hasUsableNarrative = isNarrativeUsable(narrative);
-        console.debug('[COMPARE] narrative render decision', {
-            aiStatus: ai?.status || null,
-            aiReason: ai?.reason || null,
-            hasUsableNarrative,
-            narrative,
-        });
-        if (!section) {
-            console.warn('[COMPARE] narrative render skipped', {
-                reason: 'DOM container missing',
-                containerId: 'narrativeSection',
-                aiStatus: ai?.status || null,
-                aiReason: ai?.reason || null,
-            });
-            return;
-        }
-        if (aiRetryBtn) {
-            aiRetryBtn.classList.toggle('hidden', !currentHistoryId || hasUsableNarrative);
-        }
-        if (!hasUsableNarrative) {
-            section.classList.remove('hidden');
-            const summaryEl = document.getElementById('narrativeOverallSummary');
-            const disclaimersEl = document.getElementById('narrativeDisclaimers');
-            if (categoryContainer) categoryContainer.innerHTML = '';
-            if (summaryEl) summaryEl.textContent = 'הסבר AI לא זמין כרגע; מוצג סיכום החלטה בסיסי.';
-            if (disclaimersEl) disclaimersEl.textContent = 'אפשר לנסות שוב.';
-            console.warn('[COMPARE] narrative hidden fallback', {
-                reason: getNarrativeFailureReason(result),
-                aiStatus: ai?.status || null,
-                aiReason: ai?.reason || null,
-                explanationContainerExists: Boolean(categoryContainer),
-                explanationContainerEmpty: !categoryContainer || !String(categoryContainer.innerHTML || '').trim(),
-                sectionHiddenAfterRender: section.classList.contains('hidden'),
-                statusGateReason: 'not_applied_in_current_ui',
-                mobileRenderPath: 'shared_desktop_and_mobile_render_path',
-            });
-            return;
-        }
-        
-        section.classList.remove('hidden');
-        
-        const summaryEl = document.getElementById('narrativeOverallSummary');
-        if (summaryEl) {
-            summaryEl.textContent = narrative.overall_summary || '';
-        }
-        
-        const disclaimersEl = document.getElementById('narrativeDisclaimers');
-        if (disclaimersEl && narrative.disclaimers_he) {
-            disclaimersEl.innerHTML = narrative.disclaimers_he.map(d => `<span>• ${escapeHtml(d)}</span>`).join(' ');
-        } else if (disclaimersEl) {
-            disclaimersEl.textContent = '';
-        }
-
-        const categoryExplanations = Array.isArray(narrative.category_explanations)
-            ? narrative.category_explanations
-            : [];
-        if (categoryContainer) {
-            const cardsHtml = carKeys.map((carKey) => {
-                const rows = categoryExplanations.map((categoryItem) => {
-                    const categoryKey = categoryItem?.category_key;
-                    const explanationText = categoryItem?.explanations?.[carKey]
-                        || categoryItem?.why_it_scored_that_way?.[0]
-                        || '';
-                    if (!categoryKey || !String(explanationText || '').trim()) {
-                        return '';
-                    }
-                    return `
-                        <div class="rounded-xl border border-slate-700/60 bg-slate-900/40 p-3 space-y-1">
-                            <div class="text-xs font-semibold text-white">${escapeHtml(CATEGORY_NAMES[categoryKey] || categoryKey)}</div>
-                            <p class="text-xs leading-6 text-slate-300">${escapeHtml(explanationText)}</p>
-                        </div>
-                    `;
-                }).filter(Boolean).join('');
-
-                if (!rows) {
-                    return '';
-                }
-                const accent = ACCENT_COLORS[carKey] || {};
-                return `
-                    <div class="rounded-2xl border border-slate-700/70 bg-slate-950/30 p-4 space-y-3">
-                        <div class="flex items-center justify-between gap-3">
-                            <div class="text-sm font-bold" style="color: ${accent.color || '#ffffff'}">
-                                ${escapeHtml((result?.cars_selected || {})[carKey]?.display_name || carKey)}
-                            </div>
-                            <div class="text-[11px] text-slate-400">למה זה משנה</div>
-                        </div>
-                        <div class="space-y-2">
-                            ${rows}
-                        </div>
-                    </div>
-                `;
-            }).filter(Boolean).join('');
-
-            categoryContainer.innerHTML = cardsHtml;
-        }
-        console.debug('[COMPARE] narrative rendered', {
-            aiStatus: ai?.status || null,
-            aiReason: ai?.reason || null,
-            summaryRendered: Boolean(narrative.overall_summary),
-            categoryExplanationCount: categoryExplanations.length,
-            renderedCardCount: categoryContainer
-                ? categoryContainer.querySelectorAll('.rounded-2xl').length
-                : 0,
-            explanationContainerExists: Boolean(categoryContainer),
-            explanationContainerEmpty: !categoryContainer || !String(categoryContainer.innerHTML || '').trim(),
-            sectionHiddenAfterRender: section.classList.contains('hidden'),
-            statusGateReason: 'not_applied_in_current_ui',
-            mobileRenderPath: 'shared_desktop_and_mobile_render_path',
-        });
     }
     
     // ============================================================
@@ -2274,7 +1984,6 @@
     retryBtn.addEventListener('click', () => {
         errorSection.classList.add('hidden');
     });
-    document.getElementById('aiRetryBtn')?.addEventListener('click', regenerateAiExplanation);
     
     // ============================================================
     // INITIALIZE
