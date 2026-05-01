@@ -8,7 +8,7 @@
     <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
     <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 
-    <script>
+    <script nonce="{{ csp_nonce }}">
         tailwind.config = {
             darkMode: 'class',
             theme: {
@@ -67,19 +67,52 @@
         </div>
     </div>
 
-    <!-- Legal banner (if not accepted) -->
-    {% if not legal_accepted %}
-    <div id="legalBanner" class="mb-6 p-4 rounded-xl bg-warning/10 border border-warning/30 text-warning text-sm flex items-center gap-3">
-        <span>⚠️</span>
-        <span>כדי להשתמש בכלי AI, יש לאשר את <a href="/terms" class="underline">תנאי השימוש</a> ו<a href="/privacy" class="underline">מדיניות הפרטיות</a> תחילה.</span>
-        <button id="acceptLegalBtn" class="mr-auto px-4 py-1 rounded-lg bg-warning text-dark font-bold text-xs hover:bg-warning/80 transition">אשר עכשיו</button>
+    <div id="legalBanner"
+         class="mb-6 p-4 rounded-xl border text-sm bg-emerald-500/10 border-emerald-500/30 text-emerald-200"
+         data-terms-version="{{ terms_version }}"
+         data-privacy-version="{{ privacy_version }}"
+         data-legal-accepted="{{ 'true' if legal_accepted else 'false' }}">
+        <div id="legalStatusText" class="flex items-center gap-2">
+            <span>{{ '✅' if legal_accepted else '⚠️' }}</span>
+            <span>{{ 'Legal consent accepted ✅' if legal_accepted else 'Please confirm Terms & Privacy to submit your request.' }}</span>
+        </div>
     </div>
-    {% endif %}
 
     <h1 class="text-2xl sm:text-3xl font-black mb-6 bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary">
         יועץ ליסינג
         <button id="helpBtn" class="text-base text-slate-400 hover:text-white mr-2" title="עזרה">❓</button>
     </h1>
+
+    <div id="leasingTimingBanner" class="hidden fixed top-24 left-1/2 transform -translate-x-1/2 z-50 bg-dark-lighter/95 backdrop-blur-xl border-2 border-primary/50 rounded-2xl shadow-2xl p-6">
+        <div class="flex flex-col items-center gap-4">
+            <div class="relative w-32 h-32">
+                <svg class="w-32 h-32 transform -rotate-90" viewBox="0 0 120 120">
+                    <circle cx="60" cy="60" r="54" fill="none" stroke="#1e293b" stroke-width="8"></circle>
+                    <circle id="leasingProgressRing" cx="60" cy="60" r="54" fill="none" stroke="url(#leasingRainbowGradient)" stroke-width="8"
+                            stroke-linecap="round" stroke-dasharray="339.292" stroke-dashoffset="339.292"
+                            style="transition: stroke-dashoffset 0.3s ease, stroke 0.5s ease;"></circle>
+                    <defs>
+                        <linearGradient id="leasingRainbowGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:rgb(255,0,0);stop-opacity:1" />
+                            <stop offset="16.67%" style="stop-color:rgb(255,165,0);stop-opacity:1" />
+                            <stop offset="33.33%" style="stop-color:rgb(255,255,0);stop-opacity:1" />
+                            <stop offset="50%" style="stop-color:rgb(0,255,0);stop-opacity:1" />
+                            <stop offset="66.67%" style="stop-color:rgb(0,127,255);stop-opacity:1" />
+                            <stop offset="83.33%" style="stop-color:rgb(139,0,255);stop-opacity:1" />
+                            <stop offset="100%" style="stop-color:rgb(255,0,0);stop-opacity:1" />
+                        </linearGradient>
+                    </defs>
+                </svg>
+                <div class="absolute inset-0 flex items-center justify-center">
+                    <span id="leasingElapsedTime" class="text-3xl font-black text-white">0</span>
+                </div>
+            </div>
+            <div class="text-center">
+                <div id="leasingEtaText" class="text-sm text-slate-300 font-medium"></div>
+                <div id="leasingTimingStatus" class="text-xs text-slate-400 mt-1">מעבד...</div>
+            </div>
+        </div>
+    </div>
 
     <!-- Step 1: Input -->
     <section id="step1" class="bg-dark-lighter rounded-2xl border border-slate-700 p-6 mb-6">
@@ -256,12 +289,12 @@
             </div>
         </div>
 
-        <button id="recommendBtn" class="mt-5 w-full py-3 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-bold hover:opacity-90 transition flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed" {% if not legal_accepted %}disabled{% endif %}>
+        {% set checkbox_id = 'leasingLegalConfirm' %}
+        {% set error_id = 'leasingLegalError' %}
+        {% include "_legal_submit_consent.html" %}
+        <button id="recommendBtn" class="mt-5 w-full py-3 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-bold hover:opacity-90 transition flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed">
             🤖 קבל המלצת AI
         </button>
-        {% if not legal_accepted %}
-        <p class="text-xs text-warning mt-2 text-center">יש לאשר תנאי שימוש לפני הפעלת AI</p>
-        {% endif %}
         <div id="recommendLoading" class="hidden mt-3 flex items-center justify-center gap-2 text-slate-400">
             <div class="loader"></div> <span>ממליץ...</span>
         </div>
@@ -270,7 +303,10 @@
 
     <!-- Step 3: Results -->
     <section id="step3" class="hidden bg-dark-lighter rounded-2xl border border-slate-700 p-6 mb-6 fade-in">
-        <h2 class="text-lg font-bold mb-4">שלב 3: ההמלצות שלך</h2>
+        <div class="flex items-center justify-between gap-2 mb-4">
+            <h2 class="text-lg font-bold">שלב 3: ההמלצות שלך</h2>
+            <span id="leasingLoadedBadge" class="hidden text-xs px-2 py-1 rounded-full bg-primary/20 text-primary">Loaded from history</span>
+        </div>
 
         <!-- Top 3 cards -->
         <div id="top3Cards" class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6"></div>

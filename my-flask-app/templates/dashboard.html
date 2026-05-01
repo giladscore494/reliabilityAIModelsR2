@@ -9,8 +9,9 @@
     <script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio"></script>
     <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap"
           rel="stylesheet">
+    {% include "_posthog_snippet.html" %}
 
-    <script>
+    <script nonce="{{ csp_nonce }}">
         tailwind.config = {
             darkMode: 'class',
             theme: {
@@ -71,69 +72,94 @@
         .overlay-open {
             animation: fadeInOverlay 0.25s ease-out;
         }
+
+        .dashboard-tab {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 0.8rem 1rem;
+            border-radius: 9999px;
+            border: 1px solid rgba(51, 65, 85, 0.85);
+            background: rgba(15, 23, 42, 0.55);
+            color: #94A3B8;
+            font-size: 0.85rem;
+            font-weight: 700;
+            transition: all 0.2s ease;
+        }
+
+        .dashboard-tab:hover {
+            background: rgba(30, 41, 59, 0.9);
+            color: #E2E8F0;
+        }
+
+        .dashboard-tab.is-active {
+            background: rgba(51, 65, 85, 0.88);
+            border-color: rgba(99, 102, 241, 0.4);
+            color: #FFFFFF;
+            box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.12) inset;
+        }
+
+        .history-card {
+            background: rgba(30, 41, 59, 0.78);
+            border: 1px solid rgba(71, 85, 105, 0.45);
+            border-radius: 1.25rem;
+            padding: 1.1rem 1.25rem;
+        }
+
+        .history-empty {
+            background: rgba(30, 41, 59, 0.38);
+            border: 1px solid rgba(51, 65, 85, 0.75);
+            border-radius: 1.5rem;
+            padding: 2.5rem 1.5rem;
+        }
+
+        .detail-nav-btn {
+            border-radius: 9999px;
+            border: 1px solid rgba(71, 85, 105, 0.7);
+            background: rgba(30, 41, 59, 0.78);
+            color: #CBD5E1;
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 0.45rem 0.85rem;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .detail-nav-btn:hover {
+            background: rgba(51, 65, 85, 0.95);
+            color: #FFFFFF;
+        }
+
+        .detail-section {
+            background: rgba(30, 41, 59, 0.72);
+            border: 1px solid rgba(51, 65, 85, 0.75);
+            border-radius: 1.25rem;
+            padding: 1rem;
+        }
     </style>
 </head>
 <body class="bg-dark text-slate-200 min-h-screen flex flex-col antialiased">
 
-<header class="sticky top-0 z-40 bg-dark/90 backdrop-blur-lg border-b border-slate-800/80">
-    <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
-        <a href="{{ url_for('public.index') }}" class="flex items-center">
-            <h1 class="text-xl md:text-2xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-primary via-purple-500 to-secondary">
-                yedaarechevAI
-            </h1>
-        </a>
+{% set active_page = 'dashboard' %}
+{% include '_navbar.html' %}
 
-        <div class="flex items-center gap-3 text-sm font-medium">
-            {% if user and user.is_authenticated %}
-                <span class="text-slate-400 hidden sm:inline">
-                    {{ user.name.split(' ')[0] if user.name else 'אורח' }}
-                </span>
-                
-                <!-- בודק אמינות (Reliability Checker) -->
-                <a href="{{ url_for('public.index') }}"
-                   class="px-4 py-1.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/50 transition-all text-sm"
-                   title="בודק אמינות רכבים">
-                    בודק אמינות
-                </a>
-                
-                <!-- השוואת רכבים -->
-                <a href="{{ url_for('comparison.compare_page') }}"
-                   class="px-4 py-1.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-700/50 transition-all text-sm"
-                   title="השוואת רכבים">
-                    השוואה
-                </a>
-                
-                <a href="{{ url_for('public.logout') }}"
-                   class="p-2 rounded-full text-slate-300 hover:bg-white/10"
-                   title="התנתקות">
-                    <svg xmlns="http://www.w3.org/2000/svg"
-                         class="h-6 w-6"
-                         fill="none"
-                         viewBox="0 0 24 24"
-                         stroke="currentColor">
-                        <path stroke-linecap="round"
-                              stroke-linejoin="round"
-                              stroke-width="2"
-                              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0
-                              01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
-                    </svg>
-                </a>
-            {% else %}
-                <a href="{{ url_for('public.login') }}"
-                   class="px-4 py-1.5 rounded-full bg-primary text-white text-sm font-bold">
-                    התחברות
-                </a>
-            {% endif %}
+<main class="flex-grow relative container mx-auto max-w-6xl px-4 py-10 pb-24">
+
+    <section class="mb-10 space-y-5">
+        <div class="space-y-3">
+            <p class="text-xs font-semibold tracking-[0.18em] text-slate-500 uppercase">
+                לוח בקרה / היסטוריה
+            </p>
+            <div class="space-y-2">
+                <h2 class="text-3xl md:text-4xl font-extrabold text-white">
+                    ההיסטוריה שלך במקום אחד
+                </h2>
+                <p class="max-w-2xl text-sm md:text-base leading-7 text-slate-400">
+                    גישה מהירה לסקירות המידע, להשוואות ולשאלוני ההמלצות האחרונים — עם פחות רעש ויותר מיקוד בתוכן.
+                </p>
+            </div>
         </div>
-    </div>
-</header>
-
-<main class="flex-grow relative container mx-auto px-4 py-8 pb-24">
-
-    <div class="mb-8">
-        <h2 class="text-2xl md:text-3xl font-extrabold text-white mb-2">
-            החיפושים שלי
-        </h2>
 
         {% if history_error %}
             <div class="mb-4 p-3 rounded-lg bg-amber-900/40 border border-amber-700 text-amber-200 text-sm">
@@ -141,38 +167,36 @@
             </div>
         {% endif %}
 
-        <div class="flex gap-2 overflow-x-auto no-scrollbar pb-2">
-            <button type="button" onclick="showTab('reliability')" id="tab-reliability"
-                    class="tab-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-800 text-slate-100 border border-slate-600 cursor-pointer transition-colors">
-                היסטוריית בדיקות אמינות
+        <div class="flex flex-wrap gap-3 overflow-x-auto no-scrollbar pb-2">
+            <button type="button" data-tab="reliability" id="tab-reliability"
+                    class="dashboard-tab is-active whitespace-nowrap">
+                <span>סקירת רכב</span>
             </button>
-            <button type="button" onclick="showTab('comparisons')" id="tab-comparisons"
-                    class="tab-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50 cursor-pointer transition-colors hover:bg-slate-800 hover:text-slate-300">
-                השוואות
+            <button type="button" data-tab="comparisons" id="tab-comparisons"
+                    class="dashboard-tab whitespace-nowrap">
+                <span>השוואת רכבים</span>
             </button>
-            <span class="whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50">
-                היסטוריית המלצות (בקרוב · {{ advisor_count or 0 }} שאלונים)
-            </span>
-            <button type="button" onclick="showTab('leasing')" id="tab-leasing"
-                    class="tab-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50 cursor-pointer transition-colors hover:bg-slate-800 hover:text-slate-300">
-                יועץ ליסינג ({{ leasing_history|default([])|length }})
-            </button>
-            <button type="button" onclick="showTab('service_prices')" id="tab-service_prices"
-                    class="tab-btn whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900/50 text-slate-500 border border-slate-700/50 cursor-pointer transition-colors hover:bg-slate-800 hover:text-slate-300">
-                בדיקת מחירי טיפול
+            <button type="button" data-tab="advisor" id="tab-advisor"
+                    class="dashboard-tab whitespace-nowrap">
+                <span>מנוע ההמלצות</span>
             </button>
         </div>
-    </div>
+    </section>
 
     <!-- Reliability History Tab -->
-    <div id="tab-content-reliability" class="relative z-10">
+    <section id="tab-content-reliability" data-tab-panel="reliability" class="relative z-10 space-y-4">
+        <div class="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+            <div>
+                <h3 class="text-xl font-bold text-white">סקירות רכב אחרונות</h3>
+                <p class="text-sm text-slate-400">כל חיפוש שומר את עיקרי התוצאה כדי שתוכל לחזור להחלטות קודמות במהירות.</p>
+            </div>
+        </div>
         {% if searches and searches|length > 0 %}
             <div class="grid gap-4">
                 {% for s in searches %}
                     <article
-                        class="bg-dark-lighter/80 border border-slate-700/60 rounded-xl p-4 active:scale-[0.98] transition-transform cursor-pointer shadow-lg"
+                        class="history-card active:scale-[0.99] transition-transform cursor-pointer"
                         data-search-id="{{ s.id }}"
-                        onclick="openDetails('{{ s.id }}')"
                     >
                         <div class="flex justify-between items-start">
                             <div>
@@ -183,6 +207,16 @@
                                     </span>
                                     {% if s.data.get('reliability_report') %}
                                         <span class="text-[10px] px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-500/40">כולל דוח</span>
+                                    {% endif %}
+                                    {% if s.data.get('vehicle_profile') %}
+                                        {% set vp = s.data.get('vehicle_profile') %}
+                                        {% if vp.get('vehicle_identity', {}).get('israel_market_status') == 'discontinued_in_israel' %}
+                                            <span class="text-[10px] px-2 py-1 rounded-full bg-red-500/20 text-red-200 border border-red-500/40">הופסק בישראל</span>
+                                        {% elif vp.get('vehicle_identity', {}).get('israel_market_status') == 'parallel_import' %}
+                                            <span class="text-[10px] px-2 py-1 rounded-full bg-blue-500/20 text-blue-200 border border-blue-500/40">יבוא מקביל</span>
+                                        {% elif vp.get('vehicle_identity', {}).get('israel_market_status') == 'sold_used_only' %}
+                                            <span class="text-[10px] px-2 py-1 rounded-full bg-amber-500/20 text-amber-200 border border-amber-500/40">יד שנייה בלבד</span>
+                                        {% endif %}
                                     {% endif %}
                                 </h3>
 
@@ -206,11 +240,22 @@
                                 </div>
                             </div>
 
-                            {% if s.data.get('estimated_reliability') %}
+                            {% if s.data.get('data_quality_label') or s.data.get('decision_readiness') %}
                                 <div class="flex flex-col items-end gap-1">
                                     <div class="text-sm font-bold text-emerald-200">
-                                        אמינות מוערכת: {{ s.data.get('estimated_reliability') }}
+                                        איכות מידע: {{ s.data.get('data_quality_label') or 'חלקית' }}
                                     </div>
+                                    {% if s.data.get('decision_readiness') %}
+                                        <div class="text-[11px] text-slate-300">
+                                            {{ s.data.get('decision_readiness') }}
+                                        </div>
+                                    {% endif %}
+                                    {% set top_note = (s.data.get('missing_critical_info') or s.data.get('verification_focus') or []) %}
+                                    {% if top_note %}
+                                        <div class="text-[10px] text-slate-400 max-w-[15rem] text-right">
+                                            {{ top_note[0] }}
+                                        </div>
+                                    {% endif %}
                                     <div class="text-[10px] text-slate-400">
                                         מבוסס על ניתוח AI
                                     </div>
@@ -221,58 +266,64 @@
                 {% endfor %}
             </div>
         {% else %}
-            <div class="text-center py-12 bg-dark-lighter/40 rounded-2xl border border-slate-800">
+            <div class="history-empty text-center">
                 <p class="text-slate-400 mb-4">
                     אין היסטוריה עדיין.
                 </p>
-                <a href="{{ url_for('public.index') }}"
+                <a href="{{ url_for('public.app_page') }}"
                    class="px-6 py-2 rounded-full bg-primary text-white font-bold text-sm">
                     התחל בדיקה
                 </a>
             </div>
         {% endif %}
-    </div>
+    </section>
 
     <!-- Comparisons History Tab -->
-    <div id="tab-content-comparisons" class="relative z-10 hidden">
+    <section id="tab-content-comparisons" data-tab-panel="comparisons" class="relative z-10 hidden space-y-4">
+        <div>
+            <h3 class="text-xl font-bold text-white">השוואות רכבים</h3>
+            <p class="text-sm text-slate-400">טעינה לפי דרישה כדי לשמור על הדשבורד מהיר ונקי.</p>
+        </div>
         <div id="comparisons-list" class="grid gap-4">
             <div class="text-center py-8 text-slate-400">טוען היסטוריית השוואות...</div>
         </div>
-    </div>
+    </section>
 
-    <!-- Service Prices History Tab -->
-    <div id="tab-content-service_prices" class="relative z-10 hidden">
-        <div id="service-prices-list" class="grid gap-4">
-            <div class="text-center py-8 text-slate-400">טוען היסטוריית בדיקות מחירים...</div>
+    <!-- Advisor History Tab -->
+    <section id="tab-content-advisor" data-tab-panel="advisor" class="relative z-10 hidden space-y-4">
+        <div>
+            <h3 class="text-xl font-bold text-white">היסטוריית מנוע ההמלצות</h3>
+            <p class="text-sm text-slate-400">גישה מהירה לשאלונים קודמים ולרכב המוביל שהוצע בהם.</p>
         </div>
-    </div>
-
-    <!-- Leasing Advisor History Tab -->
-    <div id="tab-content-leasing" class="relative z-10 hidden">
-        {% if leasing_history and leasing_history|length > 0 %}
-        <div class="grid gap-4">
-            {% for lh in leasing_history %}
-            <article class="bg-dark-lighter/80 border border-slate-700/60 rounded-xl p-4 shadow-lg">
-                <div class="flex justify-between items-start">
-                    <div>
-                        <h3 class="text-lg font-bold text-white">{{ lh.top_recommendation or 'יועץ ליסינג' }}</h3>
-                        <p class="text-sm text-slate-400 mt-1">{{ lh.frame_summary }}</p>
-                    </div>
-                    <span class="text-xs text-slate-500">{{ lh.created_at }}</span>
-                </div>
-                {% if lh.duration_ms %}
-                <span class="text-xs text-slate-500 mt-2 block">⏱️ {{ lh.duration_ms }}ms</span>
-                {% endif %}
-            </article>
-            {% endfor %}
-        </div>
+        {% if advisor_history and advisor_history|length > 0 %}
+            <div class="grid gap-4">
+                {% for item in advisor_history %}
+                    <article class="history-card">
+                        <div class="flex justify-between items-start gap-3">
+                            <div>
+                                <h3 class="text-lg font-bold text-white">{{ item.top_recommendation or 'שאלון המלצות' }}</h3>
+                                <div class="text-[11px] text-slate-400 mt-1">{{ item.timestamp }}</div>
+                                {% if item.duration_ms %}
+                                    <span class="text-xs text-slate-500 mt-2 block">⏱️ {{ item.duration_ms }}ms</span>
+                                {% endif %}
+                            </div>
+                            <a href="/recommendations/history/{{ item.id }}"
+                               class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg text-white transition-colors whitespace-nowrap">
+                                פתח שאלון
+                            </a>
+                        </div>
+                    </article>
+                {% endfor %}
+            </div>
         {% else %}
-        <div class="text-center py-12">
-            <p class="text-slate-400 text-lg">עדיין אין היסטוריית יועץ ליסינג</p>
-            <a href="/leasing" class="mt-4 inline-block px-6 py-2 rounded-xl bg-primary/20 text-primary font-bold hover:bg-primary/30 transition">התחל שימוש ביועץ ליסינג</a>
-        </div>
+            <div class="history-empty text-center">
+                <p class="text-slate-400 mb-4">אין היסטוריית המלצות עדיין.</p>
+                <a href="/recommendations" class="px-6 py-2 rounded-full bg-primary text-white font-bold text-sm">
+                    הפעל מנוע המלצות
+                </a>
+            </div>
         {% endif %}
-    </div>
+    </section>
 
     <!-- Delete Account Section -->
     <div class="mt-12 pt-8 border-t border-slate-800">
@@ -282,7 +333,7 @@
                 מחיקת החשבון תסיר לצמיתות את כל הנתונים שלך, כולל היסטוריית חיפושים ושאלונים. פעולה זו אינה הפיכה.
             </p>
             <button 
-                onclick="openDeleteModal()"
+                id="open-delete-btn"
                 class="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-colors">
                 מחק חשבון לצמיתות
             </button>
@@ -292,8 +343,8 @@
 </main>
 
 <!-- Delete Account Modal -->
-<div id="deleteModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onclick="closeDeleteModal(event)">
-    <div class="bg-dark-lighter border-2 border-red-600/50 rounded-2xl p-8 max-w-md w-full overlay-open" onclick="event.stopPropagation()">
+<div id="deleteModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-dark-lighter border-2 border-red-600/50 rounded-2xl p-8 max-w-md w-full overlay-open">
         <h3 class="text-2xl font-bold text-white mb-4">אישור מחיקת חשבון</h3>
         <p class="text-slate-300 mb-6">
             פעולה זו תמחק לצמיתות את החשבון שלך וכל הנתונים הקשורים אליו.
@@ -307,19 +358,17 @@
             id="deleteConfirmInput"
             placeholder="הקלד DELETE"
             class="w-full px-4 py-3 bg-slate-900 border-2 border-slate-700 focus:border-red-500 rounded-lg text-white mb-2"
-            onkeypress="if(event.key==='Enter') confirmDelete()"
         />
         <p id="deleteError" class="text-red-400 text-sm mb-4 hidden"></p>
         
         <div class="flex gap-3">
             <button 
-                onclick="confirmDelete()"
                 id="deleteConfirmButton"
                 class="flex-1 px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-colors">
                 אשר מחיקה
             </button>
             <button 
-                onclick="closeDeleteModal()"
+                id="cancel-delete-btn"
                 class="flex-1 px-6 py-3 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-lg transition-colors">
                 ביטול
             </button>
@@ -351,7 +400,7 @@
         </div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
     const overlayEl = document.getElementById('details-overlay');
     const detailsTitleEl = document.getElementById('details-title');
     const detailsMetaEl = document.getElementById('details-meta');
@@ -467,12 +516,10 @@
 
         detailsMetaEl.textContent = metaBits.join(' • ');
 
-        const baseScore = data.base_score_calculated;
-        const baseScoreText = baseScore !== undefined && baseScore !== null
-            ? safeNumber(baseScore, 1)
-            : null;
-
-        const scoreBreakdown = data.score_breakdown || {};
+        const dataQualityLabel = data.data_quality_label || 'חלקית';
+        const decisionReadiness = data.decision_readiness || 'נדרש אימות נוסף';
+        const missingCriticalInfo = Array.isArray(data.missing_critical_info) ? data.missing_critical_info : [];
+        const verificationFocus = Array.isArray(data.verification_focus) ? data.verification_focus : [];
         const simpleSummary = data.reliability_summary_simple || '';
         const fullSummary = data.reliability_summary || '';
         const mileageNote = data.mileage_note || null;
@@ -484,34 +531,20 @@
         const competitors = Array.isArray(data.common_competitors_brief) ? data.common_competitors_brief : [];
         const sourceTag = data.source_tag || '';
         const reliabilityReport = data.reliability_report || {};
-
-        let baseColor = 'text-slate-100';
-        const baseNum = Number(baseScore);
-        if (!Number.isNaN(baseNum)) {
-            if (baseNum >= 80) baseColor = 'text-emerald-400';
-            else if (baseNum >= 60) baseColor = 'text-amber-400';
-            else baseColor = 'text-rose-400';
-        }
-
-        let breakdownRows = '';
-        const labels = {
-            engine_transmission_score: 'מנוע + גיר',
-            electrical_score: 'מערכת חשמל',
-            suspension_brakes_score: 'מתלים + ברקסים',
-            maintenance_cost_score: 'עלות תחזוקה',
-            satisfaction_score: 'שביעות רצון בעלי רכב',
-            recalls_score: 'קריאות תיקון'
-        };
-        Object.keys(labels).forEach(key => {
-            if (scoreBreakdown[key] === undefined || scoreBreakdown[key] === null) return;
-            const val = safeNumber(scoreBreakdown[key], 1);
-            breakdownRows += `
-                <tr class="border-b border-slate-800/80">
-                    <td class="px-3 py-2 text-xs text-slate-300">${labels[key]}</td>
-                    <td class="px-3 py-2 text-xs font-semibold text-slate-100">${val}</td>
-                </tr>
-            `;
-        });
+        const sourceCount = Number.isFinite(Number(data.source_count)) ? Number(data.source_count) : sources.length;
+        const sourceScopeLabel = data.source_scope_label || 'לא זוהה';
+        const weaklySourced = Boolean(data.weakly_sourced);
+        const informationQualityExplanation = data.information_quality_explanation || '';
+        const fixedSystemUnknowns = Array.isArray(data.fixed_system_unknowns) && data.fixed_system_unknowns.length
+            ? data.fixed_system_unknowns
+            : [
+                'מצב מכני בפועל',
+                'תאונות שלא דווחו',
+                'איכות טיפולים שבוצעו',
+                'נהיגה אגרסיבית בעבר',
+                'תיקונים לא מתועדים',
+                'מצב גיר/מנוע בזמן אמת',
+            ];
 
         let issuesListHtml = '';
         if (issues.length) {
@@ -554,7 +587,14 @@
         if (sources.length) {
             sourcesHtml = `
                 <ul class="list-disc pr-5 space-y-1 text-xs text-slate-300">
-                    ${sources.map(s => `<li>${s}</li>`).join('')}
+                    ${sources.map((s) => {
+                        if (s && typeof s === 'object') {
+                            const title = escapeHtml(s.title || s.url || '');
+                            const url = escapeHtml(s.url || '');
+                            return `<li>${url ? `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">${title}</a>` : title}</li>`;
+                        }
+                        return `<li>${escapeHtml(s)}</li>`;
+                    }).join('')}
                 </ul>
             `;
         }
@@ -583,31 +623,61 @@
         }
 
         let reportHtml = '';
+        let costSensitivityHtml = '';
         if (reliabilityReport && reliabilityReport.available === false) {
             reportHtml = '<p class="text-xs text-slate-400">דוח אמינות לא זמין (MISSING_OR_INVALID).</p>';
         } else if (Object.keys(reliabilityReport).length) {
-            const risks = Array.isArray(reliabilityReport.top_risks) ? reliabilityReport.top_risks : [];
-            const checklist = reliabilityReport.buyer_checklist || {};
+            const riskAreas = Array.isArray(reliabilityReport.key_risk_areas_to_examine) ? reliabilityReport.key_risk_areas_to_examine : [];
+            const checklist = reliabilityReport.what_must_be_checked_before_a_decision || {};
+            const uncertainties = Array.isArray(reliabilityReport.known_uncertainties) ? reliabilityReport.known_uncertainties : [];
+            const costSensitivity = Array.isArray(reliabilityReport.estimated_cost_sensitivity) ? reliabilityReport.estimated_cost_sensitivity : [];
+            costSensitivityHtml = costSensitivity.length
+                ? `<ul class="list-disc pr-4 space-y-1">${costSensitivity.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul>`
+                : '<p class="text-xs text-slate-400">אין טווחי עלות זמינים.</p>';
             reportHtml = `
                 <div class="space-y-2 text-xs text-slate-200">
-                    <div class="flex items-center gap-2">
-                        <span class="text-sm font-bold text-white">ציון דוח:</span>
-                        <span class="px-2 py-1 rounded bg-slate-800 border border-slate-700">${escapeHtml(reliabilityReport.overall_score || '')}</span>
-                        <span class="px-2 py-1 rounded bg-slate-800 border border-slate-700">ביטחון: ${escapeHtml(reliabilityReport.confidence || '')}</span>
-                    </div>
-                    <p class="text-slate-100">${escapeHtml(reliabilityReport.one_sentence_verdict || '')}</p>
+                    <p class="text-slate-100">${escapeHtml(reliabilityReport.based_on_available_information || '')}</p>
                     <div>
-                        <div class="font-semibold text-slate-100 mb-1">סיכונים מרכזיים</div>
+                        <div class="font-semibold text-slate-100 mb-1">תחומי סיכון מרכזיים לבדיקה</div>
                         <ul class="list-disc pr-4 space-y-1">
-                            ${risks.map(r => `<li>${escapeHtml(r.risk_title || '')} – ${escapeHtml(r.why_it_matters || '')}</li>`).join('') || '<li class="text-slate-400">אין סיכונים מפורטים.</li>'}
+                            ${riskAreas.map(r => `<li>${escapeHtml(r.risk_area || '')}${r.why_to_check ? ` – ${escapeHtml(r.why_to_check)}` : ''}</li>`).join('') || '<li class="text-slate-400">אין תחומי סיכון מפורטים.</li>'}
+                        </ul>
+                    </div>
+                    <div>
+                        <div class="font-semibold text-slate-100 mb-1">נקודות בדיקה מכניות</div>
+                        <ul class="list-disc pr-4 space-y-1">
+                            ${(checklist.mechanical_inspection_points || []).map(x => `<li>${escapeHtml(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
+                        </ul>
+                    </div>
+                    <div>
+                        <div class="font-semibold text-slate-100 mb-1">מסמכים לאימות</div>
+                        <ul class="list-disc pr-4 space-y-1">
+                            ${(checklist.documents_to_verify || []).map(x => `<li>${escapeHtml(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
                         </ul>
                     </div>
                     <div>
                         <div class="font-semibold text-slate-100 mb-1">שאלות למוכר</div>
                         <ul class="list-disc pr-4 space-y-1">
-                            ${(checklist.ask_seller || []).map(x => `<li>${escapeHtml(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
+                            ${(checklist.questions_to_ask_seller || []).map(x => `<li>${escapeHtml(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
                         </ul>
                     </div>
+                    <div>
+                        <div class="font-semibold text-slate-100 mb-1">דגלים אדומים</div>
+                        <ul class="list-disc pr-4 space-y-1">
+                            ${(checklist.red_flags_to_look_for || []).map(x => `<li>${escapeHtml(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
+                        </ul>
+                    </div>
+                    <div>
+                        <div class="font-semibold text-slate-100 mb-1">אי-ודאויות ידועות</div>
+                        <ul class="list-disc pr-4 space-y-1">
+                            ${uncertainties.map(x => `<li>${escapeHtml(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
+                        </ul>
+                    </div>
+                    <div>
+                        <div class="font-semibold text-slate-100 mb-1">רגישות עלויות משוערת</div>
+                        ${costSensitivityHtml}
+                    </div>
+                    <p class="text-[11px] text-slate-400">${escapeHtml(reliabilityReport.final_line || '')}</p>
                 </div>
             `;
         } else {
@@ -619,6 +689,13 @@
                    עלות תיקון ממוצעת: <span class="font-semibold text-slate-100">${safeNumber(avgRepair, 0)} ₪</span>
                </div>`
             : '';
+        const topMissingHtml = missingCriticalInfo.length
+            ? `<ul class="list-disc pr-5 space-y-1 text-xs text-slate-100">${missingCriticalInfo.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul>`
+            : '<p class="text-xs text-slate-400">אין חוסרי מידע מרכזיים שסומנו.</p>';
+        const verificationFocusHtml = verificationFocus.length
+            ? `<ul class="list-disc pr-5 space-y-1 text-xs text-slate-100">${verificationFocus.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul>`
+            : '<p class="text-xs text-slate-400">אין מוקדי אימות מפורטים.</p>';
+        const fixedUnknownsHtml = `<ul class="list-disc pr-5 space-y-1 text-xs text-slate-100">${fixedSystemUnknowns.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul>`;
 
         const mileageNoteHtml = mileageNote
             ? `<div class="mt-2 text-[11px] text-amber-300">
@@ -642,65 +719,78 @@
 
         // --- NEW BUTTONS NAVIGATION (MODIFIED SECTION) ---
         const navButtons = `
-          <div class="sticky top-0 z-30 bg-dark/95 backdrop-blur py-3 border-b border-slate-700/50 mb-6 flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4">
-              <button onclick="document.getElementById('sec-competitors').scrollIntoView({behavior: 'smooth'})" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded flex items-center gap-2 text-xs text-slate-200 transition-colors shrink-0">
-                  <span>מתחרים</span> <span class="bg-orange-500 text-white rounded px-1 text-[10px] font-bold">VS</span>
-              </button>
-              <button onclick="document.getElementById('sec-costs').scrollIntoView({behavior: 'smooth'})" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded flex items-center gap-2 text-xs text-slate-200 transition-colors shrink-0">
-                  <span>עלויות</span>
-              </button>
-              <button onclick="document.getElementById('sec-issues').scrollIntoView({behavior: 'smooth'})" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded flex items-center gap-2 text-xs text-slate-200 transition-colors shrink-0">
-                  <span>תקלות</span>
-              </button>
-              <button onclick="document.getElementById('sec-summary').scrollIntoView({behavior: 'smooth'})" class="px-3 py-1.5 bg-slate-600/80 border-b-2 border-primary text-white rounded-t flex items-center gap-2 text-xs transition-colors shrink-0">
-                 <span>סיכום</span>
-              </button>
-               <button onclick="document.getElementById('sec-sources').scrollIntoView({behavior: 'smooth'})" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded flex items-center gap-2 text-xs text-slate-200 transition-colors shrink-0">
-                  <span>מקורות</span> <span class="text-slate-400">קישור</span>
-              </button>
+          <div class="sticky top-0 z-30 bg-dark/95 backdrop-blur py-3 border-b border-slate-700/50 mb-6 flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4" id="detail-nav">
+              <button data-scroll-to="sec-summary" class="detail-nav-btn shrink-0">סיכום</button>
+              <button data-scroll-to="sec-costs" class="detail-nav-btn shrink-0">בדיקות ועלויות</button>
+              <button data-scroll-to="sec-issues" class="detail-nav-btn shrink-0">תקלות</button>
+              <button data-scroll-to="sec-competitors" class="detail-nav-btn shrink-0">מתחרים</button>
+              <button data-scroll-to="sec-sources" class="detail-nav-btn shrink-0">מקורות</button>
           </div>
         `;
 
         detailsContentEl.innerHTML = `
             ${navButtons}
 
-            <section class="bg-dark-lighter/80 border border-slate-700 rounded-2xl p-4 mb-4">
+            <section class="detail-section mb-4">
                 <div class="flex items-center justify-between gap-4">
                     <div>
                         <div class="text-xs font-semibold text-slate-400 mb-1">
-                            אמינות מוערכת: ${data.estimated_reliability || 'לא ידוע'}
+                            לפי המידע הזמין
                         </div>
                         <div class="text-[11px] text-slate-400 mb-1">
-                            מבוסס על ניתוח AI
+                            איכות מידע לניתוח: ${escapeHtml(dataQualityLabel)}
                         </div>
+                        <div class="text-[11px] text-slate-300 mb-1">מצב בדיקה: ${escapeHtml(decisionReadiness)}</div>
+                        <div class="text-[11px] text-slate-300 mb-1">המערכת לא קובעת אם לקנות את הרכב, אלא מציפה נקודות לבדיקה.</div>
                         ${mileageNoteHtml}
                     </div>
                 </div>
             </section>
 
-            <section id="sec-summary" class="bg-dark-lighter/70 border border-slate-800 rounded-2xl p-4 space-y-2 scroll-mt-32">
+            <section class="detail-section mb-4">
+                <div class="rounded-2xl border border-slate-700/70 bg-slate-950/40 p-4 text-xs text-slate-200">
+                    <div class="font-semibold text-white mb-2">שקיפות מקורות</div>
+                    <div>נמצאו ${escapeHtml(String(sourceCount))} מקורות · סוג מקורות מזוהה: ${escapeHtml(sourceScopeLabel)}</div>
+                    ${weaklySourced ? '<div class="mt-2 text-amber-300">פחות משני מקורות נמצאו ולכן הניתוח מבוסס חלש.</div>' : ''}
+                </div>
+            </section>
+
+            ${informationQualityExplanation ? `
+            <section class="detail-section mb-4">
+                <div class="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-100">
+                    <div class="font-semibold text-white mb-2">למה איכות המידע אינה מלאה</div>
+                    <div>${escapeHtml(informationQualityExplanation)}</div>
+                </div>
+            </section>` : ''}
+
+            <section id="sec-summary" class="detail-section space-y-2 scroll-mt-32">
                 <h4 class="text-sm font-bold text-slate-100">
                     סיכום פשוט לנהג שלא מבין ברכבים
                 </h4>
                 ${simpleSummaryHtml}
             </section>
 
-            <section id="sec-costs" class="bg-dark-lighter/70 border border-slate-800 rounded-2xl p-4 space-y-3 scroll-mt-32">
+            <section id="sec-costs" class="detail-section space-y-3 scroll-mt-32">
                 <h4 class="text-sm font-bold text-slate-100">
-                    פירוט ציונים ועלויות
+                    חוסרי מידע, מוקדי אימות ועלויות
                 </h4>
-                ${breakdownRows
-                    ? `<div class="overflow-x-auto">
-                           <table class="min-w-[260px] text-right border-separate border-spacing-y-1 text-xs">
-                               <tbody>${breakdownRows}</tbody>
-                           </table>
-                       </div>`
-                    : '<p class="text-xs text-slate-400">אין פירוט ציונים זמין.</p>'
-                }
+                <div>
+                    <div class="text-xs font-semibold text-slate-300 mb-2">חוסרי מידע מרכזיים</div>
+                    ${topMissingHtml}
+                </div>
+                <div>
+                    <div class="text-xs font-semibold text-slate-300 mb-2">מוקדי אימות מרכזיים</div>
+                    ${verificationFocusHtml}
+                </div>
+                <div>
+                    <div class="text-xs font-semibold text-slate-300 mb-2">מה המערכת לא יודעת</div>
+                    ${fixedUnknownsHtml}
+                </div>
                 ${avgRepairHtml}
+                ${costSensitivityHtml ? `<div><div class="text-xs font-semibold text-slate-300 mb-2">טווחי עלות אפשריים</div>${costSensitivityHtml}</div>` : ''}
             </section>
 
-            <section id="sec-issues" class="bg-dark-lighter/70 border border-slate-800 rounded-2xl p-4 space-y-3 scroll-mt-32">
+            <section id="sec-issues" class="detail-section space-y-3 scroll-mt-32">
                 <h4 class="text-sm font-bold text-slate-100">
                     תקלות נפוצות ועלויות משוערות
                 </h4>
@@ -708,35 +798,35 @@
                 ${issuesCostsHtml}
             </section>
 
-            <section class="bg-dark-lighter/70 border border-slate-800 rounded-2xl p-4 space-y-2">
+            <section class="detail-section space-y-2">
                 <h4 class="text-sm font-bold text-slate-100">
                     סיכום מקצועי מפורט
                 </h4>
                 ${fullSummaryHtml}
             </section>
 
-            <section class="bg-dark-lighter/70 border border-slate-800 rounded-2xl p-4 space-y-2">
+            <section class="detail-section space-y-2">
                 <h4 class="text-sm font-bold text-slate-100">
                     מה חשוב לבדוק לפני סגירת עסקה
                 </h4>
                 ${checksHtml || '<p class="text-xs text-slate-400">אין רשימת בדיקות ייעודית.</p>'}
             </section>
 
-            <section id="sec-competitors" class="bg-dark-lighter/70 border border-slate-800 rounded-2xl p-4 space-y-2 scroll-mt-32">
+            <section id="sec-competitors" class="detail-section space-y-2 scroll-mt-32">
                 <h4 class="text-sm font-bold text-slate-100">
                     מתחרים באותה קטגוריה
                 </h4>
                 ${competitorsHtml || '<p class="text-xs text-slate-400">אין רשימת מתחרים.</p>'}
             </section>
 
-            <section class="bg-dark-lighter/70 border border-slate-800 rounded-2xl p-4 space-y-2 scroll-mt-32">
+            <section class="detail-section space-y-2 scroll-mt-32">
                 <h4 class="text-sm font-bold text-slate-100">
                     דוח אמינות מורחב
                 </h4>
                 ${reportHtml}
             </section>
 
-            <section id="sec-sources" class="bg-dark-lighter/70 border border-slate-800 rounded-2xl p-4 space-y-2 mb-4 scroll-mt-32">
+            <section id="sec-sources" class="detail-section space-y-2 mb-4 scroll-mt-32">
                 <h4 class="text-sm font-bold text-slate-100">
                     מקורות מידע
                 </h4>
@@ -744,6 +834,18 @@
                 ${sourceTagHtml}
             </section>
         `;
+
+        // Event delegation for nav scroll buttons injected via innerHTML
+        var detailNav = document.getElementById('detail-nav');
+        if (detailNav) {
+            detailNav.addEventListener('click', function(e) {
+                var btn = e.target.closest('[data-scroll-to]');
+                if (btn) {
+                    var target = document.getElementById(btn.dataset.scrollTo);
+                    if (target) target.scrollIntoView({ behavior: 'smooth' });
+                }
+            });
+        }
     }
 
     // Delete account modal functions
@@ -819,72 +921,22 @@
     // TAB SWITCHING & COMPARISON HISTORY
     // ============================================================
     
-    let currentTab = 'reliability';
     let comparisonsLoaded = false;
+    const tabButtons = Array.from(document.querySelectorAll('[data-tab]'));
+    const tabPanels = Array.from(document.querySelectorAll('[data-tab-panel]'));
     
     function showTab(tabName) {
-        currentTab = tabName;
-        
-        // Update tab buttons
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.classList.remove('bg-slate-800', 'text-slate-100', 'border-slate-600');
-            btn.classList.add('bg-slate-900/50', 'text-slate-500', 'border-slate-700/50');
+        tabButtons.forEach(btn => {
+            const isActive = btn.dataset.tab === tabName;
+            btn.classList.toggle('is-active', isActive);
         });
-        const activeBtn = document.getElementById(`tab-${tabName}`);
-        if (activeBtn) {
-            activeBtn.classList.remove('bg-slate-900/50', 'text-slate-500', 'border-slate-700/50');
-            activeBtn.classList.add('bg-slate-800', 'text-slate-100', 'border-slate-600');
-        }
+
+        tabPanels.forEach(panel => {
+            panel.classList.toggle('hidden', panel.dataset.tabPanel !== tabName);
+        });
         
-        // Show/hide content
-        document.getElementById('tab-content-reliability').classList.toggle('hidden', tabName !== 'reliability');
-        document.getElementById('tab-content-comparisons').classList.toggle('hidden', tabName !== 'comparisons');
-        document.getElementById('tab-content-service_prices').classList.toggle('hidden', tabName !== 'service_prices');
-        document.getElementById('tab-content-leasing').classList.toggle('hidden', tabName !== 'leasing');
-        
-        // Load comparisons if switching to that tab for the first time
         if (tabName === 'comparisons' && !comparisonsLoaded) {
             loadComparisonsHistory();
-        }
-        // Load service prices history if switching to that tab
-        if (tabName === 'service_prices') {
-            loadServicePricesHistory();
-        }
-    }
-    
-    async function loadServicePricesHistory() {
-        const container = document.getElementById('service-prices-list');
-        try {
-            const response = await fetch('/api/service-prices/history?per_page=20', {
-                headers: { 'Accept': 'application/json' },
-                credentials: 'same-origin'
-            });
-            const data = await response.json();
-            if (!response.ok || !data.ok) {
-                container.innerHTML = `<div class="text-center py-8 text-red-400">שגיאה בטעינת היסטוריית בדיקות מחירים</div>`;
-                return;
-            }
-            const invoices = data.data.invoices || [];
-            if (invoices.length === 0) {
-                container.innerHTML = '<div class="text-center py-8 text-slate-400">אין בדיקות מחירים קודמות</div>';
-                return;
-            }
-            container.innerHTML = invoices.map(inv => `
-                <div class="bg-dark-lighter/80 border border-slate-700/60 rounded-xl p-4 shadow-lg">
-                    <div class="flex justify-between items-start">
-                        <div>
-                            <h3 class="text-lg font-bold text-white">${escapeHtml(inv.make || '')} ${escapeHtml(inv.model || '')} ${escapeHtml(String(inv.year || ''))}</h3>
-                            <div class="text-sm text-slate-400 mt-1">
-                                ${new Date(inv.created_at).toLocaleDateString('he-IL')} ·
-                                ${inv.total_price_ils ? '₪' + inv.total_price_ils.toLocaleString() : 'לא צוין סכום'}
-                            </div>
-                        </div>
-                        <a href="/api/service-prices/download/${inv.id}" class="text-primary hover:underline text-sm">הורד דוח</a>
-                    </div>
-                </div>
-            `).join('');
-        } catch (err) {
-            container.innerHTML = '<div class="text-center py-8 text-red-400">שגיאה בטעינת היסטוריית בדיקות מחירים</div>';
         }
     }
 
@@ -908,7 +960,7 @@
             
             if (history.length === 0) {
                 container.innerHTML = `
-                    <div class="text-center py-12 bg-dark-lighter/40 rounded-2xl border border-slate-800">
+                    <div class="history-empty text-center">
                         <p class="text-slate-400 mb-4">אין היסטוריית השוואות עדיין.</p>
                         <a href="/compare" class="px-6 py-2 rounded-full bg-primary text-white font-bold text-sm">
                             התחל השוואה
@@ -927,7 +979,7 @@
                 });
                 
                 return `
-                    <article class="bg-dark-lighter/80 border border-slate-700/60 rounded-xl p-4 shadow-lg">
+                    <article class="history-card">
                         <div class="flex justify-between items-start">
                             <div>
                                 <h3 class="text-lg font-bold text-white flex items-center gap-2">
@@ -952,6 +1004,41 @@
             container.innerHTML = '<div class="text-center py-8 text-red-400">שגיאה בטעינת היסטוריית השוואות</div>';
         }
     }
+
+    // --- Event listeners replacing inline handlers ---
+    tabButtons.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            showTab(this.dataset.tab);
+        });
+    });
+
+    document.addEventListener('click', function(e) {
+        var card = e.target.closest('[data-search-id]');
+        if (card) openDetails(card.dataset.searchId);
+    });
+
+    var openDeleteBtn = document.getElementById('open-delete-btn');
+    if (openDeleteBtn) openDeleteBtn.addEventListener('click', openDeleteModal);
+
+    var deleteModal = document.getElementById('deleteModal');
+    if (deleteModal) {
+        deleteModal.addEventListener('click', function(e) {
+            if (e.target === deleteModal) closeDeleteModal(e);
+        });
+    }
+
+    var deleteConfirmInput = document.getElementById('deleteConfirmInput');
+    if (deleteConfirmInput) {
+        deleteConfirmInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') confirmDelete();
+        });
+    }
+
+    var confirmDeleteBtn = document.getElementById('deleteConfirmButton');
+    if (confirmDeleteBtn) confirmDeleteBtn.addEventListener('click', confirmDelete);
+
+    var cancelDeleteBtn = document.getElementById('cancel-delete-btn');
+    if (cancelDeleteBtn) cancelDeleteBtn.addEventListener('click', function() { closeDeleteModal(); });
 
 </script>
 

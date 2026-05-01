@@ -1,8 +1,11 @@
 import pytest
 from datetime import datetime
+from html.parser import HTMLParser
 from urllib.parse import urlparse
 
 import main
+from flask import url_for
+from app.models import LeasingAdvisorHistory, AdvisorHistory
 from main import (
     DailyQuotaUsage,
     IpRateLimit,
@@ -15,6 +18,9 @@ from main import (
 )
 
 
+MIN_SHARED_NAV_OCCURRENCES = 2
+
+
 def _valid_payload():
     return {
         "make": "Toyota",
@@ -25,6 +31,100 @@ def _valid_payload():
         "transmission": "אוטומטית",
         "sub_model": "",
     }
+
+
+class _NavLinkParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self._nav_depth = 0
+        self._current_href = None
+        self._current_text = []
+        self.links = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "nav":
+            self._nav_depth += 1
+            return
+        if self._nav_depth and tag == "a":
+            self._current_href = dict(attrs).get("href")
+            self._current_text = []
+
+    def handle_data(self, data):
+        if self._nav_depth and self._current_href:
+            self._current_text.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self._nav_depth and self._current_href:
+            label = " ".join(
+                part.strip() for part in self._current_text if part.strip()
+            )
+            self.links.append((self._current_href, label))
+            self._current_href = None
+            self._current_text = []
+            return
+        if tag == "nav" and self._nav_depth:
+            self._nav_depth -= 1
+
+
+def _shared_nav_items(app):
+    with app.test_request_context():
+        return (
+            (url_for("public.index"), "בית"),
+            (url_for("public.app_page"), "סקירת רכב"),
+            (url_for("comparison.compare_page"), "השוואת רכבים"),
+            (url_for("advisor.recommendations"), "מנוע ההמלצות"),
+            (url_for("dashboard.dashboard"), "היסטוריית חיפושים"),
+        )
+
+
+def _assert_shared_nav(app, html):
+    parser = _NavLinkParser()
+    parser.feed(html)
+    for item in _shared_nav_items(app):
+        assert parser.links.count(item) >= MIN_SHARED_NAV_OCCURRENCES
+
+
+@pytest.mark.parametrize(
+    ("path", "requires_auth"),
+    [
+        ("/", False),
+        ("/app", False),
+        ("/compare", True),
+        ("/recommendations", True),
+        ("/dashboard", True),
+    ],
+)
+def test_main_pages_render_shared_nav(
+    client, logged_in_client, monkeypatch, path, requires_auth
+):
+    if path == "/recommendations":
+        # Recommendations defaults to owner-only outside tests, so disable that gate
+        # here to verify the shared navbar on the page itself.
+        monkeypatch.setitem(
+            logged_in_client[0].application.config, "ADVISOR_OWNER_ONLY", False
+        )
+    request_client = logged_in_client[0] if requires_auth else client
+    resp = request_client.get(path)
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    _assert_shared_nav(request_client.application, html)
+
+
+def test_landing_preview_uses_information_review_demo(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "סיקור מבוסס מידע זמין" in html
+    assert "נקודות לבדיקה" in html
+    assert "חוסרי מידע" in html
+    assert "ניתוחים אמיתיים לדוגמה" in html
+    assert "/100" not in html
+
+
+def test_dashboard_requires_login(client):
+    resp = client.get("/dashboard")
+    assert resp.status_code == 302
+    assert urlparse(resp.headers["Location"]).path == "/login"
 
 
 def test_redirect_www_to_apex(client):
@@ -57,6 +157,41 @@ def test_api_schema_success(client):
     assert "request_id" in data
 
 
+def test_favicon_served(client):
+    resp = client.get("/favicon.ico")
+    assert resp.status_code == 200
+    assert len(resp.data) > 0
+
+
+def test_static_assets_non_empty(client):
+    script_resp = client.get("/static/script.js")
+    navbar_resp = client.get("/static/navbar.js")
+    assert script_resp.status_code == 200
+    assert navbar_resp.status_code == 200
+    assert len(script_resp.data) > 0
+    assert len(navbar_resp.data) > 0
+
+
+def test_static_script_contains_staged_analyze_error_handling(client):
+    resp = client.get("/static/script.js")
+    body = resp.get_data(as_text=True)
+
+    assert resp.status_code == 200
+    # Verify the script is substantial (not empty/truncated)
+    assert len(body) > 10_000
+    # Verify key functional markers are present
+    assert "showAnalyzeError(" in body
+    assert "normalizeAnalyzeResponse(payload)" in body
+    assert "analyzeInFlight" in body
+    # Verify old alert-based error handling is gone
+    assert "alert('שגיאה כללית בשליחת הבקשה. אנא נסה שוב מאוחר יותר.')" not in body
+
+
+def test_security_scan_paths_fast_404(client):
+    assert client.get("/.env").status_code == 404
+    assert client.get("/wp-admin").status_code == 404
+
+
 def test_quota_refund_on_failure(app, logged_in_client, monkeypatch):
     client, user_id = logged_in_client
     monkeypatch.setenv("SIMULATE_AI_FAIL", "1")
@@ -75,7 +210,9 @@ def test_quota_refund_on_failure(app, logged_in_client, monkeypatch):
         day_key, *_ = compute_quota_window(tz)
         quota = DailyQuotaUsage.query.filter_by(user_id=user_id, day=day_key).first()
         assert quota is None or quota.count == 0
-        reserved_active = QuotaReservation.query.filter_by(user_id=user_id, day=day_key, status="reserved").count()
+        reserved_active = QuotaReservation.query.filter_by(
+            user_id=user_id, day=day_key, status="reserved"
+        ).count()
         assert reserved_active == 0
 
 
@@ -101,7 +238,9 @@ def test_quota_atomic_limit(app, logged_in_client, monkeypatch):
 
     payload_ok = _valid_payload()
     payload_ok["legal_confirm"] = True
-    resp_ok = client.post("/analyze", json=payload_ok, headers={"Origin": "http://localhost"})
+    resp_ok = client.post(
+        "/analyze", json=payload_ok, headers={"Origin": "http://localhost"}
+    )
     data_ok = resp_ok.get_json()
     assert resp_ok.status_code == 200
     assert data_ok["ok"] is True
@@ -112,7 +251,9 @@ def test_quota_atomic_limit(app, logged_in_client, monkeypatch):
 
     payload_block = _valid_payload()
     payload_block["legal_confirm"] = True
-    resp_block = client.post("/analyze", json=payload_block, headers={"Origin": "http://localhost"})
+    resp_block = client.post(
+        "/analyze", json=payload_block, headers={"Origin": "http://localhost"}
+    )
     data_block = resp_block.get_json()
     assert resp_block.status_code == 429
     assert data_block["ok"] is False
@@ -123,7 +264,9 @@ def test_quota_atomic_limit(app, logged_in_client, monkeypatch):
         day_key, *_ = compute_quota_window(tz)
         quota = DailyQuotaUsage.query.filter_by(user_id=user_id, day=day_key).first()
         assert quota and quota.count == 1
-        reserved_active = QuotaReservation.query.filter_by(user_id=user_id, day=day_key, status="reserved").count()
+        reserved_active = QuotaReservation.query.filter_by(
+            user_id=user_id, day=day_key, status="reserved"
+        ).count()
         assert reserved_active == 0
 
 
@@ -151,7 +294,10 @@ def test_quota_finalized_when_history_save_fails(app, logged_in_client, monkeypa
 
     def commit_with_failure():
         # Fail only on the first commit that tries to persist SearchHistory
-        if any(isinstance(obj, main.SearchHistory) for obj in main.db.session.new) and not failure_state["raised"]:
+        if (
+            any(isinstance(obj, main.SearchHistory) for obj in main.db.session.new)
+            and not failure_state["raised"]
+        ):
             failure_state["raised"] = True
             raise RuntimeError("forced commit failure")
         return original_commit()
@@ -171,7 +317,9 @@ def test_quota_finalized_when_history_save_fails(app, logged_in_client, monkeypa
         day_key, *_ = compute_quota_window(tz)
         quota = DailyQuotaUsage.query.filter_by(user_id=user_id, day=day_key).first()
         assert quota and quota.count == 1
-        reserved_active = QuotaReservation.query.filter_by(user_id=user_id, day=day_key, status="reserved").count()
+        reserved_active = QuotaReservation.query.filter_by(
+            user_id=user_id, day=day_key, status="reserved"
+        ).count()
         assert reserved_active == 0
         assert SearchHistory.query.count() == 0
 
@@ -182,13 +330,19 @@ def test_ip_rate_limit_single_row(app):
         db.session.commit()
 
         now = datetime(2024, 1, 1, 12, 0, 0)
-        ok1, count1, _ = main.check_and_increment_ip_rate_limit("1.2.3.4", limit=5, now_utc=now)
-        ok2, count2, _ = main.check_and_increment_ip_rate_limit("1.2.3.4", limit=5, now_utc=now)
+        ok1, count1, _ = main.check_and_increment_ip_rate_limit(
+            "1.2.3.4", limit=5, now_utc=now
+        )
+        ok2, count2, _ = main.check_and_increment_ip_rate_limit(
+            "1.2.3.4", limit=5, now_utc=now
+        )
 
         assert ok1 and ok2
         assert count1 == 1
         assert count2 == 2
-        rows = IpRateLimit.query.filter_by(ip="1.2.3.4", window_start=now.replace(second=0, microsecond=0)).all()
+        rows = IpRateLimit.query.filter_by(
+            ip="1.2.3.4", window_start=now.replace(second=0, microsecond=0)
+        ).all()
         assert len(rows) == 1
         assert rows[0].count == 2
 
@@ -202,8 +356,12 @@ def test_quota_row_created_once(app, logged_in_client):
         QuotaReservation.query.delete()
         db.session.commit()
 
-        ok1, consumed1, reserved1, res_id1 = reserve_daily_quota(user_id, day_key, limit=3, request_id="req-1", now_utc=datetime.utcnow())
-        ok2, consumed2, reserved2, res_id2 = reserve_daily_quota(user_id, day_key, limit=3, request_id="req-2", now_utc=datetime.utcnow())
+        ok1, consumed1, reserved1, res_id1 = reserve_daily_quota(
+            user_id, day_key, limit=3, request_id="req-1", now_utc=datetime.utcnow()
+        )
+        ok2, consumed2, reserved2, res_id2 = reserve_daily_quota(
+            user_id, day_key, limit=3, request_id="req-2", now_utc=datetime.utcnow()
+        )
 
         assert ok1 is True
         assert ok2 is False
@@ -224,17 +382,25 @@ def test_login_redirects_to_oauth(client, monkeypatch):
         called["redirect_uri"] = redirect_uri
         return main.redirect("https://accounts.google.com/o/oauth2/auth")
 
-    monkeypatch.setattr(main.oauth.google, "authorize_redirect", fake_authorize_redirect)
+    monkeypatch.setattr(
+        main.oauth.google, "authorize_redirect", fake_authorize_redirect
+    )
     resp = client.get("/login")
     assert resp.status_code == 302
     assert "accounts.google.com" in resp.headers.get("Location", "")
     assert called["redirect_uri"].endswith("/auth")
+
+
 def test_login_returns_google_redirect(monkeypatch, client):
     # Avoid live calls to Google during tests
     def fake_authorize_redirect(redirect_uri):
-        return main.redirect(f"https://accounts.google.com/o/oauth2/v2/auth?redirect_uri={redirect_uri}")
+        return main.redirect(
+            f"https://accounts.google.com/o/oauth2/v2/auth?redirect_uri={redirect_uri}"
+        )
 
-    monkeypatch.setattr(main.oauth.google, "authorize_redirect", fake_authorize_redirect)
+    monkeypatch.setattr(
+        main.oauth.google, "authorize_redirect", fake_authorize_redirect
+    )
 
     resp = client.get("/login", base_url="https://yedaarechev.com")
     assert resp.status_code in (302, 303)
@@ -264,6 +430,82 @@ def test_dashboard_handles_bad_json(app, logged_in_client):
     client.post("/api/legal/accept", json={"legal_confirm": True})
     resp = client.get("/dashboard")
     assert resp.status_code == 200
+
+
+def test_dashboard_handles_double_encoded_leasing_json(app, logged_in_client):
+    client, user_id = logged_in_client
+    with app.app_context():
+        bad_row = LeasingAdvisorHistory(
+            user_id=user_id,
+            frame_input_json='{"max_bik": 3500, "source": "catalog"}',
+            candidates_json="[]",
+            prefs_json="{}",
+            gemini_response_json=(
+                '"{\\"top3\\": [{\\"make\\": \\"Toyota\\", '
+                '\\"model\\": \\"Corolla\\"}]}"'
+            ),
+            request_id="req-test",
+            duration_ms=3210,
+        )
+        db.session.add(bad_row)
+        db.session.commit()
+
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+
+
+def test_dashboard_shows_clickable_advisor_history(app, logged_in_client):
+    client, user_id = logged_in_client
+    with app.app_context():
+        db.session.add(
+            AdvisorHistory(
+                user_id=user_id,
+                profile_json='{"budget_nis":[20000,120000]}',
+                result_json='{"recommended_cars":[{"brand":"Toyota","model":"Corolla"}]}',
+            )
+        )
+        db.session.commit()
+
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    html = resp.data.decode("utf-8")
+    assert "פתח שאלון" in html
+    assert "/recommendations/history/" in html
+
+
+def test_dashboard_keeps_only_core_history_tabs(logged_in_client):
+    client, _ = logged_in_client
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert 'id="tab-reliability"' in html
+    assert 'id="tab-comparisons"' in html
+    assert 'id="tab-advisor"' in html
+    assert 'id="tab-leasing"' not in html
+    assert 'id="tab-service_prices"' not in html
+    assert "/api/leasing/history" not in html
+    assert "/api/service-prices/history" not in html
+
+
+def test_recommendations_history_route_prefills_data(app, logged_in_client):
+    client, user_id = logged_in_client
+    app.config["OWNER_EMAILS"] = {"tester@example.com"}
+    with app.app_context():
+        row = AdvisorHistory(
+            user_id=user_id,
+            profile_json='{"budget_nis":[20000,120000],"years":[2015,2024]}',
+            result_json='{"recommended_cars":[{"brand":"Toyota","model":"Corolla"}]}',
+        )
+        db.session.add(row)
+        db.session.commit()
+        history_id = row.id
+
+    resp = client.get(f"/recommendations/history/{history_id}")
+    assert resp.status_code == 200
+    html = resp.data.decode("utf-8")
+    assert "window.advisorHistoryProfile" in html
+    assert "window.advisorHistoryResult" in html
 
 
 def test_pending_rollback_cleared_between_requests(app, logged_in_client):

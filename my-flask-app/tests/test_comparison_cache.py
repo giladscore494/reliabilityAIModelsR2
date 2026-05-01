@@ -3,10 +3,9 @@ Tests for comparison cache parsing and timing estimate fixes.
 """
 
 import json
-import pytest
 from datetime import datetime
 
-from main import db, User
+from main import db
 from app.models import ComparisonHistory
 from app.services.comparison_service import _safe_parse_json_cached
 
@@ -146,7 +145,6 @@ class TestComparisonCacheHit:
             )
             db.session.add(corrupted_row)
             db.session.commit()
-            row_id = corrupted_row.id
         
         # Now call the compare API with the same cars - should hit cache
         resp = client.post(
@@ -161,9 +159,110 @@ class TestComparisonCacheHit:
         data = resp.get_json()
         assert data["ok"] is True
         assert data["data"]["cached"] is True
+        assert "ai" in data["data"]
+        assert "status" in data["data"]["ai"]
+        assert "reason" in data["data"]["ai"]
         
         # Verify assumptions is a dict, not causing AttributeError
         assert isinstance(data["data"].get("assumptions", {}), dict)
+
+    def test_cache_recovers_legacy_stage_b_narrative(self, app, logged_in_client):
+        client, user_id = logged_in_client
+        client.post("/api/legal/accept", json={"legal_confirm": True})
+
+        cars_selected = [
+            {"make": "Toyota", "model": "Camry", "year": 2020},
+            {"make": "Honda", "model": "Accord", "year": 2020},
+        ]
+        computed_result = {
+            "overall_winner": "car_1",
+            "cars": {},
+            "ai": {
+                "status": "ok",
+                "reason": None,
+                "stage_b": {
+                    "summary": "Recovered summary from cache.",
+                    "categories": [
+                        {
+                            "name": "ownership_cost",
+                            "winner": "car_1",
+                            "why": "Recovered per-category explanation.",
+                        }
+                    ],
+                    "caveats": ["Recovered caveat"],
+                },
+            },
+        }
+        from app.services.comparison_service import compute_request_hash
+        request_hash = compute_request_hash(cars_selected)
+
+        with app.app_context():
+            cached_row = ComparisonHistory(
+                created_at=datetime.utcnow(),
+                user_id=user_id,
+                session_id="test-session",
+                cars_selected=json.dumps(cars_selected),
+                model_json_raw=json.dumps({}),
+                computed_result=json.dumps(computed_result),
+                sources_index=json.dumps({}),
+                model_name="test-model",
+                grounding_enabled=True,
+                prompt_version="v1",
+                request_hash=request_hash,
+                duration_ms=1000,
+            )
+            db.session.add(cached_row)
+            db.session.commit()
+
+        resp = client.post(
+            "/api/compare",
+            json={"cars": cars_selected, "legal_confirm": True},
+            headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+        )
+
+        assert resp.status_code == 200
+        data = resp.get_json()["data"]
+        assert data["cached"] is True
+        assert data["narrative"]["overall_summary"] == "Recovered summary from cache."
+        assert data["narrative"]["category_explanations"][0]["category_key"] == "ownership_cost"
+        assert data["ai"]["stage_b"]["narrative"] == "Recovered summary from cache."
+
+    def test_full_stage_a_failure_not_cached_as_success(self, app, logged_in_client, monkeypatch):
+        from app.services import comparison_service
+
+        client, user_id = logged_in_client
+        client.post("/api/legal/accept", json={"legal_confirm": True})
+
+        def fake_stage_a_parallel(_validated_cars, cars_selected_slots):
+            empty = comparison_service._empty_stage_a_output(cars_selected_slots)
+            sources_index = comparison_service.build_sources_index_from_flat(empty)
+            errors = [f"{k}: CALL_TIMEOUT" for k in cars_selected_slots]
+            return empty, sources_index, errors
+
+        monkeypatch.setattr(comparison_service, "call_stage_a_parallel", fake_stage_a_parallel)
+        monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", lambda *_args, **_kwargs: (None, "CALL_TIMEOUT"))
+
+        cars = [
+            {"make": "Toyota", "model": "Camry", "year": 2020},
+            {"make": "Honda", "model": "Accord", "year": 2020}
+        ]
+        response = client.post(
+            "/api/compare",
+            json={"cars": cars, "legal_confirm": True},
+            headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+        )
+        assert response.status_code == 503
+
+        from app.services.comparison_service import compute_request_hash
+        req_hash = compute_request_hash(cars)
+        with app.app_context():
+            row = (
+                ComparisonHistory.query
+                .filter_by(user_id=user_id, request_hash=req_hash)
+                .order_by(ComparisonHistory.created_at.desc())
+                .first()
+            )
+            assert row is None
 
 
 class TestTimingEstimateCompare:

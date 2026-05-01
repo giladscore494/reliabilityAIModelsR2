@@ -1,15 +1,29 @@
 # -*- coding: utf-8 -*-
 """Public routes blueprint - handles public-facing pages and authentication."""
 
-import os
-from flask import Blueprint, render_template, redirect, url_for, send_from_directory, session, flash, current_app
+from flask import (
+    Blueprint,
+    current_app,
+    flash,
+    redirect,
+    render_template,
+    send_from_directory,
+    session,
+    url_for,
+)
 from flask_login import login_user, logout_user, current_user, login_required
 from authlib.integrations.base_client.errors import MismatchingStateError
 
 from app.extensions import db, oauth
 from app.models import User
+from app.utils.analytics import track_event
 from car_models_dict import israeli_car_market_full_compilation
-from app.utils.http_helpers import api_ok, api_error, get_request_id, is_owner_user, get_redirect_uri
+from app.utils.http_helpers import (
+    api_ok,
+    get_redirect_uri,
+    get_request_id,
+    is_owner_user,
+)
 
 bp = Blueprint('public', __name__)
 
@@ -21,13 +35,22 @@ def healthz():
 
 @bp.route('/favicon.ico')
 def favicon():
-    return send_from_directory(os.path.join(current_app.root_path, 'static'), 'favicon.ico')
+    return send_from_directory(current_app.static_folder, 'favicon.ico')
 
 
 @bp.route('/')
 def index():
     return render_template(
-        'index.html',
+        'landing.html',
+        user=current_user,
+        is_owner=is_owner_user(),
+    )
+
+
+@bp.route('/app')
+def app_page():
+    return render_template(
+        'reliability_app.html',
         car_models_data=israeli_car_market_full_compilation,
         user=current_user,
         is_owner=is_owner_user(),
@@ -46,10 +69,12 @@ def login():
 @bp.route('/auth')
 def auth():
     try:
-        token = oauth.google.authorize_access_token()
+        oauth.google.authorize_access_token()
         userinfo = oauth.google.get('userinfo').json()
         user = User.query.filter_by(google_id=userinfo['id']).first()
+        is_new_user = False
         if not user:
+            is_new_user = True
             user = User(
                 google_id=userinfo['id'],
                 email=userinfo.get('email', ''),
@@ -57,14 +82,27 @@ def auth():
             )
             db.session.add(user)
             db.session.commit()
+        # SECURITY: Regenerate session to prevent session fixation attacks
+        session.clear()
         login_user(user)
-        return redirect(url_for('public.index'))
+        if is_new_user:
+            track_event(
+                str(user.id),
+                "signup_completed",
+                {"request_id": get_request_id()},
+            )
+        return redirect(url_for('public.app_page'))
     except MismatchingStateError:
-        current_app.logger.warning("[AUTH] mismatching_state request_id=%s", get_request_id())
+        current_app.logger.warning(
+            "[AUTH] mismatching_state request_id=%s",
+            get_request_id(),
+        )
         try:
             db.session.rollback()
         except Exception:
-            current_app.logger.exception("[AUTH] rollback failed after mismatching_state")
+            current_app.logger.exception(
+                "[AUTH] rollback failed after mismatching_state"
+            )
         try:
             logout_user()
         except Exception:
@@ -74,7 +112,10 @@ def auth():
         flash("פג תוקף ההתחברות, אנא נסה שוב.", "error")
         return redirect(url_for('public.login'))
     except Exception:
-        current_app.logger.exception("[AUTH] login failed request_id=%s", get_request_id())
+        current_app.logger.exception(
+            "[AUTH] login failed request_id=%s",
+            get_request_id(),
+        )
         try:
             db.session.rollback()
         except Exception:
@@ -96,19 +137,31 @@ def logout():
 
 @bp.route('/privacy')
 def privacy():
+    from app.legal import PRIVACY_VERSION, TERMS_VERSION
+    from app.research import RESEARCH_CONSENT_VERSION
     return render_template(
         'privacy.html',
         user=current_user,
         is_owner=is_owner_user(),
+        contact_email='[INSERT_CONTACT_EMAIL]',
+        privacy_version=PRIVACY_VERSION,
+        terms_version=TERMS_VERSION,
+        research_consent_version=RESEARCH_CONSENT_VERSION,
     )
 
 
 @bp.route('/terms')
 def terms():
+    from app.legal import PRIVACY_VERSION, TERMS_VERSION
+    from app.research import RESEARCH_CONSENT_VERSION
     return render_template(
         'terms.html',
         user=current_user,
         is_owner=is_owner_user(),
+        contact_email='[INSERT_CONTACT_EMAIL]',
+        privacy_version=PRIVACY_VERSION,
+        terms_version=TERMS_VERSION,
+        research_consent_version=RESEARCH_CONSENT_VERSION,
     )
 
 
