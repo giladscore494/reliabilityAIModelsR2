@@ -1006,8 +1006,8 @@ def test_compare_quota_blocks_non_owner(app, logged_in_client):
     )
     assert resp.status_code == 429
     data = resp.get_json()
-    assert data["error"] == "daily_limit_reached"
-    assert "reset_at" in data
+    assert data["error"]["code"] == "daily_limit_reached"
+    assert "reset_at" in data["error"]["details"]
 
 
 def test_compare_idempotency_key_does_not_consume_quota_twice(app, logged_in_client, monkeypatch):

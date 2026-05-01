@@ -219,7 +219,7 @@ def load_user(user_id):
     This prevents 500 errors on stale pool connections.
     """
     try:
-        return User.query.get(int(user_id))
+        return db.session.get(User, int(user_id))
     except Exception as e:
         # Log the error safely (no secrets, no user IDs)
         logger.warning("[AUTH] load_user failed: %s", e.__class__.__name__)
