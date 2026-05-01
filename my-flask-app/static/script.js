@@ -806,7 +806,7 @@
             modelSelect.innerHTML = '';
             const opt = document.createElement('option');
             opt.value = '';
-            opt.textContent = '-- Select Make First --';
+            opt.textContent = '-- בחר יצרן תחילה --';
             modelSelect.appendChild(opt);
             modelSelect.disabled = true;
         }
@@ -1289,9 +1289,11 @@
         if (!legalCheckbox || !legalError) return true;
         if (!legalCheckbox.checked) {
             legalError.classList.remove('hidden');
+            legalError.classList.add('flex');
             legalError.scrollIntoView({ behavior: 'smooth', block: 'center' });
             return false;
         }
+        legalError.classList.remove('flex');
         legalError.classList.add('hidden');
         return true;
     }

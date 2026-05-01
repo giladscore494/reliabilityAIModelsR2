@@ -270,7 +270,7 @@ COMPARE_WRITER_TIMEOUT_SEC = int(os.environ.get("COMPARE_WRITER_TIMEOUT_SEC", "3
 COMPARE_WRITER_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_WRITER_MAX_OUTPUT_TOKENS", "2500"))
 COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS", "500"))
 COMPARE_WRITER_PROMPT_CHAR_CAP = int(os.environ.get("COMPARE_WRITER_PROMPT_CHAR_CAP", "16000"))
-TIE_THRESHOLD = 3  # Score delta below this = "tie" (צמוד)
+TIE_THRESHOLD = 5  # Score delta below this = "tie" (צמוד)
 PARALLEL_GRACE_SEC = 5  # Extra seconds when collecting parallel futures beyond per-call timeout
 ELLIPSIS_LEN = 3
 # Performance heuristics for typical passenger cars. HP_PER_TON_* thresholds are
@@ -1501,7 +1501,7 @@ def _build_single_winner_top_reasons(results: Dict[str, Any], winner_id: str) ->
         reverse=True,
     )
     return [
-        f"ניקוד גבוה ב{CATEGORY_LABELS_HE.get(cat_name, cat_name)}: {score:.1f}/100"
+        f"יתרון ב{CATEGORY_LABELS_HE.get(cat_name, cat_name)}"
         for cat_name, score in sorted_cats[:3]
     ]
 
@@ -1761,7 +1761,7 @@ def _repair_json_once(text: str) -> str:
 def _is_valid_stage_a_payload(payload: Any) -> bool:
     return (
         isinstance(payload, dict)
-        and set(payload.keys()) == _STAGE_A_REQUIRED_KEYS
+        and set(payload.keys()) >= _STAGE_A_REQUIRED_KEYS
         and isinstance(payload.get("grounding_successful"), bool)
         and isinstance(payload.get("search_queries_used"), list)
         and isinstance(payload.get("assumptions"), dict)
@@ -1872,17 +1872,25 @@ def build_deterministic_decision_result(
             "why": "אין מספיק מידע מנוסח ללא ציונים בקטגוריה זו.",
             "important_caveat": "יש לאמת נתונים מול מקורות רשמיים ובדיקת רכב בפועל.",
         })
-    return {
+
+    # Build per-slot choose/avoid entries with distinct labels derived from slot display names
+    result: Dict[str, Any] = {
         "overall_decision": {"label": label, "text": text},
         "category_decisions": category_decisions,
         "key_differences": [],
-        "choose_car_1_if": ["הרכב מתאים לצרכים שלך אחרי בדיקת היסטוריה, מצב מכני ועלויות צפויות."],
-        "choose_car_2_if": ["הרכב מתאים לצרכים שלך אחרי בדיקת היסטוריה, מצב מכני ועלויות צפויות."],
-        "avoid_or_check_car_1_if": ["יש פער במידע על טיפולים, תאונות, אחריות או מצב מכני."],
-        "avoid_or_check_car_2_if": ["יש פער במידע על טיפולים, תאונות, אחריות או מצב מכני."],
         "competitors_to_consider": [],
         "practical_summary": "הבחירה הסבירה יותר תלויה בשימוש, בתקציב, במצב הרכב בפועל ובבדיקה מקצועית לפני החלטה.",
     }
+    for slot_key in slot_keys:
+        car_info = cars_selected_slots.get(slot_key) or {}
+        car_label = car_info.get("display_name") or slot_key
+        result[f"choose_{slot_key}_if"] = [
+            f"{car_label} – מתאים לצרכים שלך אחרי בדיקת היסטוריה, מצב מכני ועלויות צפויות."
+        ]
+        result[f"avoid_or_check_{slot_key}_if"] = [
+            f"{car_label} – יש פער במידע על טיפולים, תאונות, אחריות או מצב מכני."
+        ]
+    return result
 
 
 def sanitize_decision_result(

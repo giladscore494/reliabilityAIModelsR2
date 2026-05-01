@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """Comparison routes blueprint for Car Comparison feature."""
 
+import re
 from datetime import datetime, timedelta
 from flask import Blueprint, render_template, request, current_app, session
 from flask_login import current_user, login_required
 
 from car_models_dict import israeli_car_market_full_compilation
+from app.factory import USER_DAILY_LIMIT
 from app.quota import (
     check_and_increment_ip_rate_limit,
     get_client_ip,
@@ -114,7 +116,6 @@ def compare_api():
     session_id = session.get('_id') if not user_id else None
     
     # Daily quota enforcement
-    from app.factory import USER_DAILY_LIMIT
     tz, _ = resolve_app_timezone()
     day_key, _, _, resets_at, _, _ = compute_quota_window(tz)
     daily_limit = current_app.config.get("USER_DAILY_LIMIT", USER_DAILY_LIMIT)
@@ -161,19 +162,13 @@ def compare_api():
             return api_error("quota_error", "Quota system error", status=500)
         if not ok:
             log_access_decision('/api/compare', user_id, 'rejected', 'daily limit reached')
-            resp = current_app.response_class(
-                response=current_app.json.dumps({
-                    "error": "daily_limit_reached",
-                    "limit": daily_limit,
-                    "used": used,
-                    "reset_at": resets_at.isoformat(),
-                    "request_id": request_id,
-                }),
+            return api_error(
+                "daily_limit_reached",
+                f"הגעת למגבלת השימוש היומית. ניתן לנסות שוב לאחר האיפוס.",
                 status=429,
-                mimetype="application/json",
+                details={"limit": daily_limit, "used": used, "reset_at": resets_at.isoformat()},
+                request_id=request_id,
             )
-            resp.headers["X-Request-ID"] = request_id
-            return resp
 
     # Process comparison
     try:
@@ -288,7 +283,6 @@ def get_available_cars():
     for make, models in israeli_car_market_full_compilation.items():
         for model_entry in models:
             # Extract model name and year range from entries like "Corolla (1992-2026)"
-            import re
             match = re.match(r'^(.+?)\s*\((\d{4})-(\d{4})\)$', model_entry)
             if match:
                 model_name = match.group(1).strip()

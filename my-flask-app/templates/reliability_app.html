@@ -151,7 +151,7 @@
                         <div class="relative ltr-select-wrapper">
                             <select id="make" name="make" required
                                     class="ltr-select w-full appearance-none bg-slate-900/50 border-2 border-slate-700 rounded-xl px-5 py-4 text-white focus:ring-0 focus:border-primary transition-all hover:border-slate-600 cursor-pointer">
-                                <option value="">Select Make...</option>
+                                <option value="">-- בחר יצרן --</option>
                                 {% if car_models_data %}
                                     {% for make in car_models_data.keys()|sort %}
                                         <option value="{{ make }}">{{ make }}</option>
@@ -176,7 +176,7 @@
                         <div class="relative ltr-select-wrapper">
                             <select id="model" name="model" required disabled
                                     class="ltr-select w-full appearance-none bg-slate-900/50 border-2 border-slate-700 rounded-xl px-5 py-4 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-                                <option value="">-- Select Make First --</option>
+                                <option value="">-- בחר יצרן תחילה --</option>
                             </select>
                             <div class="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5"
@@ -196,7 +196,7 @@
                         <div class="relative ltr-select-wrapper">
                             <select id="year" name="year" required disabled
                                     class="ltr-select w-full appearance-none bg-slate-900/50 border-2 border-slate-700 rounded-xl px-5 py-4 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-                                <option value="">-- Select Model First --</option>
+                                <option value="">-- בחר דגם תחילה --</option>
                             </select>
                             <div class="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5"
@@ -351,7 +351,7 @@
                         </span>
                     </label>
                     <p id="legal-error"
-                       class="hidden flex items-center text-red-400 text-sm bg-red-950/30 border border-red-900/50 p-3 rounded-lg">
+                       class="hidden items-center text-red-400 text-sm bg-red-950/30 border border-red-900/50 p-3 rounded-lg">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 ml-2" viewBox="0 0 20 20" fill="currentColor">
                             <path fill-rule="evenodd"
                                   d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"

@@ -1561,8 +1561,8 @@
                 if (errorCode === 'limit_reached' || data.error === 'limit_reached') {
                     throw createCompareError('הגעת למקסימום 3 השוואות היום. נסה מחר.', requestId);
                 }
-                if (data.error === 'daily_limit_reached') {
-                    const resetAt = data.reset_at ? new Date(data.reset_at).toLocaleString('he-IL') : '';
+                if (errorCode === 'daily_limit_reached') {
+                    const resetAt = data.error?.details?.reset_at ? new Date(data.error.details.reset_at).toLocaleString('he-IL') : '';
                     retryBtn?.classList.add('hidden');
                     throw createCompareError(`הגעת למגבלת השימוש היומית. ניתן לנסות שוב אחרי ${resetAt}`, requestId);
                 }

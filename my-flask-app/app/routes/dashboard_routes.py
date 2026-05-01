@@ -111,7 +111,7 @@ def delete_account():
 
         # Delete user. Cascade removes search/advisor history;
         # dependent rows below are deleted explicitly.
-        user_to_delete = User.query.get(user_id)
+        user_to_delete = db.session.get(User, user_id)
         if user_to_delete:
             # Explicitly remove dependent rows not covered by ORM relationships
             db.session.query(QuotaReservation).filter_by(user_id=user_id).delete(

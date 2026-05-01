@@ -1660,7 +1660,7 @@ def persist_invoice(
         db.session.add(invoice_item)
 
     # Increment user's counter
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     if user:
         user.service_price_checks_count = (user.service_price_checks_count or 0) + 1
 

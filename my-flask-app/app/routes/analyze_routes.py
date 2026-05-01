@@ -217,8 +217,7 @@ def timing_estimate():
             {
                 "kind": kind,
                 "avg_ms": avg_ms,
-                # average_ms kept for backward compatibility; TODO: remove once all clients use avg_ms/estimate_ms.
-                "average_ms": avg_ms,
+                "average_ms": avg_ms,  # backward compatibility alias for avg_ms
                 "median_ms": median_ms,
                 "estimate_ms": estimate_ms,
                 "p75_ms": p75_ms,
