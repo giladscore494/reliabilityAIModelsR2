@@ -262,7 +262,7 @@ COMPARISON_PROMPT_VERSION = "v4"
 COMPARISON_MODEL_ID = "gemini-3-flash-preview"
 AI_CALL_TIMEOUT_SEC = int(os.environ.get("AI_CALL_TIMEOUT_SEC", "170"))
 COMPARE_STAGE_A_TIMEOUT_SEC = int(os.environ.get("COMPARE_STAGE_A_TIMEOUT_SEC", "30"))
-COMPARE_STAGE_A_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_STAGE_A_MAX_OUTPUT_TOKENS", "2048"))
+COMPARE_STAGE_A_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_STAGE_A_MAX_OUTPUT_TOKENS", "4096"))
 COMPARE_STAGE_A_TEMPERATURE = float(os.environ.get("COMPARE_STAGE_A_TEMPERATURE", "0.25"))
 COMPARE_WRITER_TIMEOUT_SEC = int(os.environ.get("COMPARE_WRITER_TIMEOUT_SEC", "30"))
 # Stage B returns a full structured narrative in Hebrew; 2500 leaves room for
@@ -333,6 +333,28 @@ _LABEL_VALUES = {"low", "medium", "high"}
 _MAX_STAGE_A_NOTES = 4
 _MAX_STAGE_A_SOURCES = 5
 COMPARE_CATEGORY_NAMES = tuple(CATEGORY_LABELS_HE.keys())
+DECISION_CATEGORY_DEFINITIONS = [
+    ("pricing_and_value", "מחיר ותמורה"),
+    ("trim_and_equipment", "רמות גימור ואבזור"),
+    ("license_fee_and_running_cost", "אגרה ועלויות שוטפות"),
+    ("fuel_consumption", "צריכת דלק/חשמל"),
+    ("official_safety", "בטיחות רשמית"),
+    ("powertrain_and_performance", "מכלולים וביצועים"),
+    ("reliability_and_risk", "אמינות וסיכונים"),
+    ("family_daily_use", "שימוש יומי ומשפחתי"),
+    ("resale_and_market_confidence", "סחירות וירידת ערך"),
+]
+DECISION_ALLOWED_LABELS = {"car_1", "car_2", "car_3", "tie", "depends", "unknown"}
+DECISION_TEXT_FALLBACK_HE = "המערכת לא הצליחה לנסח סיכום ללא ציונים, לכן יש להסתמך על פירוט הקטגוריות."
+DECISION_FORBIDDEN_TEXT_RE = re.compile(
+    r"(\d+\s*/\s*100|\d+\s*/\s*10|winnerScore|overall_score|category_score|ציון|ניקוד|מתוך 100|נקודות מתוך|אני ממליץ|הייתי קונה|תקנה|אל תקנה|המנצח הברור|הרכב הטוב ביותר)",
+    re.IGNORECASE,
+)
+BUYER_PROFILE_MAIN_USE_ALLOWED = {"city", "highway", "family", "commuting", "long_trips", "work", "mixed", "unknown"}
+BUYER_PROFILE_SAFETY_ALLOWED = {"yes", "no"}
+BUYER_PROFILE_FUELS_ALLOWED = {"gasoline", "diesel", "hybrid", "plug_in_hybrid", "electric", "lpg", "בנזין", "דיזל", "היברידי", "חשמלי"}
+BUYER_PROFILE_GEARS_ALLOWED = {"automatic", "manual", "robotic", "אוטומטית", "ידנית", "רובוטית"}
+BUYER_PROFILE_PRIORITY_KEYS = {"reliability", "fuel", "safety", "comfort", "performance", "cost"}
 _COMPARE_SLOT_RE = re.compile(r"^car_(\d+)$")
 
 # Segment inference is intentionally lightweight and deterministic because compare
@@ -696,6 +718,7 @@ def _empty_single_car_payload() -> Dict[str, Any]:
         "facts": dict(SINGLE_CAR_FACTS_TEMPLATE),
         "short_notes": [],
         "sources": [],
+        "car_profile": {},
     }
     for category_name, template in SINGLE_CAR_CATEGORY_TEMPLATE.items():
         payload[category_name] = dict(template)
@@ -715,6 +738,35 @@ def _normalize_sources(value: Any) -> List[str]:
         if len(out) >= _MAX_STAGE_A_SOURCES:
             break
     return out
+
+
+
+def _normalize_car_profile(value: Any) -> Dict[str, Any]:
+    """Keep grounded factual profile data in a bounded JSON shape for UI/prompts."""
+    if not isinstance(value, dict):
+        return {}
+
+    def _clean(obj: Any, depth: int = 0) -> Any:
+        if depth > 5:
+            return None
+        if isinstance(obj, dict):
+            cleaned = {}
+            for key, item in obj.items():
+                if isinstance(key, str) and len(key) <= 80:
+                    cleaned[key] = _clean(item, depth + 1)
+            return cleaned
+        if isinstance(obj, list):
+            return [_clean(item, depth + 1) for item in obj[:12]]
+        if isinstance(obj, str):
+            return " ".join(obj.split())[:500]
+        if isinstance(obj, (int, float)) and not isinstance(obj, bool):
+            return obj
+        if obj is None or isinstance(obj, bool):
+            return obj
+        return None
+
+    cleaned = _clean(value)
+    return cleaned if isinstance(cleaned, dict) else {}
 
 
 def normalize_single_car_payload(payload: Dict[str, Any], fallback_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -752,6 +804,7 @@ def normalize_single_car_payload(payload: Dict[str, Any], fallback_name: Optiona
             break
     normalized["short_notes"] = normalized_notes
     normalized["sources"] = _normalize_sources(payload.get("sources"))
+    normalized["car_profile"] = _normalize_car_profile(payload.get("car_profile"))
 
     has_facts = any(value is not None for value in normalized["facts"].values())
     has_notes = bool(normalized["short_notes"])
@@ -856,20 +909,39 @@ Return this exact JSON structure:
     "body_type": "string or null",
     "fuel_type": "string or null"
   }},
+  "car_profile": {{
+    "vehicle_identity": {{"make":"string","model":"string","year":"string|null","generation":"string|null","body_type":"string|null","segment":"string|null","israel_market_status":"sold_new|sold_used_only|parallel_import|discontinued_in_israel|unclear|null"}},
+    "pricing_israel": {{"new_price_range_ils":"string|null","used_price_range_ils":"string|null","notes":["string"],"sources":["url"]}},
+    "license_fee_israel": {{"annual_fee_ils": <number or null>, "method": "official|unknown", "notes": ["string"], "sources": ["url"]}},
+    "trim_levels_israel": [{{"trim_name":"string","price_ils": <number or null>, "main_equipment":["string"],"powertrain":"string|null","safety_equipment":["string"],"source":"url|null"}}],
+    "powertrain_specs": {{"engine":"string|null","gearbox":"string|null","drivetrain":"string|null","horsepower": <number or null>,"torque_nm": <number or null>,"battery_kwh": <number or null>,"ev_range_km": <number or null>,"zero_to_100_sec": <number or null>,"trunk_liters": <number or null>,"seats": <number or null>,"sources":["url"]}},
+    "fuel_consumption": {{"official_value":"string|null","real_world_value":"string|null","method":"official|review_based|owner_reported|unknown","notes":["string"],"sources":["url"]}},
+    "official_safety": {{"rating":"string|null","organization":"Euro NCAP|IIHS|NHTSA|ANCAP|Israeli Ministry/Importer|unknown|null","test_year": <number or null>,"notes":["string"],"sources":["url"]}},
+    "warranty_israel": {{"vehicle_warranty":"string|null","battery_warranty":"string|null","sources":["url"]}},
+    "recalls": {{"known_recalls":[{{"year": <number or null>, "issue":"string", "source":"url|null"}}],"checked_against_official_source": <boolean>,"sources":["url"]}},
+    "reliability_risks": ["string"],
+    "ownership_cost_notes": {{"maintenance_cost_pressure":"low|medium|high|unknown","insurance_cost_pressure":"low|medium|high|unknown","depreciation_risk":"low|medium|high|unknown","parts_availability":"low|medium|high|unknown","notes":["string"]}},
+    "best_for": ["string"],
+    "not_ideal_for": ["string"],
+    "sources": ["url"]
+  }},
   "short_notes": ["up to 4 short bullets"],
   "sources": ["up to 5 source URLs"]
 }}
 
 RULES:
-1. Keep it compact and stable: labels, a few facts, short notes, URLs only.
-2. Do NOT compare against another car. Do NOT score numerically. Do NOT write long explanations.
-3. Use null if unknown. Do not invent trims/specs if they are unclear.
-4. Prefer expert reviews, owner reports, recall/safety sources, and reliable specs.
-5. short_notes must contain at most 4 short items.
-6. sources must contain at most 5 direct http/https URLs.
-7. Segment-aware labels are required: judge the car against realistic expectations of its inferred mission, not one universal standard.
-8. Keep the 4 main categories unchanged; only the sub-priority logic is segment-aware.
-9. Return ONLY valid JSON.
+1. Google Search grounding is mandatory. Search Hebrew and English when useful.
+2. Prefer official importer pages, Israeli Ministry of Transport, official safety organizations, official recall data, and reputable Israeli car sites.
+3. Keep the legacy labels compact and stable, but also fill car_profile with sourced factual facts where available.
+4. Do NOT compare against another car. Do NOT score numerically. Do NOT write long explanations.
+5. Do not invent official safety ratings, Israeli trim levels, prices, license fees, recalls, specs, consumption, or warranty terms. Use null/unknown plus notes when unavailable.
+6. license_fee_israel.method can only be official or unknown.
+7. If exact official safety rating is not found, set rating=null, organization="unknown", and add an explanatory note.
+8. Keep source URLs for factual claims about price, trims, license fee, safety, recalls, specs, fuel/energy consumption, and warranty.
+9. Do not return visible numeric quality scores or score-like quality fields. Percentages are allowed only for factual specs or official safety sub-scores from official sources.
+10. short_notes must contain at most 4 short items; sources must contain direct http/https URLs.
+11. Segment-aware labels are required: judge the car against realistic expectations of its inferred mission, not one universal standard.
+12. Return ONLY valid JSON.
 """.strip()
 
 
@@ -1124,116 +1196,102 @@ RULES:
 """.strip()
 
 
-def build_compare_writer_prompt(cars_selected_slots: Dict, computed_result: Dict, grounded_output: Dict) -> str:
-    """Build compact Stage B prompt from deterministic results only."""
-    def _truncate_text(value: Any, max_chars: int = 120) -> str:
+def build_compare_writer_prompt(
+    cars_selected_slots: Dict,
+    computed_result: Dict,
+    grounded_output: Dict,
+    buyer_profile: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Build Stage B prompt for a decision-based practical report."""
+    def _truncate_text(value: Any, max_chars: int = 500) -> str:
         raw = str(value or "").strip()
         return raw[:max_chars]
 
-    def _evidence_snapshot(slot_key: str, category_key: str) -> Dict[str, Any]:
+    def _evidence_snapshot(slot_key: str) -> Dict[str, Any]:
         grounded_car = ((grounded_output or {}).get("cars", {}) or {}).get(slot_key, {})
-        category_map = {
-            "reliability_risk": "reliability",
-            "ownership_cost": "ownership_cost",
-            "practicality_comfort": "comfort_practicality",
-            "driving_performance": "performance_driving",
-        }
-        evidence = (grounded_car.get(category_map.get(category_key, "")) or {})
-        snapshot = {
-            "labels": evidence,
-            "notes": (grounded_car.get("short_notes") or [])[:2],
+        return {
+            "car_profile": grounded_car.get("car_profile") or {},
+            "legacy_labels": {
+                "reliability": grounded_car.get("reliability") or {},
+                "ownership_cost": grounded_car.get("ownership_cost") or {},
+                "comfort_practicality": grounded_car.get("comfort_practicality") or {},
+                "performance_driving": grounded_car.get("performance_driving") or {},
+            },
+            "notes": (grounded_car.get("short_notes") or [])[:4],
             "facts": grounded_car.get("facts") or {},
+            "sources": grounded_car.get("sources") or [],
         }
-        return snapshot
-
-    def _category_score_snapshot(slot_key: str, category_key: str) -> Optional[float]:
-        car_categories = (((computed_result.get("cars", {}) or {}).get(slot_key, {}) or {}).get("categories", {}) or {})
-        return ((car_categories.get(category_key, {}) or {}).get("score"))
 
     slot_keys = _ordered_compare_slot_keys(
         cars_selected_slots,
         (computed_result.get("cars") or {}) if isinstance(computed_result, dict) else {},
         ((grounded_output or {}).get("cars") or {}) if isinstance(grounded_output, dict) else {},
     )
-    allowed_winners = slot_keys + ["tie"]
-
+    allowed_labels = slot_keys + ["tie", "depends", "unknown"]
+    deterministic_preferences = {
+        "overall": _normalize_compare_writer_winner(computed_result.get("overall_winner"), slot_keys) or "depends",
+        "legacy_category_winners": {
+            category_key: _normalize_compare_writer_winner(winner, slot_keys) or "depends"
+            for category_key, winner in ((computed_result.get("category_winners") or {}).items())
+        },
+        "balanced_comparison": bool(((computed_result.get("comparison_status") or {}).get("balanced", True))),
+    }
     model_payload = {
         "cars": {
             slot_key: {
-                "label": _truncate_text(
-                    ((cars_selected_slots or {}).get(slot_key, {}) or {}).get("display_name") or slot_key
-                ),
+                "label": _truncate_text(((cars_selected_slots or {}).get(slot_key, {}) or {}).get("display_name") or slot_key, 120),
+                "evidence": _evidence_snapshot(slot_key),
             }
             for slot_key in slot_keys
         },
-        "overall": {
-            "winner": _normalize_compare_writer_winner(computed_result.get("overall_winner"), slot_keys) or "tie",
-            "scores": {
-                slot_key: ((computed_result.get("cars", {}).get(slot_key, {}) or {}).get("overall_score"))
-                for slot_key in slot_keys
-            },
-            "balanced_comparison": bool(((computed_result.get("comparison_status") or {}).get("balanced", True))),
-        },
-        "categories": [],
-        "sources": ((grounded_output or {}).get("sources") or [])[:_MAX_STAGE_A_SOURCES],
+        "decision_categories": [
+            {"category_key": key, "category_name_he": name}
+            for key, name in DECISION_CATEGORY_DEFINITIONS
+        ],
+        "deterministic_preference_hints": deterministic_preferences,
+        "buyer_profile": buyer_profile or None,
+        "buyer_profile_rule": "User preference context only; use it only to explain fit. It must not override factual vehicle data.",
+        "sources": ((grounded_output or {}).get("sources") or [])[:_MAX_STAGE_A_SOURCES * max(1, len(slot_keys))],
     }
-    for category_key in COMPARE_CATEGORY_NAMES:
-        model_payload["categories"].append({
-            "name": category_key,
-            "winner": _normalize_compare_writer_winner(
-                (computed_result.get("category_winners", {}) or {}).get(category_key),
-                slot_keys,
-            ) or "tie",
-            "scores": {
-                slot_key: _category_score_snapshot(slot_key, category_key)
-                for slot_key in slot_keys
-            },
-            "evidence": {
-                slot_key: _evidence_snapshot(slot_key, category_key)
-                for slot_key in slot_keys
-            },
-        })
 
     payload_json = json.dumps(model_payload, ensure_ascii=False, separators=(",", ":"))
-    prompt = f"""You are a concise car comparison explainer.
-Write in Hebrew for the end user.
-Use only MODEL_PAYLOAD below. Do not add facts. Do not change any scores.
-The deterministic server output is authoritative.
+    prompt = f"""You are a neutral Israeli-market car comparison writer.
+Write simple, practical Hebrew for decision support. Use only MODEL_PAYLOAD below and do not invent facts.
+MODEL_PAYLOAD contains grounded per-car facts and user preference context, if supplied.
 
 MODEL_PAYLOAD:
 {payload_json}
 
-Return ONLY valid JSON with EXACTLY this schema and no extra keys:
+Return ONLY valid JSON with EXACTLY this top-level schema:
 {{
-  "summary": "1-2 sentences in Hebrew, max 60 words",
-  "winner": "{'|'.join(allowed_winners)}",
-  "categories": [
-    {{
-      "name": "reliability_risk|ownership_cost|practicality_comfort|driving_performance",
-      "winner": "{'|'.join(allowed_winners)}",
-      "why": "1 sentence in Hebrew, max 50 words",
-      "explanations": {{
-        {",".join(f'"{slot_key}":"1-2 sentences in Hebrew, max 40 words"' for slot_key in slot_keys)}
-      }},
-      "tips": ["max 3 short tips in Hebrew, each max 20 words"]
-    }}
-  ],
-  "caveats": ["max 3 caveats in Hebrew, each max 20 words"]
+  "decision_result": {{
+    "overall_decision": {{"label":"{'|'.join(allowed_labels)}","text":"Hebrew practical decision summary without scores"}},
+    "category_decisions": [
+      {{"category_key":"pricing_and_value","category_name_he":"מחיר ותמורה","preferred":"{'|'.join(allowed_labels)}","why":"string","important_caveat":"string|null"}}
+    ],
+    "key_differences": [{{"title":"string","car_1":"string","car_2":"string","meaning_for_buyer":"string"}}],
+    "choose_car_1_if": ["string"],
+    "choose_car_2_if": ["string"],
+    "avoid_or_check_car_1_if": ["string"],
+    "avoid_or_check_car_2_if": ["string"],
+    "competitors_to_consider": [{{"model":"string","why_consider":"string"}}],
+    "practical_summary":"Hebrew practical paragraph. Neutral. No first person. No direct buy/don't-buy command."
+  }},
+  "sources": ["url"]
 }}
 
-RULES:
-1. Explain category winners using the provided deterministic scores plus the compact evidence labels/notes/facts.
-2. If balanced_comparison=false, say clearly that the comparison is partial and avoid overconfident recommendations.
-3. If winner is "tie", say the cars are close and do not invent a preference.
-4. For every category, fill explanations per car slot so the UI can show why each car got its score.
-5. Keep the text practical, short, structured, and user-facing in Hebrew.
-6. Forbidden: long paragraphs, tables, markdown, extra keys, or invented claims.
-7. If unsure, keep it short and say 'אין מספיק מידע' in 4 words max.
+HARD RULES:
+1. Do not output /100, /10, winnerScore, overall_score, category_score, category weights, "ציון", or "ניקוד".
+2. Do not say "המנצח". Prefer "הבחירה הסבירה יותר", "תלוי שימוש", "אין הכרעה חד משמעית", "עדיפות קלה", "דורש בדיקה נוספת".
+3. Do not use first person. Do not say "אני ממליץ", "הייתי קונה", "תקנה", or "אל תקנה".
+4. No direct purchase advice and no "הרכב הטוב ביותר".
+5. Google-grounded factual claims must keep source URLs. If official safety/prices/trims/fees/recalls/warranty are unavailable, use null/unknown or an explicit caveat.
+6. Fill all decision_categories from MODEL_PAYLOAD. Use preferred="unknown" or "depends" when evidence is insufficient.
+7. buyer_profile is preference context only; it may affect fit explanation only and never overrides car facts.
 """
     if len(prompt) > COMPARE_WRITER_PROMPT_CHAR_CAP:
         prompt = prompt[:COMPARE_WRITER_PROMPT_CHAR_CAP]
     return prompt
-
 
 def build_compare_writer_retry_prompt(cars_selected_slots: Dict, computed_result: Dict) -> str:
     """Build a minimal retry prompt for summary+winner only."""
@@ -1361,6 +1419,8 @@ def _has_any_stage_a_evidence(car_data: Dict[str, Any]) -> bool:
     if car_data.get("short_notes"):
         return True
     if car_data.get("sources"):
+        return True
+    if car_data.get("car_profile"):
         return True
     return False
 
@@ -1620,7 +1680,7 @@ def _is_valid_single_car_payload(payload):
     """
     if not isinstance(payload, dict):
         return False
-    return bool(_SINGLE_CAR_REQUIRED_CATEGORIES.intersection(set(payload.keys())))
+    return bool(_SINGLE_CAR_REQUIRED_CATEGORIES.intersection(set(payload.keys())) or isinstance(payload.get("car_profile"), dict))
 
 
 def parse_single_car_json(raw_text: str) -> Tuple[Optional[Dict], Optional[str]]:
@@ -1727,6 +1787,163 @@ def _truncate_to_word_limit(value: Any, limit: int) -> Optional[str]:
     if len(words) <= limit:
         return compact
     return " ".join(words[:limit])
+
+
+
+def _decision_label(value: Any, allowed_slots: Optional[List[str]] = None) -> str:
+    if isinstance(value, str):
+        normalized = value.strip()
+        if normalized in {"tie", "depends", "unknown"}:
+            return normalized
+        if allowed_slots and normalized in allowed_slots:
+            return normalized
+        if normalized in {"car_1", "car_2", "car_3"}:
+            return normalized
+    return "unknown"
+
+
+def _is_forbidden_decision_text(value: Any) -> bool:
+    return isinstance(value, str) and bool(DECISION_FORBIDDEN_TEXT_RE.search(value))
+
+
+def _sanitize_decision_text(value: Any, request_id: Optional[str], field_path: str) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return ""
+    if _is_forbidden_decision_text(text):
+        current_app.logger.warning(
+            "[COMPARISON] decision_result text sanitized request_id=%s field=%s",
+            request_id or "unknown",
+            field_path,
+        )
+        return DECISION_TEXT_FALLBACK_HE
+    return text[:700]
+
+
+def _sanitize_optional_decision_text(value: Any, request_id: Optional[str], field_path: str) -> Optional[str]:
+    if value is None:
+        return None
+    text = _sanitize_decision_text(value, request_id, field_path)
+    return text or None
+
+
+def _sanitize_decision_list(value: Any, request_id: Optional[str], field_path: str, max_items: int = 6) -> List[str]:
+    if not isinstance(value, list):
+        return []
+    out = []
+    for idx, item in enumerate(value[:max_items]):
+        text = _sanitize_decision_text(item, request_id, f"{field_path}.{idx}")
+        if text:
+            out.append(text)
+    return out
+
+
+def build_deterministic_decision_result(
+    cars_selected_slots: Dict[str, Dict[str, Any]],
+    computed_result: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Fallback decision layer for legacy cache or failed Stage B."""
+    computed_result = computed_result if isinstance(computed_result, dict) else {}
+    slot_keys = _ordered_compare_slot_keys(cars_selected_slots, computed_result.get("cars") or {})
+    winner = _normalize_compare_writer_winner(computed_result.get("overall_winner"), slot_keys)
+    if winner in slot_keys:
+        label = winner
+        text = "קיימת עדיפות קלה לפי המידע הזמין, אך ההחלטה תלויה בבדיקת מצב הרכב בפועל ובהתאמה לשימוש."
+    elif winner == "tie":
+        label = "tie"
+        text = "אין הכרעה חד משמעית על בסיס המידע הזמין; חשוב להשוות מצב, היסטוריית טיפולים ועלויות צפויות."
+    else:
+        label = "unknown"
+        text = "אין מספיק מידע מאומת כדי לקבוע עדיפות ברורה בין הרכבים."
+
+    category_decisions = []
+    for key, name in DECISION_CATEGORY_DEFINITIONS:
+        category_decisions.append({
+            "category_key": key,
+            "category_name_he": name,
+            "preferred": "unknown",
+            "why": "אין מספיק מידע מנוסח ללא ציונים בקטגוריה זו.",
+            "important_caveat": "יש לאמת נתונים מול מקורות רשמיים ובדיקת רכב בפועל.",
+        })
+    return {
+        "overall_decision": {"label": label, "text": text},
+        "category_decisions": category_decisions,
+        "key_differences": [],
+        "choose_car_1_if": ["הרכב מתאים לצרכים שלך אחרי בדיקת היסטוריה, מצב מכני ועלויות צפויות."],
+        "choose_car_2_if": ["הרכב מתאים לצרכים שלך אחרי בדיקת היסטוריה, מצב מכני ועלויות צפויות."],
+        "avoid_or_check_car_1_if": ["יש פער במידע על טיפולים, תאונות, אחריות או מצב מכני."],
+        "avoid_or_check_car_2_if": ["יש פער במידע על טיפולים, תאונות, אחריות או מצב מכני."],
+        "competitors_to_consider": [],
+        "practical_summary": "הבחירה הסבירה יותר תלויה בשימוש, בתקציב, במצב הרכב בפועל ובבדיקה מקצועית לפני החלטה.",
+    }
+
+
+def sanitize_decision_result(
+    decision_result: Any,
+    cars_selected_slots: Optional[Dict[str, Dict[str, Any]]] = None,
+    computed_result: Optional[Dict[str, Any]] = None,
+    request_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    fallback = build_deterministic_decision_result(cars_selected_slots or {}, computed_result or {})
+    if not isinstance(decision_result, dict):
+        return fallback
+    slot_keys = _ordered_compare_slot_keys(cars_selected_slots or {}, (computed_result or {}).get("cars") or {})
+    overall = decision_result.get("overall_decision") if isinstance(decision_result.get("overall_decision"), dict) else {}
+    sanitized = {
+        "overall_decision": {
+            "label": _decision_label(overall.get("label"), slot_keys),
+            "text": _sanitize_decision_text(overall.get("text"), request_id, "overall_decision.text") or fallback["overall_decision"]["text"],
+        },
+        "category_decisions": [],
+        "key_differences": [],
+        "choose_car_1_if": _sanitize_decision_list(decision_result.get("choose_car_1_if"), request_id, "choose_car_1_if"),
+        "choose_car_2_if": _sanitize_decision_list(decision_result.get("choose_car_2_if"), request_id, "choose_car_2_if"),
+        "avoid_or_check_car_1_if": _sanitize_decision_list(decision_result.get("avoid_or_check_car_1_if"), request_id, "avoid_or_check_car_1_if"),
+        "avoid_or_check_car_2_if": _sanitize_decision_list(decision_result.get("avoid_or_check_car_2_if"), request_id, "avoid_or_check_car_2_if"),
+        "competitors_to_consider": [],
+        "practical_summary": _sanitize_decision_text(decision_result.get("practical_summary"), request_id, "practical_summary") or fallback["practical_summary"],
+    }
+    raw_categories = decision_result.get("category_decisions") if isinstance(decision_result.get("category_decisions"), list) else []
+    by_key = {item.get("category_key"): item for item in raw_categories if isinstance(item, dict)}
+    for key, name in DECISION_CATEGORY_DEFINITIONS:
+        item = by_key.get(key) or {}
+        sanitized["category_decisions"].append({
+            "category_key": key,
+            "category_name_he": _sanitize_decision_text(item.get("category_name_he") or name, request_id, f"category_decisions.{key}.name") or name,
+            "preferred": _decision_label(item.get("preferred"), slot_keys),
+            "why": _sanitize_decision_text(item.get("why"), request_id, f"category_decisions.{key}.why") or "אין מספיק מידע מאומת בקטגוריה זו.",
+            "important_caveat": _sanitize_optional_decision_text(item.get("important_caveat"), request_id, f"category_decisions.{key}.important_caveat"),
+        })
+    raw_diffs = decision_result.get("key_differences") if isinstance(decision_result.get("key_differences"), list) else []
+    for idx, item in enumerate(raw_diffs[:8]):
+        if not isinstance(item, dict):
+            continue
+        sanitized["key_differences"].append({
+            "title": _sanitize_decision_text(item.get("title"), request_id, f"key_differences.{idx}.title"),
+            "car_1": _sanitize_decision_text(item.get("car_1"), request_id, f"key_differences.{idx}.car_1"),
+            "car_2": _sanitize_decision_text(item.get("car_2"), request_id, f"key_differences.{idx}.car_2"),
+            "meaning_for_buyer": _sanitize_decision_text(item.get("meaning_for_buyer"), request_id, f"key_differences.{idx}.meaning_for_buyer"),
+        })
+    raw_competitors = decision_result.get("competitors_to_consider") if isinstance(decision_result.get("competitors_to_consider"), list) else []
+    for idx, item in enumerate(raw_competitors[:5]):
+        if not isinstance(item, dict):
+            continue
+        model = _sanitize_decision_text(item.get("model"), request_id, f"competitors.{idx}.model")
+        why = _sanitize_decision_text(item.get("why_consider"), request_id, f"competitors.{idx}.why_consider")
+        if model or why:
+            sanitized["competitors_to_consider"].append({"model": model, "why_consider": why})
+    return sanitized
+
+
+def _validate_decision_writer_response(payload: Any, cars_selected_slots: Optional[Dict[str, Dict[str, Any]]] = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    if not isinstance(payload, dict):
+        return None, "payload_not_object"
+    if not isinstance(payload.get("decision_result"), dict):
+        return None, "missing_decision_result"
+    return {
+        "decision_result": sanitize_decision_result(payload.get("decision_result"), cars_selected_slots or {}, None, get_request_id()),
+        "sources": _normalize_sources(payload.get("sources")),
+    }, None
 
 
 def _summarize_compare_writer_payload(payload: Any) -> Dict[str, Any]:
@@ -2961,7 +3178,7 @@ def normalize_model_output(parsed: Any, request_id: str) -> Tuple[Optional[Dict[
 # REQUEST HASH FOR CACHING
 # ============================================================
 
-def compute_request_hash(cars: List[Dict]) -> str:
+def compute_request_hash(cars: List[Dict], buyer_profile: Optional[Dict[str, Any]] = None) -> str:
     """
     Compute a hash for caching based on selected cars and prompt version.
     Uses 32 characters (128 bits) of SHA256 for adequate collision resistance.
@@ -2986,6 +3203,7 @@ def compute_request_hash(cars: List[Dict]) -> str:
 
     data = {
         "cars": sorted(car_keys),
+        "buyer_profile": buyer_profile or None,
         "prompt_version": COMPARISON_PROMPT_VERSION,
     }
     data_str = json.dumps(data, sort_keys=True)
@@ -2995,6 +3213,93 @@ def compute_request_hash(cars: List[Dict]) -> str:
 # ============================================================
 # VALIDATION
 # ============================================================
+
+
+def _sanitize_buyer_number(value: Any, minimum: float, maximum: float) -> Optional[float]:
+    if value in (None, "") or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number < minimum or number > maximum:
+        return None
+    return int(number) if number.is_integer() else number
+
+
+def _sanitize_buyer_string(value: Any, max_len: int = 80) -> Optional[str]:
+    if value in (None, ""):
+        return None
+    text = escape_prompt_input(str(value).strip(), max_length=max_len)
+    return text or None
+
+
+def _sanitize_buyer_list(value: Any, allowed: set, max_items: int = 6) -> List[str]:
+    if not isinstance(value, list):
+        return []
+    out = []
+    for item in value[:max_items]:
+        text = _sanitize_buyer_string(item, 40)
+        if text and text in allowed and text not in out:
+            out.append(text)
+    return out
+
+
+def validate_buyer_profile(value: Any) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
+    """Allowlist and normalize optional compare buyer profile."""
+    if value in (None, ""):
+        return True, None, None
+    if not isinstance(value, dict):
+        return False, "פרופיל משתמש לא תקין", None
+
+    normalized: Dict[str, Any] = {}
+    number_fields = {
+        "budget_min": (0, 2_000_000),
+        "budget_max": (0, 2_000_000),
+        "annual_km": (0, 100_000),
+        "driver_age": (17, 100),
+    }
+    for field, bounds in number_fields.items():
+        num = _sanitize_buyer_number(value.get(field), *bounds)
+        if num is not None:
+            normalized[field] = num
+
+    main_use = _sanitize_buyer_string(value.get("main_use"), 40)
+    if main_use:
+        normalized["main_use"] = main_use if main_use in BUYER_PROFILE_MAIN_USE_ALLOWED else "unknown"
+
+    safety_required = _sanitize_buyer_string(value.get("safety_required"), 10)
+    if safety_required in BUYER_PROFILE_SAFETY_ALLOWED:
+        normalized["safety_required"] = safety_required
+
+    for field in ("family_size", "cargo_need", "body_style", "driving_style"):
+        text = _sanitize_buyer_string(value.get(field), 80)
+        if text:
+            normalized[field] = text
+
+    fuels = _sanitize_buyer_list(value.get("preferred_fuels"), BUYER_PROFILE_FUELS_ALLOWED)
+    gears = _sanitize_buyer_list(value.get("preferred_gears"), BUYER_PROFILE_GEARS_ALLOWED)
+    if fuels:
+        normalized["preferred_fuels"] = fuels
+    if gears:
+        normalized["preferred_gears"] = gears
+
+    priority_weights = value.get("priority_weights") if isinstance(value.get("priority_weights"), dict) else {}
+    cleaned_weights = {}
+    for key in BUYER_PROFILE_PRIORITY_KEYS:
+        raw = priority_weights.get(key)
+        if raw in (None, "") or isinstance(raw, bool):
+            continue
+        try:
+            number = float(raw)
+        except (TypeError, ValueError):
+            continue
+        cleaned_weights[key] = max(0, min(10, number))
+    if cleaned_weights:
+        normalized["priority_weights"] = cleaned_weights
+
+    return True, None, normalized or None
+
 
 def validate_comparison_request(data: Dict) -> Tuple[bool, Optional[str], List[Dict]]:
     """
@@ -3203,12 +3508,16 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     is_valid, error_msg, validated_cars = validate_comparison_request(data)
     if not is_valid:
         return api_error("validation_error", error_msg, status=400)
+    buyer_valid, buyer_error, buyer_profile = validate_buyer_profile(data.get("buyer_profile"))
+    if not buyer_valid:
+        logger.warning("[COMPARISON] invalid_buyer_profile request_id=%s", request_id)
+        return api_error("validation_error", buyer_error, status=400)
 
     # Map cars to stable slots with display_name
     cars_selected_slots = map_cars_to_slots(validated_cars)
 
     # Compute request hash for caching
-    request_hash = compute_request_hash(validated_cars)
+    request_hash = compute_request_hash(validated_cars, buyer_profile)
 
     # Check cache (only for logged-in users)
     if user_id:
@@ -3268,6 +3577,14 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                 narrative = resolve_comparison_narrative(
                     computed_result if isinstance(computed_result, dict) else None
                 )
+                decision_result = sanitize_decision_result(
+                    computed_result.get("decision_result") if isinstance(computed_result, dict) else None,
+                    cached_slots if isinstance(cached_slots, dict) else {},
+                    computed_result if isinstance(computed_result, dict) else {},
+                    request_id,
+                )
+                if isinstance(computed_result, dict) and not isinstance(computed_result.get("decision_result"), dict):
+                    computed_result["decision_result"] = decision_result
                 return api_ok({
                     "cached": True,
                     "comparison_id": cached.id,
@@ -3276,6 +3593,7 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                     "model_output": model_output,
                     "computed_result": computed_result,
                     "narrative": narrative,
+                    "decision_result": decision_result,
                     "sources_index": sources_index if sources_index else {},
                     "assumptions": assumptions,
                     "ai": build_stored_comparison_ai_payload(
@@ -3350,7 +3668,7 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     stage_b_error = None
     narrative = None
     stage_b_reason = None
-    writer_prompt = build_compare_writer_prompt(cars_selected_slots, server_computed_result, model_output)
+    writer_prompt = build_compare_writer_prompt(cars_selected_slots, server_computed_result, model_output, buyer_profile)
     stage_b_start = pytime.perf_counter()
     stage_b_output, stage_b_error = call_gemini_compare_writer(writer_prompt)
     ai_ms += int((pytime.perf_counter() - stage_b_start) * 1000)
@@ -3470,6 +3788,14 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
         )
 
     computed_result = enforce_authoritative_numbers(server_computed_result, stage_b_output, request_id)
+    validated_decision, decision_validation_reason = _validate_decision_writer_response(stage_b_output, cars_selected_slots)
+    if validated_decision:
+        decision_result = validated_decision["decision_result"]
+    else:
+        if decision_validation_reason:
+            logger.warning("[COMPARISON] decision_result fallback request_id=%s reason=%s", request_id, decision_validation_reason)
+        decision_result = build_deterministic_decision_result(cars_selected_slots, computed_result)
+    computed_result["decision_result"] = decision_result
     ai_status = "ok"
     ai_reason = None
     if stage_a_partial:
@@ -3540,6 +3866,7 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
         "model_output": model_output,
         "computed_result": computed_result,
         "narrative": narrative,
+        "decision_result": decision_result,
         "sources_index": sources_index,
         "assumptions": {},
         "ai": ai_payload,
@@ -3615,13 +3942,21 @@ def get_comparison_detail(comparison_id: int, user_id: Optional[int]) -> Optiona
         assumptions = model_output.get("assumptions", {}) if model_output else {}
 
         narrative = resolve_comparison_narrative(computed_result if isinstance(computed_result, dict) else None)
+        cars_selected_slots = map_cars_to_slots(cars_selected) if isinstance(cars_selected, list) else cars_selected
+        decision_result = sanitize_decision_result(
+            computed_result.get("decision_result") if isinstance(computed_result, dict) else None,
+            cars_selected_slots if isinstance(cars_selected_slots, dict) else {},
+            computed_result if isinstance(computed_result, dict) else {},
+            get_request_id(),
+        )
+        if isinstance(computed_result, dict) and not isinstance(computed_result.get("decision_result"), dict):
+            computed_result["decision_result"] = decision_result
         ai_payload = build_stored_comparison_ai_payload(
             computed_result if isinstance(computed_result, dict) else None,
             narrative,
         )
 
         # Reconstruct stable car slots
-        cars_selected_slots = map_cars_to_slots(cars_selected) if isinstance(cars_selected, list) else cars_selected
 
         return {
             "id": record.id,
@@ -3631,6 +3966,7 @@ def get_comparison_detail(comparison_id: int, user_id: Optional[int]) -> Optiona
             "model_output": model_output,
             "computed_result": computed_result,
             "narrative": narrative,
+            "decision_result": decision_result,
             "ai": ai_payload,
             "sources_index": sources_index,
             "assumptions": assumptions,
@@ -3745,6 +4081,12 @@ def regenerate_comparison_ai(comparison_id: int, user_id: int) -> Optional[Dict[
             _summarize_comparison_narrative_shape(narrative),
         )
 
+    validated_decision, _decision_reason = _validate_decision_writer_response(stage_b_output, cars_selected_slots)
+    if validated_decision:
+        decision_result = validated_decision["decision_result"]
+    else:
+        decision_result = build_deterministic_decision_result(cars_selected_slots, server_computed_result)
+    server_computed_result["decision_result"] = decision_result
     ai_payload = build_ai_payload(server_computed_result, narrative, "ok" if reason is None else "fallback", reason)
     current_app.logger.info(
         "[COMPARISON] compare_ai_regenerate response request_id=%s comparison_id=%s ai_status=%s ai_reason=%s narrative_shape=%s",
@@ -3778,4 +4120,5 @@ def regenerate_comparison_ai(comparison_id: int, user_id: int) -> Optional[Dict[
         "comparison_id": comparison_id,
         "ai": ai_payload,
         "narrative": narrative,
+        "decision_result": decision_result,
     }
