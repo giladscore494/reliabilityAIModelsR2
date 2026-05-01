@@ -28,7 +28,13 @@ def test_gemini_model_routing(monkeypatch):
 
 
 def test_car_advisor_prompt_construction_no_fstring_brace_error(monkeypatch):
-    """Regression: f-string with JSON schema examples must not raise ValueError."""
+    """Regression: f-string with JSON schema examples must not raise ValueError.
+
+    Unescaped literal braces inside a Python f-string cause:
+        ValueError: Invalid format specifier '...' for object of type 'str'
+    This test ensures the prompt builds without error and that the JSON schema
+    field names are present in the constructed prompt.
+    """
     captured = {}
 
     class FakeModels:
@@ -39,16 +45,12 @@ def test_car_advisor_prompt_construction_no_fstring_brace_error(monkeypatch):
     monkeypatch.setattr(factory, "_execute_with_timeout", lambda fn, _timeout: (fn(), None))
     monkeypatch.setattr(extensions, "advisor_client", types.SimpleNamespace(models=FakeModels()))
 
-    # Must not raise ValueError: Invalid format specifier
-    try:
-        factory.car_advisor_call_gemini_with_search({"driver_age": 30})
-    except ValueError as exc:
-        raise AssertionError(
-            f"Prompt construction raised ValueError (unescaped braces in f-string): {exc}"
-        ) from exc
+    # If any literal brace is unescaped in the f-string, Python raises ValueError
+    # before the model call even happens.  Let the exception propagate naturally.
+    factory.car_advisor_call_gemini_with_search({"driver_age": 30})
 
     prompt = captured.get("contents", "")
-    # Verify the schema examples reached the prompt with correct brace content
+    # Verify the JSON schema field names reach the prompt intact
     assert '"rating"' in prompt
     assert '"organization"' in prompt
     assert '"annual_fee_ils"' in prompt
