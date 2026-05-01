@@ -1,0 +1,32 @@
+<!-- Login Modal - shared component -->
+<div id="login-modal" class="hidden fixed inset-0 z-[9999] flex items-center justify-center">
+    <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" onclick="window.hideLoginModal()"></div>
+    <div class="relative bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl p-8 max-w-md w-full mx-4 text-center">
+        <button type="button" onclick="window.hideLoginModal()" class="absolute top-4 left-4 text-slate-400 hover:text-white transition text-xl" aria-label="סגור">✕</button>
+        <div class="mb-6">
+            <div class="w-16 h-16 mx-auto rounded-2xl bg-primary/15 text-primary flex items-center justify-center mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+            </div>
+            <h2 class="text-2xl font-extrabold text-white mb-2">התחבר כדי להמשיך</h2>
+            <p class="text-slate-400 text-sm leading-relaxed">כדי להשתמש בשירות זה, יש להתחבר עם חשבון Google. ההתחברות מהירה ובטוחה.</p>
+        </div>
+        <a href="{{ url_for('public.login') }}" class="inline-flex items-center justify-center w-full px-8 py-3 rounded-2xl bg-gradient-to-r from-primary to-secondary text-white font-bold text-lg shadow-lg shadow-primary/20 hover:scale-[1.02] transition-transform">
+            התחבר עם Google
+        </a>
+        <p class="text-xs text-slate-500 mt-4">בהמשך ההתחברות, אתה מסכים ל<a href="{{ url_for('public.terms') }}" class="text-primary hover:underline">תנאי השימוש</a> ול<a href="{{ url_for('public.privacy') }}" class="text-primary hover:underline">מדיניות הפרטיות</a>.</p>
+    </div>
+</div>
+
+<script nonce="{{ csp_nonce }}">
+    window.showLoginModal = function(source) {
+        document.getElementById('login-modal').classList.remove('hidden');
+        if (typeof posthog !== 'undefined' && posthog.capture) {
+            try { posthog.capture('signup_clicked', { source: source || 'unknown' }); } catch(e) {}
+        }
+    };
+    window.hideLoginModal = function() {
+        document.getElementById('login-modal').classList.add('hidden');
+    };
+</script>

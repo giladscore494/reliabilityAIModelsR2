@@ -13,6 +13,9 @@ Use this checklist for every deployment or schema change to avoid duplicate sche
   - `search_history.duration_ms` column
   - `advisor_history.duration_ms` column
   - `legal_acceptance` table
+  - `research_consent` table
+  - `research_response_session` table
+  - `research_response` table
 
 ## Deploy
 - Run `flask --app main:create_app db upgrade` and confirm success.
@@ -26,6 +29,8 @@ Use this checklist for every deployment or schema change to avoid duplicate sche
   - Login works
   - History/dashboard pages load (read-only)
   - AI request succeeds after legal acceptance
+  - Research consent modal stores approvals before research answers are saved
+  - Research answers save successfully in reliability / compare / advisor flows
 
 ## Ongoing Guidance
 - Never write migrations that assume a table/column/index doesn’t exist; use idempotent checks where feasible.

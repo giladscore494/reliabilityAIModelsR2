@@ -37,16 +37,14 @@ jobs:
         SECRET_KEY: test-secret-key-for-ci
         SKIP_CREATE_ALL: "1"
         
-    - name: Lint with ruff (if available)
-      continue-on-error: true
+    - name: Lint with ruff
       run: |
         cd my-flask-app
-        pip install ruff || true
-        ruff check . --select E,F,W || echo "Ruff not available or found issues (non-blocking)"
+        pip install ruff
+        ruff check . --select E,F,W
         
     - name: Security audit with pip-audit
-      continue-on-error: true
       run: |
         pip install pip-audit
         cd my-flask-app
-        pip-audit || echo "Security audit found issues (non-blocking for now)"
+        pip-audit
