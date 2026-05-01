@@ -1013,7 +1013,6 @@
                     <h3 class="text-lg font-bold text-white mb-2 flex items-center gap-2">
                         זהות הרכב
                         ${statusInfo ? `<span class="text-[10px] px-2 py-0.5 rounded-full border ${statusInfo.cls}">${statusInfo.label}</span>` : ''}
-                        ${marketStatus === 'discontinued_in_israel' ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-red-600/30 text-red-200 border border-red-500/50 font-bold">לא נמכר חדש בישראל</span>` : ''}
                     </h3>
                     <div class="grid grid-cols-2 gap-2 text-sm">
                         ${vi.make ? `<div><span class="text-slate-400">יצרן: </span><span class="text-white">${safe(vi.make)}</span></div>` : ''}
