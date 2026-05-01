@@ -1500,6 +1500,8 @@ def _build_single_winner_top_reasons(results: Dict[str, Any], winner_id: str) ->
         key=lambda x: x[1],
         reverse=True,
     )
+    # Numeric scores are intentionally omitted here to comply with the
+    # no-score-in-UI policy (see COMPARE_SCORE_EXPLANATION_TEMPLATE_HE).
     return [
         f"יתרון ב{CATEGORY_LABELS_HE.get(cat_name, cat_name)}"
         for cat_name, score in sorted_cats[:3]
@@ -1759,6 +1761,9 @@ def _repair_json_once(text: str) -> str:
 
 
 def _is_valid_stage_a_payload(payload: Any) -> bool:
+    # Use superset check (>=) so extra keys returned by the LLM do not
+    # discard an otherwise valid payload.  The four required keys are
+    # validated individually below, so unexpected extra keys are harmless.
     return (
         isinstance(payload, dict)
         and set(payload.keys()) >= _STAGE_A_REQUIRED_KEYS
