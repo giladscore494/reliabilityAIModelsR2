@@ -120,7 +120,7 @@
 
     function showRequestAwareError(message, requestId) {
         const suffix = requestId ? ` (ID: ${requestId})` : '';
-        alert(`${message}${suffix}`);
+        showAnalyzeError(`${message}${suffix}`, { type: 'request_error' });
     }
 
     function normalizeInfoReview(data) {
@@ -671,9 +671,17 @@
                     if (progressRing) {
                         progressRing.style.strokeDashoffset = offset;
                         
-                        // Rainbow hue cycling (0-360 degrees over p75_ms)
-                        const hue = (elapsedMs / p75_ms) * 360;
-                        progressRing.style.stroke = `hsl(${hue % 360}, 80%, 60%)`;
+                        if (elapsedMs > p75_ms) {
+                            // Overtime: pulsing animation on ring
+                            progressRing.classList.add('ring-overtime');
+                            progressRing.style.stroke = 'hsl(30, 90%, 55%)';
+                            if (statusTextEl) statusTextEl.textContent = 'ממשיך לעבד... (חורג מהזמן המשוער)';
+                        } else {
+                            progressRing.classList.remove('ring-overtime');
+                            // Rainbow hue cycling (0-360 degrees over p75_ms)
+                            const hue = (elapsedMs / p75_ms) * 360;
+                            progressRing.style.stroke = `hsl(${hue % 360}, 80%, 60%)`;
+                        }
                     }
                 }, 100);
             }
@@ -693,8 +701,15 @@
                 const offset = RING_CIRCUMFERENCE * (1 - progress);
                 if (progressRing) {
                     progressRing.style.strokeDashoffset = offset;
-                    const hue = (elapsedMs / 20000) * 360;
-                    progressRing.style.stroke = `hsl(${hue % 360}, 80%, 60%)`;
+                    if (elapsedMs > 20000) {
+                        progressRing.classList.add('ring-overtime');
+                        progressRing.style.stroke = 'hsl(30, 90%, 55%)';
+                        if (statusTextEl) statusTextEl.textContent = 'ממשיך לעבד... (חורג מהזמן המשוער)';
+                    } else {
+                        progressRing.classList.remove('ring-overtime');
+                        const hue = (elapsedMs / 20000) * 360;
+                        progressRing.style.stroke = `hsl(${hue % 360}, 80%, 60%)`;
+                    }
                 }
             }, 100);
         });
@@ -840,6 +855,7 @@
         const textSpan = submitBtn.querySelector('.button-text');
 
         submitBtn.disabled = isSubmitting;
+        submitBtn.setAttribute('aria-busy', isSubmitting ? 'true' : 'false');
         if (spinner) spinner.classList.toggle('hidden', !isSubmitting);
         if (textSpan) textSpan.classList.toggle('opacity-60', isSubmitting);
     }
@@ -1689,12 +1705,14 @@
         const id2 = select2.value;
         
         if (!id1 || !id2) {
-            alert('נא לבחור שני חיפושים להשוואה');
+            resultDiv.innerHTML = '<p class="text-red-400 text-sm p-3 bg-red-950/30 border border-red-900/50 rounded-lg">נא לבחור שני חיפושים להשוואה</p>';
+            resultDiv.classList.remove('hidden');
             return;
         }
         
         if (id1 === id2) {
-            alert('נא לבחור שני חיפושים שונים');
+            resultDiv.innerHTML = '<p class="text-red-400 text-sm p-3 bg-red-950/30 border border-red-900/50 rounded-lg">נא לבחור שני חיפושים שונים</p>';
+            resultDiv.classList.remove('hidden');
             return;
         }
         
@@ -1712,7 +1730,8 @@
             ]);
             
             if (!res1.ok || !res2.ok) {
-                alert('שגיאה בטעינת נתוני ההשוואה');
+                resultDiv.innerHTML = '<p class="text-red-400 text-sm p-3 bg-red-950/30 border border-red-900/50 rounded-lg">שגיאה בטעינת נתוני ההשוואה</p>';
+                resultDiv.classList.remove('hidden');
                 return;
             }
             
@@ -1842,7 +1861,8 @@
             
         } catch (err) {
             console.error('Error comparing history:', err);
-            alert('שגיאה בהשוואה');
+            resultDiv.innerHTML = '<p class="text-red-400 text-sm p-3 bg-red-950/30 border border-red-900/50 rounded-lg">שגיאה בהשוואה</p>';
+            resultDiv.classList.remove('hidden');
         }
     };
     // ============================================================

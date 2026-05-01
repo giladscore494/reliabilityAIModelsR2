@@ -262,11 +262,11 @@ def mileage_adjustment(mileage_range: str) -> Tuple[int, Optional[str]]:
     m = normalize_text(mileage_range or "")
     if not m:
         return 0, None
-    if "200" in m and "+" in m:
+    if re.search(r'(?<!\d)200(?!\d)', m) and "+" in m:
         return -15, "הציון הותאם מטה עקב קילומטראז׳ גבוה מאוד (200K+)."
-    if "150" in m and "200" in m:
+    if re.search(r'(?<!\d)150(?!\d)', m) and re.search(r'(?<!\d)200(?!\d)', m):
         return -10, "הציון הותאם מטה עקב קילומטראז׳ גבוה (150–200 אלף ק״מ)."
-    if "100" in m and "150" in m:
+    if re.search(r'(?<!\d)100(?!\d)', m) and re.search(r'(?<!\d)150(?!\d)', m):
         return -5, "הציון הותאם מעט מטה עקב קילומטראז׳ בינוני-גבוה (100–150 אלף ק״מ)."
     return 0, None
 
@@ -491,10 +491,10 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
     - להחזיר "לחץ עלות תחזוקה" ברמת low/medium/high (לא מספר), בתוך risk_signals.
     - להחזיר analysis_confidence כ-low/medium/high (לא מספר), בתוך risk_signals.
      - לשמר את כל חלקי חוויית המשתמש הקיימים (סיכומים, תקלות, עלויות, דוח סיכונים, מתחרים, בדיקות, מקורות).
-4.1) כאשר תקלה נראית כמו recall/campaign/official fix:
-     - לציין אותה כפריט מבוסס-מקור עם sources.
-     - להבדיל בין "חולשת אמינות מערכתית כרונית" לבין "קמפיין/עדכון/בדיקה שהקונה צריך לאמת".
-     - למקם פעולות אימות ב-buyer_checklist / top_risks בלי לטעון שהרכב הספציפי מוזנח.
+     - כאשר תקלה נראית כמו recall/campaign/official fix:
+       · לציין אותה כפריט מבוסס-מקור עם sources.
+       · להבדיל בין "חולשת אמינות מערכתית כרונית" לבין "קמפיין/עדכון/בדיקה שהקונה צריך לאמת".
+       · למקם פעולות אימות ב-buyer_checklist / top_risks בלי לטעון שהרכב הספציפי מוזנח.
 5) עבור כל recall וכל תקלה מערכתית בדרגת חומרה high, ודא שקיים לפחות URL תומך אחד ב-sources.
 6) risk_signals: כל הערכים חייבים להיות קטגוריאליים (low/medium/high, rare/sometimes/common). אסור להחזיר floats או מספרים פנימיים.
 6.1) שדות הכיול (reliability_bias, recall_penalty_sensitivity וכו') — להחזיר null בכולם. הניקוד מתבצע דטרמיניסטית בקוד בלבד.

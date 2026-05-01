@@ -303,7 +303,7 @@ HORSEPOWER_HIGH_THRESHOLD = 180
 HORSEPOWER_MEDIUM_THRESHOLD = 120
 PARTIAL_COMPARISON_SUMMARY_PREFIX = "השוואה חלקית:"
 PARTIAL_COMPARISON_DISCLAIMER = "ההשוואה חלקית כי לא נמצא מידע מלא על כל הרכבים."
-COMPARE_SCORE_EXPLANATION_TEMPLATE_HE = "ציון: {score}/100"
+COMPARE_SCORE_EXPLANATION_TEMPLATE_HE = ""
 
 COMPARE_AI_METRICS = {
     "compare_ai_calls_total": 0,
@@ -1061,7 +1061,6 @@ Return a SINGLE JSON object with this EXACT structure:
       "reliability_risk": {{
         "reliability_rating": {{
           "value": 0-100 or null,
-          "confidence": 0.0-1.0,
           "missing_reason": "reason if null",
           "sources": [
             {{"url": "https://...", "title": "Source title", "snippet": "Brief quote (max 25 words)"}}
@@ -1069,7 +1068,6 @@ Return a SINGLE JSON object with this EXACT structure:
         }},
         "major_failure_risk": {{
           "value": "low" | "medium" | "high" | null,
-          "confidence": 0.0-1.0,
           "missing_reason": "reason if null",
           "sources": [...]
         }},
@@ -1077,25 +1075,21 @@ Return a SINGLE JSON object with this EXACT structure:
           "value": [
             {{"issue": "Issue name", "frequency": "common/rare/occasional"}}
           ] or null,
-          "confidence": 0.0-1.0,
           "missing_reason": "reason if null",
           "sources": [...]
         }},
         "mileage_sensitivity": {{
           "value": "low" | "medium" | "high" | null,
-          "confidence": 0.0-1.0,
           "missing_reason": "reason if null",
           "sources": [...]
         }},
         "maintenance_complexity": {{
           "value": "low" | "medium" | "high" | null,
-          "confidence": 0.0-1.0,
           "missing_reason": "reason if null",
           "sources": [...]
         }},
         "expected_maintenance_cost_level": {{
           "value": "low" | "medium" | "high" | null,
-          "confidence": 0.0-1.0,
           "missing_reason": "reason if null",
           "sources": [...]
         }}
@@ -1103,31 +1097,26 @@ Return a SINGLE JSON object with this EXACT structure:
       "ownership_cost": {{
         "fuel_economy_real_world": {{
           "value": <number in L/100km> or null,
-          "confidence": 0.0-1.0,
           "missing_reason": "reason if null",
           "sources": [...]
         }},
         "insurance_cost_level": {{
           "value": "low" | "medium" | "high" | null,
-          "confidence": 0.0-1.0,
           "missing_reason": "reason if null",
           "sources": [...]
         }},
         "depreciation_value_retention": {{
           "value": "low" | "medium" | "high" | null,
-          "confidence": 0.0-1.0,
           "missing_reason": "reason if null",
           "sources": [...]
         }},
         "parts_availability": {{
           "value": "low" | "medium" | "high" | null,
-          "confidence": 0.0-1.0,
           "missing_reason": "reason if null",
           "sources": [...]
         }},
         "service_network_ease": {{
           "value": "low" | "medium" | "high" | null,
-          "confidence": 0.0-1.0,
           "missing_reason": "reason if null",
           "sources": [...]
         }}
@@ -1135,37 +1124,31 @@ Return a SINGLE JSON object with this EXACT structure:
       "practicality_comfort": {{
         "cabin_space": {{
           "value": "small" | "medium" | "large" | null,
-          "confidence": 0.0-1.0,
           "missing_reason": "reason if null",
           "sources": [...]
         }},
         "trunk_space_liters": {{
           "value": <number in liters> or null,
-          "confidence": 0.0-1.0,
           "missing_reason": "reason if null",
           "sources": [...]
         }},
         "ride_comfort": {{
           "value": "low" | "medium" | "high" | null,
-          "confidence": 0.0-1.0,
           "missing_reason": "reason if null",
           "sources": [...]
         }},
         "noise_insulation": {{
           "value": "low" | "medium" | "high" | null,
-          "confidence": 0.0-1.0,
           "missing_reason": "reason if null",
           "sources": [...]
         }},
         "city_driveability": {{
           "value": "low" | "medium" | "high" | null,
-          "confidence": 0.0-1.0,
           "missing_reason": "reason if null",
           "sources": [...]
         }},
         "features_value": {{
           "value": "low" | "medium" | "high" | null,
-          "confidence": 0.0-1.0,
           "missing_reason": "reason if null",
           "sources": [...]
         }}
@@ -1173,31 +1156,26 @@ Return a SINGLE JSON object with this EXACT structure:
       "driving_performance": {{
         "acceleration_0_100": {{
           "value": <number in seconds> or null,
-          "confidence": 0.0-1.0,
           "missing_reason": "reason if null",
           "sources": [...]
         }},
         "engine_power_hp": {{
           "value": <number in hp> or null,
-          "confidence": 0.0-1.0,
           "missing_reason": "reason if null",
           "sources": [...]
         }},
         "handling_stability": {{
           "value": "low" | "medium" | "high" | null,
-          "confidence": 0.0-1.0,
           "missing_reason": "reason if null",
           "sources": [...]
         }},
         "braking_performance": {{
           "value": "low" | "medium" | "high" | null,
-          "confidence": 0.0-1.0,
           "missing_reason": "reason if null",
           "sources": [...]
         }},
         "highway_stability": {{
           "value": "low" | "medium" | "high" | null,
-          "confidence": 0.0-1.0,
           "missing_reason": "reason if null",
           "sources": [...]
         }}
@@ -1210,14 +1188,13 @@ Return a SINGLE JSON object with this EXACT structure:
 RULES:
 1. Use your best available knowledge to fill every metric. Official sources are preferred but NOT required — well-reasoned estimates based on general knowledge, segment norms, and known characteristics are acceptable and encouraged.
 2. Only set value=null if you genuinely have no basis whatsoever to estimate. Prefer a low-confidence estimate over null.
-3. Confidence must reflect how certain you are (0.0-1.0). Use 0.4-0.6 for estimates without direct sources. Use 0.7-1.0 for data backed by known facts.
-4. Sources are optional. If you have a URL, include it. If not, you may omit the sources array or leave it empty — do NOT set value=null just because you lack a URL.
-5. Segment-aware labels are required: judge each car against realistic expectations of its inferred mission, not one universal standard.
-6. Keep the 4 main categories unchanged; only the sub-priority logic is segment-aware.
-7. Do NOT compare cars or state winners - only provide raw data.
-8. Return ONLY valid JSON. No markdown, no explanations.
-9. Do not wrap the response in an array; return one object that starts with {{ and ends with }}.
-10. If a required field is truly unknown, keep the key and use null instead of omitting it — but always try to estimate first.
+3. Sources are optional. If you have a URL, include it. If not, you may omit the sources array or leave it empty — do NOT set value=null just because you lack a URL.
+4. Segment-aware labels are required: judge each car against realistic expectations of its inferred mission, not one universal standard.
+5. Keep the 4 main categories unchanged; only the sub-priority logic is segment-aware.
+6. Do NOT compare cars or state winners - only provide raw data.
+7. Return ONLY valid JSON. No markdown, no explanations.
+8. Do not wrap the response in an array; return one object that starts with {{ and ends with }}.
+9. If a required field is truly unknown, keep the key and use null instead of omitting it — but always try to estimate first.
 """.strip()
 
 
@@ -1242,9 +1219,9 @@ def build_compare_writer_prompt(
                 "comfort_practicality": grounded_car.get("comfort_practicality") or {},
                 "performance_driving": grounded_car.get("performance_driving") or {},
             },
-            "notes": (grounded_car.get("short_notes") or [])[:4],
+            "notes": (grounded_car.get("short_notes") or [])[:3],
             "facts": grounded_car.get("facts") or {},
-            "sources": grounded_car.get("sources") or [],
+            "sources": (grounded_car.get("sources") or [])[:3],
         }
 
     slot_keys = _ordered_compare_slot_keys(
@@ -1319,8 +1296,6 @@ HARD RULES:
 9. Never return [] for per-car arrays if `overall_decision`, `category_decisions`, `key_differences`, or the evidence snapshot can support safe fallback wording.
 10. If evidence is thin, write cautious guidance about fit, trade-offs, and what to verify before purchase instead of leaving arrays empty.
 """
-    if len(prompt) > COMPARE_WRITER_PROMPT_CHAR_CAP:
-        prompt = prompt[:COMPARE_WRITER_PROMPT_CHAR_CAP]
     return prompt
 
 def build_compare_writer_retry_prompt(cars_selected_slots: Dict, computed_result: Dict) -> str:
@@ -1554,7 +1529,7 @@ def _build_tie_top_reasons(results: Dict[str, Any]) -> List[str]:
     tie_candidates.sort(key=lambda item: (-item[0], item[1], item[2]))
 
     reasons = [
-        f"ב{CATEGORY_LABELS_HE.get(cat_name, cat_name)} הפער קטן מאוד בין הרכבים ({spread:.1f} נק')."
+        f"ב{CATEGORY_LABELS_HE.get(cat_name, cat_name)} הפער קטן מאוד בין הרכבים."
         for _avg_score, spread, cat_name in tie_candidates[:3]
     ]
     if reasons:
@@ -1576,7 +1551,7 @@ def _build_safe_top_reasons(results: Dict[str, Any]) -> List[str]:
 def _build_overall_winner_message(results: Dict[str, Any]) -> str:
     winner_id = results.get("overall_winner")
     if _is_real_winner_id(winner_id, results):
-        return "נמצא יתרון כולל לאחד הרכבים לפי הציון המשוקלל."
+        return "נמצא יתרון כולל לאחד הרכבים."
     if winner_id == "tie":
         return "ההשוואה הכוללת צמודה ולכן הוגדרה כתיקו."
     return "לא ניתן לקבוע מנצח כולל על בסיס המידע הזמין."
@@ -2084,8 +2059,14 @@ def sanitize_decision_result(
     for slot_key in slot_keys:
         choose_key = f"choose_{slot_key}_if"
         avoid_key = f"avoid_or_check_{slot_key}_if"
-        sanitized[choose_key] = _sanitize_decision_list(decision_result.get(choose_key), request_id, choose_key) or fallback[choose_key]
-        sanitized[avoid_key] = _sanitize_decision_list(decision_result.get(avoid_key), request_id, avoid_key) or fallback[avoid_key]
+        sanitized[choose_key] = (
+            _sanitize_decision_list(decision_result.get(choose_key), request_id, choose_key)
+            or fallback.get(choose_key, [])
+        )
+        sanitized[avoid_key] = (
+            _sanitize_decision_list(decision_result.get(avoid_key), request_id, avoid_key)
+            or fallback.get(avoid_key, [])
+        )
     raw_categories = decision_result.get("category_decisions") if isinstance(decision_result.get("category_decisions"), list) else []
     by_key = {item.get("category_key"): item for item in raw_categories if isinstance(item, dict)}
     for key, name in DECISION_CATEGORY_DEFINITIONS:
@@ -2338,7 +2319,7 @@ def _salvage_partial_writer_output(
             if isinstance(score, (int, float)) and not isinstance(score, bool):
                 explanations[car_key] = COMPARE_SCORE_EXPLANATION_TEMPLATE_HE.format(
                     score=int(score)
-                )
+                ) if COMPARE_SCORE_EXPLANATION_TEMPLATE_HE else ""
             else:
                 explanations[car_key] = ""
         category_explanations.append({
