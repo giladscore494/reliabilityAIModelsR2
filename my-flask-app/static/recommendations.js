@@ -44,7 +44,7 @@
         })
         : null;
     const advisorCopy = {
-        fitFallback: 'Fit Score גבוה כאן משקף התאמה לתקציב, לשימוש ולהעדפות שסימנת בשאלון.',
+        fitFallback: 'התאמת העדפות גבוהה כאן משקפת התאמה לתקציב, לשימוש ולהעדפות שסימנת בשאלון בלבד.',
         caveatFallback: 'אין כאן אישור קנייה אוטומטי: לפני החלטה בדוק היסטוריית טיפולים, היסטוריית ביטוח, מצב בפועל ובדיקת קנייה מקצועית.'
     };
     let isLoading = false;
@@ -798,7 +798,7 @@
         `;
     }
 
-    // --- כרטיסי Highlight (התאמה כללית, הכי זול, הכי אמין אם קיים) ---
+    // --- כרטיסי Highlight (התאמת העדפות, עלות אחזקה, סיכון תחזוקה אם קיים) ---
     function getReliabilityScore(car) {
         const candidates = ['reliability_score', 'reliability_index', 'reliability'];
         for (const key of candidates) {
@@ -843,11 +843,11 @@
 
         if (bestFit) {
             cards.push({
-                label: 'התאמה כללית הכי גבוהה',
-                badge: 'Fit Score מוביל',
+                label: 'התאמת העדפות גבוהה',
+                badge: 'התאמת העדפות',
                 car: bestFit,
-                chip: bestFit.fit_score != null ? `${Math.round(bestFit.fit_score)}% Fit` : '',
-                text: 'זה הדגם שהכי תואם למה שביקשת בשאלון. הציון משקף התאמת העדפות בלבד, ולא קובע שזה בהכרח הרכב הכי אמין או הכי כדאי לקנייה.'
+                chip: bestFit.fit_score != null ? `${Math.round(bestFit.fit_score)}% התאמה` : '',
+                text: 'זה הדגם שתואם היטב למה שביקשת בשאלון. המדד משקף התאמת העדפות בלבד, ולא קובע אמינות בפועל או כדאיות קנייה.'
             });
         }
 
@@ -865,10 +865,10 @@
             const relScore = getReliabilityScore(mostReliable);
             const relGrade = getReliabilityGrade(relScore);
             cards.push({
-                label: 'פרופיל תחזוקה פשוט יותר',
-                badge: 'אינדיקציית תחזוקה',
+                label: 'סיכון תחזוקה נמוך יותר',
+                badge: 'סיכון אמינות',
                 car: mostReliable,
-                chip: relScore != null ? `רגישות תחזוקה: ${relGrade.label}` : '',
+                chip: relScore != null ? `סיכון אמינות: ${relGrade.label}` : '',
                 grade: relGrade,
                 text: 'האינדיקציה מבוססת על מידע כללי ודגמי לגבי תחזוקה ותקלות, ולא קובעת את מצב הרכב הספציפי.'
             });
@@ -909,7 +909,7 @@
                         ` : ''}
                         ${grade ? `
                             <div class="mt-1 inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold ${gradeClass}">
-                                אינדיקציית תחזוקה כללית: ${gradeLabel}
+                                סיכון אמינות: ${gradeLabel}
                             </div>
                         ` : ''}
                     </div>
@@ -1025,12 +1025,12 @@
                     </div>
                     <div class="flex flex-col items-end gap-1">
                         <span class="inline-flex items-center justify-center min-w-[52px] px-2 py-1 rounded-full text-[11px] font-bold ${fitClass}">
-                            ${fit !== null ? fit + '% Fit' : '?'}
+                            ${fit !== null ? fit + '% התאמה' : '?'}
                         </span>
                         <span class="text-[11px] text-slate-400">התאמת העדפות בלבד</span>
                         ${reliabilityValue != null ? `
                             <span class="inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold ${reliabilityGrade.className}">
-                                רגישות תחזוקה: ${escapeHtml(reliabilityGrade.label)}
+                                סיכון אמינות: ${escapeHtml(reliabilityGrade.label)}
                             </span>
                         ` : ''}
                         ${marketSupply ? `
@@ -1102,7 +1102,7 @@
                             </tr>` : ''}
 
                             <tr>
-                                <th class="px-2 py-1 font-semibold text-slate-300">ציון בטיחות (1–10)</th>
+                                <th class="px-2 py-1 font-semibold text-slate-300">בטיחות: מקור רשמי / לא נמצא מקור רשמי</th>
                                 <td class="px-2 py-1 text-slate-100">${safeSafetyRating}</td>
                             </tr>
                             ${safetyMethod ? `
@@ -1122,7 +1122,7 @@
                             </tr>` : ''}
 
                             <tr>
-                                <th class="px-2 py-1 font-semibold text-slate-300">שמירת ערך (1–10)</th>
+                                <th class="px-2 py-1 font-semibold text-slate-300">שמירת ערך – אינדיקציה כללית</th>
                                 <td class="px-2 py-1 text-slate-100">${safeResaleValue}</td>
                             </tr>
                             ${resaleMethod ? `
@@ -1132,7 +1132,7 @@
                             </tr>` : ''}
 
                             <tr>
-                                <th class="px-2 py-1 font-semibold text-slate-300">ביצועים (1–10)</th>
+                                <th class="px-2 py-1 font-semibold text-slate-300">ביצועים: חלש/סביר/חזק ביחס לקטגוריה</th>
                                 <td class="px-2 py-1 text-slate-100">${safePerformanceScore}</td>
                             </tr>
                             ${performanceMethod ? `
@@ -1152,7 +1152,7 @@
                             </tr>` : ''}
 
                             <tr>
-                                <th class="px-2 py-1 font-semibold text-slate-300">התאמה לנהג (1–10)</th>
+                                <th class="px-2 py-1 font-semibold text-slate-300">התאמת העדפות לנהג</th>
                                 <td class="px-2 py-1 text-slate-100">${safeSuitability}</td>
                             </tr>
                             ${suitabilityMethod ? `
@@ -1234,7 +1234,7 @@
         // כרטיסי Highlight לפי התוצאות
         renderHighlightCards(cars);
 
-        // מיון לפי Fit Score, גדול לקטן
+        // מיון לפי התאמת העדפות, גדול לקטן
         cars.sort((a, b) => (b.fit_score || 0) - (a.fit_score || 0));
 
         const cardsHtml = cars.map((car, idx) => renderCarCard(car, idx)).join('');
@@ -1242,7 +1242,7 @@
         // Safe innerHTML: renderCarCard escapes all dynamic values.
         tableWrapper.innerHTML = `
             <div class="mb-2 text-[11px] text-slate-400">
-                לכל רכב מוצגת כרטיסייה נפרדת עם התאמת העדפות לצד סיכונים והסתייגויות נפרדים. Fit Score אינו מדד לאמינות ואינו אישור קנייה.
+                לכל רכב מוצגת כרטיסייה נפרדת עם התאמת העדפות לצד סיכונים והסתייגויות נפרדים. התאמת העדפות אינה מדד לאמינות ואינה אישור קנייה.
             </div>
             <div class="space-y-4">
                 ${cardsHtml}

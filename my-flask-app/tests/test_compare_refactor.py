@@ -454,8 +454,8 @@ class TestCompareWriterPromptAndValidation:
         prompt = build_compare_writer_prompt(cars_selected_slots, computed_result, {"cars": {}, "assumptions": {}})
 
         assert '"cars":{"car_1"' in prompt
-        assert '"car_3":{"label":"Mazda 3 2020"}' in prompt
-        assert '"winner": "car_1|car_2|car_3|tie"' in prompt
+        assert '"car_3":{"label":"Mazda 3 2020","evidence"' in prompt
+        assert '"label":"car_1|car_2|car_3|tie|depends|unknown"' in prompt
         assert "carA|carB|tie" not in prompt
 
     def test_writer_validator_accepts_extra_keys_and_truncates_long_fields(self):
@@ -720,3 +720,108 @@ class TestCompareDetailWithNarrative:
         # Also verify backward-compatible list
         assert isinstance(data["data"]["cars_selected_list"], list)
         assert len(data["data"]["cars_selected_list"]) == 2
+
+
+def test_compare_response_contains_decision_result_shape():
+    from app.services.comparison_service import build_deterministic_decision_result
+
+    slots = map_cars_to_slots([
+        {"make": "Toyota", "model": "Corolla", "year": 2020},
+        {"make": "Hyundai", "model": "Elantra", "year": 2020},
+    ])
+    result = build_deterministic_decision_result(slots, {"overall_winner": "tie", "cars": {"car_1": {}, "car_2": {}}})
+    assert "overall_decision" in result
+    assert "category_decisions" in result
+    assert result["overall_decision"]["label"] in {"tie", "depends", "unknown", "car_1", "car_2"}
+
+
+def test_compare_decision_result_has_no_visible_numeric_scores():
+    from app.services.comparison_service import sanitize_decision_result
+
+    cleaned = sanitize_decision_result(
+        {
+            "overall_decision": {"label": "car_1", "text": "84/100 ואני ממליץ"},
+            "category_decisions": [{"category_key": "pricing_and_value", "preferred": "car_1", "why": "winnerScore 9/10"}],
+            "practical_summary": "overall_score מתוך 100",
+        },
+        {"car_1": {}, "car_2": {}},
+        {"cars": {"car_1": {}, "car_2": {}}},
+        "test-request",
+    )
+    serialized = json.dumps(cleaned, ensure_ascii=False)
+    forbidden = ["/100", "/10", "winnerScore", "overall_score", "category_score"]
+    assert not any(token in serialized for token in forbidden)
+
+
+def test_compare_template_does_not_render_score_markers():
+    from pathlib import Path
+
+    text = Path("templates/compare.html").read_text(encoding="utf-8")
+    forbidden = ["/100", "מהציון", "winnerScore", "category score", "overall score"]
+    assert not any(token in text for token in forbidden)
+
+
+def test_compare_category_decisions_render_preference_labels():
+    from pathlib import Path
+
+    text = Path("templates/compare.html").read_text(encoding="utf-8")
+    for token in ["עדיפות", "למה זה משנה", "מה לבדוק"]:
+        assert token in text
+
+
+def test_compare_accepts_optional_buyer_profile_validation():
+    from app.services.comparison_service import validate_buyer_profile
+
+    ok, error, profile = validate_buyer_profile({
+        "budget_min": 50000,
+        "budget_max": 90000,
+        "main_use": "family",
+        "annual_km": 18000,
+        "family_size": "זוג + 2",
+        "priority_weights": {"reliability": 11, "fuel": 7},
+    })
+    assert ok is True
+    assert error is None
+    assert profile["main_use"] == "family"
+    assert profile["priority_weights"]["reliability"] == 10
+
+
+def test_compare_rejects_or_sanitizes_bad_buyer_profile():
+    from app.services.comparison_service import validate_buyer_profile
+
+    ok, error, profile = validate_buyer_profile({
+        "budget_max": 999999999,
+        "main_use": "<script>bad</script>",
+        "annual_km": -5,
+        "family_size": "x" * 500,
+    })
+    assert ok is True
+    assert profile["main_use"] == "unknown"
+    assert "budget_max" not in profile
+    assert len(profile["family_size"]) <= 80
+
+
+def test_buyer_profile_does_not_override_vehicle_facts_in_prompt():
+    prompt = build_compare_writer_prompt(
+        {"car_1": {"display_name": "Toyota Corolla"}, "car_2": {"display_name": "Hyundai Elantra"}},
+        {"cars": {"car_1": {}, "car_2": {}}, "overall_winner": "tie"},
+        {"cars": {"car_1": {"car_profile": {"official_safety": {"rating": "5"}}}, "car_2": {}}},
+        {"main_use": "family", "priority_weights": {"safety": 10}},
+    )
+    assert "must not override factual vehicle data" in prompt
+    assert "User preference context only" in prompt
+
+
+def test_compare_stage_b_forbidden_score_text_is_sanitized():
+    from app.services.comparison_service import sanitize_decision_result
+
+    cleaned = sanitize_decision_result(
+        {"overall_decision": {"label": "car_1", "text": "84/100"}, "practical_summary": "תקנה עכשיו"},
+        {"car_1": {}, "car_2": {}},
+        {"cars": {"car_1": {}, "car_2": {}}},
+        "req",
+    )
+    serialized = json.dumps(cleaned, ensure_ascii=False)
+    assert "84/100" not in serialized
+    assert cleaned["overall_decision"]["text"] != "84/100"
+    assert "תקנה" not in cleaned["practical_summary"]

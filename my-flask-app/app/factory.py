@@ -918,6 +918,8 @@ You MUST use the Google Search tool to verify:
 - realistic used prices in Israel (NIS)
 - realistic fuel/energy consumption values
 - common issues (DSG, reliability, recalls)
+- official safety ratings from official safety organizations where available
+- Israeli trim levels, license fee, warranty, and competitors from grounded sources
 
 Hard constraints:
 - Return only ONE top-level JSON object.
@@ -952,7 +954,17 @@ recommended_cars: array of 5–10 cars. EACH car MUST include:
   - comparison_comment (Hebrew)
   - not_recommended_reason (Hebrew or null)
 
-**All explanation fields (all *_method, comparison_comment, not_recommended_reason) MUST be in clean, easy Hebrew.**
+Where feasible, keep the current schema and ALSO add these richer fields per car:
+  - trim_levels_israel: array of Israeli trim objects with sources when known
+  - official_safety: {"rating":"string|null","organization":"string|null","sources":["url"]}
+  - license_fee_israel: {"annual_fee_ils": number|null, "method":"official|unknown", "sources":["url"]}
+  - warranty_israel: {"vehicle_warranty":"string|null","battery_warranty":"string|null","sources":["url"]}
+  - competitors: [{"model":"string","why_consider":"string"}]
+  - best_for: ["Hebrew string"]
+  - not_ideal_for: ["Hebrew string"]
+  - practical_summary: "Hebrew practical summary"
+
+**All explanation fields (all *_method, comparison_comment, not_recommended_reason, practical_summary) MUST be in clean, easy Hebrew.**
 Fit Score means preference-fit only:
 - Fit Score represents how well the car matches the questionnaire preferences only.
 - Fit Score is NOT a reliability score.
@@ -961,6 +973,8 @@ Fit Score means preference-fit only:
 - A car may receive a high Fit Score even if it has reliability, resale, liquidity, or ownership-cost drawbacks, as long as it strongly matches what the user asked for.
 - Risks, drawbacks, and inspection points must appear separately and clearly from the preference-fit explanation.
 - Never frame any result as a final approval to buy.
+- Do not use first-person recommendation language such as "אני ממליץ", "הייתי קונה", "תקנה", or "אל תקנה".
+- Do not call reliability_score a factual truth; treat it only as a rough maintenance-risk indicator and explain caveats.
 
 Explanation field rules:
 - comparison_comment: explain only why the car matches the user's stated preferences, priorities, budget, body style, gearbox, fuel, comfort, usage, or taste.
@@ -970,6 +984,8 @@ Explanation field rules:
 IMPORTANT MARKET REALITY:
 - לפני שאתה בוחר רכבים, תבדוק בזהירות בעזרת החיפוש שדגם כזה אכן נמכר בישראל, בתצורת מנוע וגיר שאתה מציג.
 - אל תמציא דגמים או גרסאות שלא קיימים ביד 2 בישראל.
+- אל תמציא ציוני בטיחות רשמיים, רמות גימור ישראליות, מחירים, אגרות, אחריות או ריקולים. אם אין מקור מאומת, החזר null/unknown והסבר קצר.
+- license_fee_israel.method חייב להיות official או unknown בלבד.
 - מודלים שלא נמכרו כמעט / אין להם היצע – סמן "market_supply": "נמוך" והסבר בעברית.
 
 Return ONLY raw JSON. Do not add any backticks or explanation text.
