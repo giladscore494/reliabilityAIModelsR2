@@ -956,10 +956,10 @@ recommended_cars: array of 5–10 cars. EACH car MUST include:
 
 Where feasible, keep the current schema and ALSO add these richer fields per car:
   - trim_levels_israel: array of Israeli trim objects with sources when known
-  - official_safety: {"rating":"string|null","organization":"string|null","sources":["url"]}
-  - license_fee_israel: {"annual_fee_ils": number|null, "method":"official|unknown", "sources":["url"]}
-  - warranty_israel: {"vehicle_warranty":"string|null","battery_warranty":"string|null","sources":["url"]}
-  - competitors: [{"model":"string","why_consider":"string"}]
+  - official_safety: {{"rating":"string|null","organization":"string|null","sources":["url"]}}
+  - license_fee_israel: {{"annual_fee_ils": number|null, "method":"official|unknown", "sources":["url"]}}
+  - warranty_israel: {{"vehicle_warranty":"string|null","battery_warranty":"string|null","sources":["url"]}}
+  - competitors: [{{"model":"string","why_consider":"string"}}]
   - best_for: ["Hebrew string"]
   - not_ideal_for: ["Hebrew string"]
   - practical_summary: "Hebrew practical summary"
