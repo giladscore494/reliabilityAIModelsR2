@@ -1344,16 +1344,19 @@
         if (!titleEl) return;
         const name = [make, model].filter(Boolean).join(' ').trim();
         if (name) {
-            titleEl.innerHTML = escapeHtml(name);
+            const suffix = Number(slotSuffix) === 3
+                ? '<span class="text-slate-500">(אופציונלי)</span>'
+                : '<span class="text-secondary">*</span>';
+            titleEl.innerHTML = escapeHtml(name) + ' ' + suffix;
         }
     }
 
     function resetSlotTitle(slotSuffix) {
         const titleEl = document.getElementById(`slot-title-${slotSuffix}`);
         if (!titleEl) return;
-        if (slotSuffix === 1) {
+        if (Number(slotSuffix) === 1) {
             titleEl.innerHTML = 'רכב 1 <span class="text-secondary">*</span>';
-        } else if (slotSuffix === 2) {
+        } else if (Number(slotSuffix) === 2) {
             titleEl.innerHTML = 'רכב 2 <span class="text-secondary">*</span>';
         } else {
             titleEl.innerHTML = 'רכב 3 <span class="text-slate-500">(אופציונלי)</span>';
@@ -1680,8 +1683,8 @@
         let prefDisplay;
         if (pref.startsWith('car_') && carsSelected) {
             const carIdx = parseInt(pref.replace('car_', ''), 10);
-            const chipName = carsSelected[pref]?.display_name || `רכב ${carIdx}`;
-            prefDisplay = `<span class="car-result-chip car-chip-${carIdx}">${escapeHtml(chipName)}</span>`;
+            const carDisplayName = carsSelected[pref]?.display_name || `רכב ${carIdx}`;
+            prefDisplay = `<span class="car-result-chip car-chip-${carIdx}">${escapeHtml(carDisplayName)}</span>`;
         } else {
             prefDisplay = `<span class="rounded-full border border-slate-600 bg-slate-900/60 px-3 py-1 text-xs text-slate-300">תלוי שימוש ומצב בפועל</span>`;
         }
