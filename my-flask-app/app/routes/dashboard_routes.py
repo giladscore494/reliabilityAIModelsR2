@@ -6,7 +6,7 @@ from flask_login import current_user, login_required
 
 from app.extensions import db
 from app.models import User, QuotaReservation, DailyQuotaUsage, LegalAcceptance
-from app.utils.http_helpers import api_ok, api_error, get_request_id, is_owner_user
+from app.utils.http_helpers import api_error, get_request_id, is_owner_user
 from app.services import history_service
 from flask_login import logout_user
 
@@ -16,21 +16,20 @@ bp = Blueprint('dashboard', __name__)
 @bp.route('/dashboard')
 @login_required
 def dashboard():
-    user_searches, advisor_entries, search_error, advisor_error = history_service.fetch_dashboard_history(current_user.id)
+    (
+        user_searches,
+        advisor_entries,
+        search_error,
+        advisor_error,
+    ) = history_service.fetch_dashboard_history(current_user.id)
     history_error = search_error or advisor_error
     searches_data = history_service.build_searches_data(user_searches)
-    advisor_count = len(advisor_entries)
-
-    leasing_entries, leasing_error = history_service.fetch_leasing_history(current_user.id)
-    leasing_data = history_service.build_leasing_data(leasing_entries)
-    if leasing_error and not history_error:
-        history_error = leasing_error
+    advisor_data = history_service.build_advisor_data(advisor_entries)
 
     return render_template(
         'dashboard.html',
         searches=searches_data,
-        advisor_count=advisor_count,
-        leasing_history=leasing_data,
+        advisor_history=advisor_data,
         user=current_user,
         is_owner=is_owner_user(),
         history_error=history_error,
@@ -49,10 +48,11 @@ def delete_account():
     """
     Delete user account and all associated data.
     Requires confirmation text 'DELETE' in request body.
-    Requires Content-Type: application/json and Origin/Referer validation (handled by factory.py).
+    Requires Content-Type: application/json and Origin/Referer validation
+    (handled by factory.py).
     """
     request_id = get_request_id()
-    
+
     # Validate Content-Type
     content_type = request.headers.get('Content-Type', '')
     if 'application/json' not in content_type.lower():
@@ -62,7 +62,7 @@ def delete_account():
             status=400,
             request_id=request_id
         )
-    
+
     try:
         data = request.get_json() or {}
     except Exception:
@@ -72,10 +72,10 @@ def delete_account():
             status=400,
             request_id=request_id
         )
-    
+
     try:
         confirmation = data.get('confirm', '').strip()
-        
+
         if confirmation != 'DELETE':
             return api_error(
                 'INVALID_CONFIRMATION',
@@ -83,47 +83,73 @@ def delete_account():
                 status=400,
                 request_id=request_id
             )
-        
+
         user_id = current_user.id
-        user_email = current_user.email
-        
+
         # Check if user is owner (owners cannot be deleted)
         if is_owner_user():
-            resp = jsonify({"error": "forbidden", "message": "Owner account cannot be deleted", "request_id": request_id})
+            resp = jsonify(
+                {
+                    "error": "forbidden",
+                    "message": "Owner account cannot be deleted",
+                    "request_id": request_id,
+                }
+            )
             resp.status_code = 403
             resp.headers["X-Request-ID"] = request_id
             return resp
-        
+
         # Log the deletion (without PII in the message, just request_id)
-        current_app.logger.info(f"[{request_id}] Account deletion initiated for user_id={user_id}")
-        
+        current_app.logger.info(
+            "[%s] Account deletion initiated for user_id=%s",
+            request_id,
+            user_id,
+        )
+
         # Logout first
         logout_user()
-        
-        # Delete user (cascade will delete all related data: searches, advisor_searches, quota, reservations)
-        user_to_delete = User.query.get(user_id)
+
+        # Delete user. Cascade removes search/advisor history;
+        # dependent rows below are deleted explicitly.
+        user_to_delete = db.session.get(User, user_id)
         if user_to_delete:
             # Explicitly remove dependent rows not covered by ORM relationships
-            db.session.query(QuotaReservation).filter_by(user_id=user_id).delete(synchronize_session=False)
-            db.session.query(DailyQuotaUsage).filter_by(user_id=user_id).delete(synchronize_session=False)
-            db.session.query(LegalAcceptance).filter_by(user_id=user_id).delete(synchronize_session=False)
+            db.session.query(QuotaReservation).filter_by(user_id=user_id).delete(
+                synchronize_session=False
+            )
+            db.session.query(DailyQuotaUsage).filter_by(user_id=user_id).delete(
+                synchronize_session=False
+            )
+            db.session.query(LegalAcceptance).filter_by(user_id=user_id).delete(
+                synchronize_session=False
+            )
             db.session.delete(user_to_delete)
             db.session.commit()
-            current_app.logger.info(f"[{request_id}] Account deleted successfully")
-        
-        resp = jsonify({"ok": True, "message": "Account deleted successfully", "request_id": request_id})
+            current_app.logger.info("[%s] Account deleted successfully", request_id)
+
+        resp = jsonify(
+            {
+                "ok": True,
+                "message": "Account deleted successfully",
+                "request_id": request_id,
+            }
+        )
         resp.status_code = 200
         resp.headers["X-Request-ID"] = request_id
         return resp
-        
+
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"[{request_id}] Account deletion failed: {str(e)}")
+        current_app.logger.error(
+            "[%s] Account deletion failed: %s: %s",
+            request_id,
+            type(e).__name__,
+            e,
+        )
         return api_error(
             'DELETE_FAILED',
             'שגיאה במחיקת החשבון',
             status=500,
-            details={'error': str(e)},
             request_id=request_id
         )
 

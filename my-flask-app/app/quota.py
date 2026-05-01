@@ -9,6 +9,9 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.extensions import db
 from app.models import DailyQuotaUsage, QuotaReservation, IpRateLimit
+from app.utils.http_helpers import _utcnow
+
+logger = logging.getLogger(__name__)
 
 # Defaults (overridden by main shim/tests)
 GLOBAL_DAILY_LIMIT = 1000
@@ -20,17 +23,17 @@ MAX_ACTIVE_RESERVATIONS = 1
 
 
 def resolve_app_timezone() -> Tuple[ZoneInfo, str]:
-    tz_name = os.environ.get("APP_TZ", "UTC").strip() or "UTC"
+    tz_name = os.environ.get("APP_TZ", "Asia/Jerusalem").strip() or "Asia/Jerusalem"
     try:
         return ZoneInfo(tz_name), tz_name
     except Exception:
         fallback = "UTC"
-        print(f"[QUOTA] ⚠️ Invalid APP_TZ='{tz_name}', falling back to UTC")
+        logger.warning("[QUOTA] Invalid APP_TZ='%s', falling back to UTC", tz_name)
         return ZoneInfo(fallback), fallback
 
 
 def compute_quota_window(tz: ZoneInfo, *, now: Optional[datetime] = None) -> Tuple[date, datetime, datetime, datetime, datetime, int]:
-    now_utc = now.astimezone(ZoneInfo("UTC")) if now else datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))
+    now_utc = now.astimezone(ZoneInfo("UTC")) if now else _utcnow().replace(tzinfo=ZoneInfo("UTC"))
     now_tz = now_utc.astimezone(tz) if tz else now_utc
     day_key = now_tz.date()
     window_start = datetime.combine(day_key, time.min, tzinfo=tz)
@@ -57,7 +60,7 @@ def log_access_decision(route_name: str, user_id: Optional[int], decision: str, 
     log_msg = f"[ACCESS] {route_name} | {user_info} | {decision}"
     if reason:
         log_msg += f" | {reason}"
-    print(log_msg)
+    logger.info(log_msg)
 
 
 def get_client_ip() -> str:
@@ -77,7 +80,7 @@ def get_daily_quota_usage(user_id: int, day_key: date) -> int:
 
 
 def cleanup_expired_reservations(user_id: int, day_key: date, now_utc: Optional[datetime] = None) -> int:
-    now = now_utc or datetime.utcnow()
+    now = now_utc or _utcnow()
     expire_before = now - timedelta(seconds=QUOTA_RESERVATION_TTL_SECONDS)
     deleted = (
         db.session.query(QuotaReservation)
@@ -141,7 +144,7 @@ def _get_or_create_quota_row(user_id: int, day_key: date, now_utc: datetime) -> 
 
 
 def reserve_daily_quota(user_id: int, day_key: date, limit: int, request_id: str, now_utc: Optional[datetime] = None):
-    now = now_utc or datetime.utcnow()
+    now = now_utc or _utcnow()
     try:
         try:
             cleanup_expired_reservations(user_id, day_key, now)
@@ -194,7 +197,7 @@ def reserve_daily_quota(user_id: int, day_key: date, limit: int, request_id: str
 def finalize_quota_reservation(reservation_id: Optional[int], user_id: int, day_key: date, now_utc: Optional[datetime] = None):
     if not reservation_id:
         return False, get_daily_quota_usage(user_id, day_key)
-    now = now_utc or datetime.utcnow()
+    now = now_utc or _utcnow()
     try:
         with db.session.begin_nested():
             reservation = (
@@ -224,7 +227,7 @@ def finalize_quota_reservation(reservation_id: Optional[int], user_id: int, day_
 def release_quota_reservation(reservation_id: Optional[int], user_id: int, day_key: date, now_utc: Optional[datetime] = None) -> bool:
     if not reservation_id:
         return False
-    now = now_utc or datetime.utcnow()
+    now = now_utc or _utcnow()
     try:
         with db.session.begin_nested():
             reservation = (
@@ -244,7 +247,7 @@ def release_quota_reservation(reservation_id: Optional[int], user_id: int, day_k
 
 
 def check_and_increment_ip_rate_limit(ip: str, limit: int = PER_IP_PER_MIN_LIMIT, now_utc: Optional[datetime] = None):
-    now = now_utc or datetime.utcnow()
+    now = now_utc or _utcnow()
     window_start = now.replace(second=0, microsecond=0)
     resets_at = window_start + timedelta(minutes=1)
     cleanup_before = window_start - timedelta(days=1)
@@ -366,7 +369,7 @@ def rollback_quota_increment(user_id: int, day_key: date) -> int:
             )
             if quota and quota.count > 0:
                 quota.count -= 1
-                quota.updated_at = datetime.utcnow()
+                quota.updated_at = _utcnow()
                 current = quota.count
             else:
                 current = quota.count if quota else 0

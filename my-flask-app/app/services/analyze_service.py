@@ -2,17 +2,18 @@
 """Analyze service logic."""
 
 import os
+import re as _re
 import json
-import hashlib
+import logging
 import traceback
 import time as pytime
-from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, Optional
 
 from flask import current_app
 
 from app.extensions import db
 from app.models import SearchHistory
+from app.utils.analytics import track_event
 from app.quota import (
     compute_quota_window,
     reserve_daily_quota,
@@ -23,213 +24,103 @@ from app.quota import (
     QuotaInternalError,
     ModelOutputInvalidError,
 )
-from app.utils.http_helpers import api_ok, api_error, get_request_id, log_rejection
-from app.utils.sanitization import sanitize_analyze_response, derive_missing_info
+from app.utils.http_helpers import (
+    _utcnow,
+    api_error,
+    api_ok,
+    get_request_id,
+    log_rejection,
+)
+from app.utils.sanitization import (
+    sanitize_analyze_response,
+    derive_missing_info,
+    derive_information_status,
+)
 from app.utils.validation import validate_analyze_request, ValidationError
 from app.factory import (
-    apply_mileage_logic,
     build_combined_prompt,
     get_ai_call_fn,
     current_user_daily_limit,
+    mileage_adjustment,
     normalize_text,
-    MAX_CACHE_DAYS,
+)
+
+logger = logging.getLogger(__name__)
+
+
+_DEPRECATED_SCORE_KEYS = (
+    "base_score_calculated",
+    "estimated_reliability",
+    "model_reliability_score",
+    "model_reliability_label",
+    "deal_risk_score",
+    "deal_risk_label",
+    "score_0_100",
+    "banner_he",
 )
 
 
-# ---------------------------------------------------------------------------
-# Deterministic reliability score & banner
-# ---------------------------------------------------------------------------
+def _validate_vehicle_profile_buyer_summary(ai_output: dict, request_id: str) -> dict:
+    """Validate buyer_summary in vehicle_profile for forbidden content.
 
-_BANNER_MAP = {
-    "high": "גבוה",
-    "medium": "בינוני",
-    "low": "נמוך",
-    "unknown": "לא ידוע",
-}
+    If validation fails: set buyer_summary to None, add error.code to vehicle_profile,
+    log a warning. Do NOT raise exception.
+    """
+    profile = ai_output.get("vehicle_profile")
+    if not isinstance(profile, dict):
+        return ai_output
 
-_EVIDENCE_FACTOR = {"strong": 1.0, "medium": 0.7, "weak": 0.4}
-_MAX_SIGNALS = 50  # cap to prevent abuse
+    buyer_summary = profile.get("buyer_summary")
+    if not isinstance(buyer_summary, str):
+        return ai_output
 
+    forbidden_patterns = [
+        (r'\d+\s*/\s*100', 'numeric_score_100'),
+        (r'\d+\s*/\s*10(?!\d)', 'numeric_score_10'),
+        (r'\d+\s*%', 'percentage_score'),
+        (r'(?:אני\s+ממליץ|הייתי\s+קונה|מומלץ\s+לקנות|כדאי\s+לקנות|אל\s+תקנה)', 'first_person_or_verdict'),
+    ]
 
-def _safe_float(val: Any, lo: float = 0.0, hi: float = 1.0, default: float = 0.0) -> float:
-    try:
-        if isinstance(val, bool):
-            return default
-        f = float(val)
-    except Exception:
-        return default
-    return max(lo, min(hi, f))
+    for pattern, reason in forbidden_patterns:
+        if _re.search(pattern, buyer_summary):
+            logging.getLogger(__name__).warning(
+                "[VEHICLE_PROFILE] buyer_summary rejected: forbidden_content=%s request_id=%s",
+                reason, request_id,
+            )
+            profile["buyer_summary"] = None
+            profile["_buyer_summary_rejected"] = reason
+            ai_output["vehicle_profile"] = profile
+            break
 
-
-def _safe_int(val: Any, lo: int = 0, hi: int = 1000, default: int = 0) -> int:
-    try:
-        if isinstance(val, bool):
-            return default
-        n = int(float(val))
-    except Exception:
-        return default
-    return max(lo, min(hi, n))
-
-
-def _banner_from_score(score: int) -> str:
-    if score >= 70:
-        return "גבוה"
-    if score >= 45:
-        return "בינוני"
-    return "נמוך"
+    return ai_output
 
 
-def _confidence_label(c: float) -> str:
-    if c >= 0.8:
-        return "high"
-    if c >= 0.6:
-        return "medium"
-    return "low"
-
-
-def compute_reliability_score_and_banner(
+def derive_information_quality_review(
     validated_input: Dict[str, Any],
     risk_signals: Any,
+    overall_reliability_estimate: Any = None,
+    model_output: Any = None,
+    mileage_range: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Deterministic score (0-100) and Hebrew banner from risk_signals.
-
-    Returns dict with keys: score_0_100, banner_he, confidence_0_1.
-    """
-    if not isinstance(risk_signals, dict) or not risk_signals:
-        return {
-            "score_0_100": 0,
-            "banner_he": "לא ידוע",
-            "confidence_0_1": 0.25,
-        }
-
-    # --- base ---
-    base = 80
-
-    # --- usage penalties (0..20) ---
-    usage = validated_input.get("usage_profile") or {}
-    usage_penalty = 0.0
-    annual_km = 0
-    try:
-        annual_km = int(usage.get("annual_km", 15000) or 15000)
-    except Exception:
-        annual_km = 15000
-    if annual_km > 30000:
-        usage_penalty += 6
-    elif annual_km > 20000:
-        usage_penalty += 3
-
-    try:
-        city_pct = int(usage.get("city_pct", 50) or 50)
-    except Exception:
-        city_pct = 50
-    if city_pct > 80:
-        usage_penalty += 4
-    elif city_pct > 60:
-        usage_penalty += 2
-
-    driver_style = str(usage.get("driver_style", "normal") or "normal").lower()
-    if driver_style == "aggressive":
-        usage_penalty += 5
-
-    load = str(usage.get("load", "family") or "family").lower()
-    if load == "heavy":
-        usage_penalty += 5
-    elif load == "light":
-        usage_penalty += 0
-
-    usage_penalty = min(usage_penalty, 20)
-
-    # --- recalls ---
-    recalls = risk_signals.get("recalls") if isinstance(risk_signals.get("recalls"), dict) else {}
-    high_sev = _safe_int(recalls.get("high_severity_count"), lo=0, hi=100)
-    other_recalls = max(0, _safe_int(recalls.get("count"), lo=0, hi=100) - high_sev)
-    recall_penalty = min(high_sev * 8, 24) + min(other_recalls * 2, 10)
-
-    # --- systemic issue signals (cap -40) ---
-    systemic_penalty = 0.0
-    signals = risk_signals.get("systemic_issue_signals")
-    if isinstance(signals, list):
-        for sig in signals[:_MAX_SIGNALS]:
-            if not isinstance(sig, dict):
-                continue
-            system = str(sig.get("system", "")).lower()
-            severity = str(sig.get("severity", "")).lower()
-            freq = str(sig.get("repeat_frequency", "")).lower()
-            ev = str(sig.get("evidence_strength", "medium")).lower()
-            ev_factor = _EVIDENCE_FACTOR.get(ev, 0.7)
-
-            raw_pen = 0.0
-            if severity == "high" and freq == "common":
-                if system == "transmission":
-                    raw_pen = 18
-                elif system == "engine":
-                    raw_pen = 15
-                elif system in ("electrical", "cooling"):
-                    raw_pen = 8
-                else:
-                    raw_pen = 8
-            elif severity == "medium" and freq == "common":
-                raw_pen = 6
-            elif severity == "low" and freq == "common":
-                raw_pen = 2
-            elif severity == "high" and freq == "sometimes":
-                if system == "transmission":
-                    raw_pen = 12
-                elif system == "engine":
-                    raw_pen = 10
-                else:
-                    raw_pen = 5
-            elif severity == "medium" and freq == "sometimes":
-                raw_pen = 3
-            elif severity == "high" and freq == "rare":
-                raw_pen = 4
-            systemic_penalty += raw_pen * ev_factor
-    systemic_penalty = min(systemic_penalty, 40)
-
-    # --- maintenance cost pressure ---
-    mcp = risk_signals.get("maintenance_cost_pressure")
-    mcp_level = ""
-    if isinstance(mcp, dict):
-        mcp_level = str(mcp.get("level", "unknown")).lower()
-    mcp_penalty = 0
-    if mcp_level == "high":
-        mcp_penalty = 10
-    elif mcp_level == "medium":
-        mcp_penalty = 5
-
-    # --- final score ---
-    total_penalty = usage_penalty + recall_penalty + systemic_penalty + mcp_penalty
-    score = max(0, min(100, int(round(base - total_penalty))))
-    banner = _banner_from_score(score)
-
-    # --- confidence ---
-    confidence = 0.85
-    conf_meta = risk_signals.get("confidence_meta")
-    if isinstance(conf_meta, dict):
-        dc = _safe_float(conf_meta.get("data_completeness"), 0.0, 1.0, 0.5)
-        sq = str(conf_meta.get("source_quality", "medium")).lower()
-        if dc < 0.5:
-            confidence -= 0.25
-        elif dc < 0.7:
-            confidence -= 0.15
-        if sq == "low":
-            confidence -= 0.15
-        elif sq == "medium":
-            confidence -= 0.05
-
-    vr = risk_signals.get("vehicle_resolution")
-    if isinstance(vr, dict):
-        vr_conf = _safe_float(vr.get("confidence"), 0.0, 1.0, 0.5)
-        if vr_conf < 0.7:
-            confidence -= 0.10
-
-    confidence = max(0.25, min(0.95, round(confidence, 2)))
-
-    return {
-        "score_0_100": score,
-        "banner_he": banner,
-        "confidence_0_1": confidence,
-    }
+    """Compute information-quality outputs for the reliability review flow."""
+    payload = model_output if isinstance(model_output, dict) else {}
+    mileage_note = mileage_adjustment(mileage_range or "")[1]
+    info_status = derive_information_status(
+        {
+            "search_performed": payload.get("search_performed"),
+            "sources": payload.get("sources"),
+            "recommended_checks": payload.get("recommended_checks"),
+            "reliability_report": payload.get("reliability_report"),
+            "risk_signals": risk_signals if isinstance(risk_signals, dict) else {},
+            "missing_critical_info": payload.get("missing_critical_info"),
+            "verification_focus": payload.get("verification_focus"),
+            "data_quality_label": payload.get("data_quality_label"),
+            "decision_readiness": payload.get("decision_readiness"),
+        },
+        payload=validated_input,
+    )
+    info_status["mileage_note"] = mileage_note
+    return info_status
 
 
 def handle_analyze_request(
@@ -252,6 +143,7 @@ def handle_analyze_request(
     quota_used_after = consumed_count
     display_quota_count = quota_used_after
     model_duration_ms = 0
+    history_id = None
 
     analyze_allowed_fields = {
         "make",
@@ -280,28 +172,63 @@ def handle_analyze_request(
     }
 
     try:
-        validated = validate_analyze_request(data, allowed_fields=analyze_allowed_fields)
+        validated = validate_analyze_request(
+            data,
+            allowed_fields=analyze_allowed_fields,
+        )
 
-        logger.info(f"[ANALYZE 0/6] request_id={get_request_id()} user={user_id} payload validated")
-        final_make = normalize_text(validated.get('make'))
-        final_model = normalize_text(validated.get('model'))
-        final_sub_model = normalize_text(validated.get('sub_model'))
-        final_year = int(validated.get('year')) if validated.get('year') else None
-        final_mileage = str(validated.get('mileage_range'))
-        final_fuel = str(validated.get('fuel_type'))
-        final_trans = str(validated.get('transmission'))
-        usage_profile = validated.get("usage_profile") or {}
+        logger.info(
+            "[ANALYZE 0/6] request_id=%s user=%s payload validated",
+            get_request_id(),
+            user_id,
+        )
+        final_make = normalize_text(validated.get("make"))
+        final_model = normalize_text(validated.get("model"))
+        final_year = int(validated.get("year")) if validated.get("year") else None
+        final_mileage = str(validated.get("mileage_range"))
+        final_fuel = str(validated.get("fuel_type"))
+        final_trans = str(validated.get("transmission"))
         cache_key = None
 
         if not (final_make and final_model and final_year):
-            log_access_decision('/analyze', user_id, 'rejected', 'validation error: missing required fields')
-            return api_error("validation_error", "שגיאת קלט (שלב 0): נא למלא יצרן, דגם ושנה", status=400, details={"field": "payload"})
+            log_access_decision(
+                "/analyze",
+                user_id,
+                "rejected",
+                "validation error: missing required fields",
+            )
+            return api_error(
+                "validation_error",
+                "שגיאת קלט (שלב 0): נא למלא יצרן, דגם ושנה",
+                status=400,
+                details={"field": "payload"},
+            )
     except ValidationError as e:
-        log_access_decision('/analyze', user_id, 'rejected', f'validation error: {e.field}')
-        return api_error("validation_error", e.message, status=400, details={"field": e.field})
+        log_access_decision(
+            "/analyze",
+            user_id,
+            "rejected",
+            f"validation error: {e.field}",
+        )
+        return api_error(
+            "validation_error",
+            e.message,
+            status=400,
+            details={"field": e.field},
+        )
     except Exception:
-        log_access_decision('/analyze', user_id, 'rejected', 'validation error: invalid payload')
-        return api_error("validation_error", "שגיאת קלט (שלב 0): בקשת JSON לא תקינה.", status=400, details={"field": "payload"})
+        log_access_decision(
+            "/analyze",
+            user_id,
+            "rejected",
+            "validation error: invalid payload",
+        )
+        return api_error(
+            "validation_error",
+            "שגיאת קלט (שלב 0): בקשת JSON לא תקינה.",
+            status=400,
+            details={"field": "payload"},
+        )
 
     # 1) Cache disabled: always perform new AI analysis
     cache_hit = False
@@ -310,12 +237,14 @@ def handle_analyze_request(
     limit_val = current_user_daily_limit()
     if not bypass_owner:
         try:
-            allowed, consumed_count, reserved_count, reservation_id = reserve_daily_quota(
-                user_id,
-                day_key,
-                limit_val,
-                get_request_id(),
-                now_utc=datetime.utcnow(),
+            allowed, consumed_count, reserved_count, reservation_id = (
+                reserve_daily_quota(
+                    user_id,
+                    day_key,
+                    limit_val,
+                    get_request_id(),
+                    now_utc=_utcnow(),
+                )
             )
         except QuotaInternalError:
             log_rejection("server_error", "quota subsystem failure")
@@ -326,7 +255,10 @@ def handle_analyze_request(
             )
         if not allowed:
             logger.warning(
-                "[QUOTA] reject request_id=%s user=%s consumed=%s reserved_active=%s limit=%s day=%s",
+                (
+                    "[QUOTA] reject request_id=%s user=%s consumed=%s "
+                    "reserved_active=%s limit=%s day=%s"
+                ),
                 get_request_id(),
                 user_id,
                 consumed_count,
@@ -349,7 +281,12 @@ def handle_analyze_request(
                 )
                 resp.headers["Retry-After"] = str(retry_after)
                 return resp
-            log_access_decision('/analyze', user_id, 'rejected', f'quota exceeded: {consumed_count}/{limit_val}')
+            log_access_decision(
+                "/analyze",
+                user_id,
+                "rejected",
+                f"quota exceeded: {consumed_count}/{limit_val}",
+            )
             remaining = max(0, limit_val - (consumed_count + reserved_count))
             resp = api_error(
                 "quota_exceeded",
@@ -378,6 +315,24 @@ def handle_analyze_request(
         if os.environ.get("SIMULATE_AI_FAIL", "").lower() in ("1", "true", "yes"):
             raise RuntimeError("SIMULATED_AI_FAILURE")
         prompt = build_combined_prompt(validated, missing_info)
+        # Inject compact user_context_for_reasoning (no PII) when available.
+        # Optional context that may improve AI personalization without distorting
+        # vehicle reliability factuality. Safe to skip if no data / consent.
+        try:
+            from app.utils.ai_context import build_user_context_for_reasoning
+
+            _user_ctx = build_user_context_for_reasoning(user_id, validated)
+            if _user_ctx:
+                import json as _json
+
+                prompt = (
+                    f"{prompt}\n\n"
+                    f"user_context_for_reasoning: "
+                    f"{_json.dumps(_user_ctx, ensure_ascii=False)}"
+                )
+        except Exception:
+            # Never let optional context block the AI call.
+            logger.debug("[AI] user_context_for_reasoning skipped", exc_info=True)
         ai_call = get_ai_call_fn()
         model_start = pytime.perf_counter()
         model_output, ai_error = ai_call(prompt)
@@ -385,27 +340,41 @@ def handle_analyze_request(
         if ai_error == "CALL_TIMEOUT":
             if not bypass_owner:
                 release_quota_reservation(reservation_id, user_id, day_key)
-            return api_error("ai_timeout", "תשובת ה-AI התעכבה. נסה שוב מאוחר יותר.", status=504)
+            return api_error(
+                "ai_timeout", "תשובת ה-AI התעכבה. נסה שוב מאוחר יותר.", status=504
+            )
         if model_output is None:
             raise ModelOutputInvalidError(ai_error or "MODEL_JSON_INVALID")
         if not isinstance(model_output, dict):
             model_output = {}
         ai_output = model_output
+        ai_output = _validate_vehicle_profile_buyer_summary(ai_output, get_request_id())
     except ModelOutputInvalidError:
         if not bypass_owner:
             release_quota_reservation(reservation_id, user_id, day_key)
-        return api_error("model_json_invalid", "פלט ה-AI לא הובן. נסה שוב בעוד רגע.", status=502)
+        return api_error(
+            "model_json_invalid", "פלט ה-AI לא הובן. נסה שוב בעוד רגע.", status=502
+        )
     except Exception:
         if not bypass_owner:
             release_quota_reservation(reservation_id, user_id, day_key)
         log_rejection("server_error", "AI model call failed")
         traceback.print_exc()
-        return api_error("ai_call_failed", "שגיאה בתקשורת עם מנוע ה-AI. נסה שוב מאוחר יותר.", status=500)
+        return api_error(
+            "ai_call_failed",
+            "שגיאה בתקשורת עם מנוע ה-AI. נסה שוב מאוחר יותר.",
+            status=500,
+        )
 
     # Ensure reliability_report presence even if malformed
-    reliability_report = ai_output.get("reliability_report") if isinstance(ai_output, dict) else None
+    reliability_report = (
+        ai_output.get("reliability_report") if isinstance(ai_output, dict) else None
+    )
     if not isinstance(reliability_report, dict):
-        ai_output["reliability_report"] = {"available": False, "reason": "MISSING_OR_INVALID"}
+        ai_output["reliability_report"] = {
+            "available": False,
+            "reason": "MISSING_OR_INVALID",
+        }
 
     # defaults for search data
     ai_output.setdefault("ok", True)
@@ -414,37 +383,29 @@ def handle_analyze_request(
     ai_output.setdefault("sources", [])
 
     try:
-        # --- Deterministic scoring (overrides any LLM-produced values) ---
-        det = compute_reliability_score_and_banner(
-            validated, ai_output.get("risk_signals"),
+        # --- Information-quality review summary ---
+        det = derive_information_quality_review(
+            validated,
+            ai_output.get("risk_signals"),
+            ai_output.get("overall_reliability_estimate"),
+            model_output=ai_output,
+            mileage_range=final_mileage,
         )
-        ai_output["base_score_calculated"] = det["score_0_100"]
-        ai_output["estimated_reliability"] = det["banner_he"]
-
-        # Apply mileage adjustment (modifies base_score_calculated in-place)
-        ai_output, note = apply_mileage_logic(ai_output, final_mileage)
-
-        # Re-derive banner from the mileage-adjusted score
-        try:
-            adjusted_score = int(round(float(ai_output.get("base_score_calculated", 0))))
-        except Exception:
-            adjusted_score = 0
-        adjusted_score = max(0, min(100, adjusted_score))
-        ai_output["base_score_calculated"] = adjusted_score
-        has_valid_risk_data = det["banner_he"] != "לא ידוע"
-        ai_output["estimated_reliability"] = _banner_from_score(adjusted_score) if has_valid_risk_data else "לא ידוע"
-
-        # Sync reliability_report
-        if isinstance(ai_output.get("reliability_report"), dict):
-            ai_output["reliability_report"]["overall_score"] = adjusted_score
-            ai_output["reliability_report"]["confidence"] = _confidence_label(det["confidence_0_1"])
+        ai_output["data_quality_label"] = det["data_quality_label"]
+        ai_output["decision_readiness"] = det["decision_readiness"]
+        ai_output["missing_critical_info"] = det["missing_critical_info"]
+        ai_output["verification_focus"] = det["verification_focus"]
 
         sanitized_output: Dict[str, Any] = {}
         try:
-            ai_output['source_tag'] = f"מקור: ניתוח AI חדש (חיפוש {display_quota_count}/{limit_val})"
-            ai_output['mileage_note'] = note
-            ai_output['km_warn'] = False
+            ai_output["source_tag"] = (
+                f"מקור: ניתוח AI חדש (חיפוש {display_quota_count}/{limit_val})"
+            )
+            ai_output["mileage_note"] = det.get("mileage_note")
+            ai_output["km_warn"] = False
             ai_output.pop("reliability_score", None)
+            for deprecated_key in _DEPRECATED_SCORE_KEYS:
+                ai_output.pop(deprecated_key, None)
             sanitized_output = sanitize_analyze_response(ai_output)
 
             new_log = SearchHistory(
@@ -457,10 +418,11 @@ def handle_analyze_request(
                 fuel_type=final_fuel,
                 transmission=final_trans,
                 result_json=json.dumps(sanitized_output, ensure_ascii=False),
-                duration_ms=model_duration_ms
+                duration_ms=model_duration_ms,
             )
             db.session.add(new_log)
             db.session.commit()
+            history_id = new_log.id
             logger.info(
                 "[CACHE] stored cache_key=%s user_id=%s request_id=%s",
                 cache_key,
@@ -468,7 +430,7 @@ def handle_analyze_request(
                 get_request_id(),
             )
         except Exception as e:
-            print(f"[DB] ⚠️ save failed: {e}")
+            logger.warning("[DB] save failed: %s", e)
             db.session.rollback()
             sanitized_output = sanitized_output or sanitize_analyze_response(ai_output)
     except Exception as e:
@@ -476,10 +438,16 @@ def handle_analyze_request(
             release_quota_reservation(reservation_id, user_id, day_key)
         log_rejection("server_error", f"Post-processing failed: {type(e).__name__}")
         traceback.print_exc()
-        return api_error("analyze_postprocess_failed", "שגיאת שרת (שלב 5): נסה שוב מאוחר יותר.", status=500)
+        return api_error(
+            "analyze_postprocess_failed",
+            "שגיאת שרת (שלב 5): נסה שוב מאוחר יותר.",
+            status=500,
+        )
 
     if not bypass_owner:
-        reservation_finalized, quota_used_after = finalize_quota_reservation(reservation_id, user_id, day_key)
+        reservation_finalized, quota_used_after = finalize_quota_reservation(
+            reservation_id, user_id, day_key
+        )
         if not reservation_finalized:
             logger.error(
                 "[QUOTA] finalize failed request_id=%s reservation_id=%s",
@@ -487,14 +455,45 @@ def handle_analyze_request(
                 reservation_id,
             )
             release_quota_reservation(reservation_id, user_id, day_key)
-            return api_error("quota_finalize_failed", "שגיאת שרת בעת עדכון המכסה.", status=500)
+            return api_error(
+                "quota_finalize_failed", "שגיאת שרת בעת עדכון המכסה.", status=500
+            )
     else:
         quota_used_after = get_daily_quota_usage(user_id, day_key)
 
     logger.info(
         f"[QUOTA] method=POST path=/analyze uid={user_id} cache_hit={cache_hit} "
         f"consumed={quota_used_after} reserved_active={reserved_count} "
-        f"limit={limit_val} resets_at={resets_at.isoformat()} request_id={get_request_id()}"
+        f"limit={limit_val} resets_at={resets_at.isoformat()} "
+        f"request_id={get_request_id()}"
     )
 
-    return api_ok(sanitized_output)
+    response_payload = dict(sanitized_output)
+    response_payload["history_id"] = history_id
+    response_payload["request_id"] = get_request_id()
+    report_payload = (
+        response_payload.get("reliability_report")
+        if isinstance(response_payload.get("reliability_report"), dict)
+        else {}
+    )
+    for field_name in (
+        "based_on_available_information",
+        "key_risk_areas_to_examine",
+        "what_must_be_checked_before_a_decision",
+        "known_uncertainties",
+        "estimated_cost_sensitivity",
+    ):
+        if field_name in report_payload and field_name not in response_payload:
+            response_payload[field_name] = report_payload[field_name]
+
+    # PostHog: analyze_completed
+    try:
+        track_event(
+            str(user_id),
+            "analyze_completed",
+            {"cache_hit": cache_hit, "request_id": get_request_id()},
+        )
+    except Exception:
+        pass
+
+    return api_ok(response_payload)

@@ -18,10 +18,11 @@ from app.quota import (
     release_quota_reservation,
     PER_IP_PER_MIN_LIMIT,
 )
-from app.utils.http_helpers import api_ok, api_error, get_request_id, is_owner_user
+from app.utils.http_helpers import api_ok, api_error, get_request_id, is_owner_user, _utcnow
 from app.services import leasing_advisor_service as leasing_svc
-from app.legal import TERMS_VERSION, PRIVACY_VERSION
-from app.models import LegalAcceptance
+from app.services.history_service import fetch_leasing_history, build_leasing_data, safe_json_obj
+from app.legal import TERMS_VERSION, PRIVACY_VERSION, parse_legal_confirm
+from app.models import LegalAcceptance, LeasingAdvisorHistory
 
 bp = Blueprint("leasing", __name__)
 
@@ -51,6 +52,8 @@ def leasing_page():
         is_owner=is_owner_user(),
         active_page="leasing",
         legal_accepted=legal_accepted,
+        terms_version=current_app.config.get("TERMS_VERSION", TERMS_VERSION),
+        privacy_version=current_app.config.get("PRIVACY_VERSION", PRIVACY_VERSION),
     )
 
 
@@ -69,7 +72,7 @@ def leasing_frame():
     client_ip = get_client_ip()
     ip_allowed, ip_count, ip_resets_at = check_and_increment_ip_rate_limit(client_ip, limit=per_ip_limit)
     if not ip_allowed:
-        retry_after = max(0, int((ip_resets_at - datetime.utcnow()).total_seconds()))
+        retry_after = max(0, int((ip_resets_at - _utcnow()).total_seconds()))
         resp = api_error("rate_limited", "חרגת ממגבלת הבקשות לדקה.", status=429)
         resp.headers["Retry-After"] = str(retry_after)
         return resp
@@ -180,7 +183,7 @@ def leasing_recommend():
     client_ip = get_client_ip()
     ip_allowed, ip_count, ip_resets_at = check_and_increment_ip_rate_limit(client_ip, limit=per_ip_limit)
     if not ip_allowed:
-        retry_after = max(0, int((ip_resets_at - datetime.utcnow()).total_seconds()))
+        retry_after = max(0, int((ip_resets_at - _utcnow()).total_seconds()))
         resp = api_error("rate_limited", "חרגת ממגבלת הבקשות לדקה.", status=429)
         resp.headers["Retry-After"] = str(retry_after)
         return resp
@@ -189,6 +192,12 @@ def leasing_recommend():
         return api_error("invalid_content_type", "Content-Type must be application/json", status=415)
 
     data = request.get_json(silent=True) or {}
+    if not parse_legal_confirm(data.get("legal_confirm")) or not _check_legal_accepted():
+        return api_error(
+            "TERMS_NOT_ACCEPTED",
+            "יש לאשר תנאי שימוש ומדיניות פרטיות לפני המשך.",
+            status=403,
+        )
     candidates = data.get("candidates")
     prefs = data.get("prefs")
     frame_context = data.get("frame") or {}
@@ -206,7 +215,7 @@ def leasing_recommend():
     day_key, _, _, resets_at, _, retry_after = compute_quota_window(tz)
     daily_limit = current_app.config.get("USER_DAILY_LIMIT", USER_DAILY_LIMIT)
 
-    owner_bypass = current_app.config.get("OWNER_BYPASS_QUOTA", False) and is_owner_user()
+    owner_bypass = is_owner_user()
     reservation_id = None
 
     if not owner_bypass:
@@ -255,4 +264,44 @@ def leasing_recommend():
         "history_id": history_id,
         "duration_ms": duration_ms,
         "request_id": request_id,
+    })
+
+
+@bp.route("/api/leasing/history", methods=["GET"])
+@login_required
+def leasing_history():
+    """Return leasing advisor history summaries for the current user."""
+    try:
+        limit = int(request.args.get("limit", 20))
+    except (TypeError, ValueError):
+        limit = 20
+    limit = min(max(limit, 1), 50)
+
+    entries, err = fetch_leasing_history(current_user.id)
+    if err:
+        return api_error("leasing_history_failed", err, status=500)
+
+    return api_ok({"history": build_leasing_data(entries)[:limit]})
+
+
+@bp.route("/api/leasing/<int:history_id>", methods=["GET"])
+@login_required
+def leasing_history_detail(history_id):
+    """Return a specific leasing advisor history record owned by the current user."""
+    item = LeasingAdvisorHistory.query.filter_by(
+        id=history_id,
+        user_id=current_user.id,
+    ).first()
+    if not item:
+        return api_error("not_found", "יועץ ליסינג לא נמצא", status=404)
+
+    return api_ok({
+        "id": item.id,
+        "created_at": item.created_at.isoformat() if item.created_at else None,
+        "duration_ms": item.duration_ms,
+        "request_id": item.request_id,
+        "frame_input_json": safe_json_obj(item.frame_input_json, default={}),
+        "candidates_json": safe_json_obj(item.candidates_json, default=[]),
+        "prefs_json": safe_json_obj(item.prefs_json, default={}),
+        "gemini_response_json": safe_json_obj(item.gemini_response_json, default={}),
     })

@@ -34,7 +34,7 @@ def upgrade():
             sa.Column('model_json_raw', sa.Text(), nullable=True),  # JSON stored as Text
             sa.Column('computed_result', sa.Text(), nullable=True),  # JSON stored as Text
             sa.Column('sources_index', sa.Text(), nullable=True),  # JSON stored as Text
-            sa.Column('model_name', sa.String(length=64), nullable=False, server_default=sa.text("'gemini-3-flash'")),
+            sa.Column('model_name', sa.String(length=64), nullable=False, server_default=sa.text("'gemini-3.1-flash'")),
             sa.Column('grounding_enabled', sa.Boolean(), nullable=False, server_default=sa.text("true")),
             sa.Column('prompt_version', sa.String(length=32), nullable=False, server_default=sa.text("'v1'")),
             sa.Column('request_hash', sa.String(length=64), nullable=True),
