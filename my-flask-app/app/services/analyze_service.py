@@ -2,6 +2,7 @@
 """Analyze service logic."""
 
 import os
+import re as _re
 import json
 import logging
 import traceback
@@ -57,6 +58,41 @@ _DEPRECATED_SCORE_KEYS = (
     "score_0_100",
     "banner_he",
 )
+
+
+def _validate_vehicle_profile_buyer_summary(ai_output: dict, request_id: str) -> dict:
+    """Validate buyer_summary in vehicle_profile for forbidden content.
+
+    If validation fails: set buyer_summary to None, add error.code to vehicle_profile,
+    log a warning. Do NOT raise exception.
+    """
+    profile = ai_output.get("vehicle_profile")
+    if not isinstance(profile, dict):
+        return ai_output
+
+    buyer_summary = profile.get("buyer_summary")
+    if not isinstance(buyer_summary, str):
+        return ai_output
+
+    forbidden_patterns = [
+        (r'\d+\s*/\s*100', 'numeric_score_100'),
+        (r'\d+\s*/\s*10(?!\d)', 'numeric_score_10'),
+        (r'\d+\s*%', 'percentage_score'),
+        (r'(?:אני\s+ממליץ|הייתי\s+קונה|מומלץ\s+לקנות|כדאי\s+לקנות|אל\s+תקנה)', 'first_person_or_verdict'),
+    ]
+
+    for pattern, reason in forbidden_patterns:
+        if _re.search(pattern, buyer_summary):
+            logging.getLogger(__name__).warning(
+                "[VEHICLE_PROFILE] buyer_summary rejected: forbidden_content=%s request_id=%s",
+                reason, request_id,
+            )
+            profile["buyer_summary"] = None
+            profile["_buyer_summary_rejected"] = reason
+            ai_output["vehicle_profile"] = profile
+            break
+
+    return ai_output
 
 
 def derive_information_quality_review(
@@ -312,6 +348,7 @@ def handle_analyze_request(
         if not isinstance(model_output, dict):
             model_output = {}
         ai_output = model_output
+        ai_output = _validate_vehicle_profile_buyer_summary(ai_output, get_request_id())
     except ModelOutputInvalidError:
         if not bypass_owner:
             release_quota_reservation(reservation_id, user_id, day_key)

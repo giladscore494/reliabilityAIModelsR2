@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased] – 2026-05-01
+
+### Added
+- `/analyze` endpoint now returns `vehicle_profile` with: pricing (new/used ILS), license fee (official or unknown), trim levels, recommended trim, powertrain specs, fuel consumption, official safety rating, warranty, recalls (Israel), ownership cost notes, competitors, best_for/not_ideal_for, buyer_summary.
+- New "כרטיס רכב" tab in `reliability_app.html` displaying all `vehicle_profile` sections.
+- `israel_market_status` tag on history cards in dashboard (discontinued/parallel import/used only).
+
+### Changed
+- Feature renamed from "בודק אמינות" to "כרטיס רכב חכם" / "סקירת רכב מקיפה".
+
+### Fixed
+- Bug from PR #169: `common_competitors_brief` was displayed under "אי-ודאויות" tab. Fixed – competitors now display as a real competitors list, uncertainties shown separately.
+
+### Security / Quality
+- Validation: `buyer_summary` rejected if it contains numeric scores (e.g. "84/100") or first-person phrases ("אני ממליץ", "הייתי קונה", etc.).
+- `license_fee_israel.method` enforced to `official|unknown` only – derived/calculated values rejected.
+- `recalls_israel.known_recalls` cleared if `checked_against_official_source` is false.
+- No `model_reliability_score`, `deal_risk_score`, `banner_he`, `score_0_100` returned anywhere.
+
 ## 2026-04-30
 ### Data Quality Indicator – Visual Anchor (בטוח משפטית)
 

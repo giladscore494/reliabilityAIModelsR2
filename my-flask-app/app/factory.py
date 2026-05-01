@@ -587,8 +587,134 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
     }},
     "analysis_confidence": "low|medium|high",
     "missing_data_flags": ["string"]
+  }},
+  "vehicle_profile": {{
+    "vehicle_identity": {{
+      "make": "string",
+      "model": "string",
+      "year": "string|null",
+      "generation": "string|null",
+      "body_type": "string|null",
+      "segment": "string|null",
+      "israel_market_status": "sold_new|sold_used_only|parallel_import|discontinued_in_israel|unclear|null",
+      "year_discontinued_in_israel": "number|null"
+    }},
+    "pricing_israel": {{
+      "new_price_range_ils": "string|null",
+      "used_price_range_ils": "string|null",
+      "price_notes": ["string"],
+      "sources": ["url"]
+    }},
+    "license_fee_israel": {{
+      "annual_fee_ils": "number|null",
+      "method": "official|unknown",
+      "notes": ["string"],
+      "sources": ["url"]
+    }},
+    "trim_levels_israel": [
+      {{
+        "trim_name": "string",
+        "price_ils": "number|null",
+        "main_equipment": ["string"],
+        "powertrain": "string|null",
+        "safety_equipment": ["string"],
+        "what_changes_vs_lower_trim": ["string"],
+        "source": "url|null"
+      }}
+    ],
+    "recommended_trim": {{
+      "trim_name": "string|null",
+      "reason": "string",
+      "confidence": "low|medium|high"
+    }},
+    "powertrain_specs": {{
+      "engine": "string|null",
+      "gearbox": "string|null",
+      "drivetrain": "string|null",
+      "horsepower": "number|null",
+      "torque_nm": "number|null",
+      "battery_kwh": "number|null",
+      "ev_range_km": "number|null",
+      "zero_to_100_sec": "number|null",
+      "trunk_liters": "number|null",
+      "seats": "number|null",
+      "sources": ["url"]
+    }},
+    "fuel_consumption": {{
+      "official_value": "string|null",
+      "real_world_value": "string|null",
+      "method": "official|review_based|owner_reported|unknown",
+      "notes": ["string"],
+      "sources": ["url"]
+    }},
+    "official_safety": {{
+      "rating": "string|null",
+      "organization": "Euro NCAP|IIHS|NHTSA|ANCAP|Israeli Ministry/Importer|unknown|null",
+      "test_year": "number|null",
+      "adult_score": "string|null",
+      "child_score": "string|null",
+      "safety_assist_score": "string|null",
+      "notes": ["string"],
+      "sources": ["url"]
+    }},
+    "warranty_israel": {{
+      "vehicle_warranty": "string|null",
+      "battery_warranty": "string|null",
+      "importer_notes": ["string"],
+      "sources": ["url"]
+    }},
+    "recalls_israel": {{
+      "known_recalls": [
+        {{
+          "year": "number|null",
+          "issue": "string",
+          "source": "url|null"
+        }}
+      ],
+      "checked_against_official_source": true,
+      "notes": ["string"],
+      "sources": ["url"]
+    }},
+    "ownership_cost_notes": {{
+      "maintenance_cost_pressure": "low|medium|high|unknown",
+      "insurance_cost_pressure": "low|medium|high|unknown",
+      "depreciation_risk": "low|medium|high|unknown",
+      "parts_availability": "low|medium|high|unknown",
+      "notes": ["string"]
+    }},
+    "competitors": [
+      {{
+        "model": "string",
+        "why_relevant": "same_price|same_size|same_segment|same_powertrain|same_buyer_profile",
+        "advantage_vs_current": "string",
+        "disadvantage_vs_current": "string"
+      }}
+    ],
+    "best_for": ["string"],
+    "not_ideal_for": ["string"],
+    "buyer_summary": "פסקה פרקטית בעברית: סיכום ענייני לפני בדיקה. מה הרכב הזה, למי הוא מתאים, מה הסיכון העיקרי, מה חייבים לבדוק. ניטרלי, לא בגוף ראשון.",
+    "analysis_metadata": {{
+      "data_freshness": "current_year|last_year|older_than_2_years|unknown",
+      "confidence_per_section": {{
+        "pricing": "high|medium|low",
+        "trims": "high|medium|low",
+        "safety": "high|medium|low",
+        "recalls": "high|medium|low"
+      }},
+      "sources_count": 0
+    }}
   }}
 }}
+
+חוקי vehicle_profile (חובה):
+VP1) Google Search grounding חובה. חיפוש בעברית ובאנגלית לפי הצורך.
+VP2) מקורות מועדפים: דף יבואן רשמי בישראל, משרד התחבורה, Euro NCAP/IIHS/NHTSA/ANCAP רשמיים, אתרי רכב ישראליים מבוססים.
+VP3) אסור להמציא טרימים, מחירים, אגרה, ציוני בטיחות, recalls. אם לא נמצא במקור רשמי – null + notes עם הסבר.
+VP4) license_fee_israel.method יכול להיות רק "official" או "unknown". אסור חישוב נגזר. אם היבואן/משרד התחבורה לא פרסם – "unknown" + הסבר.
+VP5) recalls_israel.checked_against_official_source חייב להיות true. אם לא בדקת מקור רשמי – known_recalls: [] ו-notes: ["לא בוצעה בדיקה מול מקור רשמי"].
+VP6) buyer_summary – אסור גוף ראשון. אסור "הייתי קונה", "אני ממליץ", "תיקח". מותר: "הרכב מתאים ל-X", "כדאי להימנע אם Y", "חשוב לבדוק Z".
+VP7) אין להחזיר ציון נומרי של אמינות, סיכון, או overall – לא ב-vehicle_profile ולא בשום מקום אחר.
+VP8) אם הטרים הספציפי לא ידוע – trim_levels_israel: [] ו-recommended_trim.confidence: "low" עם הסבר ב-reason.
 
 כל הערכים בעברית בלבד, למעט final_line שחייב להישאר באנגלית בדיוק כפי שניתן וללא שום שינוי.
 אל תוסיף הסברים מחוץ ל-JSON.

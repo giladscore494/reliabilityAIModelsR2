@@ -208,6 +208,16 @@
                                     {% if s.data.get('reliability_report') %}
                                         <span class="text-[10px] px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-500/40">כולל דוח</span>
                                     {% endif %}
+                                    {% if s.data.get('vehicle_profile') %}
+                                        {% set vp = s.data.get('vehicle_profile') %}
+                                        {% if vp.get('vehicle_identity', {}).get('israel_market_status') == 'discontinued_in_israel' %}
+                                            <span class="text-[10px] px-2 py-1 rounded-full bg-red-500/20 text-red-200 border border-red-500/40">הופסק בישראל</span>
+                                        {% elif vp.get('vehicle_identity', {}).get('israel_market_status') == 'parallel_import' %}
+                                            <span class="text-[10px] px-2 py-1 rounded-full bg-blue-500/20 text-blue-200 border border-blue-500/40">יבוא מקביל</span>
+                                        {% elif vp.get('vehicle_identity', {}).get('israel_market_status') == 'sold_used_only' %}
+                                            <span class="text-[10px] px-2 py-1 rounded-full bg-amber-500/20 text-amber-200 border border-amber-500/40">יד שנייה בלבד</span>
+                                        {% endif %}
+                                    {% endif %}
                                 </h3>
 
                                 <div class="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-slate-400">

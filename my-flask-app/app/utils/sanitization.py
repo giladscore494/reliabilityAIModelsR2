@@ -12,6 +12,7 @@ Security goals:
 from __future__ import annotations
 
 import html
+import datetime
 from typing import Any, Dict, Mapping, Optional, Sequence
 import re
 
@@ -124,6 +125,20 @@ _MODEL_JSON_BIAS_ALLOWED = {"strong", "neutral", "weak"}
 _MODEL_JSON_SENSITIVITY_ALLOWED = {"low", "normal", "high"}
 _CALIBRATION_SOURCE_ALLOWED = {"model_json", "none"}
 
+_ISRAEL_MARKET_STATUS_ALLOWED = {
+    "sold_new", "sold_used_only", "parallel_import",
+    "discontinued_in_israel", "unclear"
+}
+_LICENSE_FEE_METHOD_ALLOWED = {"official", "unknown"}
+_FUEL_CONSUMPTION_METHOD_ALLOWED = {"official", "review_based", "owner_reported", "unknown"}
+_SAFETY_ORG_ALLOWED = {
+    "euro ncap", "iihs", "nhtsa", "ancap", "israeli ministry/importer", "unknown"
+}
+_PROFILE_CONFIDENCE_ALLOWED = {"low", "medium", "high"}
+_COST_PRESSURE_ALLOWED = {"low", "medium", "high", "unknown"}
+_WHY_RELEVANT_ALLOWED = {"same_price", "same_size", "same_segment", "same_powertrain", "same_buyer_profile"}
+_DATA_FRESHNESS_ALLOWED = {"current_year", "last_year", "older_than_2_years", "unknown"}
+
 
 def _clamp_float(
     value: Any, lo: float = 0.0, hi: float = 1.0, default: float = 0.0
@@ -222,6 +237,195 @@ def _sanitize_risk_signals(value: Any) -> Dict[str, Any]:
             cm.get("source_quality"), _SQ_ALLOWED, "medium"
         ),
         "notes": _escape(cm.get("notes") or ""),
+    }
+
+    return out
+
+
+def _sanitize_vehicle_profile(raw: Any) -> Optional[Dict[str, Any]]:
+    """Sanitize vehicle_profile dict. Returns None if input is missing/invalid."""
+    if not isinstance(raw, dict):
+        return None
+    out: Dict[str, Any] = {}
+
+    # vehicle_identity
+    vi = _coerce_dict(raw.get("vehicle_identity"))
+    out["vehicle_identity"] = {
+        "make": _escape(vi.get("make") or ""),
+        "model": _escape(vi.get("model") or ""),
+        "year": _escape(vi.get("year") or "") or None,
+        "generation": _escape(vi.get("generation") or "") or None,
+        "body_type": _escape(vi.get("body_type") or "") or None,
+        "segment": _escape(vi.get("segment") or "") or None,
+        "israel_market_status": _normalize_optional_enum(
+            vi.get("israel_market_status"), _ISRAEL_MARKET_STATUS_ALLOWED
+        ),
+        "year_discontinued_in_israel": (
+            _clamp_int(vi.get("year_discontinued_in_israel"), lo=1900, hi=2100, default=0) or None
+        ) if vi.get("year_discontinued_in_israel") is not None else None,
+    }
+
+    # pricing_israel
+    pi = _coerce_dict(raw.get("pricing_israel"))
+    out["pricing_israel"] = {
+        "new_price_range_ils": _escape(pi.get("new_price_range_ils") or "") or None,
+        "used_price_range_ils": _escape(pi.get("used_price_range_ils") or "") or None,
+        "price_notes": _sanitize_str_list(pi.get("price_notes"), max_items=10),
+        "sources": [_sanitize_url(u) for u in _coerce_list(pi.get("sources"))[:10] if _sanitize_url(u)],
+    }
+
+    # license_fee_israel
+    lf = _coerce_dict(raw.get("license_fee_israel"))
+    lf_method = _normalize_enum(lf.get("method"), _LICENSE_FEE_METHOD_ALLOWED, "unknown")
+    out["license_fee_israel"] = {
+        "annual_fee_ils": (
+            _clamp_int(lf.get("annual_fee_ils"), lo=0, hi=100000, default=0) or None
+        ) if lf.get("annual_fee_ils") is not None else None,
+        "method": lf_method,
+        "notes": _sanitize_str_list(lf.get("notes"), max_items=10),
+        "sources": [_sanitize_url(u) for u in _coerce_list(lf.get("sources"))[:10] if _sanitize_url(u)],
+    }
+
+    # trim_levels_israel
+    trims_out = []
+    for trim in _coerce_list(raw.get("trim_levels_israel"))[:20]:
+        if not isinstance(trim, dict):
+            continue
+        trims_out.append({
+            "trim_name": _escape(trim.get("trim_name") or ""),
+            "price_ils": (
+                _clamp_int(trim.get("price_ils"), lo=0, hi=10_000_000, default=0)
+            ) if trim.get("price_ils") is not None else None,
+            "main_equipment": _sanitize_str_list(trim.get("main_equipment"), max_items=20),
+            "powertrain": _escape(trim.get("powertrain") or "") or None,
+            "safety_equipment": _sanitize_str_list(trim.get("safety_equipment"), max_items=20),
+            "what_changes_vs_lower_trim": _sanitize_str_list(trim.get("what_changes_vs_lower_trim"), max_items=10),
+            "source": _sanitize_url(trim.get("source")) or None,
+        })
+    out["trim_levels_israel"] = trims_out
+
+    # recommended_trim
+    rt = _coerce_dict(raw.get("recommended_trim"))
+    out["recommended_trim"] = {
+        "trim_name": _escape(rt.get("trim_name") or "") or None,
+        "reason": _escape(rt.get("reason") or ""),
+        "confidence": _normalize_enum(rt.get("confidence"), _PROFILE_CONFIDENCE_ALLOWED, "low"),
+    }
+
+    # powertrain_specs
+    ps = _coerce_dict(raw.get("powertrain_specs"))
+    out["powertrain_specs"] = {
+        "engine": _escape(ps.get("engine") or "") or None,
+        "gearbox": _escape(ps.get("gearbox") or "") or None,
+        "drivetrain": _escape(ps.get("drivetrain") or "") or None,
+        "horsepower": _clamp_int(ps.get("horsepower"), lo=0, hi=2000, default=0) if ps.get("horsepower") is not None else None,
+        "torque_nm": _clamp_int(ps.get("torque_nm"), lo=0, hi=5000, default=0) if ps.get("torque_nm") is not None else None,
+        "battery_kwh": (float(ps.get("battery_kwh")) if ps.get("battery_kwh") is not None else None),
+        "ev_range_km": _clamp_int(ps.get("ev_range_km"), lo=0, hi=2000, default=0) if ps.get("ev_range_km") is not None else None,
+        "zero_to_100_sec": (float(ps.get("zero_to_100_sec")) if ps.get("zero_to_100_sec") is not None else None),
+        "trunk_liters": _clamp_int(ps.get("trunk_liters"), lo=0, hi=5000, default=0) if ps.get("trunk_liters") is not None else None,
+        "seats": _clamp_int(ps.get("seats"), lo=1, hi=20, default=0) if ps.get("seats") is not None else None,
+        "sources": [_sanitize_url(u) for u in _coerce_list(ps.get("sources"))[:10] if _sanitize_url(u)],
+    }
+
+    # fuel_consumption
+    fc = _coerce_dict(raw.get("fuel_consumption"))
+    out["fuel_consumption"] = {
+        "official_value": _escape(fc.get("official_value") or "") or None,
+        "real_world_value": _escape(fc.get("real_world_value") or "") or None,
+        "method": _normalize_enum(fc.get("method"), _FUEL_CONSUMPTION_METHOD_ALLOWED, "unknown"),
+        "notes": _sanitize_str_list(fc.get("notes"), max_items=10),
+        "sources": [_sanitize_url(u) for u in _coerce_list(fc.get("sources"))[:10] if _sanitize_url(u)],
+    }
+
+    # official_safety
+    os_ = _coerce_dict(raw.get("official_safety"))
+    out["official_safety"] = {
+        "rating": _escape(os_.get("rating") or "") or None,
+        "organization": _normalize_optional_enum(
+            (os_.get("organization") or "").lower() if isinstance(os_.get("organization"), str) else None,
+            _SAFETY_ORG_ALLOWED
+        ),
+        "test_year": _clamp_int(os_.get("test_year"), lo=1980, hi=datetime.datetime.now().year + 5, default=0) if os_.get("test_year") is not None else None,
+        "adult_score": _escape(os_.get("adult_score") or "") or None,
+        "child_score": _escape(os_.get("child_score") or "") or None,
+        "safety_assist_score": _escape(os_.get("safety_assist_score") or "") or None,
+        "notes": _sanitize_str_list(os_.get("notes"), max_items=10),
+        "sources": [_sanitize_url(u) for u in _coerce_list(os_.get("sources"))[:10] if _sanitize_url(u)],
+    }
+
+    # warranty_israel
+    wi = _coerce_dict(raw.get("warranty_israel"))
+    out["warranty_israel"] = {
+        "vehicle_warranty": _escape(wi.get("vehicle_warranty") or "") or None,
+        "battery_warranty": _escape(wi.get("battery_warranty") or "") or None,
+        "importer_notes": _sanitize_str_list(wi.get("importer_notes"), max_items=10),
+        "sources": [_sanitize_url(u) for u in _coerce_list(wi.get("sources"))[:10] if _sanitize_url(u)],
+    }
+
+    # recalls_israel
+    ri = _coerce_dict(raw.get("recalls_israel"))
+    checked = bool(ri.get("checked_against_official_source", False))
+    recalls_out = []
+    if checked:
+        for recall in _coerce_list(ri.get("known_recalls"))[:20]:
+            if not isinstance(recall, dict):
+                continue
+            recalls_out.append({
+                "year": _clamp_int(recall.get("year"), lo=1990, hi=2030, default=0) if recall.get("year") is not None else None,
+                "issue": _escape(recall.get("issue") or ""),
+                "source": _sanitize_url(recall.get("source")) or None,
+            })
+    out["recalls_israel"] = {
+        "known_recalls": recalls_out,
+        "checked_against_official_source": checked,
+        "notes": _sanitize_str_list(ri.get("notes"), max_items=10) if checked else ["לא בוצעה בדיקה מול מקור רשמי"],
+        "sources": [_sanitize_url(u) for u in _coerce_list(ri.get("sources"))[:10] if _sanitize_url(u)],
+    }
+
+    # ownership_cost_notes
+    oc = _coerce_dict(raw.get("ownership_cost_notes"))
+    out["ownership_cost_notes"] = {
+        "maintenance_cost_pressure": _normalize_enum(oc.get("maintenance_cost_pressure"), _COST_PRESSURE_ALLOWED, "unknown"),
+        "insurance_cost_pressure": _normalize_enum(oc.get("insurance_cost_pressure"), _COST_PRESSURE_ALLOWED, "unknown"),
+        "depreciation_risk": _normalize_enum(oc.get("depreciation_risk"), _COST_PRESSURE_ALLOWED, "unknown"),
+        "parts_availability": _normalize_enum(oc.get("parts_availability"), _COST_PRESSURE_ALLOWED, "unknown"),
+        "notes": _sanitize_str_list(oc.get("notes"), max_items=10),
+    }
+
+    # competitors
+    comps_out = []
+    for comp in _coerce_list(raw.get("competitors"))[:10]:
+        if not isinstance(comp, dict):
+            continue
+        comps_out.append({
+            "model": _escape(comp.get("model") or ""),
+            "why_relevant": _normalize_optional_enum(comp.get("why_relevant"), _WHY_RELEVANT_ALLOWED) or "same_segment",
+            "advantage_vs_current": _escape(comp.get("advantage_vs_current") or ""),
+            "disadvantage_vs_current": _escape(comp.get("disadvantage_vs_current") or ""),
+        })
+    out["competitors"] = comps_out
+
+    # best_for / not_ideal_for
+    out["best_for"] = _sanitize_str_list(raw.get("best_for"), max_items=10)
+    out["not_ideal_for"] = _sanitize_str_list(raw.get("not_ideal_for"), max_items=10)
+
+    # buyer_summary
+    bs = raw.get("buyer_summary")
+    out["buyer_summary"] = _escape(bs) if isinstance(bs, str) and bs else None
+
+    # analysis_metadata
+    am = _coerce_dict(raw.get("analysis_metadata"))
+    cps = _coerce_dict(am.get("confidence_per_section"))
+    out["analysis_metadata"] = {
+        "data_freshness": _normalize_enum(am.get("data_freshness"), _DATA_FRESHNESS_ALLOWED, "unknown"),
+        "confidence_per_section": {
+            "pricing": _normalize_enum(cps.get("pricing"), _PROFILE_CONFIDENCE_ALLOWED, "low"),
+            "trims": _normalize_enum(cps.get("trims"), _PROFILE_CONFIDENCE_ALLOWED, "low"),
+            "safety": _normalize_enum(cps.get("safety"), _PROFILE_CONFIDENCE_ALLOWED, "low"),
+            "recalls": _normalize_enum(cps.get("recalls"), _PROFILE_CONFIDENCE_ALLOWED, "low"),
+        },
+        "sources_count": _clamp_int(am.get("sources_count"), lo=0, hi=1000, default=0),
     }
 
     return out
@@ -378,6 +582,12 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
 
     if "risk_signals" in src:
         out["risk_signals"] = _sanitize_risk_signals(src.get("risk_signals"))
+
+    # vehicle_profile (new – Single Vehicle Intelligence Card)
+    if "vehicle_profile" in src:
+        sanitized_vp = _sanitize_vehicle_profile(src.get("vehicle_profile"))
+        if sanitized_vp is not None:
+            out["vehicle_profile"] = sanitized_vp
 
     # Log dropped keys (only key names, no PII)
     dropped_keys = set(src.keys()) - set(out.keys())
