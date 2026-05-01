@@ -345,7 +345,7 @@ DECISION_CATEGORY_DEFINITIONS = [
     ("resale_and_market_confidence", "סחירות וירידת ערך"),
 ]
 DECISION_ALLOWED_LABELS = {"car_1", "car_2", "car_3", "tie", "depends", "unknown"}
-DECISION_TEXT_FALLBACK_HE = "המערכת לא הצליחה לנסח סיכום ללא ציונים, לכן יש להסתמך על פירוט הקטגוריות."
+DECISION_TEXT_FALLBACK_HE = "המערכת לא הצליחה לנסח סיכום ניטרלי, לכן יש להסתמך על פירוט הקטגוריות."
 DECISION_FORBIDDEN_TEXT_RE = re.compile(
     r"(\d+\s*/\s*100|\d+\s*/\s*10|winnerScore|overall_score|category_score|ציון|ניקוד|מתוך 100|נקודות מתוך|אני ממליץ|הייתי קונה|תקנה|אל תקנה|המנצח הברור|הרכב הטוב ביותר)",
     re.IGNORECASE,
