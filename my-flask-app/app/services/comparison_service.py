@@ -355,6 +355,9 @@ BUYER_PROFILE_SAFETY_ALLOWED = {"yes", "no"}
 BUYER_PROFILE_FUELS_ALLOWED = {"gasoline", "diesel", "hybrid", "plug_in_hybrid", "electric", "lpg", "בנזין", "דיזל", "היברידי", "חשמלי"}
 BUYER_PROFILE_GEARS_ALLOWED = {"automatic", "manual", "robotic", "אוטומטית", "ידנית", "רובוטית"}
 BUYER_PROFILE_PRIORITY_KEYS = {"reliability", "fuel", "safety", "comfort", "performance", "cost"}
+BUYER_PROFILE_PRIORITY_MIN = 0
+BUYER_PROFILE_PRIORITY_MAX = 10
+CAR_PROFILE_MAX_NESTING_DEPTH = 5
 _COMPARE_SLOT_RE = re.compile(r"^car_(\d+)$")
 
 # Segment inference is intentionally lightweight and deterministic because compare
@@ -747,7 +750,7 @@ def _normalize_car_profile(value: Any) -> Dict[str, Any]:
         return {}
 
     def _clean(obj: Any, depth: int = 0) -> Any:
-        if depth > 5:
+        if depth > CAR_PROFILE_MAX_NESTING_DEPTH:
             return None
         if isinstance(obj, dict):
             cleaned = {}
@@ -1249,7 +1252,7 @@ def build_compare_writer_prompt(
             for key, name in DECISION_CATEGORY_DEFINITIONS
         ],
         "deterministic_preference_hints": deterministic_preferences,
-        "buyer_profile": buyer_profile or None,
+        "buyer_profile": buyer_profile,
         "buyer_profile_rule": "User preference context only; use it only to explain fit. It must not override factual vehicle data.",
         "sources": ((grounded_output or {}).get("sources") or [])[:_MAX_STAGE_A_SOURCES * max(1, len(slot_keys))],
     }
@@ -3204,7 +3207,7 @@ def compute_request_hash(cars: List[Dict], buyer_profile: Optional[Dict[str, Any
 
     data = {
         "cars": sorted(car_keys),
-        "buyer_profile": buyer_profile or None,
+        "buyer_profile": buyer_profile,
         "prompt_version": COMPARISON_PROMPT_VERSION,
     }
     data_str = json.dumps(data, sort_keys=True)
@@ -3295,7 +3298,7 @@ def validate_buyer_profile(value: Any) -> Tuple[bool, Optional[str], Optional[Di
             number = float(raw)
         except (TypeError, ValueError):
             continue
-        cleaned_weights[key] = max(0, min(10, number))
+        cleaned_weights[key] = max(BUYER_PROFILE_PRIORITY_MIN, min(BUYER_PROFILE_PRIORITY_MAX, number))
     if cleaned_weights:
         normalized["priority_weights"] = cleaned_weights
 

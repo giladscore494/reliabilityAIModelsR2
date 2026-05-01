@@ -821,5 +821,7 @@ def test_compare_stage_b_forbidden_score_text_is_sanitized():
         {"cars": {"car_1": {}, "car_2": {}}},
         "req",
     )
-    assert "84/100" not in json.dumps(cleaned, ensure_ascii=False)
+    serialized = json.dumps(cleaned, ensure_ascii=False)
+    assert "84/100" not in serialized
+    assert cleaned["overall_decision"]["text"] != "84/100"
     assert "תקנה" not in cleaned["practical_summary"]

@@ -1473,6 +1473,12 @@
             // Start timing banner before API call
             startCompareTimingBanner();
             
+            const buyerProfile = collectBuyerProfile();
+            const comparePayload = { cars, legal_confirm: true };
+            if (buyerProfile) {
+                comparePayload.buyer_profile = buyerProfile;
+            }
+
             const resp = await fetch('/api/compare', {
                 method: 'POST',
                 headers: {
@@ -1480,7 +1486,7 @@
                     'X-Idempotency-Key': compareIdempotencyKey,
                     'X-CSRF-Token': getCSRFToken(),
                 },
-                body: JSON.stringify(Object.assign({ cars, legal_confirm: true }, collectBuyerProfile() ? { buyer_profile: collectBuyerProfile() } : {}))
+                body: JSON.stringify(comparePayload)
             });
             
             const data = await resp.json();
@@ -1751,8 +1757,8 @@
             document.getElementById('assumptionsDisplay').classList.add('hidden');
         } else {
             document.getElementById('assumptionsDisplay').classList.remove('hidden');
-            assumptionsList.innerHTML = assumptionsEntries.map(([, val]) =>
-                `<li>• ${escapeHtml(val)}</li>`
+            assumptionsList.innerHTML = assumptionsEntries.map(([_key, assumptionText]) =>
+                `<li>• ${escapeHtml(assumptionText)}</li>`
             ).join('');
         }
 
