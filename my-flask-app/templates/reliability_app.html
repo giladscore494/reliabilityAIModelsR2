@@ -45,6 +45,11 @@
 
         .ltr-select { direction: ltr; text-align: left; }
         .ltr-select-wrapper .pointer-events-none { left: auto; right: 1rem; }
+        /* show-flex: allows hidden+flex coexistence - display:flex applies when .hidden is removed */
+        .show-flex:not(.hidden) { display: flex !important; }
+        /* ring-overtime: pulsing animation when elapsed time exceeds estimate */
+        @keyframes ring-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .ring-overtime { animation: ring-pulse 1s ease-in-out infinite; }
     </style>
 
     <script nonce="{{ csp_nonce }}">
@@ -103,7 +108,7 @@
                         <select 
                             id="history-select-1" 
                             class="w-full bg-slate-900/70 border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all">
-                            <option value="">טוען היסטוריה...</option>
+                            <option value="">-- בחר חיפוש קודם --</option>
                         </select>
                     </div>
                     <div class="flex-1">
@@ -111,7 +116,7 @@
                         <select 
                             id="history-select-2" 
                             class="w-full bg-slate-900/70 border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all">
-                            <option value="">טוען היסטוריה...</option>
+                            <option value="">-- בחר חיפוש קודם --</option>
                         </select>
                     </div>
                     <div class="flex items-end">
@@ -220,7 +225,7 @@
                         </svg>
                         דיוק נתונים (אופציונלי)
                     </h4>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
                         <div class="space-y-2">
                             <label class="text-xs font-bold uppercase tracking-wider text-slate-400">קילומטראז'</label>
                             <select id="mileage_range" name="mileage_range"
@@ -351,7 +356,7 @@
                         </span>
                     </label>
                     <p id="legal-error"
-                       class="hidden items-center text-red-400 text-sm bg-red-950/30 border border-red-900/50 p-3 rounded-lg">
+                       class="hidden show-flex items-center text-red-400 text-sm bg-red-950/30 border border-red-900/50 p-3 rounded-lg">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 ml-2" viewBox="0 0 20 20" fill="currentColor">
                             <path fill-rule="evenodd"
                                   d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
@@ -360,7 +365,7 @@
                         אנא אשר/י את תנאי השימוש כדי להמשיך בתהליך.
                     </p>
 
-                    <button type="submit" id="submit-button"
+                    <button type="submit" id="submit-button" aria-busy="false"
                             class="relative w-full md:w-auto md:min-w-[360px] mx-auto flex items-center justify-center py-5 px-10 bg-gradient-to-r from-primary to-secondary hover:from-primary/110 hover:to-secondary/110 text-white font-black text-xl rounded-2xl shadow-xl shadow-primary/20 transition-all hover:scale-[1.02] active:scale-95 overflow-hidden group">
                         <span
                             class="absolute inset-0 w-full h-full bg-white/20 group-hover:w-0 transition-all duration-500 ease-out opacity-0 group-hover:opacity-100"></span>
@@ -401,7 +406,7 @@
         </div>
 
         <!-- Timing Banner (hidden by default) -->
-        <div id="timingBanner" class="hidden fixed top-24 left-1/2 transform -translate-x-1/2 z-50 bg-dark-lighter/95 backdrop-blur-xl border-2 border-primary/50 rounded-2xl shadow-2xl p-6">
+        <div id="timingBanner" role="status" class="hidden fixed top-24 left-1/2 transform -translate-x-1/2 z-50 bg-dark-lighter/95 backdrop-blur-xl border-2 border-primary/50 rounded-2xl shadow-2xl p-6">
             <div class="flex flex-col items-center gap-4">
                 <div class="relative w-32 h-32">
                     <!-- SVG Circular Progress Ring -->

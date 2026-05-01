@@ -320,12 +320,14 @@ class TestLeasingQuota:
             ))
             db.session.commit()
 
-        # Fill up quota (set count to 5)
-        from datetime import date
+        # Fill up quota using the app's timezone-aware day_key (same as the route)
         with app.app_context():
+            from app.factory import compute_quota_window, resolve_app_timezone
+            tz, _ = resolve_app_timezone()
+            day_key, _, _, _, _, _ = compute_quota_window(tz)
             quota = DailyQuotaUsage(
                 user_id=user_id,
-                day=date.today(),
+                day=day_key,
                 count=5,
                 updated_at=datetime.utcnow(),
             )

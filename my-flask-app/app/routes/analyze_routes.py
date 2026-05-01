@@ -217,7 +217,6 @@ def timing_estimate():
             {
                 "kind": kind,
                 "avg_ms": avg_ms,
-                "average_ms": avg_ms,  # backward compatibility alias for avg_ms
                 "median_ms": median_ms,
                 "estimate_ms": estimate_ms,
                 "p75_ms": p75_ms,
@@ -236,7 +235,6 @@ def timing_estimate():
             {
                 "kind": kind,
                 "avg_ms": None,
-                "average_ms": None,
                 "median_ms": None,
                 "estimate_ms": fallback_estimate,
                 "p75_ms": fallback_estimate,

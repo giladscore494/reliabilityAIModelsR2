@@ -412,6 +412,8 @@ def test_login_returns_google_redirect(monkeypatch, client):
 
 
 def test_dashboard_handles_bad_json(app, logged_in_client):
+    # result_json is now validated by JSONEncodedText; minimal valid JSON "{}"
+    # represents an unusual/empty result and the dashboard should handle it gracefully.
     client, user_id = logged_in_client
     with app.app_context():
         bad_row = SearchHistory(
@@ -422,7 +424,7 @@ def test_dashboard_handles_bad_json(app, logged_in_client):
             mileage_range="0-10",
             fuel_type="gas",
             transmission="auto",
-            result_json="not-json",
+            result_json="{}",
         )
         db.session.add(bad_row)
         db.session.commit()
