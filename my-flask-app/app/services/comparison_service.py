@@ -3985,38 +3985,49 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
             stage_b_reason = None
         else:
             validated_writer, validation_reason = _validate_compare_writer_response(stage_b_output)
-            raw_narrative = stage_b_output.get("narrative")
-            salvaged_narrative = _salvage_partial_writer_output(
-                stage_b_output,
-                cars_selected_slots,
-                server_computed_result,
-            )
-            logger.warning(
-                "[COMPARISON] stage_b validation failed request_id=%s reason=%s payload_shape=%s",
-                request_id,
-                validation_reason,
-                _summarize_compare_writer_payload(stage_b_output),
-            )
-            if salvaged_narrative:
-                narrative = sanitize_comparison_narrative(salvaged_narrative)
-                logger.info(
-                    "[COMPARISON] narrative salvaged from partial writer output request_id=%s narrative_shape=%s",
-                    request_id,
-                    _summarize_comparison_narrative_shape(narrative),
+            if validated_writer:
+                narrative = sanitize_comparison_narrative(
+                    convert_writer_response_to_narrative(validated_writer, cars_selected_slots)
                 )
-                stage_b_reason = None
-            elif raw_narrative:
-                narrative = sanitize_comparison_narrative(raw_narrative)
                 logger.info(
-                    "[COMPARISON] narrative generated request_id=%s mode=legacy_deprecated narrative_shape=%s",
+                    "[COMPARISON] legacy narrative generated request_id=%s narrative_shape=%s",
                     request_id,
                     _summarize_comparison_narrative_shape(narrative),
                 )
                 stage_b_reason = None
             else:
-                stage_b_reason = "stage_b_error"
-                _inc_compare_metric("compare_ai_fallback_used_total")
-                narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
+                raw_narrative = stage_b_output.get("narrative")
+                salvaged_narrative = _salvage_partial_writer_output(
+                    stage_b_output,
+                    cars_selected_slots,
+                    server_computed_result,
+                )
+                logger.warning(
+                    "[COMPARISON] stage_b validation failed request_id=%s reason=%s payload_shape=%s",
+                    request_id,
+                    validation_reason,
+                    _summarize_compare_writer_payload(stage_b_output),
+                )
+                if salvaged_narrative:
+                    narrative = sanitize_comparison_narrative(salvaged_narrative)
+                    logger.info(
+                        "[COMPARISON] narrative salvaged from partial writer output request_id=%s narrative_shape=%s",
+                        request_id,
+                        _summarize_comparison_narrative_shape(narrative),
+                    )
+                    stage_b_reason = None
+                elif raw_narrative:
+                    narrative = sanitize_comparison_narrative(raw_narrative)
+                    logger.info(
+                        "[COMPARISON] narrative generated request_id=%s mode=legacy_deprecated narrative_shape=%s",
+                        request_id,
+                        _summarize_comparison_narrative_shape(narrative),
+                    )
+                    stage_b_reason = None
+                else:
+                    stage_b_reason = "stage_b_error"
+                    _inc_compare_metric("compare_ai_fallback_used_total")
+                    narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
 
     if stage_a_partial:
         narrative = mark_partial_comparison_narrative(narrative)
@@ -4291,40 +4302,51 @@ def regenerate_comparison_ai(comparison_id: int, user_id: int) -> Optional[Dict[
             )
         else:
             validated_writer, validation_reason = _validate_compare_writer_response(stage_b_output)
-            raw_narrative = stage_b_output.get("narrative")
-            salvaged_narrative = _salvage_partial_writer_output(
-                stage_b_output,
-                cars_selected_slots,
-                server_computed_result,
-            )
-            current_app.logger.warning(
-                "[COMPARISON] compare_ai_regenerate validation failed request_id=%s comparison_id=%s reason=%s payload_shape=%s",
-                get_request_id(),
-                comparison_id,
-                validation_reason,
-                _summarize_compare_writer_payload(stage_b_output),
-            )
-            if salvaged_narrative:
-                narrative = sanitize_comparison_narrative(salvaged_narrative)
-                current_app.logger.info(
-                    "[COMPARISON] narrative salvaged from partial writer output request_id=%s comparison_id=%s narrative_shape=%s",
-                    get_request_id(),
-                    comparison_id,
-                    _summarize_comparison_narrative_shape(narrative),
+            if validated_writer:
+                narrative = sanitize_comparison_narrative(
+                    convert_writer_response_to_narrative(validated_writer, cars_selected_slots)
                 )
-            elif raw_narrative:
-                narrative = sanitize_comparison_narrative(raw_narrative)
                 current_app.logger.info(
-                    "[COMPARISON] compare_ai_regenerate legacy narrative used request_id=%s comparison_id=%s narrative_shape=%s",
+                    "[COMPARISON] compare_ai_regenerate legacy narrative accepted request_id=%s comparison_id=%s narrative_shape=%s",
                     get_request_id(),
                     comparison_id,
                     _summarize_comparison_narrative_shape(narrative),
                 )
             else:
-                reason = "stage_b_error"
-                _inc_compare_metric("compare_ai_regenerate_fallback_total")
-                _inc_compare_metric("compare_ai_fallback_used_total")
-                narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
+                raw_narrative = stage_b_output.get("narrative")
+                salvaged_narrative = _salvage_partial_writer_output(
+                    stage_b_output,
+                    cars_selected_slots,
+                    server_computed_result,
+                )
+                current_app.logger.warning(
+                    "[COMPARISON] compare_ai_regenerate validation failed request_id=%s comparison_id=%s reason=%s payload_shape=%s",
+                    get_request_id(),
+                    comparison_id,
+                    validation_reason,
+                    _summarize_compare_writer_payload(stage_b_output),
+                )
+                if salvaged_narrative:
+                    narrative = sanitize_comparison_narrative(salvaged_narrative)
+                    current_app.logger.info(
+                        "[COMPARISON] narrative salvaged from partial writer output request_id=%s comparison_id=%s narrative_shape=%s",
+                        get_request_id(),
+                        comparison_id,
+                        _summarize_comparison_narrative_shape(narrative),
+                    )
+                elif raw_narrative:
+                    narrative = sanitize_comparison_narrative(raw_narrative)
+                    current_app.logger.info(
+                        "[COMPARISON] compare_ai_regenerate legacy narrative used request_id=%s comparison_id=%s narrative_shape=%s",
+                        get_request_id(),
+                        comparison_id,
+                        _summarize_comparison_narrative_shape(narrative),
+                    )
+                else:
+                    reason = "stage_b_error"
+                    _inc_compare_metric("compare_ai_regenerate_fallback_total")
+                    _inc_compare_metric("compare_ai_fallback_used_total")
+                    narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
 
     if not ((server_computed_result.get("comparison_status") or {}).get("balanced", True)):
         narrative = mark_partial_comparison_narrative(narrative)
