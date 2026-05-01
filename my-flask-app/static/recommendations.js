@@ -171,7 +171,7 @@
             errorEl.textContent = `${message}${suffix}`;
             errorEl.classList.remove('hidden');
         } else {
-            alert(`${message}${suffix}`);
+            console.error('[Advisor]', message, suffix);
         }
     }
 

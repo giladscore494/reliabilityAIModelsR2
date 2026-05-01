@@ -178,7 +178,7 @@ class SearchHistory(db.Model):
     mileage_range = db.Column(db.String(100))
     fuel_type = db.Column(db.String(100))
     transmission = db.Column(db.String(100))
-    result_json = db.Column(db.Text, nullable=False)
+    result_json = db.Column(JSONEncodedText, nullable=False)
     duration_ms = db.Column(db.Integer, nullable=True)
     is_public_example = db.Column(db.Boolean, nullable=False, default=False, server_default="false")
     example_slug = db.Column(db.String(64), nullable=True, unique=True)
@@ -195,11 +195,8 @@ class AdvisorHistory(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
     timestamp = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     profile_json = db.Column(db.Text, nullable=False)
-    result_json = db.Column(db.Text, nullable=False)
+    result_json = db.Column(JSONEncodedText, nullable=False)
     duration_ms = db.Column(db.Integer, nullable=True)
-
-
-class IpRateLimit(db.Model):
     """
     Per-IP short-window rate limiting (minute buckets).
     """
