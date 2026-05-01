@@ -270,8 +270,10 @@
                                     <select id="gear_1" name="gear_1"
                                             class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
                                         <option value="אוטומטית" selected>אוטומטית</option>
-                                        <option value="רובוטית">רובוטית (DSG)</option>
+                                        <option value="רובוטית">רובוטית</option>
+                                        <option value="רציפה">רציפה</option>
                                         <option value="ידנית">ידנית</option>
+                                        <option value="לא ידוע / לבדיקה">לא ידוע / לבדיקה</option>
                                     </select>
                                 </div>
                             </div>
@@ -320,8 +322,10 @@
                                     <select id="gear_2" name="gear_2"
                                             class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
                                         <option value="אוטומטית" selected>אוטומטית</option>
-                                        <option value="רובוטית">רובוטית (DSG)</option>
+                                        <option value="רובוטית">רובוטית</option>
+                                        <option value="רציפה">רציפה</option>
                                         <option value="ידנית">ידנית</option>
+                                        <option value="לא ידוע / לבדיקה">לא ידוע / לבדיקה</option>
                                     </select>
                                 </div>
                             </div>
@@ -370,8 +374,10 @@
                                     <select id="gear_3" name="gear_3"
                                             class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
                                         <option value="אוטומטית" selected>אוטומטית</option>
-                                        <option value="רובוטית">רובוטית (DSG)</option>
+                                        <option value="רובוטית">רובוטית</option>
+                                        <option value="רציפה">רציפה</option>
                                         <option value="ידנית">ידנית</option>
+                                        <option value="לא ידוע / לבדיקה">לא ידוע / לבדיקה</option>
                                     </select>
                                 </div>
                             </div>
@@ -1679,6 +1685,76 @@
         return carsSelected?.[key]?.display_name || key;
     }
 
+    function checkedVersionValue(value, fallback = 'לא מאומת') {
+        const text = String(value || '').trim();
+        return text || fallback;
+    }
+
+    function checkedVersionDataBasisLabel(value) {
+        switch (value) {
+            case 'user_input':
+                return 'קלט משתמש';
+            case 'verified_source':
+                return 'מקור מאומת';
+            case 'ai_inference':
+                return 'השלמת AI';
+            case 'mixed':
+                return 'קלט משתמש + AI/מידע זמין';
+            default:
+                return 'לא ידוע / לבדיקה';
+        }
+    }
+
+    function checkedVersionConfidenceLabel(value) {
+        switch (value) {
+            case 'high':
+                return 'גבוהה';
+            case 'medium':
+                return 'בינונית';
+            case 'low':
+                return 'נמוכה';
+            default:
+                return 'לא מאומתת';
+        }
+    }
+
+    function renderCheckedVersions(result, carsSelected, carKeys) {
+        const checkedVersions = result?.checked_versions || result?.computed_result?.checked_versions || {};
+        if (!carKeys.length) return '';
+        const gridCols = carKeys.length >= 3 ? 'md:grid-cols-3' : 'md:grid-cols-2';
+        return `
+            <section class="rounded-2xl border border-slate-700/70 bg-slate-900/50 p-4 md:p-5">
+                <div class="inline-flex items-center rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-bold text-primary mb-3">גרסה שנבדקה</div>
+                <p class="text-sm leading-7 text-slate-400 mb-4">הקטע מציג את הגרסה המייצגת שלפיה נוסחה ההשוואה, כולל מה עדיין דורש אימות.</p>
+                <div class="grid grid-cols-1 ${gridCols} gap-4">
+                    ${carKeys.map((ck, index) => {
+                        const version = checkedVersions?.[ck] || {};
+                        return `
+                            <article class="rounded-2xl border border-slate-700/70 bg-dark-lighter/70 p-4 space-y-3">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <span class="car-result-chip car-chip-${index + 1}">${escapeHtml(carName(carsSelected, ck))}</span>
+                                </div>
+                                <dl class="space-y-1 text-sm leading-7 text-slate-300">
+                                    <div><dt class="inline text-slate-400">יצרן:</dt> <dd class="inline">${escapeHtml(checkedVersionValue(version.make, carsSelected?.[ck]?.make || 'לא מאומת'))}</dd></div>
+                                    <div><dt class="inline text-slate-400">דגם:</dt> <dd class="inline">${escapeHtml(checkedVersionValue(version.model, carsSelected?.[ck]?.model || 'לא מאומת'))}</dd></div>
+                                    <div><dt class="inline text-slate-400">שנתון:</dt> <dd class="inline">${escapeHtml(checkedVersionValue(version.year))}</dd></div>
+                                    <div><dt class="inline text-slate-400">רמת גימור:</dt> <dd class="inline">${escapeHtml(checkedVersionValue(version.trim))}</dd></div>
+                                    <div><dt class="inline text-slate-400">מנוע:</dt> <dd class="inline">${escapeHtml(checkedVersionValue(version.engine_type, 'לא ידוע / לבדיקה'))}</dd></div>
+                                    <div><dt class="inline text-slate-400">תיבת הילוכים:</dt> <dd class="inline">${escapeHtml(checkedVersionValue(version.transmission, 'לא ידוע / לבדיקה'))}</dd></div>
+                                    <div><dt class="inline text-slate-400">הנעה:</dt> <dd class="inline">${escapeHtml(checkedVersionValue(version.drivetrain))}</dd></div>
+                                    <div><dt class="inline text-slate-400">מושבים:</dt> <dd class="inline">${escapeHtml(checkedVersionValue(version.seats))}</dd></div>
+                                    <div><dt class="inline text-slate-400">בסיס נתונים:</dt> <dd class="inline">${escapeHtml(checkedVersionDataBasisLabel(version.data_basis))}</dd></div>
+                                    <div><dt class="inline text-slate-400">רמת ודאות:</dt> <dd class="inline">${escapeHtml(checkedVersionConfidenceLabel(version.confidence))}</dd></div>
+                                </dl>
+                                <p class="text-xs leading-6 text-amber-100 border-t border-slate-700/60 pt-3"><span class="font-bold text-amber-200">הערת אימות:</span> ${escapeHtml(checkedVersionValue(version.notes, 'יש לאמת את המפרט מול מקור רשמי לפני החלטה.'))}</p>
+                            </article>
+                        `;
+                    }).join('')}
+                </div>
+            </section>
+        `;
+    }
+
     function renderDecisionResult(decision, carsSelected, carKeys, result) {
         const winnerDisplay = document.getElementById('winnerDisplay');
         const overall = decision?.overall_decision || {};
@@ -1735,6 +1811,7 @@
         const competitors = Array.isArray(decision?.competitors_to_consider) ? decision.competitors_to_consider : [];
         const gridCols = carKeys.length >= 3 ? 'md:grid-cols-3' : 'md:grid-cols-2';
         return `
+            ${renderCheckedVersions(result, carsSelected, carKeys)}
             <section class="grid grid-cols-1 ${gridCols} gap-4">
                 <article class="rounded-2xl border border-slate-700/70 bg-slate-900/50 p-4">
                     <h4 class="text-lg font-bold text-white mb-3">למי כל רכב מתאים</h4>

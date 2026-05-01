@@ -14,6 +14,7 @@ import pytest
 from app.models import ComparisonHistory
 from app.services.comparison_service import (
     build_display_name,
+    build_checked_versions,
     map_cars_to_slots,
     determine_winner,
     compute_comparison_results,
@@ -34,19 +35,33 @@ from main import create_app, db, User
 # build_display_name tests
 # ============================================================
 
+
 class TestBuildDisplayName:
     def test_make_model_year(self):
-        assert build_display_name({"make": "Toyota", "model": "Corolla", "year": 2020}) == "Toyota Corolla 2020"
+        assert (
+            build_display_name({"make": "Toyota", "model": "Corolla", "year": 2020})
+            == "Toyota Corolla 2020"
+        )
 
     def test_make_model_no_year(self):
         assert build_display_name({"make": "Honda", "model": "Civic"}) == "Honda Civic"
 
     def test_make_model_year_range(self):
-        result = build_display_name({"make": "Kia", "model": "Sportage", "year_start": 2018, "year_end": 2025})
+        result = build_display_name(
+            {"make": "Kia", "model": "Sportage", "year_start": 2018, "year_end": 2025}
+        )
         assert result == "Kia Sportage 2018-2025"
 
     def test_year_takes_precedence(self):
-        result = build_display_name({"make": "BMW", "model": "320i", "year": 2022, "year_start": 2018, "year_end": 2025})
+        result = build_display_name(
+            {
+                "make": "BMW",
+                "model": "320i",
+                "year": 2022,
+                "year_start": 2018,
+                "year_end": 2025,
+            }
+        )
         assert result == "BMW 320i 2022"
 
     def test_empty_car(self):
@@ -54,8 +69,59 @@ class TestBuildDisplayName:
 
 
 # ============================================================
+# checked_version tests
+# ============================================================
+
+
+class TestBuildCheckedVersions:
+    def test_generalizes_transmission_and_exposes_uncertainty(self):
+        cars_selected = {
+            "car_1": {
+                "make": "Volkswagen",
+                "model": "Golf",
+                "year": 2020,
+                "engine_type": "בנזין",
+                "gearbox": "רובוטית",
+                "display_name": "Volkswagen Golf 2020",
+            }
+        }
+        grounded = {
+            "cars": {
+                "car_1": {
+                    "facts": {"fuel_type": "petrol"},
+                    "sources": ["https://example.com/golf"],
+                    "car_profile": {
+                        "vehicle_identity": {
+                            "make": "Volkswagen",
+                            "model": "Golf",
+                            "year": "2020",
+                        },
+                        "recommended_trim": {"trim_name": "Style", "confidence": "low"},
+                        "powertrain_specs": {
+                            "engine": "1.5 TSI",
+                            "gearbox": "DSG 7",
+                            "drivetrain": "FWD",
+                            "seats": 5,
+                            "sources": ["https://example.com/spec"],
+                        },
+                    },
+                }
+            }
+        }
+
+        checked = build_checked_versions(cars_selected, grounded)
+
+        assert checked["car_1"]["transmission"] == "רובוטית"
+        assert checked["car_1"]["trim"] == "לא מאומת"
+        assert checked["car_1"]["data_basis"] == "mixed"
+        assert checked["car_1"]["confidence"] == "medium"
+        assert "ערכים כלליים" in checked["car_1"]["notes"]
+
+
+# ============================================================
 # map_cars_to_slots tests
 # ============================================================
+
 
 class TestMapCarsToSlots:
     def test_two_cars(self):
@@ -97,6 +163,7 @@ class TestMapCarsToSlots:
 # determine_winner with tie handling
 # ============================================================
 
+
 class TestDetermineWinner:
     def test_clear_winner(self):
         scores = {"car_1": 85.0, "car_2": 70.0}
@@ -110,7 +177,7 @@ class TestDetermineWinner:
         # Exactly at threshold -> still tie (< TIE_THRESHOLD)
         scores = {"car_1": 80.0 + TIE_THRESHOLD - 0.1, "car_2": 80.0}
         assert determine_winner(scores) == "tie"
-        
+
         # Just above threshold -> not tie
         scores = {"car_1": 80.0 + TIE_THRESHOLD + 0.1, "car_2": 80.0}
         assert determine_winner(scores) != "tie"
@@ -130,6 +197,7 @@ class TestDetermineWinner:
 # ============================================================
 # compute_comparison_results with stable keys
 # ============================================================
+
 
 class TestComputeComparisonResultsStableKeys:
     def test_results_use_car_slot_keys(self):
@@ -166,7 +234,12 @@ class TestComputeComparisonResultsStableKeys:
                         "handling_agility": "medium",
                         "fun_to_drive": "medium",
                     },
-                    "facts": {"horsepower": 138, "weight_kg": 1310, "body_type": "sedan", "fuel_type": "petrol"},
+                    "facts": {
+                        "horsepower": 138,
+                        "weight_kg": 1310,
+                        "body_type": "sedan",
+                        "fuel_type": "petrol",
+                    },
                     "short_notes": ["אמינות חזקה"],
                     "sources": ["https://example.com/toyota"],
                 },
@@ -200,42 +273,104 @@ class TestComputeComparisonResultsStableKeys:
                         "handling_agility": "high",
                         "fun_to_drive": "high",
                     },
-                    "facts": {"horsepower": 210, "weight_kg": 1325, "body_type": "sedan", "fuel_type": "petrol"},
+                    "facts": {
+                        "horsepower": 210,
+                        "weight_kg": 1325,
+                        "body_type": "sedan",
+                        "fuel_type": "petrol",
+                    },
                     "short_notes": ["מהנה יותר"],
                     "sources": ["https://example.com/honda"],
                 },
             },
             "sources": ["https://example.com/toyota", "https://example.com/honda"],
         }
-        
+
         result = compute_comparison_results(model_output)
-        
+
         # Keys should be car_1, car_2
         assert "car_1" in result["cars"]
         assert "car_2" in result["cars"]
-        
+
         # car_1 should have higher score
-        assert result["cars"]["car_1"]["categories"]["reliability_risk"]["score"] is not None
-        assert result["cars"]["car_2"]["categories"]["reliability_risk"]["score"] is not None
+        assert (
+            result["cars"]["car_1"]["categories"]["reliability_risk"]["score"]
+            is not None
+        )
+        assert (
+            result["cars"]["car_2"]["categories"]["reliability_risk"]["score"]
+            is not None
+        )
         assert result["comparison_status"]["balanced"] is True
-        assert result["metric_winners"]["driving_performance"]["power_capability"] == "car_2"
+        assert (
+            result["metric_winners"]["driving_performance"]["power_capability"]
+            == "car_2"
+        )
 
     def test_results_handle_tie_without_crashing(self):
         model_output = {
             "cars": {
                 "car_1": {
                     "car_name": "Toyota Corolla 2020",
-                    "reliability": {"overall": "high", "issue_frequency": "low", "issue_severity": "low", "repair_cost_risk": "low", "recall_risk": "low", "parts_complexity": "low"},
-                    "ownership_cost": {"fuel_cost": "low", "routine_maintenance": "low", "repair_burden": "low", "insurance_burden": "low", "depreciation_risk": "low"},
-                    "comfort_practicality": {"space": "medium", "ride_comfort": "medium", "trunk_usefulness": "medium", "daily_usability": "high"},
-                    "performance_driving": {"power_feel": "medium", "power_to_weight": None, "braking_confidence": "medium", "handling_agility": "medium", "fun_to_drive": "medium"},
+                    "reliability": {
+                        "overall": "high",
+                        "issue_frequency": "low",
+                        "issue_severity": "low",
+                        "repair_cost_risk": "low",
+                        "recall_risk": "low",
+                        "parts_complexity": "low",
+                    },
+                    "ownership_cost": {
+                        "fuel_cost": "low",
+                        "routine_maintenance": "low",
+                        "repair_burden": "low",
+                        "insurance_burden": "low",
+                        "depreciation_risk": "low",
+                    },
+                    "comfort_practicality": {
+                        "space": "medium",
+                        "ride_comfort": "medium",
+                        "trunk_usefulness": "medium",
+                        "daily_usability": "high",
+                    },
+                    "performance_driving": {
+                        "power_feel": "medium",
+                        "power_to_weight": None,
+                        "braking_confidence": "medium",
+                        "handling_agility": "medium",
+                        "fun_to_drive": "medium",
+                    },
                 },
                 "car_2": {
                     "car_name": "Honda Civic 2020",
-                    "reliability": {"overall": "high", "issue_frequency": "low", "issue_severity": "low", "repair_cost_risk": "low", "recall_risk": "low", "parts_complexity": "low"},
-                    "ownership_cost": {"fuel_cost": "low", "routine_maintenance": "low", "repair_burden": "low", "insurance_burden": "low", "depreciation_risk": "low"},
-                    "comfort_practicality": {"space": "medium", "ride_comfort": "medium", "trunk_usefulness": "medium", "daily_usability": "high"},
-                    "performance_driving": {"power_feel": "medium", "power_to_weight": None, "braking_confidence": "medium", "handling_agility": "medium", "fun_to_drive": "medium"},
+                    "reliability": {
+                        "overall": "high",
+                        "issue_frequency": "low",
+                        "issue_severity": "low",
+                        "repair_cost_risk": "low",
+                        "recall_risk": "low",
+                        "parts_complexity": "low",
+                    },
+                    "ownership_cost": {
+                        "fuel_cost": "low",
+                        "routine_maintenance": "low",
+                        "repair_burden": "low",
+                        "insurance_burden": "low",
+                        "depreciation_risk": "low",
+                    },
+                    "comfort_practicality": {
+                        "space": "medium",
+                        "ride_comfort": "medium",
+                        "trunk_usefulness": "medium",
+                        "daily_usability": "high",
+                    },
+                    "performance_driving": {
+                        "power_feel": "medium",
+                        "power_to_weight": None,
+                        "braking_confidence": "medium",
+                        "handling_agility": "medium",
+                        "fun_to_drive": "medium",
+                    },
                 },
             }
         }
@@ -317,6 +452,7 @@ class TestComputeComparisonResultsStableKeys:
 # sanitize_comparison_narrative tests
 # ============================================================
 
+
 class TestSanitizeComparisonNarrative:
     def test_valid_narrative(self):
         narrative = {
@@ -327,7 +463,10 @@ class TestSanitizeComparisonNarrative:
                     "title_he": "אמינות וסיכונים",
                     "winner": "car_1",
                     "explanations": {"car_1": "אמינה מאוד", "car_2": "פחות אמינה"},
-                    "why_it_scored_that_way": ["ציון גבוה באמינות", "סיכון נמוך לתקלות"],
+                    "why_it_scored_that_way": [
+                        "ציון גבוה באמינות",
+                        "סיכון נמוך לתקלות",
+                    ],
                 }
             ],
             "disclaimers_he": ["הערכה בלבד", "מומלץ לבדוק"],
@@ -361,8 +500,20 @@ class TestSanitizeComparisonNarrative:
         narrative = {
             "overall_summary": "test",
             "category_explanations": [
-                {"category_key": "injected_key", "title_he": "test", "winner": "car_1", "explanations": {}, "why_it_scored_that_way": []},
-                {"category_key": "reliability_risk", "title_he": "test", "winner": "car_1", "explanations": {}, "why_it_scored_that_way": []},
+                {
+                    "category_key": "injected_key",
+                    "title_he": "test",
+                    "winner": "car_1",
+                    "explanations": {},
+                    "why_it_scored_that_way": [],
+                },
+                {
+                    "category_key": "reliability_risk",
+                    "title_he": "test",
+                    "winner": "car_1",
+                    "explanations": {},
+                    "why_it_scored_that_way": [],
+                },
             ],
             "disclaimers_he": [],
         }
@@ -374,7 +525,13 @@ class TestSanitizeComparisonNarrative:
         narrative = {
             "overall_summary": "test",
             "category_explanations": [
-                {"category_key": "reliability_risk", "title_he": "test", "winner": "hacker", "explanations": {}, "why_it_scored_that_way": []},
+                {
+                    "category_key": "reliability_risk",
+                    "title_he": "test",
+                    "winner": "hacker",
+                    "explanations": {},
+                    "why_it_scored_that_way": [],
+                },
             ],
             "disclaimers_he": [],
         }
@@ -385,9 +542,13 @@ class TestSanitizeComparisonNarrative:
         narrative = {
             "overall_summary": "test",
             "category_explanations": [
-                {"category_key": "reliability_risk", "title_he": "test", "winner": "tie",
-                 "explanations": {},
-                 "why_it_scored_that_way": ["a", "b", "c", "d", "e"]},
+                {
+                    "category_key": "reliability_risk",
+                    "title_he": "test",
+                    "winner": "tie",
+                    "explanations": {},
+                    "why_it_scored_that_way": ["a", "b", "c", "d", "e"],
+                },
             ],
             "disclaimers_he": [],
         }
@@ -399,9 +560,17 @@ class TestSanitizeComparisonNarrative:
         narrative = {
             "overall_summary": "test",
             "category_explanations": [
-                {"category_key": "ownership_cost", "title_he": "test", "winner": "car_2",
-                 "explanations": {"car_1": "ok", "car_2": "good", "bad_key": "injected"},
-                 "why_it_scored_that_way": []},
+                {
+                    "category_key": "ownership_cost",
+                    "title_he": "test",
+                    "winner": "car_2",
+                    "explanations": {
+                        "car_1": "ok",
+                        "car_2": "good",
+                        "bad_key": "injected",
+                    },
+                    "why_it_scored_that_way": [],
+                },
             ],
             "disclaimers_he": [],
         }
@@ -420,13 +589,20 @@ class TestCompareWriterPromptAndValidation:
         }
         computed_result = {
             "overall_winner": "car_1",
-            "category_winners": {"reliability_risk": "car_1", "ownership_cost": "car_2", "practicality_comfort": "tie", "driving_performance": "car_1"},
+            "category_winners": {
+                "reliability_risk": "car_1",
+                "ownership_cost": "car_2",
+                "practicality_comfort": "tie",
+                "driving_performance": "car_1",
+            },
             "cars": {
                 "car_1": {"overall_score": 82, "categories": {}},
                 "car_2": {"overall_score": 79, "categories": {}},
             },
         }
-        prompt = build_compare_writer_prompt(cars_selected_slots, computed_result, {"cars": {}, "assumptions": {}})
+        prompt = build_compare_writer_prompt(
+            cars_selected_slots, computed_result, {"cars": {}, "assumptions": {}}
+        )
         assert len(prompt) <= COMPARE_WRITER_PROMPT_CHAR_CAP
 
     def test_writer_prompt_uses_slot_schema_for_three_cars(self):
@@ -444,17 +620,29 @@ class TestCompareWriterPromptAndValidation:
                 "driving_performance": "car_3",
             },
             "cars": {
-                "car_1": {"overall_score": 80, "categories": {"reliability_risk": {"score": 84}}},
-                "car_2": {"overall_score": 79, "categories": {"ownership_cost": {"score": 82}}},
-                "car_3": {"overall_score": 83, "categories": {"driving_performance": {"score": 90}}},
+                "car_1": {
+                    "overall_score": 80,
+                    "categories": {"reliability_risk": {"score": 84}},
+                },
+                "car_2": {
+                    "overall_score": 79,
+                    "categories": {"ownership_cost": {"score": 82}},
+                },
+                "car_3": {
+                    "overall_score": 83,
+                    "categories": {"driving_performance": {"score": 90}},
+                },
             },
             "comparison_status": {"balanced": True},
         }
 
-        prompt = build_compare_writer_prompt(cars_selected_slots, computed_result, {"cars": {}, "assumptions": {}})
+        prompt = build_compare_writer_prompt(
+            cars_selected_slots, computed_result, {"cars": {}, "assumptions": {}}
+        )
 
         assert '"cars":{"car_1"' in prompt
-        assert '"car_3":{"label":"Mazda 3 2020","evidence"' in prompt
+        assert '"car_3":{"label":"Mazda 3 2020","user_selection"' in prompt
+        assert '"checked_versions"' in prompt
         assert '"label":"car_1|car_2|car_3|tie|depends|unknown"' in prompt
         assert "carA|carB|tie" not in prompt
 
@@ -531,17 +719,28 @@ class TestCompareWriterPromptAndValidation:
             },
         )
         assert narrative["category_explanations"][0]["winner"] == "car_3"
-        assert set(narrative["category_explanations"][0]["explanations"].keys()) == {"car_1", "car_2", "car_3"}
-        assert narrative["category_explanations"][0]["explanations"]["car_3"] == "מרגיש חד יותר ולכן מוביל."
+        assert set(narrative["category_explanations"][0]["explanations"].keys()) == {
+            "car_1",
+            "car_2",
+            "car_3",
+        }
+        assert (
+            narrative["category_explanations"][0]["explanations"]["car_3"]
+            == "מרגיש חד יותר ולכן מוביל."
+        )
 
 
 class TestCompareSegmentInference:
     def test_infer_compare_segment_city_mini(self):
-        segment = infer_compare_segment({"make": "Kia", "model": "Picanto", "display_name": "Kia Picanto 2020"}, {})
+        segment = infer_compare_segment(
+            {"make": "Kia", "model": "Picanto", "display_name": "Kia Picanto 2020"}, {}
+        )
         assert segment == "city_mini"
 
     def test_build_single_car_prompt_embeds_segment_context(self):
-        prompt = build_single_car_prompt({"make": "Kia", "model": "Sportage", "year": 2020})
+        prompt = build_single_car_prompt(
+            {"make": "Kia", "model": "Sportage", "year": 2020}
+        )
         assert '"segment_key": "crossover_soft_suv"' in prompt
         assert "family usability" in prompt
         assert "CATEGORY_BEHAVIOR_RULES" in prompt
@@ -575,7 +774,11 @@ def client(app):
 @pytest.fixture
 def logged_in_client(app, client):
     with app.app_context():
-        user = User(google_id="test-refactor", email="test_refactor@example.com", name="Refactor User")
+        user = User(
+            google_id="test-refactor",
+            email="test_refactor@example.com",
+            name="Refactor User",
+        )
         db.session.add(user)
         db.session.commit()
         user_id = user.id
@@ -593,14 +796,16 @@ class TestCompareDetailWithNarrative:
         narrative = {
             "overall_summary": "Test summary",
             "category_explanations": [],
-            "disclaimers_he": ["Disclaimer"]
+            "disclaimers_he": ["Disclaimer"],
         }
         computed = {"overall_winner": "car_1", "cars": {}, "narrative": narrative}
 
         with app.app_context():
             record = ComparisonHistory(
                 user_id=user_id,
-                cars_selected=json.dumps([{"make": "Toyota", "model": "Corolla", "year": 2020}]),
+                cars_selected=json.dumps(
+                    [{"make": "Toyota", "model": "Corolla", "year": 2020}]
+                ),
                 computed_result=json.dumps(computed),
                 model_name="gemini-3.1-flash",
                 prompt_version="v1",
@@ -625,7 +830,9 @@ class TestCompareDetailWithNarrative:
         with app.app_context():
             record = ComparisonHistory(
                 user_id=user_id,
-                cars_selected=json.dumps([{"make": "Honda", "model": "Civic", "year": 2021}]),
+                cars_selected=json.dumps(
+                    [{"make": "Honda", "model": "Civic", "year": 2021}]
+                ),
                 computed_result=json.dumps(computed),
                 model_name="gemini-3.1-flash",
                 prompt_version="v1",
@@ -640,7 +847,9 @@ class TestCompareDetailWithNarrative:
         assert data["ok"] is True
         assert data["data"]["narrative"] is None
 
-    def test_detail_recovers_legacy_stage_b_narrative_shape(self, app, logged_in_client):
+    def test_detail_recovers_legacy_stage_b_narrative_shape(
+        self, app, logged_in_client
+    ):
         client, user_id = logged_in_client
 
         computed = {
@@ -667,10 +876,12 @@ class TestCompareDetailWithNarrative:
         with app.app_context():
             record = ComparisonHistory(
                 user_id=user_id,
-                cars_selected=json.dumps([
-                    {"make": "Toyota", "model": "Corolla", "year": 2020},
-                    {"make": "Honda", "model": "Civic", "year": 2021},
-                ]),
+                cars_selected=json.dumps(
+                    [
+                        {"make": "Toyota", "model": "Corolla", "year": 2020},
+                        {"make": "Honda", "model": "Civic", "year": 2021},
+                    ]
+                ),
                 computed_result=json.dumps(computed),
                 model_name="gemini-3.1-flash",
                 prompt_version="v1",
@@ -682,10 +893,22 @@ class TestCompareDetailWithNarrative:
         resp = client.get(f"/api/compare/{record_id}")
         assert resp.status_code == 200
         data = resp.get_json()["data"]
-        assert data["narrative"]["overall_summary"] == "Legacy summary from stored AI payload."
-        assert data["narrative"]["category_explanations"][0]["category_key"] == "reliability_risk"
-        assert data["narrative"]["category_explanations"][0]["explanations"]["car_1"] == "Legacy explanation text."
-        assert data["ai"]["stage_b"]["narrative"] == "Legacy summary from stored AI payload."
+        assert (
+            data["narrative"]["overall_summary"]
+            == "Legacy summary from stored AI payload."
+        )
+        assert (
+            data["narrative"]["category_explanations"][0]["category_key"]
+            == "reliability_risk"
+        )
+        assert (
+            data["narrative"]["category_explanations"][0]["explanations"]["car_1"]
+            == "Legacy explanation text."
+        )
+        assert (
+            data["ai"]["stage_b"]["narrative"]
+            == "Legacy summary from stored AI payload."
+        )
 
     def test_detail_returns_cars_selected_as_dict(self, app, logged_in_client):
         """cars_selected should be returned as dict with car_1/car_2 keys."""
@@ -694,10 +917,12 @@ class TestCompareDetailWithNarrative:
         with app.app_context():
             record = ComparisonHistory(
                 user_id=user_id,
-                cars_selected=json.dumps([
-                    {"make": "Toyota", "model": "Corolla", "year": 2020},
-                    {"make": "Honda", "model": "Civic", "year": 2021}
-                ]),
+                cars_selected=json.dumps(
+                    [
+                        {"make": "Toyota", "model": "Corolla", "year": 2020},
+                        {"make": "Honda", "model": "Civic", "year": 2021},
+                    ]
+                ),
                 computed_result=json.dumps({"overall_winner": "car_1", "cars": {}}),
                 model_name="gemini-3.1-flash",
                 prompt_version="v1",
@@ -709,14 +934,14 @@ class TestCompareDetailWithNarrative:
         resp = client.get(f"/api/compare/{record_id}")
         assert resp.status_code == 200
         data = resp.get_json()
-        
+
         cars_selected = data["data"]["cars_selected"]
         assert isinstance(cars_selected, dict)
         assert "car_1" in cars_selected
         assert "car_2" in cars_selected
         assert cars_selected["car_1"]["display_name"] == "Toyota Corolla 2020"
         assert cars_selected["car_2"]["display_name"] == "Honda Civic 2021"
-        
+
         # Also verify backward-compatible list
         assert isinstance(data["data"]["cars_selected_list"], list)
         assert len(data["data"]["cars_selected_list"]) == 2
@@ -725,14 +950,24 @@ class TestCompareDetailWithNarrative:
 def test_compare_response_contains_decision_result_shape():
     from app.services.comparison_service import build_deterministic_decision_result
 
-    slots = map_cars_to_slots([
-        {"make": "Toyota", "model": "Corolla", "year": 2020},
-        {"make": "Hyundai", "model": "Elantra", "year": 2020},
-    ])
-    result = build_deterministic_decision_result(slots, {"overall_winner": "tie", "cars": {"car_1": {}, "car_2": {}}})
+    slots = map_cars_to_slots(
+        [
+            {"make": "Toyota", "model": "Corolla", "year": 2020},
+            {"make": "Hyundai", "model": "Elantra", "year": 2020},
+        ]
+    )
+    result = build_deterministic_decision_result(
+        slots, {"overall_winner": "tie", "cars": {"car_1": {}, "car_2": {}}}
+    )
     assert "overall_decision" in result
     assert "category_decisions" in result
-    assert result["overall_decision"]["label"] in {"tie", "depends", "unknown", "car_1", "car_2"}
+    assert result["overall_decision"]["label"] in {
+        "tie",
+        "depends",
+        "unknown",
+        "car_1",
+        "car_2",
+    }
 
 
 def test_compare_decision_result_has_no_visible_numeric_scores():
@@ -741,7 +976,13 @@ def test_compare_decision_result_has_no_visible_numeric_scores():
     cleaned = sanitize_decision_result(
         {
             "overall_decision": {"label": "car_1", "text": "84/100 ואני ממליץ"},
-            "category_decisions": [{"category_key": "pricing_and_value", "preferred": "car_1", "why": "winnerScore 9/10"}],
+            "category_decisions": [
+                {
+                    "category_key": "pricing_and_value",
+                    "preferred": "car_1",
+                    "why": "winnerScore 9/10",
+                }
+            ],
             "practical_summary": "overall_score מתוך 100",
         },
         {"car_1": {}, "car_2": {}},
@@ -772,14 +1013,16 @@ def test_compare_category_decisions_render_preference_labels():
 def test_compare_accepts_optional_buyer_profile_validation():
     from app.services.comparison_service import validate_buyer_profile
 
-    ok, error, profile = validate_buyer_profile({
-        "budget_min": 50000,
-        "budget_max": 90000,
-        "main_use": "family",
-        "annual_km": 18000,
-        "family_size": "זוג + 2",
-        "priority_weights": {"reliability": 11, "fuel": 7},
-    })
+    ok, error, profile = validate_buyer_profile(
+        {
+            "budget_min": 50000,
+            "budget_max": 90000,
+            "main_use": "family",
+            "annual_km": 18000,
+            "family_size": "זוג + 2",
+            "priority_weights": {"reliability": 11, "fuel": 7},
+        }
+    )
     assert ok is True
     assert error is None
     assert profile["main_use"] == "family"
@@ -789,12 +1032,14 @@ def test_compare_accepts_optional_buyer_profile_validation():
 def test_compare_rejects_or_sanitizes_bad_buyer_profile():
     from app.services.comparison_service import validate_buyer_profile
 
-    ok, error, profile = validate_buyer_profile({
-        "budget_max": 999999999,
-        "main_use": "<script>bad</script>",
-        "annual_km": -5,
-        "family_size": "x" * 500,
-    })
+    ok, error, profile = validate_buyer_profile(
+        {
+            "budget_max": 999999999,
+            "main_use": "<script>bad</script>",
+            "annual_km": -5,
+            "family_size": "x" * 500,
+        }
+    )
     assert ok is True
     assert profile["main_use"] == "unknown"
     assert "budget_max" not in profile
@@ -803,9 +1048,17 @@ def test_compare_rejects_or_sanitizes_bad_buyer_profile():
 
 def test_buyer_profile_does_not_override_vehicle_facts_in_prompt():
     prompt = build_compare_writer_prompt(
-        {"car_1": {"display_name": "Toyota Corolla"}, "car_2": {"display_name": "Hyundai Elantra"}},
+        {
+            "car_1": {"display_name": "Toyota Corolla"},
+            "car_2": {"display_name": "Hyundai Elantra"},
+        },
         {"cars": {"car_1": {}, "car_2": {}}, "overall_winner": "tie"},
-        {"cars": {"car_1": {"car_profile": {"official_safety": {"rating": "5"}}}, "car_2": {}}},
+        {
+            "cars": {
+                "car_1": {"car_profile": {"official_safety": {"rating": "5"}}},
+                "car_2": {},
+            }
+        },
         {"main_use": "family", "priority_weights": {"safety": 10}},
     )
     assert "must not override factual vehicle data" in prompt
@@ -816,7 +1069,10 @@ def test_compare_stage_b_forbidden_score_text_is_sanitized():
     from app.services.comparison_service import sanitize_decision_result
 
     cleaned = sanitize_decision_result(
-        {"overall_decision": {"label": "car_1", "text": "84/100"}, "practical_summary": "תקנה עכשיו"},
+        {
+            "overall_decision": {"label": "car_1", "text": "84/100"},
+            "practical_summary": "תקנה עכשיו",
+        },
         {"car_1": {}, "car_2": {}},
         {"cars": {"car_1": {}, "car_2": {}}},
         "req",
@@ -830,13 +1086,18 @@ def test_compare_stage_b_forbidden_score_text_is_sanitized():
 def test_sanitize_decision_result_fills_missing_per_car_arrays_from_structured_content():
     from app.services.comparison_service import sanitize_decision_result
 
-    slots = map_cars_to_slots([
-        {"make": "Toyota", "model": "Corolla", "year": 2020},
-        {"make": "Honda", "model": "Civic", "year": 2020},
-    ])
+    slots = map_cars_to_slots(
+        [
+            {"make": "Toyota", "model": "Corolla", "year": 2020},
+            {"make": "Honda", "model": "Civic", "year": 2020},
+        ]
+    )
     cleaned = sanitize_decision_result(
         {
-            "overall_decision": {"label": "car_1", "text": "לטויוטה יש עדיפות קלה בתמונה הכוללת."},
+            "overall_decision": {
+                "label": "car_1",
+                "text": "לטויוטה יש עדיפות קלה בתמונה הכוללת.",
+            },
             "category_decisions": [
                 {
                     "category_key": "pricing_and_value",
@@ -861,7 +1122,11 @@ def test_sanitize_decision_result_fills_missing_per_car_arrays_from_structured_c
             "practical_summary": "בדקו שימוש, מצב ועלויות לפני החלטה.",
         },
         slots,
-        {"overall_winner": "car_1", "cars": {"car_1": {}, "car_2": {}}, "category_winners": {"ownership_cost": "car_1"}},
+        {
+            "overall_winner": "car_1",
+            "cars": {"car_1": {}, "car_2": {}},
+            "category_winners": {"ownership_cost": "car_1"},
+        },
         "req",
     )
 
@@ -874,14 +1139,19 @@ def test_sanitize_decision_result_fills_missing_per_car_arrays_from_structured_c
 def test_sanitize_decision_result_populates_car_3_arrays():
     from app.services.comparison_service import sanitize_decision_result
 
-    slots = map_cars_to_slots([
-        {"make": "Toyota", "model": "Corolla", "year": 2020},
-        {"make": "Honda", "model": "Civic", "year": 2020},
-        {"make": "Mazda", "model": "3", "year": 2020},
-    ])
+    slots = map_cars_to_slots(
+        [
+            {"make": "Toyota", "model": "Corolla", "year": 2020},
+            {"make": "Honda", "model": "Civic", "year": 2020},
+            {"make": "Mazda", "model": "3", "year": 2020},
+        ]
+    )
     cleaned = sanitize_decision_result(
         {
-            "overall_decision": {"label": "car_3", "text": "לרכב השלישי יש עדיפות קלה."},
+            "overall_decision": {
+                "label": "car_3",
+                "text": "לרכב השלישי יש עדיפות קלה.",
+            },
             "category_decisions": [
                 {
                     "category_key": "powertrain_and_performance",
