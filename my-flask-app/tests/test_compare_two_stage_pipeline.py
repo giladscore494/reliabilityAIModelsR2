@@ -44,9 +44,18 @@ def _grounded_output_fixture():
                     "handling_agility": "medium",
                     "fun_to_drive": "medium",
                 },
-                "facts": {"horsepower": 138, "weight_kg": 1310, "body_type": "sedan", "fuel_type": "petrol"},
+                "facts": {
+                    "horsepower": 138,
+                    "weight_kg": 1310,
+                    "body_type": "sedan",
+                    "fuel_type": "petrol",
+                },
                 "car_profile": {
-                    "vehicle_identity": {"make": "Toyota", "model": "Corolla", "year": "2020"},
+                    "vehicle_identity": {
+                        "make": "Toyota",
+                        "model": "Corolla",
+                        "year": "2020",
+                    },
                     "recommended_trim": {"trim_name": "Sun", "confidence": "medium"},
                     "powertrain_specs": {
                         "engine": "1.8 Hybrid",
@@ -89,9 +98,18 @@ def _grounded_output_fixture():
                     "handling_agility": "high",
                     "fun_to_drive": "high",
                 },
-                "facts": {"horsepower": 158, "weight_kg": 1325, "body_type": "sedan", "fuel_type": "petrol"},
+                "facts": {
+                    "horsepower": 158,
+                    "weight_kg": 1325,
+                    "body_type": "sedan",
+                    "fuel_type": "petrol",
+                },
                 "car_profile": {
-                    "vehicle_identity": {"make": "Honda", "model": "Civic", "year": "2020"},
+                    "vehicle_identity": {
+                        "make": "Honda",
+                        "model": "Civic",
+                        "year": "2020",
+                    },
                     "recommended_trim": {"trim_name": "Sport", "confidence": "medium"},
                     "powertrain_specs": {
                         "engine": "1.5 Turbo",
@@ -141,7 +159,12 @@ def _grounded_output_fixture_three_cars():
             "handling_agility": "high",
             "fun_to_drive": "high",
         },
-        "facts": {"horsepower": 186, "weight_kg": 1380, "body_type": "hatchback", "fuel_type": "petrol"},
+        "facts": {
+            "horsepower": 186,
+            "weight_kg": 1380,
+            "body_type": "hatchback",
+            "fuel_type": "petrol",
+        },
         "short_notes": ["מרגישה חדה יותר בכביש"],
         "sources": ["https://example.com/mazda"],
     }
@@ -151,22 +174,31 @@ def _grounded_output_fixture_three_cars():
 
 def _fake_stage_a_parallel(grounded_output):
     """Return a fake call_stage_a_parallel that returns the fixture."""
+
     def _inner(validated_cars, cars_selected_slots):
         import copy
+
         merged = copy.deepcopy(grounded_output)
         sources_index = comparison_service.build_sources_index_from_flat(merged)
         return merged, sources_index, []
+
     return _inner
 
 
-def test_compare_two_stage_keeps_server_authoritative_numbers(app, logged_in_client, monkeypatch):
+def test_compare_two_stage_keeps_server_authoritative_numbers(
+    app, logged_in_client, monkeypatch
+):
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
     grounded_output = _grounded_output_fixture()
     expected = comparison_service.compute_comparison_results(grounded_output)
 
-    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(grounded_output))
+    monkeypatch.setattr(
+        comparison_service,
+        "call_stage_a_parallel",
+        _fake_stage_a_parallel(grounded_output),
+    )
 
     def fake_stage_b(_prompt, timeout_sec=60):
         drifted = copy.deepcopy(expected)
@@ -199,13 +231,19 @@ def test_compare_two_stage_keeps_server_authoritative_numbers(app, logged_in_cli
     assert payload["narrative"]["overall_summary"] == "סיכום בדיקה"
 
 
-def test_compare_two_stage_handles_stage_b_failure_gracefully(app, logged_in_client, monkeypatch):
+def test_compare_two_stage_handles_stage_b_failure_gracefully(
+    app, logged_in_client, monkeypatch
+):
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
     grounded_output = _grounded_output_fixture()
 
-    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(grounded_output))
+    monkeypatch.setattr(
+        comparison_service,
+        "call_stage_a_parallel",
+        _fake_stage_a_parallel(grounded_output),
+    )
 
     def fake_stage_b(_prompt, timeout_sec=60):
         return None, "CALL_TIMEOUT"
@@ -233,13 +271,21 @@ def test_compare_two_stage_handles_stage_b_failure_gracefully(app, logged_in_cli
     assert payload["ai"]["reason"] == "stage_b_error"
 
 
-def test_compare_stage_b_length_error_returns_fallback_200_fast(app, logged_in_client, monkeypatch):
+def test_compare_stage_b_length_error_returns_fallback_200_fast(
+    app, logged_in_client, monkeypatch
+):
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
-    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(_grounded_output_fixture()))
+    monkeypatch.setattr(
+        comparison_service,
+        "call_stage_a_parallel",
+        _fake_stage_a_parallel(_grounded_output_fixture()),
+    )
 
-    def fake_stage_b(_prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC):
+    def fake_stage_b(
+        _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC
+    ):
         return None, "CALL_FAILED_OUTPUT_TOO_LONG"
 
     monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", fake_stage_b)
@@ -268,13 +314,21 @@ def test_compare_stage_b_length_error_returns_fallback_200_fast(app, logged_in_c
     assert payload["ai"]["reason"] == "stage_b_error"
 
 
-def test_compare_stage_b_json_schema_parsed_into_narrative(app, logged_in_client, monkeypatch):
+def test_compare_stage_b_json_schema_parsed_into_narrative(
+    app, logged_in_client, monkeypatch
+):
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
-    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(_grounded_output_fixture()))
+    monkeypatch.setattr(
+        comparison_service,
+        "call_stage_a_parallel",
+        _fake_stage_a_parallel(_grounded_output_fixture()),
+    )
 
-    def fake_stage_b(_prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC):
+    def fake_stage_b(
+        _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC
+    ):
         return {
             "summary": "טויוטה מובילה מעט באמינות ובתמונה הכוללת.",
             "winner": "carA",
@@ -321,12 +375,21 @@ def test_compare_response_includes_checked_versions(app, logged_in_client, monke
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
-    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(_grounded_output_fixture()))
+    monkeypatch.setattr(
+        comparison_service,
+        "call_stage_a_parallel",
+        _fake_stage_a_parallel(_grounded_output_fixture()),
+    )
 
-    def fake_stage_b(_prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC):
+    def fake_stage_b(
+        _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC
+    ):
         return {
             "decision_result": {
-                "overall_decision": {"label": "car_1", "text": "לטויוטה יש עדיפות קלה בתמונה הכוללת."},
+                "overall_decision": {
+                    "label": "car_1",
+                    "text": "לטויוטה יש עדיפות קלה בתמונה הכוללת.",
+                },
                 "category_decisions": [],
                 "key_differences": [],
                 "competitors_to_consider": [],
@@ -373,8 +436,20 @@ def test_compare_response_includes_checked_versions(app, logged_in_client, monke
         "/api/compare",
         json={
             "cars": [
-                {"make": "Toyota", "model": "Corolla", "year": 2020, "engine_type": "היברידי", "gearbox": "רציפה"},
-                {"make": "Honda", "model": "Civic", "year": 2020, "engine_type": "בנזין", "gearbox": "אוטומטית"},
+                {
+                    "make": "Toyota",
+                    "model": "Corolla",
+                    "year": 2020,
+                    "engine_type": "היברידי",
+                    "gearbox": "רציפה",
+                },
+                {
+                    "make": "Honda",
+                    "model": "Civic",
+                    "year": 2020,
+                    "engine_type": "בנזין",
+                    "gearbox": "אוטומטית",
+                },
             ],
             "legal_confirm": True,
         },
@@ -389,16 +464,24 @@ def test_compare_response_includes_checked_versions(app, logged_in_client, monke
     assert payload["checked_versions"]["car_2"]["data_basis"] == "mixed"
 
 
-def test_compare_three_cars_stage_b_slot_schema_parsed_into_narrative(app, logged_in_client, monkeypatch):
+def test_compare_three_cars_stage_b_slot_schema_parsed_into_narrative(
+    app, logged_in_client, monkeypatch
+):
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
     grounded_output = _grounded_output_fixture_three_cars()
     expected = comparison_service.compute_comparison_results(grounded_output)
 
-    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(grounded_output))
+    monkeypatch.setattr(
+        comparison_service,
+        "call_stage_a_parallel",
+        _fake_stage_a_parallel(grounded_output),
+    )
 
-    def fake_stage_b(_prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC):
+    def fake_stage_b(
+        _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC
+    ):
         return {
             "summary": "מאזדה בולטת בנהיגה, בזמן שהפער הכללי מול האחרות אינו גדול.",
             "winner": "car_3",
@@ -437,37 +520,66 @@ def test_compare_three_cars_stage_b_slot_schema_parsed_into_narrative(app, logge
     payload = resp.get_json()["data"]
     assert payload["computed_result"] == expected
     assert payload["narrative"]["category_explanations"][0]["winner"] == "car_3"
-    assert set(payload["narrative"]["category_explanations"][0]["explanations"].keys()) == {"car_1", "car_2", "car_3"}
+    assert set(
+        payload["narrative"]["category_explanations"][0]["explanations"].keys()
+    ) == {"car_1", "car_2", "car_3"}
     assert payload["ai"]["stage_a"]["winner"] == expected["overall_winner"]
     assert payload["ai"]["status"] == "ok"
 
 
 def test_compare_writer_prompt_requires_checked_versions():
     cars_selected = {
-        "car_1": {"make": "Toyota", "model": "Corolla", "year": 2020, "engine_type": "היברידי", "gearbox": "רציפה", "display_name": "Toyota Corolla 2020"},
-        "car_2": {"make": "Honda", "model": "Civic", "year": 2020, "engine_type": "בנזין", "gearbox": "אוטומטית", "display_name": "Honda Civic 2020"},
+        "car_1": {
+            "make": "Toyota",
+            "model": "Corolla",
+            "year": 2020,
+            "engine_type": "היברידי",
+            "gearbox": "רציפה",
+            "display_name": "Toyota Corolla 2020",
+        },
+        "car_2": {
+            "make": "Honda",
+            "model": "Civic",
+            "year": 2020,
+            "engine_type": "בנזין",
+            "gearbox": "אוטומטית",
+            "display_name": "Honda Civic 2020",
+        },
     }
     grounded = _grounded_output_fixture()
     computed = comparison_service.compute_comparison_results(grounded)
 
-    prompt = comparison_service.build_compare_writer_prompt(cars_selected, computed, grounded)
+    prompt = comparison_service.build_compare_writer_prompt(
+        cars_selected, computed, grounded
+    )
 
     assert '"checked_versions"' in prompt
     assert "Do not use DSG" in prompt
     assert "לא ידוע / לבדיקה" in prompt
 
 
-def test_compare_stage_b_empty_decision_arrays_are_backfilled(app, logged_in_client, monkeypatch):
+def test_compare_stage_b_empty_decision_arrays_are_backfilled(
+    app, logged_in_client, monkeypatch
+):
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
     grounded_output = _grounded_output_fixture()
-    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(grounded_output))
+    monkeypatch.setattr(
+        comparison_service,
+        "call_stage_a_parallel",
+        _fake_stage_a_parallel(grounded_output),
+    )
 
-    def fake_stage_b(_prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC):
+    def fake_stage_b(
+        _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC
+    ):
         return {
             "decision_result": {
-                "overall_decision": {"label": "car_1", "text": "לטויוטה יש עדיפות קלה בתמונה הכוללת."},
+                "overall_decision": {
+                    "label": "car_1",
+                    "text": "לטויוטה יש עדיפות קלה בתמונה הכוללת.",
+                },
                 "category_decisions": [
                     {
                         "category_key": "pricing_and_value",
@@ -516,17 +628,28 @@ def test_compare_stage_b_empty_decision_arrays_are_backfilled(app, logged_in_cli
     assert decision["avoid_or_check_car_2_if"]
 
 
-def test_compare_stage_b_missing_per_car_keys_are_backfilled_for_car_3(app, logged_in_client, monkeypatch):
+def test_compare_stage_b_missing_per_car_keys_are_backfilled_for_car_3(
+    app, logged_in_client, monkeypatch
+):
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
     grounded_output = _grounded_output_fixture_three_cars()
-    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(grounded_output))
+    monkeypatch.setattr(
+        comparison_service,
+        "call_stage_a_parallel",
+        _fake_stage_a_parallel(grounded_output),
+    )
 
-    def fake_stage_b(_prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC):
+    def fake_stage_b(
+        _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC
+    ):
         return {
             "decision_result": {
-                "overall_decision": {"label": "car_3", "text": "לרכב השלישי יש עדיפות קלה."},
+                "overall_decision": {
+                    "label": "car_3",
+                    "text": "לרכב השלישי יש עדיפות קלה.",
+                },
                 "category_decisions": [
                     {
                         "category_key": "powertrain_and_performance",
@@ -571,7 +694,9 @@ def test_compare_stage_b_missing_per_car_keys_are_backfilled_for_car_3(app, logg
     assert decision["avoid_or_check_car_3_if"]
 
 
-def test_compare_stage_a_timeout_returns_503_with_retryable_error(app, logged_in_client, monkeypatch):
+def test_compare_stage_a_timeout_returns_503_with_retryable_error(
+    app, logged_in_client, monkeypatch
+):
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
@@ -581,8 +706,17 @@ def test_compare_stage_a_timeout_returns_503_with_retryable_error(app, logged_in
         errors = [f"{k}: CALL_TIMEOUT" for k in cars_selected_slots]
         return empty, sources_index, errors
 
-    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", fake_stage_a_parallel)
-    monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: (None, "CALL_TIMEOUT"))
+    monkeypatch.setattr(
+        comparison_service, "call_stage_a_parallel", fake_stage_a_parallel
+    )
+    monkeypatch.setattr(
+        comparison_service,
+        "call_gemini_compare_writer",
+        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: (
+            None,
+            "CALL_TIMEOUT",
+        ),
+    )
 
     start = time.perf_counter()
     resp = client.post(
@@ -636,15 +770,26 @@ def test_stage_a_config_is_bounded_and_tools_disabled(app, monkeypatch):
     class _FakeModels:
         def generate_content(self, *, model, contents, config):
             captured["config"] = config
-            return SimpleNamespace(text='{"car_name":"Toyota Corolla 2020","reliability":{"overall":"high"},"ownership_cost":{},"comfort_practicality":{},"performance_driving":{},"facts":{},"short_notes":[],"sources":[]}')
+            return SimpleNamespace(
+                text='{"car_name":"Toyota Corolla 2020","reliability":{"overall":"high"},"ownership_cost":{},"comfort_practicality":{},"performance_driving":{},"facts":{},"short_notes":[],"sources":[]}'
+            )
 
-    monkeypatch.setattr(comparison_service.extensions, "ai_client", SimpleNamespace(models=_FakeModels()))
+    monkeypatch.setattr(
+        comparison_service.extensions,
+        "ai_client",
+        SimpleNamespace(models=_FakeModels()),
+    )
     with app.app_context():
-        out, err = comparison_service.call_gemini_single_car("{}", "car_1", timeout_sec=1)
+        out, err = comparison_service.call_gemini_single_car(
+            "{}", "car_1", timeout_sec=1
+        )
     assert err is None
     assert isinstance(out, dict)
     cfg = captured["config"]
-    assert int(getattr(cfg, "max_output_tokens", 0)) == comparison_service.COMPARE_STAGE_A_MAX_OUTPUT_TOKENS
+    assert (
+        int(getattr(cfg, "max_output_tokens", 0))
+        == comparison_service.COMPARE_STAGE_A_MAX_OUTPUT_TOKENS
+    )
     assert not getattr(cfg, "tools", None)
     assert getattr(cfg, "automatic_function_calling", None) is None
 
@@ -654,7 +799,11 @@ def test_call_gemini_compare_writer_exception_path_returns_error(app, monkeypatc
         def generate_content(self, **_kwargs):
             raise RuntimeError("boom")
 
-    monkeypatch.setattr(comparison_service.extensions, "ai_client", SimpleNamespace(models=_FailingModels()))
+    monkeypatch.setattr(
+        comparison_service.extensions,
+        "ai_client",
+        SimpleNamespace(models=_FailingModels()),
+    )
     with app.app_context():
         out, err = comparison_service.call_gemini_compare_writer("{}", timeout_sec=1)
     assert out is None
@@ -666,16 +815,23 @@ def test_compare_ai_regenerate_updates_ai_only(app, logged_in_client, monkeypatc
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
     grounded_output = _grounded_output_fixture()
-    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(grounded_output))
+    monkeypatch.setattr(
+        comparison_service,
+        "call_stage_a_parallel",
+        _fake_stage_a_parallel(grounded_output),
+    )
     monkeypatch.setattr(
         comparison_service,
         "call_gemini_compare_writer",
-        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: ({
-            "summary": "סיכום ראשון.",
-            "winner": "carA",
-            "categories": [],
-            "caveats": [],
-        }, None),
+        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: (
+            {
+                "summary": "סיכום ראשון.",
+                "winner": "carA",
+                "categories": [],
+                "caveats": [],
+            },
+            None,
+        ),
     )
 
     first = client.post(
@@ -695,19 +851,25 @@ def test_compare_ai_regenerate_updates_ai_only(app, logged_in_client, monkeypatc
     monkeypatch.setattr(
         comparison_service,
         "call_gemini_compare_writer",
-        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: ({
-            "summary": "סיכום מעודכן.",
-            "winner": "carA",
-            "categories": [],
-            "caveats": [],
-        }, None),
+        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: (
+            {
+                "summary": "סיכום מעודכן.",
+                "winner": "carA",
+                "categories": [],
+                "caveats": [],
+            },
+            None,
+        ),
     )
 
     regen = client.post(
         f"/api/compare/ai-regenerate?comparison_id={comparison_id}",
         json={"legal_confirm": True},
         headers={"Origin": "http://localhost", "Referer": "http://localhost/compare"},
-        environ_overrides={"HTTP_ORIGIN": "http://localhost", "HTTP_REFERER": "http://localhost/compare"},
+        environ_overrides={
+            "HTTP_ORIGIN": "http://localhost",
+            "HTTP_REFERER": "http://localhost/compare",
+        },
     )
     assert regen.status_code == 200
     regen_payload = regen.get_json()["data"]
@@ -715,21 +877,30 @@ def test_compare_ai_regenerate_updates_ai_only(app, logged_in_client, monkeypatc
     assert regen_payload["ai"]["stage_b"] is not None
 
 
-def test_compare_ai_regenerate_keeps_usable_long_narrative(app, logged_in_client, monkeypatch):
+def test_compare_ai_regenerate_keeps_usable_long_narrative(
+    app, logged_in_client, monkeypatch
+):
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
     grounded_output = _grounded_output_fixture()
-    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(grounded_output))
+    monkeypatch.setattr(
+        comparison_service,
+        "call_stage_a_parallel",
+        _fake_stage_a_parallel(grounded_output),
+    )
     monkeypatch.setattr(
         comparison_service,
         "call_gemini_compare_writer",
-        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: ({
-            "summary": "סיכום ראשון.",
-            "winner": "carA",
-            "categories": [],
-            "caveats": [],
-        }, None),
+        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: (
+            {
+                "summary": "סיכום ראשון.",
+                "winner": "carA",
+                "categories": [],
+                "caveats": [],
+            },
+            None,
+        ),
     )
 
     first = client.post(
@@ -749,66 +920,86 @@ def test_compare_ai_regenerate_keeps_usable_long_narrative(app, logged_in_client
     monkeypatch.setattr(
         comparison_service,
         "call_gemini_compare_writer",
-        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: ({
-            "summary": " ".join(["מעודכן"] * 90),
-            "winner": "carA",
-            "categories": [
-                {
-                    "name": "reliability_risk",
-                    "winner": "carA",
-                    "why": " ".join(["אמינות"] * 65),
-                    "explanations": {
-                        "car_1": " ".join(["לטויוטה"] * 70),
-                        "car_2": " ".join(["להונדה"] * 62),
-                    },
-                    "tips": [" ".join(["בדקו"] * 35)],
-                    "extra_field": "ignored",
-                }
-            ],
-            "caveats": [" ".join(["שימו"] * 40)],
-            "extra_payload_field": True,
-        }, None),
+        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: (
+            {
+                "summary": " ".join(["מעודכן"] * 90),
+                "winner": "carA",
+                "categories": [
+                    {
+                        "name": "reliability_risk",
+                        "winner": "carA",
+                        "why": " ".join(["אמינות"] * 65),
+                        "explanations": {
+                            "car_1": " ".join(["לטויוטה"] * 70),
+                            "car_2": " ".join(["להונדה"] * 62),
+                        },
+                        "tips": [" ".join(["בדקו"] * 35)],
+                        "extra_field": "ignored",
+                    }
+                ],
+                "caveats": [" ".join(["שימו"] * 40)],
+                "extra_payload_field": True,
+            },
+            None,
+        ),
     )
 
     regen = client.post(
         f"/api/compare/ai-regenerate?comparison_id={comparison_id}",
         json={"legal_confirm": True},
         headers={"Origin": "http://localhost", "Referer": "http://localhost/compare"},
-        environ_overrides={"HTTP_ORIGIN": "http://localhost", "HTTP_REFERER": "http://localhost/compare"},
+        environ_overrides={
+            "HTTP_ORIGIN": "http://localhost",
+            "HTTP_REFERER": "http://localhost/compare",
+        },
     )
     assert regen.status_code == 200
     regen_payload = regen.get_json()["data"]
     assert regen_payload["ai"]["status"] == "ok"
     assert regen_payload["narrative"]["overall_summary"]
     assert len(regen_payload["narrative"]["overall_summary"].split()) == 80
-    assert regen_payload["narrative"]["category_explanations"][0]["explanations"]["car_1"]
+    assert regen_payload["narrative"]["category_explanations"][0]["explanations"][
+        "car_1"
+    ]
 
 
-def test_compare_ai_regenerate_backfills_missing_decision_arrays(app, logged_in_client, monkeypatch):
+def test_compare_ai_regenerate_backfills_missing_decision_arrays(
+    app, logged_in_client, monkeypatch
+):
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
     grounded_output = _grounded_output_fixture()
-    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(grounded_output))
+    monkeypatch.setattr(
+        comparison_service,
+        "call_stage_a_parallel",
+        _fake_stage_a_parallel(grounded_output),
+    )
     monkeypatch.setattr(
         comparison_service,
         "call_gemini_compare_writer",
-        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: ({
-            "decision_result": {
-                "overall_decision": {"label": "car_1", "text": "לטויוטה יש עדיפות קלה."},
-                "category_decisions": [
-                    {
-                        "category_key": "pricing_and_value",
-                        "category_name_he": "מחיר ותמורה",
-                        "preferred": "car_1",
-                        "why": "היא נראית משתלמת יותר.",
-                        "important_caveat": "בדקו היסטוריית טיפולים מלאה.",
-                    }
-                ],
-                "practical_summary": "בדקו מצב ועלויות לפני החלטה.",
+        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: (
+            {
+                "decision_result": {
+                    "overall_decision": {
+                        "label": "car_1",
+                        "text": "לטויוטה יש עדיפות קלה.",
+                    },
+                    "category_decisions": [
+                        {
+                            "category_key": "pricing_and_value",
+                            "category_name_he": "מחיר ותמורה",
+                            "preferred": "car_1",
+                            "why": "היא נראית משתלמת יותר.",
+                            "important_caveat": "בדקו היסטוריית טיפולים מלאה.",
+                        }
+                    ],
+                    "practical_summary": "בדקו מצב ועלויות לפני החלטה.",
+                },
+                "sources": [],
             },
-            "sources": [],
-        }, None),
+            None,
+        ),
     )
 
     first = client.post(
@@ -829,7 +1020,10 @@ def test_compare_ai_regenerate_backfills_missing_decision_arrays(app, logged_in_
         f"/api/compare/ai-regenerate?comparison_id={comparison_id}",
         json={"legal_confirm": True},
         headers={"Origin": "http://localhost", "Referer": "http://localhost/compare"},
-        environ_overrides={"HTTP_ORIGIN": "http://localhost", "HTTP_REFERER": "http://localhost/compare"},
+        environ_overrides={
+            "HTTP_ORIGIN": "http://localhost",
+            "HTTP_REFERER": "http://localhost/compare",
+        },
     )
     assert regen.status_code == 200
     decision = regen.get_json()["data"]["decision_result"]
@@ -839,7 +1033,9 @@ def test_compare_ai_regenerate_backfills_missing_decision_arrays(app, logged_in_
     assert decision["avoid_or_check_car_2_if"]
 
 
-def test_compare_stage_a_json_invalid_returns_503_without_persisting_success(app, logged_in_client, monkeypatch):
+def test_compare_stage_a_json_invalid_returns_503_without_persisting_success(
+    app, logged_in_client, monkeypatch
+):
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
@@ -849,8 +1045,17 @@ def test_compare_stage_a_json_invalid_returns_503_without_persisting_success(app
         errors = [f"{k}: MODEL_JSON_INVALID" for k in cars_selected_slots]
         return empty, sources_index, errors
 
-    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", fake_stage_a_parallel)
-    monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: (None, "CALL_TIMEOUT"))
+    monkeypatch.setattr(
+        comparison_service, "call_stage_a_parallel", fake_stage_a_parallel
+    )
+    monkeypatch.setattr(
+        comparison_service,
+        "call_gemini_compare_writer",
+        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: (
+            None,
+            "CALL_TIMEOUT",
+        ),
+    )
 
     start = time.perf_counter()
     resp = client.post(
@@ -878,7 +1083,9 @@ def test_compare_stage_a_json_invalid_returns_503_without_persisting_success(app
         assert ComparisonHistory.query.count() == 0
 
 
-def test_compare_partial_stage_a_failure_returns_200_partial_fallback(app, logged_in_client, monkeypatch):
+def test_compare_partial_stage_a_failure_returns_200_partial_fallback(
+    app, logged_in_client, monkeypatch
+):
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
@@ -904,16 +1111,21 @@ def test_compare_partial_stage_a_failure_returns_200_partial_fallback(app, logge
         sources_index = comparison_service.build_sources_index_from_flat(output)
         return output, sources_index, ["car_2: CALL_TIMEOUT"]
 
-    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", fake_stage_a_parallel)
+    monkeypatch.setattr(
+        comparison_service, "call_stage_a_parallel", fake_stage_a_parallel
+    )
     monkeypatch.setattr(
         comparison_service,
         "call_gemini_compare_writer",
-        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: ({
-            "summary": "סיכום חלקי.",
-            "winner": "carA",
-            "categories": [],
-            "caveats": [],
-        }, None),
+        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: (
+            {
+                "summary": "סיכום חלקי.",
+                "winner": "carA",
+                "categories": [],
+                "caveats": [],
+            },
+            None,
+        ),
     )
 
     resp = client.post(
@@ -935,34 +1147,43 @@ def test_compare_partial_stage_a_failure_returns_200_partial_fallback(app, logge
     assert any("חלקית" in item for item in payload["narrative"]["disclaimers_he"])
 
 
-def test_compare_stage_b_extra_keys_and_long_text_still_render(app, logged_in_client, monkeypatch):
+def test_compare_stage_b_extra_keys_and_long_text_still_render(
+    app, logged_in_client, monkeypatch
+):
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
     grounded_output = _grounded_output_fixture()
-    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(grounded_output))
+    monkeypatch.setattr(
+        comparison_service,
+        "call_stage_a_parallel",
+        _fake_stage_a_parallel(grounded_output),
+    )
     monkeypatch.setattr(
         comparison_service,
         "call_gemini_compare_writer",
-        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: ({
-            "summary": " ".join(["טויוטה"] * 90),
-            "winner": "carA",
-            "categories": [
-                {
-                    "name": "reliability_risk",
-                    "winner": "carA",
-                    "why": " ".join(["אמינות"] * 65),
-                    "explanations": {
-                        "car_1": " ".join(["לטויוטה"] * 70),
-                        "car_2": " ".join(["להונדה"] * 62),
-                    },
-                    "tips": [" ".join(["בדקו"] * 35)],
-                    "extra_field": "ignored",
-                }
-            ],
-            "caveats": [" ".join(["שימו"] * 40)],
-            "extra_payload_field": {"ignored": True},
-        }, None),
+        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: (
+            {
+                "summary": " ".join(["טויוטה"] * 90),
+                "winner": "carA",
+                "categories": [
+                    {
+                        "name": "reliability_risk",
+                        "winner": "carA",
+                        "why": " ".join(["אמינות"] * 65),
+                        "explanations": {
+                            "car_1": " ".join(["לטויוטה"] * 70),
+                            "car_2": " ".join(["להונדה"] * 62),
+                        },
+                        "tips": [" ".join(["בדקו"] * 35)],
+                        "extra_field": "ignored",
+                    }
+                ],
+                "caveats": [" ".join(["שימו"] * 40)],
+                "extra_payload_field": {"ignored": True},
+            },
+            None,
+        ),
     )
 
     resp = client.post(
@@ -983,11 +1204,22 @@ def test_compare_stage_b_extra_keys_and_long_text_still_render(app, logged_in_cl
     assert payload["narrative"]["overall_summary"]
     assert len(payload["narrative"]["overall_summary"].split()) == 80
     assert payload["narrative"]["category_explanations"][0]["explanations"]["car_1"]
-    assert len(payload["narrative"]["category_explanations"][0]["explanations"]["car_1"].split()) == 60
-    assert payload["ai"]["stage_b"]["narrative"] == payload["narrative"]["overall_summary"]
+    assert (
+        len(
+            payload["narrative"]["category_explanations"][0]["explanations"][
+                "car_1"
+            ].split()
+        )
+        == 60
+    )
+    assert (
+        payload["ai"]["stage_b"]["narrative"] == payload["narrative"]["overall_summary"]
+    )
 
 
-def test_compare_partial_stage_a_usable_stage_b_kept_visible(app, logged_in_client, monkeypatch):
+def test_compare_partial_stage_a_usable_stage_b_kept_visible(
+    app, logged_in_client, monkeypatch
+):
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
@@ -1013,28 +1245,33 @@ def test_compare_partial_stage_a_usable_stage_b_kept_visible(app, logged_in_clie
         sources_index = comparison_service.build_sources_index_from_flat(output)
         return output, sources_index, ["car_2: MODEL_JSON_INVALID"]
 
-    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", fake_stage_a_parallel)
+    monkeypatch.setattr(
+        comparison_service, "call_stage_a_parallel", fake_stage_a_parallel
+    )
     monkeypatch.setattr(
         comparison_service,
         "call_gemini_compare_writer",
-        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: ({
-            "summary": "השוואה חלקית אבל מועילה לקונה לפני החלטה.",
-            "winner": "carA",
-            "categories": [
-                {
-                    "name": "reliability_risk",
-                    "winner": "carA",
-                    "why": "הטויוטה נתמכת ביותר ראיות אמינות זמינות ולכן שומרת על יתרון יחסי.",
-                    "explanations": {
-                        "car_1": "לטויוטה יש תמונת אמינות יציבה יותר גם במסלול החלקי.",
-                        "car_2": "להונדה יש פחות מידע מאומת ולכן צריך בדיקה נוספת.",
-                    },
-                    "tips": ["בדקו היסטוריית טיפולים", "אמתו מסמכים"],
-                }
-            ],
-            "caveats": ["חלק מהמידע חסר ולכן צריך להשלים בדיקה."],
-            "extra_payload_field": True,
-        }, None),
+        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: (
+            {
+                "summary": "השוואה חלקית אבל מועילה לקונה לפני החלטה.",
+                "winner": "carA",
+                "categories": [
+                    {
+                        "name": "reliability_risk",
+                        "winner": "carA",
+                        "why": "הטויוטה נתמכת ביותר ראיות אמינות זמינות ולכן שומרת על יתרון יחסי.",
+                        "explanations": {
+                            "car_1": "לטויוטה יש תמונת אמינות יציבה יותר גם במסלול החלקי.",
+                            "car_2": "להונדה יש פחות מידע מאומת ולכן צריך בדיקה נוספת.",
+                        },
+                        "tips": ["בדקו היסטוריית טיפולים", "אמתו מסמכים"],
+                    }
+                ],
+                "caveats": ["חלק מהמידע חסר ולכן צריך להשלים בדיקה."],
+                "extra_payload_field": True,
+            },
+            None,
+        ),
     )
 
     resp = client.post(
@@ -1099,6 +1336,7 @@ def test_call_stage_a_parallel_error_classification(app, monkeypatch):
     fake_executor = _FakeExecutor()
     with app.app_context():
         import app.factory as factory
+
         monkeypatch.setattr(factory, "AI_EXECUTOR", fake_executor)
         validated_cars = [
             {"make": "Toyota", "model": "Corolla", "year": 2020},
@@ -1107,7 +1345,9 @@ def test_call_stage_a_parallel_error_classification(app, monkeypatch):
             {"make": "Kia", "model": "Sportage", "year": 2020},
         ]
         slots = comparison_service.map_cars_to_slots(validated_cars)
-        merged, _sources_index, errors = comparison_service.call_stage_a_parallel(validated_cars, slots)
+        merged, _sources_index, errors = comparison_service.call_stage_a_parallel(
+            validated_cars, slots
+        )
 
     assert "car_1: CALL_TIMEOUT" in errors
     assert "car_2: CALL_CANCELLED" in errors
@@ -1115,7 +1355,9 @@ def test_call_stage_a_parallel_error_classification(app, monkeypatch):
     assert merged["cars"]["car_4"]["reliability"]["overall"] == "high"
 
 
-def test_call_stage_a_parallel_real_threads_do_not_require_worker_app_context(app, monkeypatch):
+def test_call_stage_a_parallel_real_threads_do_not_require_worker_app_context(
+    app, monkeypatch
+):
     class _FakeAuto:
         def __init__(self, **kwargs):
             self.disable = kwargs.get("disable")
@@ -1131,20 +1373,31 @@ def test_call_stage_a_parallel_real_threads_do_not_require_worker_app_context(ap
                 text='{"car_name":"Toyota Corolla 2020","reliability":{"overall":"high"},"ownership_cost":{},"comfort_practicality":{},"performance_driving":{},"facts":{},"short_notes":[],"sources":["https://example.com/toyota"]}'
             )
 
-    monkeypatch.setattr(comparison_service.extensions, "ai_client", SimpleNamespace(models=_FakeModels()))
-    monkeypatch.setattr(comparison_service.genai_types, "AutomaticFunctionCallingConfig", _FakeAuto)
-    monkeypatch.setattr(comparison_service.genai_types, "GenerateContentConfig", _FakeConfig)
+    monkeypatch.setattr(
+        comparison_service.extensions,
+        "ai_client",
+        SimpleNamespace(models=_FakeModels()),
+    )
+    monkeypatch.setattr(
+        comparison_service.genai_types, "AutomaticFunctionCallingConfig", _FakeAuto
+    )
+    monkeypatch.setattr(
+        comparison_service.genai_types, "GenerateContentConfig", _FakeConfig
+    )
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as real_executor:
         with app.app_context():
             import app.factory as factory
+
             monkeypatch.setattr(factory, "AI_EXECUTOR", real_executor)
             validated_cars = [
                 {"make": "Toyota", "model": "Corolla", "year": 2020},
                 {"make": "Honda", "model": "Civic", "year": 2020},
             ]
             slots = comparison_service.map_cars_to_slots(validated_cars)
-            merged, _sources_index, errors = comparison_service.call_stage_a_parallel(validated_cars, slots)
+            merged, _sources_index, errors = comparison_service.call_stage_a_parallel(
+                validated_cars, slots
+            )
 
     assert errors == []
     assert merged["cars"]["car_1"]["reliability"]["overall"] == "high"
@@ -1174,10 +1427,13 @@ def test_call_stage_a_parallel_retries_json_invalid_once(app, monkeypatch):
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as real_executor:
         with app.app_context():
             import app.factory as factory
+
             monkeypatch.setattr(factory, "AI_EXECUTOR", real_executor)
             validated_cars = [{"make": "Toyota", "model": "Corolla", "year": 2020}]
             slots = comparison_service.map_cars_to_slots(validated_cars)
-            merged, _sources_index, errors = comparison_service.call_stage_a_parallel(validated_cars, slots)
+            merged, _sources_index, errors = comparison_service.call_stage_a_parallel(
+                validated_cars, slots
+            )
 
     assert errors == []
     assert len(calls) == 2
@@ -1185,7 +1441,9 @@ def test_call_stage_a_parallel_retries_json_invalid_once(app, monkeypatch):
     assert merged["cars"]["car_1"]["reliability"]["overall"] == "high"
 
 
-def test_compare_quota_released_on_full_stage_a_failure(app, logged_in_client, monkeypatch):
+def test_compare_quota_released_on_full_stage_a_failure(
+    app, logged_in_client, monkeypatch
+):
     client, user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
@@ -1195,8 +1453,14 @@ def test_compare_quota_released_on_full_stage_a_failure(app, logged_in_client, m
         errors = [f"{k}: CALL_TIMEOUT" for k in cars_selected_slots]
         return empty, sources_index, errors
 
-    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", fake_stage_a_parallel)
-    monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", lambda *_args, **_kwargs: (None, "CALL_TIMEOUT"))
+    monkeypatch.setattr(
+        comparison_service, "call_stage_a_parallel", fake_stage_a_parallel
+    )
+    monkeypatch.setattr(
+        comparison_service,
+        "call_gemini_compare_writer",
+        lambda *_args, **_kwargs: (None, "CALL_TIMEOUT"),
+    )
 
     resp = client.post(
         "/api/compare",
@@ -1217,21 +1481,30 @@ def test_compare_quota_released_on_full_stage_a_failure(app, logged_in_client, m
         assert quota is None or quota.count == 0
 
 
-def test_compare_ai_regenerate_writer_exception_returns_200_fallback(app, logged_in_client, monkeypatch):
+def test_compare_ai_regenerate_writer_exception_returns_200_fallback(
+    app, logged_in_client, monkeypatch
+):
     client, _user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
     grounded_output = _grounded_output_fixture()
-    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", _fake_stage_a_parallel(grounded_output))
+    monkeypatch.setattr(
+        comparison_service,
+        "call_stage_a_parallel",
+        _fake_stage_a_parallel(grounded_output),
+    )
     monkeypatch.setattr(
         comparison_service,
         "call_gemini_compare_writer",
-        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: ({
-            "summary": "סיכום ראשון.",
-            "winner": "carA",
-            "categories": [],
-            "caveats": [],
-        }, None),
+        lambda _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC: (
+            {
+                "summary": "סיכום ראשון.",
+                "winner": "carA",
+                "categories": [],
+                "caveats": [],
+            },
+            None,
+        ),
     )
     first = client.post(
         "/api/compare",
@@ -1245,6 +1518,7 @@ def test_compare_ai_regenerate_writer_exception_returns_200_fallback(app, logged
         headers={"Content-Type": "application/json", "Origin": "http://localhost"},
     )
     comparison_id = first.get_json()["data"]["comparison_id"]
+
     def _raise_writer(*_args, **_kwargs):
         raise RuntimeError("writer boom")
 
@@ -1268,7 +1542,11 @@ def test_compare_quota_blocks_non_owner(app, logged_in_client):
     with app.app_context():
         tz, _ = resolve_app_timezone()
         day_key, *_ = compute_quota_window(tz)
-        db.session.add(DailyQuotaUsage(user_id=user_id, day=day_key, count=5, updated_at=datetime.utcnow()))
+        db.session.add(
+            DailyQuotaUsage(
+                user_id=user_id, day=day_key, count=5, updated_at=datetime.utcnow()
+            )
+        )
         db.session.commit()
 
     resp = client.post(
@@ -1288,13 +1566,22 @@ def test_compare_quota_blocks_non_owner(app, logged_in_client):
     assert "reset_at" in data["error"]["details"]
 
 
-def test_compare_idempotency_key_does_not_consume_quota_twice(app, logged_in_client, monkeypatch):
+def test_compare_idempotency_key_does_not_consume_quota_twice(
+    app, logged_in_client, monkeypatch
+):
     client, user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
     def fake_handle(_data, _uid, _sid, owner_bypass=False):
         from app.utils.http_helpers import api_ok
-        return api_ok({"computed_result": {"overall_winner": "car_1"}, "cars_selected": {}, "narrative": None})
+
+        return api_ok(
+            {
+                "computed_result": {"overall_winner": "car_1"},
+                "cars_selected": {},
+                "narrative": None,
+            }
+        )
 
     monkeypatch.setattr(comparison_service, "handle_comparison_request", fake_handle)
 
@@ -1331,12 +1618,23 @@ def test_compare_owner_bypasses_quota(app, logged_in_client, monkeypatch):
     with app.app_context():
         tz, _ = resolve_app_timezone()
         day_key, *_ = compute_quota_window(tz)
-        db.session.add(DailyQuotaUsage(user_id=user_id, day=day_key, count=5, updated_at=datetime.utcnow()))
+        db.session.add(
+            DailyQuotaUsage(
+                user_id=user_id, day=day_key, count=5, updated_at=datetime.utcnow()
+            )
+        )
         db.session.commit()
 
     def fake_handle(_data, _uid, _sid, owner_bypass=False):
         from app.utils.http_helpers import api_ok
-        return api_ok({"computed_result": {"overall_winner": "car_1"}, "cars_selected": {}, "narrative": None})
+
+        return api_ok(
+            {
+                "computed_result": {"overall_winner": "car_1"},
+                "cars_selected": {},
+                "narrative": None,
+            }
+        )
 
     monkeypatch.setattr(comparison_service, "handle_comparison_request", fake_handle)
 
@@ -1354,7 +1652,9 @@ def test_compare_owner_bypasses_quota(app, logged_in_client, monkeypatch):
     assert resp.status_code == 200
 
 
-def test_compare_owner_bypasses_internal_history_gate(app, logged_in_client, monkeypatch):
+def test_compare_owner_bypasses_internal_history_gate(
+    app, logged_in_client, monkeypatch
+):
     client, user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
     app.config["OWNER_EMAILS"] = {"tester@example.com"}
@@ -1366,9 +1666,9 @@ def test_compare_owner_bypasses_internal_history_gate(app, logged_in_client, mon
                     user_id=user_id,
                     session_id=None,
                     cars_selected='[{"make":"Toyota","model":"Corolla","year":2020},{"make":"Honda","model":"Civic","year":2020}]',
-                    model_json_raw='{}',
-                    computed_result='{}',
-                    sources_index='{}',
+                    model_json_raw="{}",
+                    computed_result="{}",
+                    sources_index="{}",
                 )
             )
         db.session.commit()
@@ -1378,7 +1678,11 @@ def test_compare_owner_bypasses_internal_history_gate(app, logged_in_client, mon
         "call_stage_a_parallel",
         _fake_stage_a_parallel(_grounded_output_fixture()),
     )
-    monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", lambda _prompt, timeout_sec=60: (None, "CALL_TIMEOUT"))
+    monkeypatch.setattr(
+        comparison_service,
+        "call_gemini_compare_writer",
+        lambda _prompt, timeout_sec=60: (None, "CALL_TIMEOUT"),
+    )
 
     resp = client.post(
         "/api/compare",

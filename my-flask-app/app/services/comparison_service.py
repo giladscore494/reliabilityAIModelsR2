@@ -97,7 +97,12 @@ def build_display_name(car: Dict[str, Any]) -> str:
 
 CHECKED_VERSION_UNKNOWN_HE = "לא ידוע / לבדיקה"
 CHECKED_VERSION_NOT_VERIFIED_HE = "לא מאומת"
-CHECKED_VERSION_DATA_BASIS_ALLOWED = {"user_input", "verified_source", "ai_inference", "mixed"}
+CHECKED_VERSION_DATA_BASIS_ALLOWED = {
+    "user_input",
+    "verified_source",
+    "ai_inference",
+    "mixed",
+}
 CHECKED_VERSION_CONFIDENCE_ALLOWED = {"high", "medium", "low", "unverified"}
 
 
@@ -107,15 +112,31 @@ def _normalize_general_transmission_label(value: Any) -> str:
         return CHECKED_VERSION_UNKNOWN_HE
 
     lowered = text.lower()
-    if any(token in lowered for token in ("dsg", "dct", "dual clutch", "dual-clutch", "robot", "רובוט")):
+    if any(
+        token in lowered
+        for token in ("dsg", "dct", "dual clutch", "dual-clutch", "robot", "רובוט")
+    ):
         return "רובוטית"
     if any(token in lowered for token in ("cvt", "רציפ", "continuously variable")):
         return "רציפה"
     if any(token in lowered for token in ("manual", "ידני", "ידנית")):
         return "ידנית"
-    if any(token in lowered for token in ("unknown", "not verified", "needs verification", "לא ידוע", "לבדיקה", "לא מאומת")):
+    if any(
+        token in lowered
+        for token in (
+            "unknown",
+            "not verified",
+            "needs verification",
+            "לא ידוע",
+            "לבדיקה",
+            "לא מאומת",
+        )
+    ):
         return CHECKED_VERSION_UNKNOWN_HE
-    if any(token in lowered for token in ("automatic", "auto", "אוטומט", "planetary", "פלנטר")):
+    if any(
+        token in lowered
+        for token in ("automatic", "auto", "אוטומט", "planetary", "פלנטר")
+    ):
         return "אוטומטית"
     return text[:80]
 
@@ -125,7 +146,9 @@ def _normalize_checked_version_text(value: Any, default: str = "") -> str:
     return text[:180] if text else default
 
 
-def _sanitize_checked_versions(payload: Any, slot_keys: List[str]) -> Dict[str, Dict[str, str]]:
+def _sanitize_checked_versions(
+    payload: Any, slot_keys: List[str]
+) -> Dict[str, Dict[str, str]]:
     if not isinstance(payload, dict):
         return {}
 
@@ -142,11 +165,17 @@ def _sanitize_checked_versions(payload: Any, slot_keys: List[str]) -> Dict[str, 
             "year": _normalize_checked_version_text(raw.get("year")),
             "trim": _normalize_checked_version_text(raw.get("trim")),
             "engine_type": _normalize_checked_version_text(raw.get("engine_type")),
-            "transmission": _normalize_general_transmission_label(raw.get("transmission")),
+            "transmission": _normalize_general_transmission_label(
+                raw.get("transmission")
+            ),
             "drivetrain": _normalize_checked_version_text(raw.get("drivetrain")),
             "seats": _normalize_checked_version_text(raw.get("seats")),
-            "data_basis": data_basis if data_basis in CHECKED_VERSION_DATA_BASIS_ALLOWED else "ai_inference",
-            "confidence": confidence if confidence in CHECKED_VERSION_CONFIDENCE_ALLOWED else "low",
+            "data_basis": data_basis
+            if data_basis in CHECKED_VERSION_DATA_BASIS_ALLOWED
+            else "ai_inference",
+            "confidence": confidence
+            if confidence in CHECKED_VERSION_CONFIDENCE_ALLOWED
+            else "low",
             "notes": _normalize_checked_version_text(raw.get("notes")),
         }
     return sanitized
@@ -159,30 +188,58 @@ def build_checked_versions(
 ) -> Dict[str, Dict[str, str]]:
     slot_keys = _ordered_compare_slot_keys(
         cars_selected_slots or {},
-        ((grounded_output or {}).get("cars") or {}) if isinstance(grounded_output, dict) else {},
+        ((grounded_output or {}).get("cars") or {})
+        if isinstance(grounded_output, dict)
+        else {},
         ai_checked_versions or {},
     )
     ai_checked_versions = _sanitize_checked_versions(ai_checked_versions, slot_keys)
-    grounded_cars = ((grounded_output or {}).get("cars") or {}) if isinstance(grounded_output, dict) else {}
+    grounded_cars = (
+        ((grounded_output or {}).get("cars") or {})
+        if isinstance(grounded_output, dict)
+        else {}
+    )
     result: Dict[str, Dict[str, str]] = {}
 
     for slot_key in slot_keys:
         selection = (cars_selected_slots or {}).get(slot_key, {}) or {}
-        grounded_car = grounded_cars.get(slot_key, {}) if isinstance(grounded_cars.get(slot_key, {}), dict) else {}
-        profile = grounded_car.get("car_profile") if isinstance(grounded_car.get("car_profile"), dict) else {}
-        identity = profile.get("vehicle_identity") if isinstance(profile.get("vehicle_identity"), dict) else {}
-        powertrain = profile.get("powertrain_specs") if isinstance(profile.get("powertrain_specs"), dict) else {}
-        recommended_trim = profile.get("recommended_trim") if isinstance(profile.get("recommended_trim"), dict) else {}
-        trims = profile.get("trim_levels_israel") if isinstance(profile.get("trim_levels_israel"), list) else []
+        grounded_car = (
+            grounded_cars.get(slot_key, {})
+            if isinstance(grounded_cars.get(slot_key, {}), dict)
+            else {}
+        )
+        profile = (
+            grounded_car.get("car_profile")
+            if isinstance(grounded_car.get("car_profile"), dict)
+            else {}
+        )
+        identity = (
+            profile.get("vehicle_identity")
+            if isinstance(profile.get("vehicle_identity"), dict)
+            else {}
+        )
+        powertrain = (
+            profile.get("powertrain_specs")
+            if isinstance(profile.get("powertrain_specs"), dict)
+            else {}
+        )
+        recommended_trim = (
+            profile.get("recommended_trim")
+            if isinstance(profile.get("recommended_trim"), dict)
+            else {}
+        )
+        trims = (
+            profile.get("trim_levels_israel")
+            if isinstance(profile.get("trim_levels_israel"), list)
+            else []
+        )
 
-        make = (
-            _normalize_checked_version_text(identity.get("make"))
-            or _normalize_checked_version_text(selection.get("make"))
-        )
-        model = (
-            _normalize_checked_version_text(identity.get("model"))
-            or _normalize_checked_version_text(selection.get("model"))
-        )
+        make = _normalize_checked_version_text(
+            identity.get("make")
+        ) or _normalize_checked_version_text(selection.get("make"))
+        model = _normalize_checked_version_text(
+            identity.get("model")
+        ) or _normalize_checked_version_text(selection.get("model"))
         year = (
             _normalize_checked_version_text(identity.get("year"))
             or _normalize_checked_version_text(selection.get("year"))
@@ -199,7 +256,9 @@ def build_checked_versions(
         engine_type = (
             _normalize_checked_version_text(powertrain.get("engine"))
             or _normalize_checked_version_text(selection.get("engine_type"))
-            or _normalize_checked_version_text((grounded_car.get("facts") or {}).get("fuel_type"))
+            or _normalize_checked_version_text(
+                (grounded_car.get("facts") or {}).get("fuel_type")
+            )
             or CHECKED_VERSION_UNKNOWN_HE
         )
         transmission = _normalize_general_transmission_label(
@@ -221,9 +280,15 @@ def build_checked_versions(
             powertrain.get("sources")
             or profile.get("sources")
             or grounded_car.get("sources")
-            or (trims[0].get("source") if trims and isinstance(trims[0], dict) else None)
+            or (
+                trims[0].get("source") if trims and isinstance(trims[0], dict) else None
+            )
         )
-        has_user_specific = bool(selection.get("year") or selection.get("engine_type") or selection.get("gearbox"))
+        has_user_specific = bool(
+            selection.get("year")
+            or selection.get("engine_type")
+            or selection.get("gearbox")
+        )
 
         if has_sources and has_user_specific:
             data_basis = "mixed"
@@ -246,14 +311,22 @@ def build_checked_versions(
             confidence = "unverified"
 
         note_parts: List[str] = []
-        if has_user_specific and (selection.get("engine_type") or selection.get("gearbox")):
-            note_parts.append("סוג המנוע או התיבה נבחרו כערכים כלליים בטופס ויש לאמת מול מפרט היבואן או רישיון הרכב.")
+        if has_user_specific and (
+            selection.get("engine_type") or selection.get("gearbox")
+        ):
+            note_parts.append(
+                "סוג המנוע או התיבה נבחרו כערכים כלליים בטופס "
+                "ויש לאמת מול מפרט היבואן או רישיון הרכב."
+            )
         if trim == CHECKED_VERSION_NOT_VERIFIED_HE:
             note_parts.append("רמת הגימור לא אומתה במידע הזמין.")
         if not year:
             note_parts.append("השנתון המדויק לא אומת.")
         if data_basis in {"mixed", "ai_inference"}:
-            note_parts.append("ההשוואה מתייחסת לגרסה מייצגת לפי המידע הזמין וייתכנו הבדלים בין רמות גימור, מנועים ותיבות הילוכים.")
+            note_parts.append(
+                "ההשוואה מתייחסת לגרסה מייצגת לפי המידע הזמין "
+                "וייתכנו הבדלים בין רמות גימור, מנועים ותיבות הילוכים."
+            )
         if not note_parts:
             note_parts.append("יש לאמת את המפרט מול מקור רשמי לפני החלטת רכישה.")
 
@@ -278,7 +351,9 @@ def build_checked_versions(
                 merged[key] = value
         if not merged.get("transmission"):
             merged["transmission"] = CHECKED_VERSION_UNKNOWN_HE
-        merged["transmission"] = _normalize_general_transmission_label(merged.get("transmission"))
+        merged["transmission"] = _normalize_general_transmission_label(
+            merged.get("transmission")
+        )
         result[slot_key] = merged
 
     return result
@@ -309,10 +384,14 @@ def _ordered_compare_slot_keys(*sources: Any) -> List[str]:
             if isinstance(key, str) and _COMPARE_SLOT_RE.match(key) and key not in seen:
                 seen.add(key)
                 ordered.append(key)
-    return sorted(ordered, key=lambda value: int(_COMPARE_SLOT_RE.match(value).group(1)))
+    return sorted(
+        ordered, key=lambda value: int(_COMPARE_SLOT_RE.match(value).group(1))
+    )
 
 
-def _normalize_compare_writer_winner(value: Any, allowed_slot_keys: List[str]) -> Optional[str]:
+def _normalize_compare_writer_winner(
+    value: Any, allowed_slot_keys: List[str]
+) -> Optional[str]:
     if value == "tie":
         return "tie"
     if not isinstance(value, str):
@@ -348,10 +427,16 @@ def _extract_decision_slot_keys(decision_result: Any) -> List[str]:
     return _ordered_compare_slot_keys(extracted)
 
 
-def _segment_text_tokens(car_slot: Optional[Dict[str, Any]], grounded_car_data: Optional[Dict[str, Any]]) -> str:
+def _segment_text_tokens(
+    car_slot: Optional[Dict[str, Any]], grounded_car_data: Optional[Dict[str, Any]]
+) -> str:
     car_slot = car_slot or {}
     grounded_car_data = grounded_car_data or {}
-    facts = (grounded_car_data.get("facts") or {}) if isinstance(grounded_car_data, dict) else {}
+    facts = (
+        (grounded_car_data.get("facts") or {})
+        if isinstance(grounded_car_data, dict)
+        else {}
+    )
     text_parts = [
         car_slot.get("make"),
         car_slot.get("model"),
@@ -359,10 +444,14 @@ def _segment_text_tokens(car_slot: Optional[Dict[str, Any]], grounded_car_data: 
         car_slot.get("display_name"),
         car_slot.get("engine_type"),
         car_slot.get("gearbox"),
-        grounded_car_data.get("car_name") if isinstance(grounded_car_data, dict) else None,
+        grounded_car_data.get("car_name")
+        if isinstance(grounded_car_data, dict)
+        else None,
         facts.get("body_type"),
         facts.get("fuel_type"),
-        " ".join((grounded_car_data.get("short_notes") or [])[:4]) if isinstance(grounded_car_data, dict) else None,
+        " ".join((grounded_car_data.get("short_notes") or [])[:4])
+        if isinstance(grounded_car_data, dict)
+        else None,
     ]
     return " ".join(str(part).lower() for part in text_parts if part)
 
@@ -372,7 +461,11 @@ def _infer_compare_segment_details(
     grounded_car_data: Optional[Dict[str, Any]],
 ) -> Tuple[str, List[str]]:
     text = _segment_text_tokens(car_slot, grounded_car_data)
-    facts = ((grounded_car_data or {}).get("facts") or {}) if isinstance(grounded_car_data, dict) else {}
+    facts = (
+        ((grounded_car_data or {}).get("facts") or {})
+        if isinstance(grounded_car_data, dict)
+        else {}
+    )
     body_type = str(facts.get("body_type") or "").lower()
 
     def _matches(*keywords: str) -> List[str]:
@@ -382,80 +475,210 @@ def _infer_compare_segment_details(
         return [keyword for keyword in keywords if keyword in body_type]
 
     pickup_hits = _matches(
-        "pickup", "pick-up", "truck", "ute", "hilux", "ranger", "navara",
-        "amarok", "d-max", "l200", "triton", "ram ", "f-150", "silverado",
+        "pickup",
+        "pick-up",
+        "truck",
+        "ute",
+        "hilux",
+        "ranger",
+        "navara",
+        "amarok",
+        "d-max",
+        "l200",
+        "triton",
+        "ram ",
+        "f-150",
+        "silverado",
     ) + _body_matches("pickup", "truck")
     if pickup_hits:
         return "pickup_truck", pickup_hits[:3]
 
     mpv_hits = _matches(
-        "minivan", "mpv", "people carrier", "grand c4 spacetourer", "touran",
-        "carens", "s-max", "galaxy", "berlingo", "doblo", "caddy",
+        "minivan",
+        "mpv",
+        "people carrier",
+        "grand c4 spacetourer",
+        "touran",
+        "carens",
+        "s-max",
+        "galaxy",
+        "berlingo",
+        "doblo",
+        "caddy",
     ) + _body_matches("minivan", "mpv", "van")
     if mpv_hits:
         return "minivan_mpv", mpv_hits[:3]
 
     offroad_hits = _matches(
-        "land cruiser", "prado", "wrangler", "defender", "jimny", "pajero",
-        "patrol", "grenadier", "g-class", "g wagon", "g-wagon", "4runner",
+        "land cruiser",
+        "prado",
+        "wrangler",
+        "defender",
+        "jimny",
+        "pajero",
+        "patrol",
+        "grenadier",
+        "g-class",
+        "g wagon",
+        "g-wagon",
+        "4runner",
     ) + _body_matches("4x4", "off-road", "off road")
     if offroad_hits:
         return "hardcore_4x4", offroad_hits[:3]
 
     family_3row_hits = _matches(
-        "7 seat", "7-seat", "7 seater", "seven seat", "third row", "3 row", "3-row",
-        "highlander", "pilot", "sorento", "palisade", "telluride", "pathfinder",
-        "xc90", "explorer", "everest", "kodiaq",
+        "7 seat",
+        "7-seat",
+        "7 seater",
+        "seven seat",
+        "third row",
+        "3 row",
+        "3-row",
+        "highlander",
+        "pilot",
+        "sorento",
+        "palisade",
+        "telluride",
+        "pathfinder",
+        "xc90",
+        "explorer",
+        "everest",
+        "kodiaq",
     )
     if family_3row_hits:
         return "three_row_family_suv", family_3row_hits[:3]
 
     sporty_hits = _matches(
-        "gti", "type r", "type-r", "sti", "gr86", "86", "brz", "mx-5", "miata",
-        "cupra", "amg", "m sport", " m ", "rs ", "n line", "n ", "vrs", "track",
-        "sportback performance", "hot hatch", "roadster", "coupe",
+        "gti",
+        "type r",
+        "type-r",
+        "sti",
+        "gr86",
+        "86",
+        "brz",
+        "mx-5",
+        "miata",
+        "cupra",
+        "amg",
+        "m sport",
+        " m ",
+        "rs ",
+        "n line",
+        "n ",
+        "vrs",
+        "track",
+        "sportback performance",
+        "hot hatch",
+        "roadster",
+        "coupe",
     )
     if sporty_hits:
         return "sporty_dynamic", sporty_hits[:3]
 
     executive_hits = _matches(
-        "executive", "luxury", "premium", "5 series", "7 series", "a6", "a8",
-        "e-class", "s-class", "es ", "gs ", "ls ", "g80", "g90", "s90", "xf", "xj",
+        "executive",
+        "luxury",
+        "premium",
+        "5 series",
+        "7 series",
+        "a6",
+        "a8",
+        "e-class",
+        "s-class",
+        "es ",
+        "gs ",
+        "ls ",
+        "g80",
+        "g90",
+        "s90",
+        "xf",
+        "xj",
     )
     if executive_hits:
         return "executive_luxury", executive_hits[:3]
 
     city_hits = _matches(
-        "city", "mini", "aygo", "i10", "picanto", "up!", "up ", "c1", "108",
-        "spark", "alto", "mii", "ka ", "twingo",
+        "city",
+        "mini",
+        "aygo",
+        "i10",
+        "picanto",
+        "up!",
+        "up ",
+        "c1",
+        "108",
+        "spark",
+        "alto",
+        "mii",
+        "ka ",
+        "twingo",
     )
     if city_hits:
         return "city_mini", city_hits[:3]
 
     supermini_hits = _matches(
-        "supermini", "polo", "ibiza", "fiesta", "yaris", "clio", "corsa", "jazz",
-        "fit", "i20", "rio", "208", "mazda2", "swift", "fabia",
+        "supermini",
+        "polo",
+        "ibiza",
+        "fiesta",
+        "yaris",
+        "clio",
+        "corsa",
+        "jazz",
+        "fit",
+        "i20",
+        "rio",
+        "208",
+        "mazda2",
+        "swift",
+        "fabia",
     )
     if supermini_hits:
         return "supermini_hatch", supermini_hits[:3]
 
     crossover_hits = _matches(
-        "crossover", "cross", "cuv", "suv", "sportage", "qashqai", "cx-5", "cx5",
-        "tucson", "rav4", "cr-v", "crv", "x-trail", "xtrail", "kadjar", "3008",
+        "crossover",
+        "cross",
+        "cuv",
+        "suv",
+        "sportage",
+        "qashqai",
+        "cx-5",
+        "cx5",
+        "tucson",
+        "rav4",
+        "cr-v",
+        "crv",
+        "x-trail",
+        "xtrail",
+        "kadjar",
+        "3008",
     ) + _body_matches("suv", "crossover", "cuv")
     if crossover_hits:
         return "crossover_soft_suv", crossover_hits[:3]
 
     family_body_hits = _matches(
-        "sedan", "saloon", "hatch", "hatchback", "wagon", "estate", "tourer", "fastback", "liftback",
-    ) + _body_matches("sedan", "saloon", "hatch", "wagon", "estate", "fastback", "liftback")
+        "sedan",
+        "saloon",
+        "hatch",
+        "hatchback",
+        "wagon",
+        "estate",
+        "tourer",
+        "fastback",
+        "liftback",
+    ) + _body_matches(
+        "sedan", "saloon", "hatch", "wagon", "estate", "fastback", "liftback"
+    )
     if family_body_hits:
         return "family_sedan_hatch_wagon", family_body_hits[:3]
 
     return "general_private_car", ["default_private_car"]
 
 
-def infer_compare_segment(car_slot: Optional[Dict[str, Any]], grounded_car_data: Optional[Dict[str, Any]]) -> str:
+def infer_compare_segment(
+    car_slot: Optional[Dict[str, Any]], grounded_car_data: Optional[Dict[str, Any]]
+) -> str:
     """Infer a lightweight compare segment without relying on a missing taxonomy field."""
     segment_key, _signals = _infer_compare_segment_details(car_slot, grounded_car_data)
     return segment_key
@@ -469,16 +692,28 @@ COMPARISON_PROMPT_VERSION = "v4"
 COMPARISON_MODEL_ID = "gemini-3-flash-preview"
 AI_CALL_TIMEOUT_SEC = int(os.environ.get("AI_CALL_TIMEOUT_SEC", "170"))
 COMPARE_STAGE_A_TIMEOUT_SEC = int(os.environ.get("COMPARE_STAGE_A_TIMEOUT_SEC", "30"))
-COMPARE_STAGE_A_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_STAGE_A_MAX_OUTPUT_TOKENS", "4096"))
-COMPARE_STAGE_A_TEMPERATURE = float(os.environ.get("COMPARE_STAGE_A_TEMPERATURE", "0.25"))
+COMPARE_STAGE_A_MAX_OUTPUT_TOKENS = int(
+    os.environ.get("COMPARE_STAGE_A_MAX_OUTPUT_TOKENS", "4096")
+)
+COMPARE_STAGE_A_TEMPERATURE = float(
+    os.environ.get("COMPARE_STAGE_A_TEMPERATURE", "0.25")
+)
 COMPARE_WRITER_TIMEOUT_SEC = int(os.environ.get("COMPARE_WRITER_TIMEOUT_SEC", "30"))
 # Stage B now emits full decision_result content for up to three cars, including
 # per-car guidance arrays, so leave more room to avoid truncating those fields.
-COMPARE_WRITER_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_WRITER_MAX_OUTPUT_TOKENS", "3200"))
-COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS", "500"))
-COMPARE_WRITER_PROMPT_CHAR_CAP = int(os.environ.get("COMPARE_WRITER_PROMPT_CHAR_CAP", "16000"))
+COMPARE_WRITER_MAX_OUTPUT_TOKENS = int(
+    os.environ.get("COMPARE_WRITER_MAX_OUTPUT_TOKENS", "3200")
+)
+COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS = int(
+    os.environ.get("COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS", "500")
+)
+COMPARE_WRITER_PROMPT_CHAR_CAP = int(
+    os.environ.get("COMPARE_WRITER_PROMPT_CHAR_CAP", "16000")
+)
 TIE_THRESHOLD = 5  # Score delta below this = "tie" (צמוד)
-PARALLEL_GRACE_SEC = 5  # Extra seconds when collecting parallel futures beyond per-call timeout
+PARALLEL_GRACE_SEC = (
+    5  # Extra seconds when collecting parallel futures beyond per-call timeout
+)
 ELLIPSIS_LEN = 3
 # Performance heuristics for typical passenger cars. HP_PER_TON_* thresholds are
 # horsepower per metric ton, while HORSEPOWER_* thresholds are absolute engine
@@ -552,16 +787,52 @@ DECISION_CATEGORY_DEFINITIONS = [
     ("resale_and_market_confidence", "סחירות וירידת ערך"),
 ]
 DECISION_ALLOWED_LABELS = {"car_1", "car_2", "car_3", "tie", "depends", "unknown"}
-DECISION_TEXT_FALLBACK_HE = "המערכת לא הצליחה לנסח סיכום ניטרלי, לכן יש להסתמך על פירוט הקטגוריות."
+DECISION_TEXT_FALLBACK_HE = (
+    "המערכת לא הצליחה לנסח סיכום ניטרלי, לכן יש להסתמך על פירוט הקטגוריות."
+)
 DECISION_FORBIDDEN_TEXT_RE = re.compile(
     r"(\d+\s*/\s*100|\d+\s*/\s*10|winnerScore|overall_score|category_score|ציון|ניקוד|מתוך 100|נקודות מתוך|אני ממליץ|הייתי קונה|תקנה|אל תקנה|המנצח הברור|הרכב הטוב ביותר)",
     re.IGNORECASE,
 )
-BUYER_PROFILE_MAIN_USE_ALLOWED = {"city", "highway", "family", "commuting", "long_trips", "work", "mixed", "unknown"}
+BUYER_PROFILE_MAIN_USE_ALLOWED = {
+    "city",
+    "highway",
+    "family",
+    "commuting",
+    "long_trips",
+    "work",
+    "mixed",
+    "unknown",
+}
 BUYER_PROFILE_SAFETY_ALLOWED = {"yes", "no"}
-BUYER_PROFILE_FUELS_ALLOWED = {"gasoline", "diesel", "hybrid", "plug_in_hybrid", "electric", "lpg", "בנזין", "דיזל", "היברידי", "חשמלי"}
-BUYER_PROFILE_GEARS_ALLOWED = {"automatic", "manual", "robotic", "אוטומטית", "ידנית", "רובוטית"}
-BUYER_PROFILE_PRIORITY_KEYS = {"reliability", "fuel", "safety", "comfort", "performance", "cost"}
+BUYER_PROFILE_FUELS_ALLOWED = {
+    "gasoline",
+    "diesel",
+    "hybrid",
+    "plug_in_hybrid",
+    "electric",
+    "lpg",
+    "בנזין",
+    "דיזל",
+    "היברידי",
+    "חשמלי",
+}
+BUYER_PROFILE_GEARS_ALLOWED = {
+    "automatic",
+    "manual",
+    "robotic",
+    "אוטומטית",
+    "ידנית",
+    "רובוטית",
+}
+BUYER_PROFILE_PRIORITY_KEYS = {
+    "reliability",
+    "fuel",
+    "safety",
+    "comfort",
+    "performance",
+    "cost",
+}
 BUYER_PROFILE_PRIORITY_MIN = 0
 BUYER_PROFILE_PRIORITY_MAX = 10
 CAR_PROFILE_MAX_NESTING_DEPTH = 5
@@ -803,12 +1074,36 @@ CATEGORY_SCORE_CONFIG = {
         "stage_a_key": "reliability",
         "weight": 40,
         "subfactors": {
-            "reliability_reputation": {"weight": 12, "kind": "positive_label", "field": "overall"},
-            "issue_frequency": {"weight": 8, "kind": "negative_label", "field": "issue_frequency"},
-            "issue_severity": {"weight": 8, "kind": "negative_label", "field": "issue_severity"},
-            "repair_cost_risk": {"weight": 5, "kind": "negative_label", "field": "repair_cost_risk"},
-            "recall_risk": {"weight": 4, "kind": "negative_label", "field": "recall_risk"},
-            "parts_complexity": {"weight": 3, "kind": "negative_label", "field": "parts_complexity"},
+            "reliability_reputation": {
+                "weight": 12,
+                "kind": "positive_label",
+                "field": "overall",
+            },
+            "issue_frequency": {
+                "weight": 8,
+                "kind": "negative_label",
+                "field": "issue_frequency",
+            },
+            "issue_severity": {
+                "weight": 8,
+                "kind": "negative_label",
+                "field": "issue_severity",
+            },
+            "repair_cost_risk": {
+                "weight": 5,
+                "kind": "negative_label",
+                "field": "repair_cost_risk",
+            },
+            "recall_risk": {
+                "weight": 4,
+                "kind": "negative_label",
+                "field": "recall_risk",
+            },
+            "parts_complexity": {
+                "weight": 3,
+                "kind": "negative_label",
+                "field": "parts_complexity",
+            },
         },
     },
     "ownership_cost": {
@@ -816,10 +1111,26 @@ CATEGORY_SCORE_CONFIG = {
         "weight": 25,
         "subfactors": {
             "fuel_cost": {"weight": 8, "kind": "negative_label", "field": "fuel_cost"},
-            "routine_maintenance": {"weight": 6, "kind": "negative_label", "field": "routine_maintenance"},
-            "repair_burden": {"weight": 5, "kind": "negative_label", "field": "repair_burden"},
-            "insurance_burden": {"weight": 3, "kind": "negative_label", "field": "insurance_burden"},
-            "depreciation_risk": {"weight": 3, "kind": "negative_label", "field": "depreciation_risk"},
+            "routine_maintenance": {
+                "weight": 6,
+                "kind": "negative_label",
+                "field": "routine_maintenance",
+            },
+            "repair_burden": {
+                "weight": 5,
+                "kind": "negative_label",
+                "field": "repair_burden",
+            },
+            "insurance_burden": {
+                "weight": 3,
+                "kind": "negative_label",
+                "field": "insurance_burden",
+            },
+            "depreciation_risk": {
+                "weight": 3,
+                "kind": "negative_label",
+                "field": "depreciation_risk",
+            },
         },
     },
     "practicality_comfort": {
@@ -827,9 +1138,21 @@ CATEGORY_SCORE_CONFIG = {
         "weight": 20,
         "subfactors": {
             "space": {"weight": 7, "kind": "positive_label", "field": "space"},
-            "ride_comfort": {"weight": 5, "kind": "positive_label", "field": "ride_comfort"},
-            "trunk_usefulness": {"weight": 4, "kind": "positive_label", "field": "trunk_usefulness"},
-            "daily_usability": {"weight": 4, "kind": "positive_label", "field": "daily_usability"},
+            "ride_comfort": {
+                "weight": 5,
+                "kind": "positive_label",
+                "field": "ride_comfort",
+            },
+            "trunk_usefulness": {
+                "weight": 4,
+                "kind": "positive_label",
+                "field": "trunk_usefulness",
+            },
+            "daily_usability": {
+                "weight": 4,
+                "kind": "positive_label",
+                "field": "daily_usability",
+            },
         },
     },
     "driving_performance": {
@@ -837,9 +1160,21 @@ CATEGORY_SCORE_CONFIG = {
         "weight": 15,
         "subfactors": {
             "power_capability": {"weight": 6, "kind": "power_capability"},
-            "braking_confidence": {"weight": 3, "kind": "positive_label", "field": "braking_confidence"},
-            "handling_agility": {"weight": 4, "kind": "positive_label", "field": "handling_agility"},
-            "fun_to_drive": {"weight": 2, "kind": "positive_label", "field": "fun_to_drive"},
+            "braking_confidence": {
+                "weight": 3,
+                "kind": "positive_label",
+                "field": "braking_confidence",
+            },
+            "handling_agility": {
+                "weight": 4,
+                "kind": "positive_label",
+                "field": "handling_agility",
+            },
+            "fun_to_drive": {
+                "weight": 2,
+                "kind": "positive_label",
+                "field": "fun_to_drive",
+            },
         },
     },
 }
@@ -849,7 +1184,10 @@ CATEGORY_SCORE_CONFIG = {
 # SAFE JSON CACHE PARSING
 # ============================================================
 
-def _safe_parse_json_cached(raw_value: Any, field_name: str = "unknown") -> Tuple[Any, bool]:
+
+def _safe_parse_json_cached(
+    raw_value: Any, field_name: str = "unknown"
+) -> Tuple[Any, bool]:
     """
     Safely parse possibly double-encoded JSON from cached database rows.
 
@@ -883,7 +1221,7 @@ def _safe_parse_json_cached(raw_value: Any, field_name: str = "unknown") -> Tupl
         # Check if result is still a string that looks like JSON
         if isinstance(parsed, str):
             stripped = parsed.strip()
-            if stripped.startswith('{') or stripped.startswith('['):
+            if stripped.startswith("{") or stripped.startswith("["):
                 # Attempt second parse (unwrap double-encoding)
                 try:
                     parsed_inner = json.loads(parsed)
@@ -951,7 +1289,6 @@ def _normalize_sources(value: Any) -> List[str]:
     return out
 
 
-
 def _normalize_car_profile(value: Any) -> Dict[str, Any]:
     """Keep grounded factual profile data in a bounded JSON shape for UI/prompts."""
     if not isinstance(value, dict):
@@ -980,13 +1317,17 @@ def _normalize_car_profile(value: Any) -> Dict[str, Any]:
     return cleaned if isinstance(cleaned, dict) else {}
 
 
-def normalize_single_car_payload(payload: Dict[str, Any], fallback_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+def normalize_single_car_payload(
+    payload: Dict[str, Any], fallback_name: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
     """Normalize Stage A per-car payload into a compact, stable shape."""
     if not isinstance(payload, dict):
         return None
 
     normalized = _empty_single_car_payload()
-    normalized["car_name"] = _normalize_short_text(payload.get("car_name") or fallback_name, 140)
+    normalized["car_name"] = _normalize_short_text(
+        payload.get("car_name") or fallback_name, 140
+    )
 
     category_seen = False
     for category_name, template in SINGLE_CAR_CATEGORY_TEMPLATE.items():
@@ -1002,10 +1343,18 @@ def normalize_single_car_payload(payload: Dict[str, Any], fallback_name: Optiona
     if isinstance(facts, dict):
         normalized["facts"]["horsepower"] = _normalize_number(facts.get("horsepower"))
         normalized["facts"]["weight_kg"] = _normalize_number(facts.get("weight_kg"))
-        normalized["facts"]["body_type"] = _normalize_short_text(facts.get("body_type"), 60)
-        normalized["facts"]["fuel_type"] = _normalize_short_text(facts.get("fuel_type"), 60)
+        normalized["facts"]["body_type"] = _normalize_short_text(
+            facts.get("body_type"), 60
+        )
+        normalized["facts"]["fuel_type"] = _normalize_short_text(
+            facts.get("fuel_type"), 60
+        )
 
-    raw_notes = payload.get("short_notes") if isinstance(payload.get("short_notes"), list) else []
+    raw_notes = (
+        payload.get("short_notes")
+        if isinstance(payload.get("short_notes"), list)
+        else []
+    )
     normalized_notes: List[str] = []
     for item in raw_notes:
         note = _normalize_short_text(item, 120)
@@ -1029,7 +1378,10 @@ def normalize_single_car_payload(payload: Dict[str, Any], fallback_name: Optiona
 # PROMPT BUILDING
 # ============================================================
 
-def build_compare_grounding_prompt(cars: List[Dict[str, str]], region: str = "IL", language: str = "he/en") -> str:
+
+def build_compare_grounding_prompt(
+    cars: List[Dict[str, str]], region: str = "IL", language: str = "he/en"
+) -> str:
     """Build Stage A grounded prompt (sources + factual metrics)."""
     return f"{build_comparison_prompt(cars)}\n\nGrounding scope: region={region}, language={language}."
 
@@ -1043,7 +1395,9 @@ def build_single_car_prompt(car: Dict, region: str = "IL") -> str:
     if car.get("year"):
         sanitized["year"] = int(car["year"])
     if car.get("engine_type"):
-        sanitized["engine_type"] = escape_prompt_input(car["engine_type"], max_length=50)
+        sanitized["engine_type"] = escape_prompt_input(
+            car["engine_type"], max_length=50
+        )
     if car.get("gearbox"):
         sanitized["gearbox"] = escape_prompt_input(car["gearbox"], max_length=50)
 
@@ -1063,8 +1417,7 @@ def build_single_car_prompt(car: Dict, region: str = "IL") -> str:
         "special_note": segment_rule.get("special_note"),
     }
     category_behavior = {
-        key: COMPARE_CATEGORY_BEHAVIOR_RULES[key]
-        for key in COMPARE_CATEGORY_NAMES
+        key: COMPARE_CATEGORY_BEHAVIOR_RULES[key] for key in COMPARE_CATEGORY_NAMES
     }
 
     return f"""{data_instruction}
@@ -1176,9 +1529,13 @@ def build_comparison_prompt(cars: List[Dict[str, str]]) -> str:
             sanitized_car["year_end"] = car.get("year_end")
         # Include engine type and gearbox as explicit assumptions
         if car.get("engine_type"):
-            sanitized_car["engine_type"] = escape_prompt_input(car.get("engine_type", ""), max_length=50)
+            sanitized_car["engine_type"] = escape_prompt_input(
+                car.get("engine_type", ""), max_length=50
+            )
         if car.get("gearbox"):
-            sanitized_car["gearbox"] = escape_prompt_input(car.get("gearbox", ""), max_length=50)
+            sanitized_car["gearbox"] = escape_prompt_input(
+                car.get("gearbox", ""), max_length=50
+            )
         sanitized_cars.append(sanitized_car)
 
     cars_json = json.dumps(sanitized_cars, ensure_ascii=False, indent=2)
@@ -1394,6 +1751,7 @@ def build_compare_writer_prompt(
     buyer_profile: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Build Stage B prompt for a decision-based practical report."""
+
     def _truncate_text(value: Any, max_chars: int = 500) -> str:
         raw = str(value or "").strip()
         return raw[:max_chars]
@@ -1415,8 +1773,12 @@ def build_compare_writer_prompt(
 
     slot_keys = _ordered_compare_slot_keys(
         cars_selected_slots,
-        (computed_result.get("cars") or {}) if isinstance(computed_result, dict) else {},
-        ((grounded_output or {}).get("cars") or {}) if isinstance(grounded_output, dict) else {},
+        (computed_result.get("cars") or {})
+        if isinstance(computed_result, dict)
+        else {},
+        ((grounded_output or {}).get("cars") or {})
+        if isinstance(grounded_output, dict)
+        else {},
     )
     allowed_labels = slot_keys + ["tie", "depends", "unknown"]
     per_slot_schema_lines = []
@@ -1425,24 +1787,66 @@ def build_compare_writer_prompt(
         per_slot_schema_lines.append(f'    "avoid_or_check_{slot_key}_if": ["string"],')
     key_difference_fields = ",".join(f'"{slot_key}":"string"' for slot_key in slot_keys)
     deterministic_preferences = {
-        "overall": _normalize_compare_writer_winner(computed_result.get("overall_winner"), slot_keys) or "depends",
+        "overall": _normalize_compare_writer_winner(
+            computed_result.get("overall_winner"), slot_keys
+        )
+        or "depends",
         "legacy_category_winners": {
-            category_key: _normalize_compare_writer_winner(winner, slot_keys) or "depends"
-            for category_key, winner in ((computed_result.get("category_winners") or {}).items())
+            category_key: _normalize_compare_writer_winner(winner, slot_keys)
+            or "depends"
+            for category_key, winner in (
+                (computed_result.get("category_winners") or {}).items()
+            )
         },
-        "balanced_comparison": bool(((computed_result.get("comparison_status") or {}).get("balanced", True))),
+        "balanced_comparison": bool(
+            ((computed_result.get("comparison_status") or {}).get("balanced", True))
+        ),
     }
     checked_version_seed = build_checked_versions(cars_selected_slots, grounded_output)
     model_payload = {
         "cars": {
             slot_key: {
-                "label": _truncate_text(((cars_selected_slots or {}).get(slot_key, {}) or {}).get("display_name") or slot_key, 120),
+                "label": _truncate_text(
+                    ((cars_selected_slots or {}).get(slot_key, {}) or {}).get(
+                        "display_name"
+                    )
+                    or slot_key,
+                    120,
+                ),
                 "selection_input": {
-                    "make": _truncate_text(((cars_selected_slots or {}).get(slot_key, {}) or {}).get("make"), 80),
-                    "model": _truncate_text(((cars_selected_slots or {}).get(slot_key, {}) or {}).get("model"), 80),
-                    "year": _truncate_text(((cars_selected_slots or {}).get(slot_key, {}) or {}).get("year") or ((cars_selected_slots or {}).get(slot_key, {}) or {}).get("year_start"), 40),
-                    "engine_type": _truncate_text(((cars_selected_slots or {}).get(slot_key, {}) or {}).get("engine_type"), 80),
-                    "transmission": _truncate_text(((cars_selected_slots or {}).get(slot_key, {}) or {}).get("gearbox"), 80),
+                    "make": _truncate_text(
+                        ((cars_selected_slots or {}).get(slot_key, {}) or {}).get(
+                            "make"
+                        ),
+                        80,
+                    ),
+                    "model": _truncate_text(
+                        ((cars_selected_slots or {}).get(slot_key, {}) or {}).get(
+                            "model"
+                        ),
+                        80,
+                    ),
+                    "year": _truncate_text(
+                        ((cars_selected_slots or {}).get(slot_key, {}) or {}).get(
+                            "year"
+                        )
+                        or ((cars_selected_slots or {}).get(slot_key, {}) or {}).get(
+                            "year_start"
+                        ),
+                        40,
+                    ),
+                    "engine_type": _truncate_text(
+                        ((cars_selected_slots or {}).get(slot_key, {}) or {}).get(
+                            "engine_type"
+                        ),
+                        80,
+                    ),
+                    "transmission": _truncate_text(
+                        ((cars_selected_slots or {}).get(slot_key, {}) or {}).get(
+                            "gearbox"
+                        ),
+                        80,
+                    ),
                 },
                 "checked_version_seed": checked_version_seed.get(slot_key) or {},
                 "evidence": _evidence_snapshot(slot_key),
@@ -1456,7 +1860,9 @@ def build_compare_writer_prompt(
         "deterministic_preference_hints": deterministic_preferences,
         "buyer_profile": buyer_profile,
         "buyer_profile_rule": "User preference context only; use it only to explain fit. It must not override factual vehicle data.",
-        "sources": ((grounded_output or {}).get("sources") or [])[:_MAX_STAGE_A_SOURCES * max(1, len(slot_keys))],
+        "sources": ((grounded_output or {}).get("sources") or [])[
+            : _MAX_STAGE_A_SOURCES * max(1, len(slot_keys))
+        ],
     }
 
     payload_json = json.dumps(model_payload, ensure_ascii=False, separators=(",", ":"))
@@ -1470,20 +1876,28 @@ MODEL_PAYLOAD:
 Return ONLY valid JSON with EXACTLY this top-level schema:
 {{
   "decision_result": {{
-    "overall_decision": {{"label":"{'|'.join(allowed_labels)}","text":"Hebrew practical decision summary without scores"}},
+    "overall_decision": {{"label":"{
+        "|".join(allowed_labels)
+    }","text":"Hebrew practical decision summary without scores"}},
 {chr(10).join(per_slot_schema_lines)}
     "category_decisions": [
-      {{"category_key":"pricing_and_value","category_name_he":"מחיר ותמורה","preferred":"{'|'.join(allowed_labels)}","why":"string","important_caveat":"string|null"}}
+      {{"category_key":"pricing_and_value","category_name_he":"מחיר ותמורה","preferred":"{
+        "|".join(allowed_labels)
+    }","why":"string","important_caveat":"string|null"}}
     ],
-    "key_differences": [{{"title":"string",{key_difference_fields},"meaning_for_buyer":"string"}}],
+    "key_differences": [{{"title":"string",{
+        key_difference_fields
+    },"meaning_for_buyer":"string"}}],
     "competitors_to_consider": [{{"model":"string","why_consider":"string"}}],
     "practical_summary":"Hebrew practical paragraph. Neutral. No first person. No direct buy/don't-buy command."
   }},
   "checked_versions": {{
-    {",".join(
-        f'"{slot_key}":{{"make":"string","model":"string","year":"string","trim":"string","engine_type":"string","transmission":"string","drivetrain":"string","seats":"string","data_basis":"user_input|verified_source|ai_inference|mixed","confidence":"high|medium|low|unverified","notes":"string"}}'
-        for slot_key in slot_keys
-    )}
+    {
+        ",".join(
+            f'"{slot_key}":{{"make":"string","model":"string","year":"string","trim":"string","engine_type":"string","transmission":"string","drivetrain":"string","seats":"string","data_basis":"user_input|verified_source|ai_inference|mixed","confidence":"high|medium|low|unverified","notes":"string"}}'
+            for slot_key in slot_keys
+        )
+    }
   }},
   "sources": ["url"]
 }}
@@ -1505,23 +1919,36 @@ HARD RULES:
 """
     return prompt
 
-def build_compare_writer_retry_prompt(cars_selected_slots: Dict, computed_result: Dict) -> str:
+
+def build_compare_writer_retry_prompt(
+    cars_selected_slots: Dict, computed_result: Dict
+) -> str:
     """Build a minimal retry prompt for summary+winner only."""
     slot_keys = _ordered_compare_slot_keys(
         cars_selected_slots,
-        (computed_result.get("cars") or {}) if isinstance(computed_result, dict) else {},
+        (computed_result.get("cars") or {})
+        if isinstance(computed_result, dict)
+        else {},
     )
     allowed_winners = slot_keys + ["tie"]
     retry_payload = {
         "cars": {
             slot_key: {
-                "label": ((cars_selected_slots.get(slot_key, {}) or {}).get("display_name", slot_key)),
+                "label": (
+                    (cars_selected_slots.get(slot_key, {}) or {}).get(
+                        "display_name", slot_key
+                    )
+                ),
             }
             for slot_key in slot_keys
         },
         "overall_winner": computed_result.get("overall_winner"),
         "overall_scores": {
-            slot_key: ((computed_result.get("cars", {}).get(slot_key, {}) or {}).get("overall_score"))
+            slot_key: (
+                (computed_result.get("cars", {}).get(slot_key, {}) or {}).get(
+                    "overall_score"
+                )
+            )
             for slot_key in slot_keys
         },
     }
@@ -1529,7 +1956,7 @@ def build_compare_writer_retry_prompt(cars_selected_slots: Dict, computed_result
 Return ONLY JSON:
 {{
   "summary": "max 20 words",
-  "winner": "{'|'.join(allowed_winners)}",
+  "winner": "{"|".join(allowed_winners)}",
   "categories": [],
   "caveats": []
 }}
@@ -1543,7 +1970,10 @@ DATA:{json.dumps(retry_payload, ensure_ascii=False, separators=(",", ":"))}
 # SCORING FUNCTIONS (DETERMINISTIC - CODE ONLY)
 # ============================================================
 
-def score_ordinal_negative(value: Optional[str], confidence: float = 1.0) -> Optional[float]:
+
+def score_ordinal_negative(
+    value: Optional[str], confidence: float = 1.0
+) -> Optional[float]:
     """Score ordinal value where low is good (e.g., risk: low=good)."""
     normalized = _normalize_label(value)
     score = ORDINAL_SCORES_NEGATIVE.get(normalized) if normalized else None
@@ -1552,7 +1982,9 @@ def score_ordinal_negative(value: Optional[str], confidence: float = 1.0) -> Opt
     return round(score * confidence, 1)
 
 
-def score_ordinal_positive(value: Optional[str], confidence: float = 1.0) -> Optional[float]:
+def score_ordinal_positive(
+    value: Optional[str], confidence: float = 1.0
+) -> Optional[float]:
     """Score ordinal value where high is good (e.g., comfort: high=good)."""
     normalized = _normalize_label(value)
     score = ORDINAL_SCORES_POSITIVE.get(normalized) if normalized else None
@@ -1577,7 +2009,11 @@ def _derive_power_to_weight_label(car_data: Dict[str, Any]) -> Optional[str]:
     facts = car_data.get("facts", {})
     horsepower = _normalize_number((facts or {}).get("horsepower"))
     weight_kg = _normalize_number((facts or {}).get("weight_kg"))
-    if horsepower is None or weight_kg is None or weight_kg < MIN_REASONABLE_VEHICLE_WEIGHT_KG:
+    if (
+        horsepower is None
+        or weight_kg is None
+        or weight_kg < MIN_REASONABLE_VEHICLE_WEIGHT_KG
+    ):
         return None
 
     hp_per_ton = (horsepower * KILOGRAMS_PER_TON) / weight_kg
@@ -1601,13 +2037,20 @@ def _derive_horsepower_label(car_data: Dict[str, Any]) -> Optional[str]:
 
 def _score_power_capability(car_data: Dict[str, Any]) -> Optional[float]:
     performance = car_data.get("performance_driving", {})
-    return _average_scores([
-        score_ordinal_positive((performance or {}).get("power_feel")),
-        score_ordinal_positive(_derive_power_to_weight_label(car_data) or _derive_horsepower_label(car_data)),
-    ])
+    return _average_scores(
+        [
+            score_ordinal_positive((performance or {}).get("power_feel")),
+            score_ordinal_positive(
+                _derive_power_to_weight_label(car_data)
+                or _derive_horsepower_label(car_data)
+            ),
+        ]
+    )
 
 
-def _score_subfactor(car_data: Dict[str, Any], category_name: str, subfactor_def: Dict[str, Any]) -> Optional[float]:
+def _score_subfactor(
+    car_data: Dict[str, Any], category_name: str, subfactor_def: Dict[str, Any]
+) -> Optional[float]:
     stage_a_key = CATEGORY_SCORE_CONFIG[category_name]["stage_a_key"]
     section = car_data.get(stage_a_key, {})
     if subfactor_def.get("kind") == "positive_label":
@@ -1637,7 +2080,9 @@ def _has_any_stage_a_evidence(car_data: Dict[str, Any]) -> bool:
     return False
 
 
-def compute_category_score(car_data: Dict, category_name: str) -> Tuple[Optional[float], Dict[str, Optional[float]]]:
+def compute_category_score(
+    car_data: Dict, category_name: str
+) -> Tuple[Optional[float], Dict[str, Optional[float]]]:
     """Compute deterministic weighted score for a category from simplified Stage A evidence."""
     category_def = CATEGORY_SCORE_CONFIG.get(category_name)
     if not category_def:
@@ -1660,7 +2105,9 @@ def compute_category_score(car_data: Dict, category_name: str) -> Tuple[Optional
     return round(total_weighted / total_weights, 1), metric_scores
 
 
-def compute_overall_score(category_scores: Dict[str, Optional[float]]) -> Optional[float]:
+def compute_overall_score(
+    category_scores: Dict[str, Optional[float]],
+) -> Optional[float]:
     """Compute weighted overall score from category scores."""
     total_weighted = 0.0
     total_weights = 0.0
@@ -1675,7 +2122,9 @@ def compute_overall_score(category_scores: Dict[str, Optional[float]]) -> Option
     return round(total_weighted / total_weights, 1)
 
 
-def determine_winner(scores: Dict[str, Optional[float]], tie_threshold: float = TIE_THRESHOLD) -> Optional[str]:
+def determine_winner(
+    scores: Dict[str, Optional[float]], tie_threshold: float = TIE_THRESHOLD
+) -> Optional[str]:
     """Determine winner from a dict of car_id -> score. Returns 'tie' if scores are close."""
     valid_scores = {k: v for k, v in scores.items() if v is not None}
     if not valid_scores:
@@ -1695,8 +2144,12 @@ def _is_real_winner_id(winner_id: Optional[str], results: Dict[str, Any]) -> boo
     return isinstance(winner_id, str) and winner_id in cars
 
 
-def _build_single_winner_top_reasons(results: Dict[str, Any], winner_id: str) -> List[str]:
-    winner_cats = (((results.get("cars") or {}).get(winner_id) or {}).get("categories") or {})
+def _build_single_winner_top_reasons(
+    results: Dict[str, Any], winner_id: str
+) -> List[str]:
+    winner_cats = ((results.get("cars") or {}).get(winner_id) or {}).get(
+        "categories"
+    ) or {}
     sorted_cats = sorted(
         [
             (cat_name, data.get("score"))
@@ -1821,8 +2274,10 @@ def compute_comparison_results(model_output: Dict) -> Dict:
 
     # Determine category winners
     for cat_name in CATEGORY_SCORE_CONFIG.keys():
-        cat_scores = {car_id: results["cars"][car_id]["categories"][cat_name]["score"] 
-                      for car_id in cars_data.keys()}
+        cat_scores = {
+            car_id: results["cars"][car_id]["categories"][cat_name]["score"]
+            for car_id in cars_data.keys()
+        }
         results["category_winners"][cat_name] = determine_winner(cat_scores)
 
     # Determine metric winners
@@ -1831,9 +2286,15 @@ def compute_comparison_results(model_output: Dict) -> Dict:
         for metric_name in cat_def.get("subfactors", {}).keys():
             metric_scores = {}
             for car_id in cars_data.keys():
-                car_metrics = results["cars"][car_id]["categories"].get(cat_name, {}).get("metrics", {})
+                car_metrics = (
+                    results["cars"][car_id]["categories"]
+                    .get(cat_name, {})
+                    .get("metrics", {})
+                )
                 metric_scores[car_id] = car_metrics.get(metric_name)
-            results["metric_winners"][cat_name][metric_name] = determine_winner(metric_scores)
+            results["metric_winners"][cat_name][metric_name] = determine_winner(
+                metric_scores
+            )
 
     # Determine overall winner
     results["overall_winner"] = determine_winner(overall_scores)
@@ -1852,6 +2313,7 @@ def compute_comparison_results(model_output: Dict) -> Dict:
 # ============================================================
 # AI CALL FUNCTION
 # ============================================================
+
 
 def _inc_compare_metric(metric: str, reason: Optional[str] = None) -> None:
     if metric == "compare_ai_failures_total":
@@ -1875,7 +2337,12 @@ def _is_output_too_long_error(raw: str) -> bool:
     )
 
 
-_STAGE_A_REQUIRED_KEYS = {"grounding_successful", "search_queries_used", "assumptions", "cars"}
+_STAGE_A_REQUIRED_KEYS = {
+    "grounding_successful",
+    "search_queries_used",
+    "assumptions",
+    "cars",
+}
 
 _SINGLE_CAR_REQUIRED_CATEGORIES = {
     "reliability",
@@ -1894,7 +2361,10 @@ def _is_valid_single_car_payload(payload):
     """
     if not isinstance(payload, dict):
         return False
-    return bool(_SINGLE_CAR_REQUIRED_CATEGORIES.intersection(set(payload.keys())) or isinstance(payload.get("car_profile"), dict))
+    return bool(
+        _SINGLE_CAR_REQUIRED_CATEGORIES.intersection(set(payload.keys()))
+        or isinstance(payload.get("car_profile"), dict)
+    )
 
 
 def parse_single_car_json(raw_text: str) -> Tuple[Optional[Dict], Optional[str]]:
@@ -1937,25 +2407,25 @@ def _extract_first_json_object(text: str) -> Optional[str]:
                 escaped = False
             elif ch == "\\":
                 escaped = True
-            elif ch == "\"":
+            elif ch == '"':
                 in_str = False
             continue
-        if ch == "\"":
+        if ch == '"':
             in_str = True
         elif ch == "{":
             depth += 1
         elif ch == "}":
             depth -= 1
             if depth == 0:
-                return raw[start:idx + 1]
+                return raw[start : idx + 1]
     return None
 
 
 def _repair_json_once(text: str) -> str:
     repaired = (text or "").lstrip("\ufeff")
     smart_quotes = {
-        "\u201c": "\"",
-        "\u201d": "\"",
+        "\u201c": '"',
+        "\u201d": '"',
         "\u2018": "'",
         "\u2019": "'",
     }
@@ -2006,7 +2476,6 @@ def _truncate_to_word_limit(value: Any, limit: int) -> Optional[str]:
     return " ".join(words[:limit])
 
 
-
 def _decision_label(value: Any, allowed_slots: Optional[List[str]] = None) -> str:
     if isinstance(value, str):
         normalized = value.strip()
@@ -2023,7 +2492,9 @@ def _is_forbidden_decision_text(value: Any) -> bool:
     return isinstance(value, str) and bool(DECISION_FORBIDDEN_TEXT_RE.search(value))
 
 
-def _sanitize_decision_text(value: Any, request_id: Optional[str], field_path: str) -> str:
+def _sanitize_decision_text(
+    value: Any, request_id: Optional[str], field_path: str
+) -> str:
     text = " ".join(str(value or "").split()).strip()
     if not text:
         return ""
@@ -2038,14 +2509,18 @@ def _sanitize_decision_text(value: Any, request_id: Optional[str], field_path: s
     return text[:700]
 
 
-def _sanitize_optional_decision_text(value: Any, request_id: Optional[str], field_path: str) -> Optional[str]:
+def _sanitize_optional_decision_text(
+    value: Any, request_id: Optional[str], field_path: str
+) -> Optional[str]:
     if value is None:
         return None
     text = _sanitize_decision_text(value, request_id, field_path)
     return text or None
 
 
-def _sanitize_decision_list(value: Any, request_id: Optional[str], field_path: str, max_items: int = 6) -> List[str]:
+def _sanitize_decision_list(
+    value: Any, request_id: Optional[str], field_path: str, max_items: int = 6
+) -> List[str]:
     if not isinstance(value, list):
         return []
     out = []
@@ -2061,7 +2536,10 @@ def _decision_category_name_he(category_key: Any) -> str:
     for key, name in DECISION_CATEGORY_DEFINITIONS:
         if key == normalized_key:
             return name
-    return CATEGORY_LABELS_HE.get(normalized_key) or normalized_key.replace("_", " ").strip()
+    return (
+        CATEGORY_LABELS_HE.get(normalized_key)
+        or normalized_key.replace("_", " ").strip()
+    )
 
 
 def _append_unique_text(target: List[str], text: str, max_items: int = 2) -> None:
@@ -2072,7 +2550,9 @@ def _append_unique_text(target: List[str], text: str, max_items: int = 2) -> Non
 
 
 def _join_hebrew_labels(labels: List[str]) -> str:
-    normalized = [str(label or "").strip() for label in labels if str(label or "").strip()]
+    normalized = [
+        str(label or "").strip() for label in labels if str(label or "").strip()
+    ]
     if not normalized:
         return ""
     if len(normalized) == 1:
@@ -2088,11 +2568,28 @@ def _build_slot_guidance_lists(
     computed_result: Dict[str, Any],
     source_decision_result: Any,
 ) -> Tuple[List[str], List[str]]:
-    category_items = source_decision_result.get("category_decisions") if isinstance(source_decision_result, dict) and isinstance(source_decision_result.get("category_decisions"), list) else []
-    key_differences = source_decision_result.get("key_differences") if isinstance(source_decision_result, dict) and isinstance(source_decision_result.get("key_differences"), list) else []
-    overall = source_decision_result.get("overall_decision") if isinstance(source_decision_result, dict) and isinstance(source_decision_result.get("overall_decision"), dict) else {}
+    category_items = (
+        source_decision_result.get("category_decisions")
+        if isinstance(source_decision_result, dict)
+        and isinstance(source_decision_result.get("category_decisions"), list)
+        else []
+    )
+    key_differences = (
+        source_decision_result.get("key_differences")
+        if isinstance(source_decision_result, dict)
+        and isinstance(source_decision_result.get("key_differences"), list)
+        else []
+    )
+    overall = (
+        source_decision_result.get("overall_decision")
+        if isinstance(source_decision_result, dict)
+        and isinstance(source_decision_result.get("overall_decision"), dict)
+        else {}
+    )
     practical_summary = _sanitize_decision_text(
-        source_decision_result.get("practical_summary") if isinstance(source_decision_result, dict) else None,
+        source_decision_result.get("practical_summary")
+        if isinstance(source_decision_result, dict)
+        else None,
         None,
         f"{slot_key}.practical_summary",
     )
@@ -2101,7 +2598,9 @@ def _build_slot_guidance_lists(
         computed_result.get("cars") or {},
         _extract_decision_slot_keys(source_decision_result),
     )
-    car_label = ((cars_selected_slots.get(slot_key) or {}).get("display_name") or slot_key).strip()
+    car_label = (
+        (cars_selected_slots.get(slot_key) or {}).get("display_name") or slot_key
+    ).strip()
     category_advantages: List[str] = []
     category_tradeoffs: List[str] = []
     shared_caveats: List[str] = []
@@ -2109,7 +2608,9 @@ def _build_slot_guidance_lists(
     for item in category_items:
         if not isinstance(item, dict):
             continue
-        category_name = _decision_category_name_he(item.get("category_key") or item.get("category_name_he"))
+        category_name = _decision_category_name_he(
+            item.get("category_key") or item.get("category_name_he")
+        )
         preferred = _decision_label(item.get("preferred"), slot_keys)
         if preferred == slot_key:
             _append_unique_text(category_advantages, category_name)
@@ -2123,7 +2624,11 @@ def _build_slot_guidance_lists(
         if caveat:
             _append_unique_text(shared_caveats, caveat, max_items=1)
 
-    for category_key, winner in ((computed_result.get("category_winners") or {}).items() if isinstance(computed_result, dict) else []):
+    for category_key, winner in (
+        (computed_result.get("category_winners") or {}).items()
+        if isinstance(computed_result, dict)
+        else []
+    ):
         normalized_winner = _normalize_compare_writer_winner(winner, slot_keys)
         category_name = _decision_category_name_he(category_key)
         if normalized_winner == slot_key:
@@ -2135,8 +2640,12 @@ def _build_slot_guidance_lists(
     for item in key_differences:
         if not isinstance(item, dict):
             continue
-        title = _sanitize_decision_text(item.get("title"), None, f"{slot_key}.diff_title")
-        detail = _sanitize_decision_text(item.get(slot_key), None, f"{slot_key}.diff_value")
+        title = _sanitize_decision_text(
+            item.get("title"), None, f"{slot_key}.diff_title"
+        )
+        detail = _sanitize_decision_text(
+            item.get(slot_key), None, f"{slot_key}.diff_value"
+        )
         if title and detail:
             diff_insight = f"{title}: {detail}"
             break
@@ -2154,9 +2663,13 @@ def _build_slot_guidance_lists(
             "אם בתמונה הכוללת זו נראית הבחירה הסבירה יותר עבורך, בכפוף למצב הרכב בפועל.",
         )
     elif diff_insight:
-        _append_unique_text(choose_items, f"אם הפער הבא מתאים לשימוש שלך: {diff_insight}")
+        _append_unique_text(
+            choose_items, f"אם הפער הבא מתאים לשימוש שלך: {diff_insight}"
+        )
     elif practical_summary:
-        _append_unique_text(choose_items, f"אם הכיוון הכללי של ההשוואה מתאים לך: {practical_summary}")
+        _append_unique_text(
+            choose_items, f"אם הכיוון הכללי של ההשוואה מתאים לך: {practical_summary}"
+        )
 
     if category_tradeoffs:
         _append_unique_text(
@@ -2190,7 +2703,9 @@ def build_deterministic_decision_result(
         computed_result.get("cars") or {},
         _extract_decision_slot_keys(source_decision_result),
     )
-    winner = _normalize_compare_writer_winner(computed_result.get("overall_winner"), slot_keys)
+    winner = _normalize_compare_writer_winner(
+        computed_result.get("overall_winner"), slot_keys
+    )
     if winner in slot_keys:
         label = winner
         text = "קיימת עדיפות קלה לפי המידע הזמין, אך ההחלטה תלויה בבדיקת מצב הרכב בפועל ובהתאמה לשימוש."
@@ -2203,13 +2718,15 @@ def build_deterministic_decision_result(
 
     category_decisions = []
     for key, name in DECISION_CATEGORY_DEFINITIONS:
-        category_decisions.append({
-            "category_key": key,
-            "category_name_he": name,
-            "preferred": "unknown",
-            "why": "אין מספיק מידע מנוסח ללא ציונים בקטגוריה זו.",
-            "important_caveat": "יש לאמת נתונים מול מקורות רשמיים ובדיקת רכב בפועל.",
-        })
+        category_decisions.append(
+            {
+                "category_key": key,
+                "category_name_he": name,
+                "preferred": "unknown",
+                "why": "אין מספיק מידע מנוסח ללא ציונים בקטגוריה זו.",
+                "important_caveat": "יש לאמת נתונים מול מקורות רשמיים ובדיקת רכב בפועל.",
+            }
+        )
 
     # Build per-slot choose/avoid entries with distinct labels derived from slot display names
     result: Dict[str, Any] = {
@@ -2249,61 +2766,113 @@ def sanitize_decision_result(
     )
     if not isinstance(decision_result, dict):
         return fallback
-    overall = decision_result.get("overall_decision") if isinstance(decision_result.get("overall_decision"), dict) else {}
+    overall = (
+        decision_result.get("overall_decision")
+        if isinstance(decision_result.get("overall_decision"), dict)
+        else {}
+    )
     overall_label = _decision_label(overall.get("label"), slot_keys)
     if overall_label == "unknown":
         overall_label = fallback["overall_decision"]["label"]
     sanitized = {
         "overall_decision": {
             "label": overall_label,
-            "text": _sanitize_decision_text(overall.get("text"), request_id, "overall_decision.text") or fallback["overall_decision"]["text"],
+            "text": _sanitize_decision_text(
+                overall.get("text"), request_id, "overall_decision.text"
+            )
+            or fallback["overall_decision"]["text"],
         },
         "category_decisions": [],
         "key_differences": [],
         "competitors_to_consider": [],
-        "practical_summary": _sanitize_decision_text(decision_result.get("practical_summary"), request_id, "practical_summary") or fallback["practical_summary"],
+        "practical_summary": _sanitize_decision_text(
+            decision_result.get("practical_summary"), request_id, "practical_summary"
+        )
+        or fallback["practical_summary"],
     }
     for slot_key in slot_keys:
         choose_key = f"choose_{slot_key}_if"
         avoid_key = f"avoid_or_check_{slot_key}_if"
-        sanitized[choose_key] = (
-            _sanitize_decision_list(decision_result.get(choose_key), request_id, choose_key)
-            or fallback.get(choose_key, [])
-        )
-        sanitized[avoid_key] = (
-            _sanitize_decision_list(decision_result.get(avoid_key), request_id, avoid_key)
-            or fallback.get(avoid_key, [])
-        )
-    raw_categories = decision_result.get("category_decisions") if isinstance(decision_result.get("category_decisions"), list) else []
-    by_key = {item.get("category_key"): item for item in raw_categories if isinstance(item, dict)}
+        sanitized[choose_key] = _sanitize_decision_list(
+            decision_result.get(choose_key), request_id, choose_key
+        ) or fallback.get(choose_key, [])
+        sanitized[avoid_key] = _sanitize_decision_list(
+            decision_result.get(avoid_key), request_id, avoid_key
+        ) or fallback.get(avoid_key, [])
+    raw_categories = (
+        decision_result.get("category_decisions")
+        if isinstance(decision_result.get("category_decisions"), list)
+        else []
+    )
+    by_key = {
+        item.get("category_key"): item
+        for item in raw_categories
+        if isinstance(item, dict)
+    }
     for key, name in DECISION_CATEGORY_DEFINITIONS:
         item = by_key.get(key) or {}
-        sanitized["category_decisions"].append({
-            "category_key": key,
-            "category_name_he": _sanitize_decision_text(item.get("category_name_he") or name, request_id, f"category_decisions.{key}.name") or name,
-            "preferred": _decision_label(item.get("preferred"), slot_keys),
-            "why": _sanitize_decision_text(item.get("why"), request_id, f"category_decisions.{key}.why") or "אין מספיק מידע מאומת בקטגוריה זו.",
-            "important_caveat": _sanitize_optional_decision_text(item.get("important_caveat"), request_id, f"category_decisions.{key}.important_caveat"),
-        })
-    raw_diffs = decision_result.get("key_differences") if isinstance(decision_result.get("key_differences"), list) else []
+        sanitized["category_decisions"].append(
+            {
+                "category_key": key,
+                "category_name_he": _sanitize_decision_text(
+                    item.get("category_name_he") or name,
+                    request_id,
+                    f"category_decisions.{key}.name",
+                )
+                or name,
+                "preferred": _decision_label(item.get("preferred"), slot_keys),
+                "why": _sanitize_decision_text(
+                    item.get("why"), request_id, f"category_decisions.{key}.why"
+                )
+                or "אין מספיק מידע מאומת בקטגוריה זו.",
+                "important_caveat": _sanitize_optional_decision_text(
+                    item.get("important_caveat"),
+                    request_id,
+                    f"category_decisions.{key}.important_caveat",
+                ),
+            }
+        )
+    raw_diffs = (
+        decision_result.get("key_differences")
+        if isinstance(decision_result.get("key_differences"), list)
+        else []
+    )
     for idx, item in enumerate(raw_diffs[:8]):
         if not isinstance(item, dict):
             continue
         cleaned_diff = {
-            "title": _sanitize_decision_text(item.get("title"), request_id, f"key_differences.{idx}.title"),
-            "meaning_for_buyer": _sanitize_decision_text(item.get("meaning_for_buyer"), request_id, f"key_differences.{idx}.meaning_for_buyer"),
+            "title": _sanitize_decision_text(
+                item.get("title"), request_id, f"key_differences.{idx}.title"
+            ),
+            "meaning_for_buyer": _sanitize_decision_text(
+                item.get("meaning_for_buyer"),
+                request_id,
+                f"key_differences.{idx}.meaning_for_buyer",
+            ),
         }
         for slot_key in slot_keys:
-            cleaned_diff[slot_key] = _sanitize_decision_text(item.get(slot_key), request_id, f"key_differences.{idx}.{slot_key}")
+            cleaned_diff[slot_key] = _sanitize_decision_text(
+                item.get(slot_key), request_id, f"key_differences.{idx}.{slot_key}"
+            )
         sanitized["key_differences"].append(cleaned_diff)
-    raw_competitors = decision_result.get("competitors_to_consider") if isinstance(decision_result.get("competitors_to_consider"), list) else []
+    raw_competitors = (
+        decision_result.get("competitors_to_consider")
+        if isinstance(decision_result.get("competitors_to_consider"), list)
+        else []
+    )
     for idx, item in enumerate(raw_competitors[:5]):
         if not isinstance(item, dict):
             continue
-        model = _sanitize_decision_text(item.get("model"), request_id, f"competitors.{idx}.model")
-        why = _sanitize_decision_text(item.get("why_consider"), request_id, f"competitors.{idx}.why_consider")
+        model = _sanitize_decision_text(
+            item.get("model"), request_id, f"competitors.{idx}.model"
+        )
+        why = _sanitize_decision_text(
+            item.get("why_consider"), request_id, f"competitors.{idx}.why_consider"
+        )
         if model or why:
-            sanitized["competitors_to_consider"].append({"model": model, "why_consider": why})
+            sanitized["competitors_to_consider"].append(
+                {"model": model, "why_consider": why}
+            )
     return sanitized
 
 
@@ -2341,29 +2910,41 @@ def _summarize_compare_writer_payload(payload: Any) -> Dict[str, Any]:
             "top_level_keys": [],
         }
 
-    decision_result = payload.get("decision_result") if isinstance(payload.get("decision_result"), dict) else {}
+    decision_result = (
+        payload.get("decision_result")
+        if isinstance(payload.get("decision_result"), dict)
+        else {}
+    )
     decision_slot_keys = _extract_decision_slot_keys(decision_result)
 
-    categories = payload.get("categories") if isinstance(payload.get("categories"), list) else []
+    categories = (
+        payload.get("categories") if isinstance(payload.get("categories"), list) else []
+    )
     categories_with_explanations = 0
     for item in categories:
         if not isinstance(item, dict):
             continue
         explanations = item.get("explanations")
-        if isinstance(explanations, dict) and any(str(text or "").strip() for text in explanations.values()):
+        if isinstance(explanations, dict) and any(
+            str(text or "").strip() for text in explanations.values()
+        ):
             categories_with_explanations += 1
 
     return {
         "is_object": True,
         "top_level_keys": sorted(payload.keys()),
         "has_decision_result": bool(decision_result),
-        "checked_versions_count": len(payload.get("checked_versions") or {}) if isinstance(payload.get("checked_versions"), dict) else 0,
+        "checked_versions_count": len(payload.get("checked_versions") or {})
+        if isinstance(payload.get("checked_versions"), dict)
+        else 0,
         "decision_slot_keys": decision_slot_keys,
         "has_summary": bool(str(payload.get("summary") or "").strip()),
         "has_categories": isinstance(payload.get("categories"), list),
         "category_count": len(categories),
         "has_caveats": isinstance(payload.get("caveats"), list),
-        "caveat_count": len(payload.get("caveats") or []) if isinstance(payload.get("caveats"), list) else None,
+        "caveat_count": len(payload.get("caveats") or [])
+        if isinstance(payload.get("caveats"), list)
+        else None,
         "categories_with_per_car_explanations": categories_with_explanations,
     }
 
@@ -2379,16 +2960,26 @@ def _summarize_comparison_narrative_shape(narrative: Any) -> Dict[str, Any]:
             "category_count": 0,
         }
 
-    categories = narrative.get("category_explanations") if isinstance(narrative.get("category_explanations"), list) else []
+    categories = (
+        narrative.get("category_explanations")
+        if isinstance(narrative.get("category_explanations"), list)
+        else []
+    )
     categories_with_explanations = 0
     for item in categories:
         if not isinstance(item, dict):
             continue
         explanations = item.get("explanations")
-        if isinstance(explanations, dict) and any(str(text or "").strip() for text in explanations.values()):
+        if isinstance(explanations, dict) and any(
+            str(text or "").strip() for text in explanations.values()
+        ):
             categories_with_explanations += 1
 
-    disclaimers = narrative.get("disclaimers_he") if isinstance(narrative.get("disclaimers_he"), list) else []
+    disclaimers = (
+        narrative.get("disclaimers_he")
+        if isinstance(narrative.get("disclaimers_he"), list)
+        else []
+    )
     summary = str(narrative.get("overall_summary") or "").strip()
     return {
         "exists": True,
@@ -2402,7 +2993,9 @@ def _summarize_comparison_narrative_shape(narrative: Any) -> Dict[str, Any]:
     }
 
 
-def _validate_compare_writer_response(payload: Any) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def _validate_compare_writer_response(
+    payload: Any,
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     if not isinstance(payload, dict):
         return None, "payload_not_object"
     required_keys = {"summary", "winner", "categories", "caveats"}
@@ -2430,7 +3023,9 @@ def _validate_compare_writer_response(payload: Any) -> Tuple[Optional[Dict[str, 
             return None, "missing_category_keys"
         if item.get("name") not in COMPARE_CATEGORY_NAMES:
             return None, "invalid_category_name"
-        category_winner = _normalize_compare_writer_winner(item.get("winner"), allowed_slot_keys)
+        category_winner = _normalize_compare_writer_winner(
+            item.get("winner"), allowed_slot_keys
+        )
         if category_winner is None:
             return None, "invalid_category_winner"
         why = _truncate_to_word_limit(item.get("why"), 60)
@@ -2465,13 +3060,15 @@ def _validate_compare_writer_response(payload: Any) -> Tuple[Optional[Dict[str, 
                 )
                 continue
             normalized_tips.append(tip_clean)
-        validated_categories.append({
-            "name": item.get("name"),
-            "winner": category_winner,
-            "why": why,
-            "explanations": normalized_explanations,
-            "tips": normalized_tips,
-        })
+        validated_categories.append(
+            {
+                "name": item.get("name"),
+                "winner": category_winner,
+                "why": why,
+                "explanations": normalized_explanations,
+                "tips": normalized_tips,
+            }
+        )
 
     normalized_caveats = []
     for caveat in caveats:
@@ -2532,18 +3129,22 @@ def _salvage_partial_writer_output(
             # rendering defensive: booleans can pass isinstance(..., int) but are never
             # valid 0-100 comparison scores.
             if isinstance(score, (int, float)) and not isinstance(score, bool):
-                explanations[car_key] = COMPARE_SCORE_EXPLANATION_TEMPLATE_HE.format(
-                    score=int(score)
-                ) if COMPARE_SCORE_EXPLANATION_TEMPLATE_HE else ""
+                explanations[car_key] = (
+                    COMPARE_SCORE_EXPLANATION_TEMPLATE_HE.format(score=int(score))
+                    if COMPARE_SCORE_EXPLANATION_TEMPLATE_HE
+                    else ""
+                )
             else:
                 explanations[car_key] = ""
-        category_explanations.append({
-            "category_key": category_key,
-            "title_he": "",
-            "winner": _normalize_compare_writer_winner(winner, car_keys) or "tie",
-            "explanations": explanations,
-            "why_it_scored_that_way": [],
-        })
+        category_explanations.append(
+            {
+                "category_key": category_key,
+                "title_he": "",
+                "winner": _normalize_compare_writer_winner(winner, car_keys) or "tie",
+                "explanations": explanations,
+                "why_it_scored_that_way": [],
+            }
+        )
 
     raw_caveats = stage_b_output.get("caveats")
     caveats = []
@@ -2560,10 +3161,14 @@ def _salvage_partial_writer_output(
     }
 
 
-def build_deterministic_fallback_narrative(cars_selected_slots: Dict, computed_result: Dict) -> Dict[str, Any]:
+def build_deterministic_fallback_narrative(
+    cars_selected_slots: Dict, computed_result: Dict
+) -> Dict[str, Any]:
     car_keys = _ordered_compare_slot_keys(
         cars_selected_slots,
-        (computed_result.get("cars") or {}) if isinstance(computed_result, dict) else {},
+        (computed_result.get("cars") or {})
+        if isinstance(computed_result, dict)
+        else {},
     )
     category_explanations = []
     for cat in COMPARE_CATEGORY_NAMES:
@@ -2571,13 +3176,17 @@ def build_deterministic_fallback_narrative(cars_selected_slots: Dict, computed_r
         explanations = {}
         for car_key in car_keys:
             explanations[car_key] = "מוצגת השוואה מספרית."
-        category_explanations.append({
-            "category_key": cat,
-            "title_he": "",
-            "winner": _normalize_compare_writer_winner(winner, car_keys) or "tie",
-            "explanations": explanations,
-            "why_it_scored_that_way": ["הסבר AI לא זמין כרגע; מוצגת השוואה מספרית."],
-        })
+        category_explanations.append(
+            {
+                "category_key": cat,
+                "title_he": "",
+                "winner": _normalize_compare_writer_winner(winner, car_keys) or "tie",
+                "explanations": explanations,
+                "why_it_scored_that_way": [
+                    "הסבר AI לא זמין כרגע; מוצגת השוואה מספרית."
+                ],
+            }
+        )
     return {
         "overall_summary": "הסבר AI לא זמין כרגע; מוצגת השוואה מספרית.",
         "category_explanations": category_explanations,
@@ -2585,7 +3194,9 @@ def build_deterministic_fallback_narrative(cars_selected_slots: Dict, computed_r
     }
 
 
-def mark_partial_comparison_narrative(narrative: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def mark_partial_comparison_narrative(
+    narrative: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
     """Add an explicit disclaimer when Stage A succeeded for only part of the cars."""
     if not isinstance(narrative, dict):
         return narrative
@@ -2600,11 +3211,15 @@ def mark_partial_comparison_narrative(narrative: Optional[Dict[str, Any]]) -> Op
     return patched
 
 
-def _empty_stage_a_output(cars_selected_slots: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+def _empty_stage_a_output(
+    cars_selected_slots: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
     cars = {}
     for slot_key, slot_data in (cars_selected_slots or {}).items():
         empty_payload = _empty_single_car_payload()
-        empty_payload["car_name"] = _normalize_short_text((slot_data or {}).get("display_name"), 140)
+        empty_payload["car_name"] = _normalize_short_text(
+            (slot_data or {}).get("display_name"), 140
+        )
         cars[slot_key] = empty_payload
     return {
         "cars": cars,
@@ -2616,7 +3231,7 @@ def _truncate_error_message(message: Any, max_len: int = 180) -> str:
     text = " ".join(str(message or "").split())
     if len(text) <= max_len:
         return text
-    return f"{text[:max_len - ELLIPSIS_LEN]}..."
+    return f"{text[: max_len - ELLIPSIS_LEN]}..."
 
 
 def _sanitize_stage_a_errors(errors: List[str], max_items: int = 5) -> List[str]:
@@ -2625,7 +3240,9 @@ def _sanitize_stage_a_errors(errors: List[str], max_items: int = 5) -> List[str]
     for err in (errors or [])[:max_items]:
         slot_key, sep, code_or_message = str(err).partition(": ")
         if sep:
-            sanitized.append(f"{slot_key}: {_truncate_error_message(code_or_message, 96)}")
+            sanitized.append(
+                f"{slot_key}: {_truncate_error_message(code_or_message, 96)}"
+            )
         else:
             sanitized.append(_truncate_error_message(err, 120))
     return sanitized
@@ -2643,23 +3260,32 @@ def _extract_stage_a_error_code(errors: List[str]) -> str:
 
 
 def _build_stage_a_summary(computed_result: Dict[str, Any]) -> Dict[str, Any]:
-    slot_keys = _ordered_compare_slot_keys((computed_result.get("cars") or {}) if isinstance(computed_result, dict) else {})
+    slot_keys = _ordered_compare_slot_keys(
+        (computed_result.get("cars") or {}) if isinstance(computed_result, dict) else {}
+    )
     category_winners = []
-    for category_name, winner in (computed_result.get("category_winners", {}) or {}).items():
-        category_winners.append({
-            "name": category_name,
-            "winner": _normalize_compare_writer_winner(winner, slot_keys) or "tie",
-        })
+    for category_name, winner in (
+        computed_result.get("category_winners", {}) or {}
+    ).items():
+        category_winners.append(
+            {
+                "name": category_name,
+                "winner": _normalize_compare_writer_winner(winner, slot_keys) or "tie",
+            }
+        )
     comparison_status = computed_result.get("comparison_status", {}) or {}
     balanced = bool(comparison_status.get("balanced", True))
     return {
-        "summary": "סיכום מספרי של ההשוואה." if balanced else "סיכום מספרי חלקי של ההשוואה.",
-        "winner": _normalize_compare_writer_winner(computed_result.get("overall_winner"), slot_keys) or "tie",
+        "summary": "סיכום מספרי של ההשוואה."
+        if balanced
+        else "סיכום מספרי חלקי של ההשוואה.",
+        "winner": _normalize_compare_writer_winner(
+            computed_result.get("overall_winner"), slot_keys
+        )
+        or "tie",
         "category_winners": category_winners,
         "caveats": (
-            ["המידע עשוי להשתנות."]
-            if balanced
-            else [PARTIAL_COMPARISON_DISCLAIMER]
+            ["המידע עשוי להשתנות."] if balanced else [PARTIAL_COMPARISON_DISCLAIMER]
         ),
         "balanced": balanced,
         "cars_with_evidence": int(comparison_status.get("cars_with_evidence", 0)),
@@ -2667,7 +3293,9 @@ def _build_stage_a_summary(computed_result: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _build_stage_b_payload(narrative: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def _build_stage_b_payload(
+    narrative: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
     if not isinstance(narrative, dict):
         return None
     return {
@@ -2683,27 +3311,37 @@ def _has_usable_comparison_narrative(narrative: Optional[Dict[str, Any]]) -> boo
         return True
     if any(str(item or "").strip() for item in (narrative.get("disclaimers_he") or [])):
         return True
-    for category in (narrative.get("category_explanations") or []):
+    for category in narrative.get("category_explanations") or []:
         if not isinstance(category, dict):
             continue
-        explanations = category.get("explanations") if isinstance(category.get("explanations"), dict) else {}
+        explanations = (
+            category.get("explanations")
+            if isinstance(category.get("explanations"), dict)
+            else {}
+        )
         if any(str(value or "").strip() for value in explanations.values()):
             return True
-        if any(str(value or "").strip() for value in (category.get("why_it_scored_that_way") or [])):
+        if any(
+            str(value or "").strip()
+            for value in (category.get("why_it_scored_that_way") or [])
+        ):
             return True
     return False
 
 
-def _normalize_stage_b_category_for_narrative(category: Any) -> Optional[Dict[str, Any]]:
+def _normalize_stage_b_category_for_narrative(
+    category: Any,
+) -> Optional[Dict[str, Any]]:
     if not isinstance(category, dict):
         return None
     fallback_text = str(
-        category.get("why")
-        or category.get("text")
-        or category.get("summary")
-        or ""
+        category.get("why") or category.get("text") or category.get("summary") or ""
     ).strip()
-    source_explanations = category.get("explanations") if isinstance(category.get("explanations"), dict) else {}
+    source_explanations = (
+        category.get("explanations")
+        if isinstance(category.get("explanations"), dict)
+        else {}
+    )
     explanations = {}
     for car_key in ("car_1", "car_2", "car_3"):
         text = str(source_explanations.get(car_key) or fallback_text or "").strip()
@@ -2734,26 +3372,48 @@ def resolve_comparison_narrative(
             candidates.append(stored_narrative)
         stored_decision_result = computed_result.get("decision_result")
         if isinstance(stored_decision_result, dict):
-            candidates.append(convert_decision_result_to_narrative(
-                {"decision_result": sanitize_decision_result(stored_decision_result, {}, computed_result, None)},
-                {},
-            ))
-        if any(key in computed_result for key in ("overall_summary", "category_explanations", "disclaimers_he")):
-            candidates.append({
-                "overall_summary": computed_result.get("overall_summary"),
-                "category_explanations": computed_result.get("category_explanations"),
-                "disclaimers_he": computed_result.get("disclaimers_he"),
-            })
+            candidates.append(
+                convert_decision_result_to_narrative(
+                    {
+                        "decision_result": sanitize_decision_result(
+                            stored_decision_result, {}, computed_result, None
+                        )
+                    },
+                    {},
+                )
+            )
+        if any(
+            key in computed_result
+            for key in ("overall_summary", "category_explanations", "disclaimers_he")
+        ):
+            candidates.append(
+                {
+                    "overall_summary": computed_result.get("overall_summary"),
+                    "category_explanations": computed_result.get(
+                        "category_explanations"
+                    ),
+                    "disclaimers_he": computed_result.get("disclaimers_he"),
+                }
+            )
         if ai_payload is None and isinstance(computed_result.get("ai"), dict):
             ai_payload = computed_result.get("ai")
     if isinstance(ai_payload, dict):
         stage_b = ai_payload.get("stage_b")
         if isinstance(stage_b, dict):
             if isinstance(stage_b.get("decision_result"), dict):
-                candidates.append(convert_decision_result_to_narrative(
-                    {"decision_result": sanitize_decision_result(stage_b.get("decision_result"), {}, computed_result or {}, None)},
-                    {},
-                ))
+                candidates.append(
+                    convert_decision_result_to_narrative(
+                        {
+                            "decision_result": sanitize_decision_result(
+                                stage_b.get("decision_result"),
+                                {},
+                                computed_result or {},
+                                None,
+                            )
+                        },
+                        {},
+                    )
+                )
             raw_categories = stage_b.get("categories")
             if not isinstance(raw_categories, list):
                 raw_categories = stage_b.get("category_explanations")
@@ -2765,16 +3425,20 @@ def resolve_comparison_narrative(
                 )
                 if item
             ]
-            candidates.append({
-                "overall_summary": (
-                    stage_b.get("narrative")
-                    or stage_b.get("summary")
-                    or stage_b.get("overall_summary")
-                    or ""
-                ),
-                "category_explanations": normalized_categories,
-                "disclaimers_he": stage_b.get("disclaimers_he") or stage_b.get("caveats") or [],
-            })
+            candidates.append(
+                {
+                    "overall_summary": (
+                        stage_b.get("narrative")
+                        or stage_b.get("summary")
+                        or stage_b.get("overall_summary")
+                        or ""
+                    ),
+                    "category_explanations": normalized_categories,
+                    "disclaimers_he": stage_b.get("disclaimers_he")
+                    or stage_b.get("caveats")
+                    or [],
+                }
+            )
     for candidate in candidates:
         sanitized = sanitize_comparison_narrative(candidate)
         if _has_usable_comparison_narrative(sanitized):
@@ -2786,12 +3450,19 @@ def build_stored_comparison_ai_payload(
     computed_result: Optional[Dict[str, Any]],
     narrative: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
-    raw_ai = computed_result.get("ai") if isinstance(computed_result, dict) and isinstance(computed_result.get("ai"), dict) else None
+    raw_ai = (
+        computed_result.get("ai")
+        if isinstance(computed_result, dict)
+        and isinstance(computed_result.get("ai"), dict)
+        else None
+    )
     ai_payload = build_ai_payload(
         computed_result if isinstance(computed_result, dict) else {},
         narrative,
         (raw_ai or {}).get("status") or ("ok" if narrative else "fallback"),
-        (raw_ai or {}).get("reason") if raw_ai else (None if narrative else "stage_b_error"),
+        (raw_ai or {}).get("reason")
+        if raw_ai
+        else (None if narrative else "stage_b_error"),
     )
     if raw_ai and raw_ai.get("error"):
         ai_payload["error"] = raw_ai["error"]
@@ -2805,7 +3476,11 @@ def build_ai_payload(
     reason: Optional[str],
 ) -> Dict[str, Any]:
     stage_b_payload = _build_stage_b_payload(narrative) or {}
-    decision_result = computed_result.get("decision_result") if isinstance(computed_result.get("decision_result"), dict) else None
+    decision_result = (
+        computed_result.get("decision_result")
+        if isinstance(computed_result.get("decision_result"), dict)
+        else None
+    )
     if decision_result:
         stage_b_payload["decision_result"] = decision_result
     return {
@@ -2816,22 +3491,31 @@ def build_ai_payload(
     }
 
 
-def convert_writer_response_to_narrative(validated_payload: Dict[str, Any], cars_selected_slots: Dict) -> Dict[str, Any]:
+def convert_writer_response_to_narrative(
+    validated_payload: Dict[str, Any], cars_selected_slots: Dict
+) -> Dict[str, Any]:
     car_keys = _ordered_compare_slot_keys(cars_selected_slots)
 
     category_explanations = []
     for cat in validated_payload.get("categories", []):
         explanations = {}
-        source_explanations = cat.get("explanations") if isinstance(cat.get("explanations"), dict) else {}
+        source_explanations = (
+            cat.get("explanations") if isinstance(cat.get("explanations"), dict) else {}
+        )
         for car_key in car_keys:
-            explanations[car_key] = source_explanations.get(car_key) or cat.get("why", "")
-        category_explanations.append({
-            "category_key": cat.get("name"),
-            "title_he": "",
-            "winner": _normalize_compare_writer_winner(cat.get("winner"), car_keys) or "tie",
-            "explanations": explanations,
-            "why_it_scored_that_way": cat.get("tips", []),
-        })
+            explanations[car_key] = source_explanations.get(car_key) or cat.get(
+                "why", ""
+            )
+        category_explanations.append(
+            {
+                "category_key": cat.get("name"),
+                "title_he": "",
+                "winner": _normalize_compare_writer_winner(cat.get("winner"), car_keys)
+                or "tie",
+                "explanations": explanations,
+                "why_it_scored_that_way": cat.get("tips", []),
+            }
+        )
     return {
         "overall_summary": validated_payload.get("summary", ""),
         "category_explanations": category_explanations,
@@ -2839,8 +3523,14 @@ def convert_writer_response_to_narrative(validated_payload: Dict[str, Any], cars
     }
 
 
-def convert_decision_result_to_narrative(validated_payload: Dict[str, Any], cars_selected_slots: Dict) -> Dict[str, Any]:
-    decision_result = validated_payload.get("decision_result") if isinstance(validated_payload, dict) else {}
+def convert_decision_result_to_narrative(
+    validated_payload: Dict[str, Any], cars_selected_slots: Dict
+) -> Dict[str, Any]:
+    decision_result = (
+        validated_payload.get("decision_result")
+        if isinstance(validated_payload, dict)
+        else {}
+    )
     if not isinstance(decision_result, dict):
         return build_deterministic_fallback_narrative(cars_selected_slots, {})
 
@@ -2850,14 +3540,26 @@ def convert_decision_result_to_narrative(validated_payload: Dict[str, Any], cars
     )
     category_explanations = []
     disclaimers: List[str] = []
-    for cat in decision_result.get("category_decisions") if isinstance(decision_result.get("category_decisions"), list) else []:
+    for cat in (
+        decision_result.get("category_decisions")
+        if isinstance(decision_result.get("category_decisions"), list)
+        else []
+    ):
         if not isinstance(cat, dict):
             continue
         explanations = {}
         preferred = _decision_label(cat.get("preferred"), car_keys)
         for car_key in car_keys:
-            choose_items = decision_result.get(f"choose_{car_key}_if") if isinstance(decision_result.get(f"choose_{car_key}_if"), list) else []
-            avoid_items = decision_result.get(f"avoid_or_check_{car_key}_if") if isinstance(decision_result.get(f"avoid_or_check_{car_key}_if"), list) else []
+            choose_items = (
+                decision_result.get(f"choose_{car_key}_if")
+                if isinstance(decision_result.get(f"choose_{car_key}_if"), list)
+                else []
+            )
+            avoid_items = (
+                decision_result.get(f"avoid_or_check_{car_key}_if")
+                if isinstance(decision_result.get(f"avoid_or_check_{car_key}_if"), list)
+                else []
+            )
             if preferred == car_key and choose_items:
                 explanations[car_key] = str(choose_items[0]).strip()
             elif avoid_items:
@@ -2867,15 +3569,23 @@ def convert_decision_result_to_narrative(validated_payload: Dict[str, Any], cars
         caveat = str(cat.get("important_caveat") or "").strip()
         if caveat:
             _append_unique_text(disclaimers, caveat, max_items=3)
-        why_list = [text for text in (str(cat.get("why") or "").strip(), caveat) if text]
-        category_explanations.append({
-            "category_key": cat.get("category_key") or "",
-            "title_he": cat.get("category_name_he") or "",
-            "winner": preferred,
-            "explanations": explanations,
-            "why_it_scored_that_way": why_list[:2],
-        })
-    overall = decision_result.get("overall_decision") if isinstance(decision_result.get("overall_decision"), dict) else {}
+        why_list = [
+            text for text in (str(cat.get("why") or "").strip(), caveat) if text
+        ]
+        category_explanations.append(
+            {
+                "category_key": cat.get("category_key") or "",
+                "title_he": cat.get("category_name_he") or "",
+                "winner": preferred,
+                "explanations": explanations,
+                "why_it_scored_that_way": why_list[:2],
+            }
+        )
+    overall = (
+        decision_result.get("overall_decision")
+        if isinstance(decision_result.get("overall_decision"), dict)
+        else {}
+    )
     summary = (
         str(decision_result.get("practical_summary") or "").strip()
         or str(overall.get("text") or "").strip()
@@ -2935,7 +3645,9 @@ def _log_ai_client_error(
     )
 
 
-def call_gemini_comparison(prompt: str, timeout_sec: int = COMPARE_STAGE_A_TIMEOUT_SEC) -> Tuple[Optional[Dict], Optional[str]]:
+def call_gemini_comparison(
+    prompt: str, timeout_sec: int = COMPARE_STAGE_A_TIMEOUT_SEC
+) -> Tuple[Optional[Dict], Optional[str]]:
     """
     Call Gemini 3 Flash with web grounding for comparison data.
     Returns (parsed_output, error_string).
@@ -3102,7 +3814,9 @@ def call_gemini_single_car(
             outcome_reason = "CALL_TIMEOUT"
             return None, "CALL_TIMEOUT"
         except Exception as e:
-            _log_ai_client_error("comparison_stage_a", e, request_id=request_id, log=worker_logger)
+            _log_ai_client_error(
+                "comparison_stage_a", e, request_id=request_id, log=worker_logger
+            )
             _inc_compare_metric("compare_stage_a_error_total")
             outcome = "error"
             outcome_reason = type(e).__name__
@@ -3145,7 +3859,9 @@ def call_gemini_single_car(
         )
 
 
-def call_stage_a_parallel(validated_cars: List[Dict], cars_selected_slots: Dict) -> Tuple[Dict, Dict, List[str]]:
+def call_stage_a_parallel(
+    validated_cars: List[Dict], cars_selected_slots: Dict
+) -> Tuple[Dict, Dict, List[str]]:
     """
     Run Stage A for each car in parallel.
     Returns (merged_model_output, sources_index, errors_list).
@@ -3173,7 +3889,9 @@ def call_stage_a_parallel(validated_cars: List[Dict], cars_selected_slots: Dict)
     def _store_slot_result(slot_key: str, result: Optional[Dict[str, Any]]) -> bool:
         normalized_result = normalize_single_car_payload(
             result,
-            fallback_name=(cars_selected_slots.get(slot_key, {}) or {}).get("display_name"),
+            fallback_name=(cars_selected_slots.get(slot_key, {}) or {}).get(
+                "display_name"
+            ),
         )
         if normalized_result is None:
             return False
@@ -3200,7 +3918,9 @@ def call_stage_a_parallel(validated_cars: List[Dict], cars_selected_slots: Dict)
     retry_slots = {}
     for slot_key, future in futures.items():
         try:
-            result, error = future.result(timeout=COMPARE_STAGE_A_TIMEOUT_SEC + PARALLEL_GRACE_SEC)
+            result, error = future.result(
+                timeout=COMPARE_STAGE_A_TIMEOUT_SEC + PARALLEL_GRACE_SEC
+            )
             if error:
                 if error == "MODEL_JSON_INVALID":
                     retry_slots[slot_key] = _retry_prompt_for(slot_key)
@@ -3260,7 +3980,9 @@ def call_stage_a_parallel(validated_cars: List[Dict], cars_selected_slots: Dict)
             )
         for slot_key, future in retry_futures.items():
             try:
-                result, error = future.result(timeout=COMPARE_STAGE_A_TIMEOUT_SEC + PARALLEL_GRACE_SEC)
+                result, error = future.result(
+                    timeout=COMPARE_STAGE_A_TIMEOUT_SEC + PARALLEL_GRACE_SEC
+                )
                 if error or not _store_slot_result(slot_key, result):
                     final_error = error or "MODEL_JSON_INVALID"
                     errors.append(f"{slot_key}: {final_error}")
@@ -3303,7 +4025,9 @@ def call_stage_a_parallel(validated_cars: List[Dict], cars_selected_slots: Dict)
     return merged, build_sources_index_from_flat(merged), errors
 
 
-def call_gemini_compare_writer(prompt: str, timeout_sec: int = COMPARE_WRITER_TIMEOUT_SEC) -> Tuple[Optional[Dict], Optional[str]]:
+def call_gemini_compare_writer(
+    prompt: str, timeout_sec: int = COMPARE_WRITER_TIMEOUT_SEC
+) -> Tuple[Optional[Dict], Optional[str]]:
     """Call Gemini Stage B writer WITHOUT grounding tools."""
     import concurrent.futures
     from app.factory import AI_EXECUTOR
@@ -3311,7 +4035,11 @@ def call_gemini_compare_writer(prompt: str, timeout_sec: int = COMPARE_WRITER_TI
     start_time = pytime.perf_counter()
     prompt_chars = len(prompt or "")
     is_retry_summary_only = "RETRY_MODE_SUMMARY_ONLY" in (prompt or "")
-    max_output_tokens = COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS if is_retry_summary_only else COMPARE_WRITER_MAX_OUTPUT_TOKENS
+    max_output_tokens = (
+        COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS
+        if is_retry_summary_only
+        else COMPARE_WRITER_MAX_OUTPUT_TOKENS
+    )
     outcome = "error"
     outcome_reason = None
     _inc_compare_metric("compare_ai_calls_total")
@@ -3358,7 +4086,9 @@ def call_gemini_compare_writer(prompt: str, timeout_sec: int = COMPARE_WRITER_TI
         if not text:
             outcome_reason = "EMPTY_RESPONSE"
             return None, "EMPTY_RESPONSE"
-        COMPARE_AI_METRICS["compare_ai_output_tokens_estimate"] = _estimate_token_count(text)
+        COMPARE_AI_METRICS["compare_ai_output_tokens_estimate"] = _estimate_token_count(
+            text
+        )
 
         try:
             parsed = json.loads(text)
@@ -3368,6 +4098,7 @@ def call_gemini_compare_writer(prompt: str, timeout_sec: int = COMPARE_WRITER_TI
         except json.JSONDecodeError:
             try:
                 from json_repair import repair_json
+
                 repaired = repair_json(text)
                 parsed = json.loads(repaired)
                 if isinstance(parsed, dict):
@@ -3422,7 +4153,9 @@ def _attempt_schema_repair(payload: Any, request_id: str) -> Optional[Dict[str, 
     return repaired
 
 
-def generate_narrative(cars_selected_slots: Dict, computed_result: Dict, timeout_sec: int = 60) -> Optional[Dict]:
+def generate_narrative(
+    cars_selected_slots: Dict, computed_result: Dict, timeout_sec: int = 60
+) -> Optional[Dict]:
     """
     Generate short human-friendly explanations using Gemini Flash WITHOUT grounding.
     Input: only computed scores and display names (no new data retrieval).
@@ -3443,7 +4176,7 @@ def generate_narrative(cars_selected_slots: Dict, computed_result: Dict, timeout
             car_summaries[slot_key] = {
                 "display_name": slot_data.get("display_name", slot_key),
                 "overall_score": car_computed.get("overall_score"),
-                "categories": {}
+                "categories": {},
             }
             for cat_name, cat_data in car_computed.get("categories", {}).items():
                 car_summaries[slot_key]["categories"][cat_name] = cat_data.get("score")
@@ -3487,28 +4220,28 @@ Return this EXACT JSON structure:
   "category_explanations": [
     {{{{
       "category_key": "reliability_risk",
-      "title_he": "{cat_names_he.get('reliability_risk', '')}",
+      "title_he": "{cat_names_he.get("reliability_risk", "")}",
       "winner": "car_1|car_2|car_3|tie",
       "explanations": {{{{ {car_explanations_template} }}}},
       "why_it_scored_that_way": ["string", "string"]
     }}}},
     {{{{
       "category_key": "ownership_cost",
-      "title_he": "{cat_names_he.get('ownership_cost', '')}",
+      "title_he": "{cat_names_he.get("ownership_cost", "")}",
       "winner": "car_1|car_2|car_3|tie",
       "explanations": {{{{ {car_explanations_template} }}}},
       "why_it_scored_that_way": ["string", "string"]
     }}}},
     {{{{
       "category_key": "practicality_comfort",
-      "title_he": "{cat_names_he.get('practicality_comfort', '')}",
+      "title_he": "{cat_names_he.get("practicality_comfort", "")}",
       "winner": "car_1|car_2|car_3|tie",
       "explanations": {{{{ {car_explanations_template} }}}},
       "why_it_scored_that_way": ["string", "string"]
     }}}},
     {{{{
       "category_key": "driving_performance",
-      "title_he": "{cat_names_he.get('driving_performance', '')}",
+      "title_he": "{cat_names_he.get("driving_performance", "")}",
       "winner": "car_1|car_2|car_3|tie",
       "explanations": {{{{ {car_explanations_template} }}}},
       "why_it_scored_that_way": ["string", "string"]
@@ -3535,7 +4268,9 @@ Return this EXACT JSON structure:
         try:
             future = AI_EXECUTOR.submit(_invoke)
         except Exception:
-            current_app.logger.warning("[NARRATIVE] Executor saturated, skipping narrative")
+            current_app.logger.warning(
+                "[NARRATIVE] Executor saturated, skipping narrative"
+            )
             return None
 
         try:
@@ -3562,6 +4297,7 @@ Return this EXACT JSON structure:
         except json.JSONDecodeError:
             try:
                 from json_repair import repair_json
+
                 repaired = repair_json(text)
                 parsed = json.loads(repaired)
                 if isinstance(parsed, dict):
@@ -3577,7 +4313,9 @@ Return this EXACT JSON structure:
         return None
 
 
-def normalize_model_output(parsed: Any, request_id: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def normalize_model_output(
+    parsed: Any, request_id: str
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """
     Normalize parsed JSON into a dict.
     Handles the case where Gemini returns a JSON array (list) instead of a dict.
@@ -3604,7 +4342,9 @@ def normalize_model_output(parsed: Any, request_id: str) -> Tuple[Optional[Dict[
                 isinstance(candidate.get("cars"), dict)
                 and "grounding_successful" in candidate
             )
-            repaired = _attempt_schema_repair(candidate, request_id) if needs_repair else None
+            repaired = (
+                _attempt_schema_repair(candidate, request_id) if needs_repair else None
+            )
             current_app.logger.warning(
                 "[AI_SCHEMA] list_single_dict_normalized request_id=%s repaired=%s payload_sample=%s",
                 request_id,
@@ -3636,7 +4376,10 @@ def normalize_model_output(parsed: Any, request_id: str) -> Tuple[Optional[Dict[
 # REQUEST HASH FOR CACHING
 # ============================================================
 
-def compute_request_hash(cars: List[Dict], buyer_profile: Optional[Dict[str, Any]] = None) -> str:
+
+def compute_request_hash(
+    cars: List[Dict], buyer_profile: Optional[Dict[str, Any]] = None
+) -> str:
     """
     Compute a hash for caching based on selected cars and prompt version.
     Uses 32 characters (128 bits) of SHA256 for adequate collision resistance.
@@ -3645,19 +4388,19 @@ def compute_request_hash(cars: List[Dict], buyer_profile: Optional[Dict[str, Any
     car_keys = []
     for c in cars:
         # Consistent year extraction: prefer year, fallback to year_start
-        year_val = c.get('year')
+        year_val = c.get("year")
         if year_val is None:
-            year_val = c.get('year_start')
-        year_str = str(year_val) if year_val is not None else ''
+            year_val = c.get("year_start")
+        year_str = str(year_val) if year_val is not None else ""
 
         key_parts = [
-            c.get('make', ''),
-            c.get('model', ''),
+            c.get("make", ""),
+            c.get("model", ""),
             year_str,
-            c.get('engine_type', ''),
-            c.get('gearbox', ''),
+            c.get("engine_type", ""),
+            c.get("gearbox", ""),
         ]
-        car_keys.append('|'.join(key_parts))
+        car_keys.append("|".join(key_parts))
 
     data = {
         "cars": sorted(car_keys),
@@ -3673,7 +4416,9 @@ def compute_request_hash(cars: List[Dict], buyer_profile: Optional[Dict[str, Any
 # ============================================================
 
 
-def _sanitize_buyer_number(value: Any, minimum: float, maximum: float) -> Optional[float]:
+def _sanitize_buyer_number(
+    value: Any, minimum: float, maximum: float
+) -> Optional[float]:
     if value in (None, "") or isinstance(value, bool):
         return None
     try:
@@ -3703,7 +4448,9 @@ def _sanitize_buyer_list(value: Any, allowed: set, max_items: int = 6) -> List[s
     return out
 
 
-def validate_buyer_profile(value: Any) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
+def validate_buyer_profile(
+    value: Any,
+) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
     """Allowlist and normalize optional compare buyer profile."""
     if value in (None, ""):
         return True, None, None
@@ -3724,7 +4471,9 @@ def validate_buyer_profile(value: Any) -> Tuple[bool, Optional[str], Optional[Di
 
     main_use = _sanitize_buyer_string(value.get("main_use"), 40)
     if main_use:
-        normalized["main_use"] = main_use if main_use in BUYER_PROFILE_MAIN_USE_ALLOWED else "unknown"
+        normalized["main_use"] = (
+            main_use if main_use in BUYER_PROFILE_MAIN_USE_ALLOWED else "unknown"
+        )
 
     safety_required = _sanitize_buyer_string(value.get("safety_required"), 10)
     if safety_required in BUYER_PROFILE_SAFETY_ALLOWED:
@@ -3735,14 +4484,22 @@ def validate_buyer_profile(value: Any) -> Tuple[bool, Optional[str], Optional[Di
         if text:
             normalized[field] = text
 
-    fuels = _sanitize_buyer_list(value.get("preferred_fuels"), BUYER_PROFILE_FUELS_ALLOWED)
-    gears = _sanitize_buyer_list(value.get("preferred_gears"), BUYER_PROFILE_GEARS_ALLOWED)
+    fuels = _sanitize_buyer_list(
+        value.get("preferred_fuels"), BUYER_PROFILE_FUELS_ALLOWED
+    )
+    gears = _sanitize_buyer_list(
+        value.get("preferred_gears"), BUYER_PROFILE_GEARS_ALLOWED
+    )
     if fuels:
         normalized["preferred_fuels"] = fuels
     if gears:
         normalized["preferred_gears"] = gears
 
-    priority_weights = value.get("priority_weights") if isinstance(value.get("priority_weights"), dict) else {}
+    priority_weights = (
+        value.get("priority_weights")
+        if isinstance(value.get("priority_weights"), dict)
+        else {}
+    )
     cleaned_weights = {}
     for key in BUYER_PROFILE_PRIORITY_KEYS:
         raw = priority_weights.get(key)
@@ -3752,7 +4509,9 @@ def validate_buyer_profile(value: Any) -> Tuple[bool, Optional[str], Optional[Di
             number = float(raw)
         except (TypeError, ValueError):
             continue
-        cleaned_weights[key] = max(BUYER_PROFILE_PRIORITY_MIN, min(BUYER_PROFILE_PRIORITY_MAX, number))
+        cleaned_weights[key] = max(
+            BUYER_PROFILE_PRIORITY_MIN, min(BUYER_PROFILE_PRIORITY_MAX, number)
+        )
     if cleaned_weights:
         normalized["priority_weights"] = cleaned_weights
 
@@ -3783,13 +4542,13 @@ def validate_comparison_request(data: Dict) -> Tuple[bool, Optional[str], List[D
     seen_keys = set()
     for i, car in enumerate(cars):
         if not isinstance(car, dict):
-            return False, f"פורמט רכב {i+1} לא תקין", []
+            return False, f"פורמט רכב {i + 1} לא תקין", []
 
         make = car.get("make", "").strip()
         model = car.get("model", "").strip()
 
         if not make or not model:
-            return False, f"רכב {i+1}: חובה לציין יצרן ודגם", []
+            return False, f"רכב {i + 1}: חובה לציין יצרן ודגם", []
 
         # Extract year (either single year or use year_start for fallback)
         year = car.get("year")
@@ -3797,7 +4556,7 @@ def validate_comparison_request(data: Dict) -> Tuple[bool, Optional[str], List[D
             try:
                 year = int(year)
             except (ValueError, TypeError):
-                return False, f"רכב {i+1}: שנתון לא תקין", []
+                return False, f"רכב {i + 1}: שנתון לא תקין", []
         else:
             # Fallback to year_start for consistent hashing
             year_start = car.get("year_start")
@@ -3865,12 +4624,16 @@ def validate_grounding(model_output: Dict) -> Tuple[bool, str]:
     return True, ""
 
 
-def enforce_authoritative_numbers(server_computed: Dict, stage_b_output: Optional[Dict], request_id: str) -> Dict:
+def enforce_authoritative_numbers(
+    server_computed: Dict, stage_b_output: Optional[Dict], request_id: str
+) -> Dict:
     """
     Server deterministic scoring is authoritative.
     Stage B may echo computed_result, but any drift is ignored and logged.
     """
-    if isinstance(stage_b_output, dict) and isinstance(stage_b_output.get("computed_result"), dict):
+    if isinstance(stage_b_output, dict) and isinstance(
+        stage_b_output.get("computed_result"), dict
+    ):
         if stage_b_output.get("computed_result") != server_computed:
             current_app.logger.warning(
                 "[COMPARISON] stage_b attempted numeric/schema drift request_id=%s",
@@ -3882,6 +4645,7 @@ def enforce_authoritative_numbers(server_computed: Dict, stage_b_output: Optiona
 # ============================================================
 # SOURCES INDEX BUILDER
 # ============================================================
+
 
 def build_sources_index(model_output: Dict) -> Dict:
     """Build an index of all sources by car, category, and metric."""
@@ -3912,7 +4676,13 @@ def build_sources_index_from_flat(merged_output: Dict) -> Dict:
 # MAIN HANDLER
 # ============================================================
 
-def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Optional[str], owner_bypass: bool = False) -> Any:
+
+def handle_comparison_request(
+    data: Dict,
+    user_id: Optional[int],
+    session_id: Optional[str],
+    owner_bypass: bool = False,
+) -> Any:
     """
     Handle a car comparison request.
     Returns Flask response.
@@ -3928,7 +4698,9 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     is_valid, error_msg, validated_cars = validate_comparison_request(data)
     if not is_valid:
         return api_error("validation_error", error_msg, status=400)
-    buyer_valid, buyer_error, buyer_profile = validate_buyer_profile(data.get("buyer_profile"))
+    buyer_valid, buyer_error, buyer_profile = validate_buyer_profile(
+        data.get("buyer_profile")
+    )
     if not buyer_valid:
         logger.warning("[COMPARISON] invalid_buyer_profile request_id=%s", request_id)
         return api_error("validation_error", buyer_error, status=400)
@@ -3941,25 +4713,39 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
 
     # Check cache (only for logged-in users)
     if user_id:
-        cached = ComparisonHistory.query.filter_by(
-            user_id=user_id,
-            request_hash=request_hash,
-        ).order_by(ComparisonHistory.created_at.desc()).first()
+        cached = (
+            ComparisonHistory.query.filter_by(
+                user_id=user_id,
+                request_hash=request_hash,
+            )
+            .order_by(ComparisonHistory.created_at.desc())
+            .first()
+        )
 
         if cached and cached.computed_result:
-            logger.info(f"[COMPARISON] cache hit request_id={request_id} hash={request_hash}")
+            logger.info(
+                f"[COMPARISON] cache hit request_id={request_id} hash={request_hash}"
+            )
 
             # Safely parse all cached JSON fields, handling double-encoded data
-            cars_selected, cars_was_double = _safe_parse_json_cached(cached.cars_selected, "cars_selected")
-            computed_result, computed_was_double = _safe_parse_json_cached(cached.computed_result, "computed_result")
-            sources_index, sources_was_double = _safe_parse_json_cached(cached.sources_index, "sources_index")
-            model_output, model_was_double = _safe_parse_json_cached(cached.model_json_raw, "model_json_raw")
+            cars_selected, cars_was_double = _safe_parse_json_cached(
+                cached.cars_selected, "cars_selected"
+            )
+            computed_result, computed_was_double = _safe_parse_json_cached(
+                cached.computed_result, "computed_result"
+            )
+            sources_index, sources_was_double = _safe_parse_json_cached(
+                cached.sources_index, "sources_index"
+            )
+            model_output, model_was_double = _safe_parse_json_cached(
+                cached.model_json_raw, "model_json_raw"
+            )
 
             # Validate that required fields parsed to expected types
             cache_valid = (
-                isinstance(cars_selected, list) and
-                len(cars_selected) >= 2 and
-                isinstance(computed_result, dict)
+                isinstance(cars_selected, list)
+                and len(cars_selected) >= 2
+                and isinstance(computed_result, dict)
             )
 
             if cache_valid:
@@ -3971,24 +4757,45 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                 # Self-heal: if any field was double-encoded, update the DB to store normalized JSON
                 # Note: cars_selected and computed_result are required (validated above),
                 # while sources_index and model_json_raw are nullable - hence the extra null checks
-                needs_heal = cars_was_double or computed_was_double or sources_was_double or model_was_double
+                needs_heal = (
+                    cars_was_double
+                    or computed_was_double
+                    or sources_was_double
+                    or model_was_double
+                )
                 if needs_heal:
                     try:
                         if cars_was_double:
-                            cached.cars_selected = json.dumps(cars_selected, ensure_ascii=False)
+                            cached.cars_selected = json.dumps(
+                                cars_selected, ensure_ascii=False
+                            )
                         if computed_was_double:
-                            cached.computed_result = json.dumps(computed_result, ensure_ascii=False)
+                            cached.computed_result = json.dumps(
+                                computed_result, ensure_ascii=False
+                            )
                         if sources_was_double and sources_index is not None:
-                            cached.sources_index = json.dumps(sources_index, ensure_ascii=False)
+                            cached.sources_index = json.dumps(
+                                sources_index, ensure_ascii=False
+                            )
                         if model_was_double and model_output is not None:
-                            cached.model_json_raw = json.dumps(model_output, ensure_ascii=False)
+                            cached.model_json_raw = json.dumps(
+                                model_output, ensure_ascii=False
+                            )
                         db.session.commit()
-                        logger.info(f"[COMPARISON] self-healed double-encoded cache row id={cached.id}")
+                        logger.info(
+                            f"[COMPARISON] self-healed double-encoded cache row id={cached.id}"
+                        )
                     except Exception as heal_err:
-                        logger.warning(f"[COMPARISON] self-heal commit failed: {heal_err}")
+                        logger.warning(
+                            f"[COMPARISON] self-heal commit failed: {heal_err}"
+                        )
                         db.session.rollback()
 
-                cached_slots = map_cars_to_slots(cars_selected) if isinstance(cars_selected, list) else {}
+                cached_slots = (
+                    map_cars_to_slots(cars_selected)
+                    if isinstance(cars_selected, list)
+                    else {}
+                )
                 if not cached_slots:
                     cached_slots = cars_selected_slots
 
@@ -3998,10 +4805,14 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                 checked_versions = build_checked_versions(
                     cached_slots if isinstance(cached_slots, dict) else {},
                     model_output if isinstance(model_output, dict) else {},
-                    computed_result.get("checked_versions") if isinstance(computed_result, dict) else None,
+                    computed_result.get("checked_versions")
+                    if isinstance(computed_result, dict)
+                    else None,
                 )
                 decision_result = sanitize_decision_result(
-                    computed_result.get("decision_result") if isinstance(computed_result, dict) else None,
+                    computed_result.get("decision_result")
+                    if isinstance(computed_result, dict)
+                    else None,
                     cached_slots if isinstance(cached_slots, dict) else {},
                     computed_result if isinstance(computed_result, dict) else {},
                     request_id,
@@ -4012,7 +4823,9 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                 ):
                     computed_result["decision_result"] = decision_result
                     computed_result["checked_versions"] = checked_versions
-                    cached.computed_result = json.dumps(computed_result, ensure_ascii=False)
+                    cached.computed_result = json.dumps(
+                        computed_result, ensure_ascii=False
+                    )
                     try:
                         db.session.commit()
                     except Exception as heal_err:
@@ -4024,34 +4837,44 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                     computed_result if isinstance(computed_result, dict) else None,
                     narrative,
                 )
-                return api_ok({
-                    "cached": True,
-                    "comparison_id": cached.id,
-                    "cars_selected": cached_slots,
-                    "cars_selected_list": cars_selected if isinstance(cars_selected, list) else [],
-                    "model_output": model_output,
-                    "computed_result": computed_result,
-                    "narrative": narrative,
-                    "decision_result": decision_result,
-                    "checked_versions": checked_versions,
-                    "sources_index": sources_index if sources_index else {},
-                    "assumptions": assumptions,
-                    "ai": ai_payload,
-                })
+                return api_ok(
+                    {
+                        "cached": True,
+                        "comparison_id": cached.id,
+                        "cars_selected": cached_slots,
+                        "cars_selected_list": cars_selected
+                        if isinstance(cars_selected, list)
+                        else [],
+                        "model_output": model_output,
+                        "computed_result": computed_result,
+                        "narrative": narrative,
+                        "decision_result": decision_result,
+                        "checked_versions": checked_versions,
+                        "sources_index": sources_index if sources_index else {},
+                        "assumptions": assumptions,
+                        "ai": ai_payload,
+                    }
+                )
             else:
                 # Cache row is corrupted (cannot parse to expected types)
                 # Delete the bad row so future requests don't hit it, then proceed with fresh call
-                logger.warning(f"[COMPARISON] cache row {cached.id} corrupted, deleting and recomputing")
+                logger.warning(
+                    f"[COMPARISON] cache row {cached.id} corrupted, deleting and recomputing"
+                )
                 try:
                     db.session.delete(cached)
                     db.session.commit()
                 except Exception as del_err:
-                    logger.warning(f"[COMPARISON] failed to delete corrupted cache row: {del_err}")
+                    logger.warning(
+                        f"[COMPARISON] failed to delete corrupted cache row: {del_err}"
+                    )
                     db.session.rollback()
 
     # Stage A: parallel per-car Gemini calls
     stage_a_start = pytime.perf_counter()
-    model_output, sources_index, stage_a_errors = call_stage_a_parallel(validated_cars, cars_selected_slots)
+    model_output, sources_index, stage_a_errors = call_stage_a_parallel(
+        validated_cars, cars_selected_slots
+    )
     duration_ms = int((pytime.perf_counter() - stage_a_start) * 1000)
     ai_ms += duration_ms
     stage_a_error_code = None
@@ -4107,7 +4930,9 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
     stage_b_reason = None
     validated_decision = None
     decision_validation_reason = None
-    writer_prompt = build_compare_writer_prompt(cars_selected_slots, server_computed_result, model_output, buyer_profile)
+    writer_prompt = build_compare_writer_prompt(
+        cars_selected_slots, server_computed_result, model_output, buyer_profile
+    )
     stage_b_start = pytime.perf_counter()
     stage_b_output, stage_b_error = call_gemini_compare_writer(writer_prompt)
     ai_ms += int((pytime.perf_counter() - stage_b_start) * 1000)
@@ -4118,15 +4943,21 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
         _summarize_compare_writer_payload(stage_b_output),
     )
     if isinstance(stage_b_output, dict):
-        validated_decision, decision_validation_reason = _validate_decision_writer_response(
-            stage_b_output,
-            cars_selected_slots,
-            server_computed_result,
+        validated_decision, decision_validation_reason = (
+            _validate_decision_writer_response(
+                stage_b_output,
+                cars_selected_slots,
+                server_computed_result,
+            )
         )
     if stage_b_error:
-        logger.warning(f"[COMPARISON] stage_b call failed request_id={request_id} error={stage_b_error}")
+        logger.warning(
+            f"[COMPARISON] stage_b call failed request_id={request_id} error={stage_b_error}"
+        )
         stage_b_reason = "stage_b_error"
-        retry_prompt = build_compare_writer_retry_prompt(cars_selected_slots, server_computed_result)
+        retry_prompt = build_compare_writer_retry_prompt(
+            cars_selected_slots, server_computed_result
+        )
         retry_output, retry_error = call_gemini_compare_writer(retry_prompt)
         logger.info(
             "[COMPARISON] stage_b retry payload request_id=%s partial_stage_a=%s payload_shape=%s",
@@ -4135,13 +4966,23 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
             _summarize_compare_writer_payload(retry_output),
         )
         if retry_error:
-            logger.warning(f"[COMPARISON] stage_b retry failed request_id={request_id} error={retry_error}")
+            logger.warning(
+                f"[COMPARISON] stage_b retry failed request_id={request_id} error={retry_error}"
+            )
             _inc_compare_metric("compare_ai_fallback_used_total")
-            narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
+            narrative = build_deterministic_fallback_narrative(
+                cars_selected_slots, server_computed_result
+            )
         else:
-            validated_retry, retry_reason = _validate_compare_writer_response(retry_output)
+            validated_retry, retry_reason = _validate_compare_writer_response(
+                retry_output
+            )
             if validated_retry:
-                narrative = sanitize_comparison_narrative(convert_writer_response_to_narrative(validated_retry, cars_selected_slots))
+                narrative = sanitize_comparison_narrative(
+                    convert_writer_response_to_narrative(
+                        validated_retry, cars_selected_slots
+                    )
+                )
                 stage_b_reason = None
                 logger.info(
                     "[COMPARISON] stage_b retry accepted request_id=%s narrative_shape=%s",
@@ -4149,7 +4990,11 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                     _summarize_comparison_narrative_shape(narrative),
                 )
             else:
-                raw_retry_narrative = retry_output.get("narrative") if isinstance(retry_output, dict) else None
+                raw_retry_narrative = (
+                    retry_output.get("narrative")
+                    if isinstance(retry_output, dict)
+                    else None
+                )
                 salvaged_narrative = _salvage_partial_writer_output(
                     retry_output,
                     cars_selected_slots,
@@ -4179,11 +5024,15 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                     )
                 else:
                     _inc_compare_metric("compare_ai_fallback_used_total")
-                    narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
+                    narrative = build_deterministic_fallback_narrative(
+                        cars_selected_slots, server_computed_result
+                    )
     elif isinstance(stage_b_output, dict):
         if validated_decision:
             narrative = sanitize_comparison_narrative(
-                convert_decision_result_to_narrative(validated_decision, cars_selected_slots)
+                convert_decision_result_to_narrative(
+                    validated_decision, cars_selected_slots
+                )
             )
             logger.info(
                 "[COMPARISON] narrative generated request_id=%s narrative_shape=%s",
@@ -4192,10 +5041,14 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
             )
             stage_b_reason = None
         else:
-            validated_writer, validation_reason = _validate_compare_writer_response(stage_b_output)
+            validated_writer, validation_reason = _validate_compare_writer_response(
+                stage_b_output
+            )
             if validated_writer:
                 narrative = sanitize_comparison_narrative(
-                    convert_writer_response_to_narrative(validated_writer, cars_selected_slots)
+                    convert_writer_response_to_narrative(
+                        validated_writer, cars_selected_slots
+                    )
                 )
                 logger.info(
                     "[COMPARISON] legacy narrative generated request_id=%s narrative_shape=%s",
@@ -4235,7 +5088,9 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                 else:
                     stage_b_reason = "stage_b_error"
                     _inc_compare_metric("compare_ai_fallback_used_total")
-                    narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
+                    narrative = build_deterministic_fallback_narrative(
+                        cars_selected_slots, server_computed_result
+                    )
 
     if stage_a_partial:
         narrative = mark_partial_comparison_narrative(narrative)
@@ -4245,13 +5100,21 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
             _summarize_comparison_narrative_shape(narrative),
         )
 
-    computed_result = enforce_authoritative_numbers(server_computed_result, stage_b_output, request_id)
+    computed_result = enforce_authoritative_numbers(
+        server_computed_result, stage_b_output, request_id
+    )
     if validated_decision:
         decision_result = validated_decision["decision_result"]
     else:
         if decision_validation_reason:
-            logger.warning("[COMPARISON] decision_result fallback request_id=%s reason=%s", request_id, decision_validation_reason)
-        decision_result = build_deterministic_decision_result(cars_selected_slots, computed_result, stage_b_output)
+            logger.warning(
+                "[COMPARISON] decision_result fallback request_id=%s reason=%s",
+                request_id,
+                decision_validation_reason,
+            )
+        decision_result = build_deterministic_decision_result(
+            cars_selected_slots, computed_result, stage_b_output
+        )
     checked_versions = build_checked_versions(
         cars_selected_slots,
         model_output,
@@ -4305,7 +5168,9 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
         db.session.commit()
         comparison_id = comparison_record.id
         db_ms = int((pytime.perf_counter() - db_start) * 1000)
-        logger.info(f"[COMPARISON] saved request_id={request_id} comparison_id={comparison_id}")
+        logger.info(
+            f"[COMPARISON] saved request_id={request_id} comparison_id={comparison_id}"
+        )
     except Exception as e:
         logger.error(f"[COMPARISON] save failed request_id={request_id} error={e}")
         db.session.rollback()
@@ -4321,27 +5186,28 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
             db_ms,
         )
 
-    return api_ok({
-        "cached": False,
-        "comparison_id": comparison_id,
-        "cars_selected": cars_selected_slots,
-        "cars_selected_list": validated_cars,
-        "model_output": model_output,
-        "computed_result": computed_result,
-        "narrative": narrative,
-        "decision_result": decision_result,
-        "checked_versions": checked_versions,
-        "sources_index": sources_index,
-        "assumptions": {},
-        "ai": ai_payload,
-    })
+    return api_ok(
+        {
+            "cached": False,
+            "comparison_id": comparison_id,
+            "cars_selected": cars_selected_slots,
+            "cars_selected_list": validated_cars,
+            "model_output": model_output,
+            "computed_result": computed_result,
+            "narrative": narrative,
+            "decision_result": decision_result,
+            "checked_versions": checked_versions,
+            "sources_index": sources_index,
+            "assumptions": {},
+            "ai": ai_payload,
+        }
+    )
 
 
 def get_comparison_history(user_id: int, limit: int = 10) -> List[Dict]:
     """Get comparison history for a user."""
     records = (
-        ComparisonHistory.query
-        .filter_by(user_id=user_id)
+        ComparisonHistory.query.filter_by(user_id=user_id)
         .order_by(ComparisonHistory.created_at.desc())
         .limit(limit)
         .all()
@@ -4359,12 +5225,14 @@ def get_comparison_history(user_id: int, limit: int = 10) -> List[Dict]:
             if not isinstance(computed, dict):
                 computed = {}
 
-            result.append({
-                "id": record.id,
-                "created_at": record.created_at.isoformat(),
-                "cars": cars,
-                "overall_winner": computed.get("overall_winner"),
-            })
+            result.append(
+                {
+                    "id": record.id,
+                    "created_at": record.created_at.isoformat(),
+                    "cars": cars,
+                    "overall_winner": computed.get("overall_winner"),
+                }
+            )
         except (AttributeError, TypeError, ValueError) as e:
             # Log warning and skip corrupted record
             current_app.logger.warning(
@@ -4405,21 +5273,32 @@ def get_comparison_detail(comparison_id: int, user_id: Optional[int]) -> Optiona
 
         assumptions = model_output.get("assumptions", {}) if model_output else {}
 
-        narrative = resolve_comparison_narrative(computed_result if isinstance(computed_result, dict) else None)
-        cars_selected_slots = map_cars_to_slots(cars_selected) if isinstance(cars_selected, list) else {}
+        narrative = resolve_comparison_narrative(
+            computed_result if isinstance(computed_result, dict) else None
+        )
+        cars_selected_slots = (
+            map_cars_to_slots(cars_selected) if isinstance(cars_selected, list) else {}
+        )
         decision_result = sanitize_decision_result(
-            computed_result.get("decision_result") if isinstance(computed_result, dict) else None,
+            computed_result.get("decision_result")
+            if isinstance(computed_result, dict)
+            else None,
             cars_selected_slots if isinstance(cars_selected_slots, dict) else {},
             computed_result if isinstance(computed_result, dict) else {},
             get_request_id(),
         )
-        if isinstance(computed_result, dict) and computed_result.get("decision_result") != decision_result:
+        if (
+            isinstance(computed_result, dict)
+            and computed_result.get("decision_result") != decision_result
+        ):
             computed_result["decision_result"] = decision_result
         ai_payload = build_stored_comparison_ai_payload(
             computed_result if isinstance(computed_result, dict) else None,
             narrative,
         )
-        if isinstance(computed_result, dict) and record.computed_result != json.dumps(computed_result, ensure_ascii=False):
+        if isinstance(computed_result, dict) and record.computed_result != json.dumps(
+            computed_result, ensure_ascii=False
+        ):
             record.computed_result = json.dumps(computed_result, ensure_ascii=False)
             try:
                 db.session.commit()
@@ -4437,7 +5316,9 @@ def get_comparison_detail(comparison_id: int, user_id: Optional[int]) -> Optiona
             "id": record.id,
             "created_at": record.created_at.isoformat(),
             "cars_selected": cars_selected_slots,
-            "cars_selected_list": cars_selected if isinstance(cars_selected, list) else [],
+            "cars_selected_list": cars_selected
+            if isinstance(cars_selected, list)
+            else [],
             "model_output": model_output,
             "computed_result": computed_result,
             "narrative": narrative,
@@ -4455,9 +5336,13 @@ def get_comparison_detail(comparison_id: int, user_id: Optional[int]) -> Optiona
         return None
 
 
-def regenerate_comparison_ai(comparison_id: int, user_id: int) -> Optional[Dict[str, Any]]:
+def regenerate_comparison_ai(
+    comparison_id: int, user_id: int
+) -> Optional[Dict[str, Any]]:
     """Regenerate AI explanation without recomputing deterministic numeric scoring."""
-    record = ComparisonHistory.query.filter_by(id=comparison_id, user_id=user_id).first()
+    record = ComparisonHistory.query.filter_by(
+        id=comparison_id, user_id=user_id
+    ).first()
     if not record:
         return None
 
@@ -4474,7 +5359,9 @@ def regenerate_comparison_ai(comparison_id: int, user_id: int) -> Optional[Dict[
     server_computed_result.pop("narrative", None)
     server_computed_result.pop("ai", None)
 
-    writer_prompt = build_compare_writer_prompt(cars_selected_slots, server_computed_result, model_output)
+    writer_prompt = build_compare_writer_prompt(
+        cars_selected_slots, server_computed_result, model_output
+    )
     try:
         stage_b_output, stage_b_error = call_gemini_compare_writer(writer_prompt)
     except Exception as exc:
@@ -4496,7 +5383,9 @@ def regenerate_comparison_ai(comparison_id: int, user_id: int) -> Optional[Dict[
         reason = "stage_b_error"
         _inc_compare_metric("compare_ai_regenerate_fallback_total")
         _inc_compare_metric("compare_ai_fallback_used_total")
-        narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
+        narrative = build_deterministic_fallback_narrative(
+            cars_selected_slots, server_computed_result
+        )
     elif isinstance(stage_b_output, dict):
         current_app.logger.info(
             "[COMPARISON] compare_ai_regenerate payload request_id=%s comparison_id=%s payload_shape=%s",
@@ -4504,14 +5393,18 @@ def regenerate_comparison_ai(comparison_id: int, user_id: int) -> Optional[Dict[
             comparison_id,
             _summarize_compare_writer_payload(stage_b_output),
         )
-        validated_decision, decision_validation_reason = _validate_decision_writer_response(
-            stage_b_output,
-            cars_selected_slots,
-            server_computed_result,
+        validated_decision, decision_validation_reason = (
+            _validate_decision_writer_response(
+                stage_b_output,
+                cars_selected_slots,
+                server_computed_result,
+            )
         )
         if validated_decision:
             narrative = sanitize_comparison_narrative(
-                convert_decision_result_to_narrative(validated_decision, cars_selected_slots)
+                convert_decision_result_to_narrative(
+                    validated_decision, cars_selected_slots
+                )
             )
             current_app.logger.info(
                 "[COMPARISON] compare_ai_regenerate accepted request_id=%s comparison_id=%s narrative_shape=%s",
@@ -4520,10 +5413,14 @@ def regenerate_comparison_ai(comparison_id: int, user_id: int) -> Optional[Dict[
                 _summarize_comparison_narrative_shape(narrative),
             )
         else:
-            validated_writer, validation_reason = _validate_compare_writer_response(stage_b_output)
+            validated_writer, validation_reason = _validate_compare_writer_response(
+                stage_b_output
+            )
             if validated_writer:
                 narrative = sanitize_comparison_narrative(
-                    convert_writer_response_to_narrative(validated_writer, cars_selected_slots)
+                    convert_writer_response_to_narrative(
+                        validated_writer, cars_selected_slots
+                    )
                 )
                 current_app.logger.info(
                     "[COMPARISON] compare_ai_regenerate legacy narrative accepted request_id=%s comparison_id=%s narrative_shape=%s",
@@ -4565,9 +5462,13 @@ def regenerate_comparison_ai(comparison_id: int, user_id: int) -> Optional[Dict[
                     reason = "stage_b_error"
                     _inc_compare_metric("compare_ai_regenerate_fallback_total")
                     _inc_compare_metric("compare_ai_fallback_used_total")
-                    narrative = build_deterministic_fallback_narrative(cars_selected_slots, server_computed_result)
+                    narrative = build_deterministic_fallback_narrative(
+                        cars_selected_slots, server_computed_result
+                    )
 
-    if not ((server_computed_result.get("comparison_status") or {}).get("balanced", True)):
+    if not (
+        (server_computed_result.get("comparison_status") or {}).get("balanced", True)
+    ):
         narrative = mark_partial_comparison_narrative(narrative)
         current_app.logger.info(
             "[COMPARISON] compare_ai_regenerate partial_stage_a fallback path used request_id=%s comparison_id=%s narrative_shape=%s",
@@ -4586,9 +5487,16 @@ def regenerate_comparison_ai(comparison_id: int, user_id: int) -> Optional[Dict[
                 comparison_id,
                 decision_validation_reason,
             )
-        decision_result = build_deterministic_decision_result(cars_selected_slots, server_computed_result, stage_b_output)
+        decision_result = build_deterministic_decision_result(
+            cars_selected_slots, server_computed_result, stage_b_output
+        )
     server_computed_result["decision_result"] = decision_result
-    ai_payload = build_ai_payload(server_computed_result, narrative, "ok" if reason is None else "fallback", reason)
+    ai_payload = build_ai_payload(
+        server_computed_result,
+        narrative,
+        "ok" if reason is None else "fallback",
+        reason,
+    )
     current_app.logger.info(
         "[COMPARISON] compare_ai_regenerate response request_id=%s comparison_id=%s ai_status=%s ai_reason=%s narrative_shape=%s",
         get_request_id(),
