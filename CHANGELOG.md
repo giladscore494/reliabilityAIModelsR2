@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-04-30
+### Data Quality Indicator – Visual Anchor (בטוח משפטית)
+
+- **`static/script.js`**: Added `buildDataQualityIndicator(data, infoReview)` function that replaces the old score block in `renderAnalyzeResult`. The component includes:
+  - **5-bar visual meter** (`role="meter"`, `aria-valuenow`, `aria-valuemin="0"`, `aria-valuemax="5"`, `aria-label="איכות המידע הזמין על הרכב"`): 1/5 bars (orange) for `חסרה`, 3/5 bars (amber) for `חלקית`, 5/5 bars (green) for `טובה`.
+  - **Fallback state** when `data_quality_label` is absent: `aria-busy="true"`, 0/5 bars, text "מידע על איכות הניתוח טרם נטען".
+  - **Sub-label** explaining it measures data availability, not car quality.
+  - **Source chips** (`<dl>` semantic): 🇮🇱 Israeli sources, 📚 global sources (from `source_count` + `source_scope_label`), ⚠️ weak-sources warning (from `weakly_sourced`).
+  - **Decision readiness badge** from `decision_readiness` field (`חסר מידע קריטי` / `נדרש אימות נוסף` / `מוכן לבדיקה מקצועית`) with color-coded border.
+  - **Prominent disclaimer** "המערכת לא קובעת אם לקנות את הרכב, אלא מציפה מה לבדוק." integrated into the component.
+- **`templates/reliability_app.html`**: Updated `reliability-score-container` div to `w-full mb-10` (RTL-friendly, full width).
+- **`templates/example.html`**: Updated `reliability-score-container` div to `w-full mb-8` (RTL-friendly, full width).
+- **`tests/test_data_quality_indicator.py`** (new): Contract tests covering `derive_information_status` field presence, `sanitize_analyze_response` pass-through of `source_count`/`source_scope_label`/`weakly_sourced`, deprecated score key absence, template `reliability-score-container` id, and `script.js` ARIA marker presence.
+- **API contract unchanged**: No new fields added to `analyze_service.py` or `derive_information_quality_review`. All UI data comes from existing fields: `data_quality_label`, `source_count`, `source_scope_label`, `weakly_sourced`, `decision_readiness`.
+- **RTL + Accessibility**: Component uses `dir="rtl"` context already set on `<html>`, chips in `<dl>` with screen-reader `<dt>` labels, meter with full ARIA attributes.
+
 ## 2026-04-29
 ### Decision-Support Positioning Alignment
 
