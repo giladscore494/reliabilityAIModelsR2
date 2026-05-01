@@ -3811,7 +3811,9 @@ def handle_comparison_request(data: Dict, user_id: Optional[int], session_id: Op
                     try:
                         db.session.commit()
                     except Exception as heal_err:
-                        logger.warning(f"[COMPARISON] decision_result cache heal failed: {heal_err}")
+                        logger.warning(
+                            f"[COMPARISON] decision_result cache heal failed for id={cached.id}: {heal_err}"
+                        )
                         db.session.rollback()
                 ai_payload = build_stored_comparison_ai_payload(
                     computed_result if isinstance(computed_result, dict) else None,
@@ -4210,7 +4212,11 @@ def get_comparison_detail(comparison_id: int, user_id: Optional[int]) -> Optiona
                 db.session.commit()
             except Exception:
                 db.session.rollback()
-                current_app.logger.warning("Failed to self-heal comparison detail id=%s", comparison_id)
+                current_app.logger.warning(
+                    "Failed to self-heal comparison detail id=%s",
+                    comparison_id,
+                    exc_info=True,
+                )
 
         # Reconstruct stable car slots
 
