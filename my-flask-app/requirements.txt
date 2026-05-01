@@ -1,5 +1,5 @@
 # SECURITY NOTE: Run `pip-audit` before each release.
-# google-genai pinned at 0.3.0 — check for updates.
+# google-genai updated to 1.64.0 — check for updates.
 # Last audit: 2026-03-28
 Flask==3.0.3
 gunicorn==23.0.0
@@ -11,7 +11,7 @@ alembic==1.14.0
 psycopg2-binary==2.9.10
 Flask-Login==0.6.3
 Authlib==1.3.2
-google-genai==0.3.0
+google-genai==1.64.0
 posthog==7.9.12
 pytest==8.3.3
 openpyxl==3.1.5
