@@ -861,8 +861,10 @@ def build_single_car_prompt(car: Dict, region: str = "IL") -> str:
 
     return f"""{data_instruction}
 
-You are a grounded car research extractor for ONE car.
-Search the web and return ONLY compact evidence in JSON.
+You are acting as an experienced automotive analyst giving a first-impression assessment. Estimates based on your general knowledge, market reputation, and segment norms are valid and encouraged. You do NOT need official verified sources for every metric — provide your best reasoned assessment. Include source URLs when available, but omit them if you don't have one.
+
+You are a car research extractor for ONE car.
+Return ONLY compact evidence in JSON.
 Return ONLY valid JSON. No markdown. No code fences. No prose outside JSON.
 
 {bounded_car}
@@ -1187,15 +1189,16 @@ Return a SINGLE JSON object with this EXACT structure:
 }}
 
 RULES:
-1. Every metric MUST have at least one source with URL, title, and snippet.
-2. If data is not found, set value=null and provide a missing_reason.
-3. Confidence must reflect how reliable the source data is (0.0-1.0).
-4. Segment-aware labels are required: judge each car against realistic expectations of its inferred mission, not one universal standard.
-5. Keep the 4 main categories unchanged; only the sub-priority logic is segment-aware.
-6. Do NOT compare cars or state winners - only provide raw data.
-7. Return ONLY valid JSON. No markdown, no explanations.
-8. Do not wrap the response in an array; return one object that starts with {{ and ends with }}.
-9. If a required field is unknown, keep the key and use null instead of omitting it.
+1. Use your best available knowledge to fill every metric. Official sources are preferred but NOT required — well-reasoned estimates based on general knowledge, segment norms, and known characteristics are acceptable and encouraged.
+2. Only set value=null if you genuinely have no basis whatsoever to estimate. Prefer a low-confidence estimate over null.
+3. Confidence must reflect how certain you are (0.0-1.0). Use 0.4-0.6 for estimates without direct sources. Use 0.7-1.0 for data backed by known facts.
+4. Sources are optional. If you have a URL, include it. If not, you may omit the sources array or leave it empty — do NOT set value=null just because you lack a URL.
+5. Segment-aware labels are required: judge each car against realistic expectations of its inferred mission, not one universal standard.
+6. Keep the 4 main categories unchanged; only the sub-priority logic is segment-aware.
+7. Do NOT compare cars or state winners - only provide raw data.
+8. Return ONLY valid JSON. No markdown, no explanations.
+9. Do not wrap the response in an array; return one object that starts with {{ and ends with }}.
+10. If a required field is truly unknown, keep the key and use null instead of omitting it — but always try to estimate first.
 """.strip()
 
 
@@ -3392,8 +3395,8 @@ def validate_grounding(model_output: Dict) -> Tuple[bool, str]:
 
     Enforces:
     1. grounding_successful flag must be True
-    2. Each car must have at least some sourced metrics
-    3. Non-null values without sources cause validation to fail
+    2. Car data must be present in model output
+    Note: Source validation has been removed — estimates without sources are acceptable.
     """
     if not model_output:
         return False, "Empty model output"
@@ -3407,44 +3410,6 @@ def validate_grounding(model_output: Dict) -> Tuple[bool, str]:
     cars = model_output.get("cars", {})
     if not cars:
         return False, "No car data in model output"
-
-    # Check each car has sourced data and validate source requirements
-    cars_with_sources = 0
-    unsourced_values = []
-
-    for car_id, car_data in cars.items():
-        car_has_sources = False
-        for cat_name, cat_data in car_data.items():
-            if not isinstance(cat_data, dict):
-                continue
-            for metric_name, metric_data in cat_data.items():
-                if not isinstance(metric_data, dict):
-                    continue
-
-                value = metric_data.get("value")
-                sources = metric_data.get("sources", [])
-
-                # Check if non-null value has sources
-                if value is not None and (not sources or len(sources) == 0):
-                    unsourced_values.append(f"{car_id}.{cat_name}.{metric_name}")
-
-                if sources and len(sources) > 0:
-                    car_has_sources = True
-
-        if car_has_sources:
-            cars_with_sources += 1
-
-    # Warn about unsourced values but don't fail completely
-    # (we'll skip scoring those metrics)
-    if unsourced_values:
-        current_app.logger.warning(
-            f"[GROUNDING] Values without sources ({len(unsourced_values)} total): {', '.join(unsourced_values[:5])}..."
-        )
-
-    # At least half the cars should have sourced data
-    min_cars_with_sources = max(1, len(cars) // 2)
-    if cars_with_sources < min_cars_with_sources:
-        return False, f"Only {cars_with_sources}/{len(cars)} cars have sourced data"
 
     return True, ""
 
