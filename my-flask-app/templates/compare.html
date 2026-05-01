@@ -1705,7 +1705,7 @@
         if (pref.startsWith('car_') && carsSelected) {
             const carIdx = parseInt(pref.replace('car_', ''), 10);
             const carDisplayName = carsSelected[pref]?.display_name || `רכב ${carIdx}`;
-            prefDisplay = `<span class="car-result-chip car-chip-${carIdx}">${escapeHtml(carDisplayName)}</span>`;
+            prefDisplay = `<span class="text-xs text-slate-400 ml-1">עדיפות: </span><span class="car-result-chip car-chip-${carIdx}">${escapeHtml(carDisplayName)}</span>`;
         } else {
             prefDisplay = `<span class="rounded-full border border-slate-600 bg-slate-900/60 px-3 py-1 text-xs text-slate-300">תלוי שימוש ומצב בפועל</span>`;
         }
@@ -1713,9 +1713,9 @@
             <article class="rounded-2xl border border-slate-700/70 bg-dark-lighter/70 p-4 md:p-5 space-y-2">
                 <div class="flex items-center justify-between gap-3">
                     <h4 class="text-lg font-bold text-white">${escapeHtml(title)}</h4>
-                    ${prefDisplay}
+                    <div class="flex items-center gap-1">${prefDisplay}</div>
                 </div>
-                ${item?.why ? `<p class="text-sm leading-7 text-slate-300">${escapeHtml(item.why)}</p>` : ''}
+                ${item?.why ? `<p class="text-sm leading-7 text-slate-300"><span class="text-xs font-semibold text-slate-400 block mb-1">למה זה משנה:</span>${escapeHtml(item.why)}</p>` : ''}
                 ${item?.important_caveat ? `<p class="text-xs leading-6 text-amber-200"><span class="font-bold">מה לבדוק:</span> ${escapeHtml(item.important_caveat)}</p>` : ''}
             </article>
         `;

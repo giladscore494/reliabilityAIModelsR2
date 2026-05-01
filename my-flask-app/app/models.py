@@ -197,6 +197,9 @@ class AdvisorHistory(db.Model):
     profile_json = db.Column(db.Text, nullable=False)
     result_json = db.Column(JSONEncodedText, nullable=False)
     duration_ms = db.Column(db.Integer, nullable=True)
+
+
+class IpRateLimit(db.Model):
     """
     Per-IP short-window rate limiting (minute buckets).
     """
