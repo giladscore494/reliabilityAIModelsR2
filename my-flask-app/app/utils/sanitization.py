@@ -12,6 +12,7 @@ Security goals:
 from __future__ import annotations
 
 import html
+import datetime
 from typing import Any, Dict, Mapping, Optional, Sequence
 import re
 
@@ -345,7 +346,7 @@ def _sanitize_vehicle_profile(raw: Any) -> Optional[Dict[str, Any]]:
             (os_.get("organization") or "").lower() if isinstance(os_.get("organization"), str) else None,
             _SAFETY_ORG_ALLOWED
         ),
-        "test_year": _clamp_int(os_.get("test_year"), lo=1980, hi=2030, default=0) if os_.get("test_year") is not None else None,
+        "test_year": _clamp_int(os_.get("test_year"), lo=1980, hi=datetime.datetime.now().year + 5, default=0) if os_.get("test_year") is not None else None,
         "adult_score": _escape(os_.get("adult_score") or "") or None,
         "child_score": _escape(os_.get("child_score") or "") or None,
         "safety_assist_score": _escape(os_.get("safety_assist_score") or "") or None,

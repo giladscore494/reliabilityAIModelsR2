@@ -75,7 +75,9 @@ def _validate_vehicle_profile_buyer_summary(ai_output: dict, request_id: str) ->
         return ai_output
 
     forbidden_patterns = [
-        (r'\d+\s*/\s*100', 'numeric_score'),
+        (r'\d+\s*/\s*100', 'numeric_score_100'),
+        (r'\d+\s*/\s*10(?!\d)', 'numeric_score_10'),
+        (r'\d+\s*%', 'percentage_score'),
         (r'(?:אני\s+ממליץ|הייתי\s+קונה|מומלץ\s+לקנות|כדאי\s+לקנות|אל\s+תקנה)', 'first_person_or_verdict'),
     ]
 
