@@ -1,0 +1,2012 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <title>yedaarechevAI – השוואת רכבים</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    {% include "_posthog_snippet.html" %}
+
+    <script nonce="{{ csp_nonce }}">
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#6366F1',
+                        secondary: '#EC4899',
+                        dark: '#0F172A',
+                        'dark-lighter': '#1E293B',
+                        success: '#10B981',
+                        warning: '#F59E0B',
+                        danger: '#EF4444',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Heebo', system-ui, -apple-system, sans-serif;
+            background-color: #0F172A;
+            color: #E2E8F0;
+            margin: 0;
+            overflow-x: hidden;
+        }
+        .fade-in { animation: fadeIn 0.4s ease-out forwards; opacity: 0; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .loader { border: 3px solid rgba(255,255,255,0.2); border-top-color: var(--primary, #6366F1); border-radius: 50%; width: 1.5rem; height: 1.5rem; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        /* LTR select for car dropdowns */
+        .ltr-select { direction: ltr; text-align: left; }
+        
+        /* Category rows */
+        .category-row {
+            background: #1E293B;
+            border: 1px solid #334155;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            transition: all 0.2s ease;
+        }
+        .category-row:hover {
+            border-color: #475569;
+        }
+        .category-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem 1.25rem;
+            cursor: pointer;
+            background: #1E293B;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+        .category-header:hover {
+            background: #263449;
+        }
+        .category-content {
+            display: none;
+            padding: 0 1.25rem 1rem;
+            border-top: 1px solid #334155;
+        }
+        .category-content.open {
+            display: block;
+            animation: fadeIn 0.3s ease-out;
+        }
+        
+        
+        /* Winner badge */
+        .winner-badge {
+            background: linear-gradient(135deg, #10B981, #059669);
+            color: white;
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 0.2rem 0.5rem;
+            border-radius: 9999px;
+            white-space: nowrap;
+        }
+        
+        
+
+        /* Per-car accent colors */
+        .car-accent-1 { --accent: #ef4444; }
+        .car-accent-2 { --accent: #3b82f6; }
+        .car-accent-3 { --accent: #22c55e; }
+        .car-card { border-color: var(--accent); }
+        .car-title { color: var(--accent); }
+        .car-score { color: var(--accent); }
+
+        /* Car result chip styles */
+        .car-result-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            border: 1.5px solid var(--chip-color);
+            color: var(--chip-color);
+            background: color-mix(in srgb, var(--chip-color) 12%, transparent);
+            white-space: nowrap;
+        }
+        .car-result-chip.car-chip-1 { --chip-color: #ef4444; }
+        .car-result-chip.car-chip-2 { --chip-color: #3b82f6; }
+        .car-result-chip.car-chip-3 { --chip-color: #22c55e; }
+
+        /* Autocomplete styles */
+        .autocomplete-container { position: relative; }
+        .autocomplete-input {
+            direction: ltr;
+            text-align: left;
+            transition: border-color 0.2s;
+        }
+        .autocomplete-input:-webkit-autofill,
+        .autocomplete-input:-webkit-autofill:hover,
+        .autocomplete-input:-webkit-autofill:focus {
+            -webkit-text-fill-color: #e2e8f0;
+            -webkit-box-shadow: 0 0 0px 1000px #0f172a inset;
+            box-shadow: 0 0 0px 1000px #0f172a inset;
+        }
+        .autocomplete-input::placeholder {
+            color: #64748b;
+            direction: rtl;
+            text-align: right;
+        }
+        .autocomplete-dropdown {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            max-height: 250px;
+            overflow-y: auto;
+            background: #1E293B;
+            border: 1px solid #475569;
+            border-radius: 0.75rem;
+            margin-top: 4px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        .autocomplete-dropdown.open { display: block; }
+        .autocomplete-item {
+            padding: 0.75rem 1rem;
+            cursor: pointer;
+            color: #e2e8f0;
+            border-bottom: 1px solid #334155;
+            direction: ltr;
+            text-align: left;
+        }
+        .autocomplete-item:last-child { border-bottom: none; }
+        .autocomplete-item:hover, .autocomplete-item.highlighted { background: #334155; color: white; }
+        .autocomplete-item .item-make { font-weight: 600; }
+        .autocomplete-item .item-years { color: #94A3B8; font-size: 0.8rem; margin-right: 0.5rem; }
+
+        /* Narrative section */
+        .narrative-section {
+            background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(236,72,153,0.1));
+            border: 1px solid rgba(99,102,241,0.3);
+            border-radius: 1rem;
+            padding: 1.5rem;
+        }
+        .tie-badge {
+            background: linear-gradient(135deg, #F59E0B, #D97706);
+            color: white;
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 0.2rem 0.5rem;
+            border-radius: 9999px;
+            white-space: nowrap;
+        }
+    </style>
+</head>
+<body class="bg-dark text-slate-200 min-h-screen flex flex-col antialiased">
+
+{% set active_page = 'compare' %}
+{% include '_navbar.html' %}
+
+<main class="flex-grow relative container mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-16 overflow-hidden">
+    <div class="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[900px] opacity-20 pointer-events-none"
+         style="background: radial-gradient(circle, rgba(99,102,241,0.25) 0%, rgba(15,23,42,0) 70%);"></div>
+
+    {% if not user or not user.is_authenticated %}
+        <div class="relative z-10 max-w-xl mx-auto text-center bg-dark-lighter/70 border border-slate-700/70 rounded-3xl p-10">
+            <h2 class="text-3xl font-extrabold text-white mb-4">השוואת רכבים – התחברות נדרשת</h2>
+            <p class="text-slate-400 mb-6 text-sm md:text-base">
+                כדי להשתמש בכלי השוואת הרכבים, יש להתחבר עם חשבון Google.
+            </p>
+            <a href="{{ url_for('public.login') }}"
+               class="inline-flex items-center justify-center px-8 py-3 rounded-full bg-primary text-white font-semibold text-sm hover:bg-indigo-500 transition-colors shadow-lg shadow-primary/20">
+                התחברות מהירה עם Google
+            </a>
+        </div>
+    {% else %}
+        <section class="relative z-10 max-w-6xl mx-auto space-y-8">
+            <!-- Header -->
+            <header class="text-center space-y-4 max-w-3xl mx-auto">
+                <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase">השוואת רכבים</p>
+                <h2 class="text-4xl md:text-[3.2rem] font-extrabold text-white">
+                    השוואת רכבים
+                </h2>
+                <p class="text-slate-400 max-w-2xl mx-auto">
+                    בחר עד 3 רכבים להשוואה מקיפה על בסיס נתונים מאומתים מהאינטרנט
+                </p>
+            </header>
+
+            <!-- Car Selection -->
+            <div id="carSelectionSection" class="bg-dark-lighter/70 border border-slate-700/70 rounded-[1.75rem] p-6 md:p-8">
+                <h3 class="text-xl font-bold text-white mb-6">בחר רכבים להשוואה</h3>
+
+                <div class="space-y-6">
+                    <!-- Car Slot 1 -->
+                    <div class="car-slot-container car-accent-1 border-2 rounded-xl p-4 bg-slate-800/30" data-slot="1" style="border-color: var(--accent);">
+                        <div class="flex items-center justify-between mb-4">
+                            <h4 id="slot-title-1" class="text-lg font-bold car-title">רכב 1 <span class="text-secondary">*</span></h4>
+                            <button type="button" class="clear-slot-btn hidden px-3 py-1 text-xs bg-slate-700 hover:bg-red-600 rounded-full text-slate-300 hover:text-white transition-colors">
+                                נקה
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div class="autocomplete-container md:col-span-1">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 block">חפש רכב</label>
+                                <input type="text" id="car_search_1" class="autocomplete-input w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 focus:ring-primary focus:border-primary" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
+                                <div id="car_dropdown_1" class="autocomplete-dropdown"></div>
+                                <input type="hidden" id="car_make_1" name="make_1">
+                                <input type="hidden" id="car_model_1" name="model_1">
+                                <input type="hidden" id="car_year_start_1" name="year_start_1">
+                                <input type="hidden" id="car_year_end_1" name="year_end_1">
+                                <div id="car_selected_1" class="hidden mt-2 text-sm text-emerald-400 font-medium"></div>
+                            </div>
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400">שנתון</label>
+                                <select id="year_1" name="year_1" disabled
+                                        class="ltr-select w-full appearance-none bg-slate-900/50 border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <option value="">בחר רכב תחילה</option>
+                                </select>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="space-y-2">
+                                    <label class="text-xs font-bold uppercase tracking-wider text-slate-400">סוג מנוע</label>
+                                    <select id="engine_1" name="engine_1"
+                                            class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                        <option value="בנזין" selected>בנזין</option>
+                                        <option value="דיזל">דיזל</option>
+                                        <option value="היברידי">היברידי</option>
+                                        <option value="חשמלי">חשמלי</option>
+                                    </select>
+                                </div>
+                                <div class="space-y-2">
+                                    <label class="text-xs font-bold uppercase tracking-wider text-slate-400">תיבת הילוכים</label>
+                                    <select id="gear_1" name="gear_1"
+                                            class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                        <option value="אוטומטית" selected>אוטומטית</option>
+                                        <option value="רובוטית">רובוטית (DSG)</option>
+                                        <option value="ידנית">ידנית</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Car Slot 2 -->
+                    <div class="car-slot-container car-accent-2 border-2 rounded-xl p-4 bg-slate-800/30" data-slot="2" style="border-color: var(--accent);">
+                        <div class="flex items-center justify-between mb-4">
+                            <h4 id="slot-title-2" class="text-lg font-bold car-title">רכב 2 <span class="text-secondary">*</span></h4>
+                            <button type="button" class="clear-slot-btn hidden px-3 py-1 text-xs bg-slate-700 hover:bg-red-600 rounded-full text-slate-300 hover:text-white transition-colors">
+                                נקה
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div class="autocomplete-container md:col-span-1">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 block">חפש רכב</label>
+                                <input type="text" id="car_search_2" class="autocomplete-input w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 focus:ring-primary focus:border-primary" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
+                                <div id="car_dropdown_2" class="autocomplete-dropdown"></div>
+                                <input type="hidden" id="car_make_2" name="make_2">
+                                <input type="hidden" id="car_model_2" name="model_2">
+                                <input type="hidden" id="car_year_start_2" name="year_start_2">
+                                <input type="hidden" id="car_year_end_2" name="year_end_2">
+                                <div id="car_selected_2" class="hidden mt-2 text-sm text-emerald-400 font-medium"></div>
+                            </div>
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400">שנתון</label>
+                                <select id="year_2" name="year_2" disabled
+                                        class="ltr-select w-full appearance-none bg-slate-900/50 border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <option value="">בחר רכב תחילה</option>
+                                </select>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="space-y-2">
+                                    <label class="text-xs font-bold uppercase tracking-wider text-slate-400">סוג מנוע</label>
+                                    <select id="engine_2" name="engine_2"
+                                            class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                        <option value="בנזין" selected>בנזין</option>
+                                        <option value="דיזל">דיזל</option>
+                                        <option value="היברידי">היברידי</option>
+                                        <option value="חשמלי">חשמלי</option>
+                                    </select>
+                                </div>
+                                <div class="space-y-2">
+                                    <label class="text-xs font-bold uppercase tracking-wider text-slate-400">תיבת הילוכים</label>
+                                    <select id="gear_2" name="gear_2"
+                                            class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                        <option value="אוטומטית" selected>אוטומטית</option>
+                                        <option value="רובוטית">רובוטית (DSG)</option>
+                                        <option value="ידנית">ידנית</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Car Slot 3 (optional) -->
+                    <div class="car-slot-container car-accent-3 border-2 rounded-xl p-4 bg-slate-800/30" data-slot="3" style="border-color: var(--accent);">
+                        <div class="flex items-center justify-between mb-4">
+                            <h4 id="slot-title-3" class="text-lg font-bold car-title">רכב 3 <span class="text-slate-500">(אופציונלי)</span></h4>
+                            <button type="button" class="clear-slot-btn hidden px-3 py-1 text-xs bg-slate-700 hover:bg-red-600 rounded-full text-slate-300 hover:text-white transition-colors">
+                                נקה
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div class="autocomplete-container md:col-span-1">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 block">חפש רכב</label>
+                                <input type="text" id="car_search_3" class="autocomplete-input w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 focus:ring-primary focus:border-primary" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
+                                <div id="car_dropdown_3" class="autocomplete-dropdown"></div>
+                                <input type="hidden" id="car_make_3" name="make_3">
+                                <input type="hidden" id="car_model_3" name="model_3">
+                                <input type="hidden" id="car_year_start_3" name="year_start_3">
+                                <input type="hidden" id="car_year_end_3" name="year_end_3">
+                                <div id="car_selected_3" class="hidden mt-2 text-sm text-emerald-400 font-medium"></div>
+                            </div>
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400">שנתון</label>
+                                <select id="year_3" name="year_3" disabled
+                                        class="ltr-select w-full appearance-none bg-slate-900/50 border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <option value="">בחר רכב תחילה</option>
+                                </select>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="space-y-2">
+                                    <label class="text-xs font-bold uppercase tracking-wider text-slate-400">סוג מנוע</label>
+                                    <select id="engine_3" name="engine_3"
+                                            class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                        <option value="בנזין" selected>בנזין</option>
+                                        <option value="דיזל">דיזל</option>
+                                        <option value="היברידי">היברידי</option>
+                                        <option value="חשמלי">חשמלי</option>
+                                    </select>
+                                </div>
+                                <div class="space-y-2">
+                                    <label class="text-xs font-bold uppercase tracking-wider text-slate-400">תיבת הילוכים</label>
+                                    <select id="gear_3" name="gear_3"
+                                            class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                        <option value="אוטומטית" selected>אוטומטית</option>
+                                        <option value="רובוטית">רובוטית (DSG)</option>
+                                        <option value="ידנית">ידנית</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <details id="buyerProfilePanel" class="rounded-2xl border border-slate-700/70 bg-slate-900/30 p-4 md:p-5">
+                    <summary class="cursor-pointer text-lg font-bold text-white">התאמה לשימוש שלי</summary>
+                    <p class="mt-3 text-xs text-slate-400 leading-relaxed">
+                        הפרטים האלה משפיעים רק על התאמת ההסבר אליך, לא על הנתונים העובדתיים של הרכבים.
+                    </p>
+                    <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <label class="space-y-1 text-sm text-slate-300">תקציב מינימלי
+                            <input id="buyer_budget_min" type="number" min="0" max="2000000" class="w-full bg-slate-900/60 border-slate-700 rounded-xl text-slate-100" placeholder="₪">
+                        </label>
+                        <label class="space-y-1 text-sm text-slate-300">תקציב מקסימלי
+                            <input id="buyer_budget_max" type="number" min="0" max="2000000" class="w-full bg-slate-900/60 border-slate-700 rounded-xl text-slate-100" placeholder="₪">
+                        </label>
+                        <label class="space-y-1 text-sm text-slate-300">נסועה שנתית
+                            <input id="buyer_annual_km" type="number" min="0" max="100000" class="w-full bg-slate-900/60 border-slate-700 rounded-xl text-slate-100" placeholder="ק״מ">
+                        </label>
+                        <label class="space-y-1 text-sm text-slate-300">שימוש עיקרי
+                            <select id="buyer_main_use" class="w-full bg-slate-900/60 border-slate-700 rounded-xl text-slate-100">
+                                <option value="">ללא התאמה אישית</option>
+                                <option value="city">עירוני</option>
+                                <option value="highway">בין-עירוני</option>
+                                <option value="family">משפחתי</option>
+                                <option value="commuting">יומי לעבודה</option>
+                                <option value="long_trips">נסיעות ארוכות</option>
+                                <option value="work">עבודה</option>
+                                <option value="mixed">מעורב</option>
+                            </select>
+                        </label>
+                        <label class="space-y-1 text-sm text-slate-300">גודל משפחה
+                            <input id="buyer_family_size" type="text" maxlength="80" class="w-full bg-slate-900/60 border-slate-700 rounded-xl text-slate-100" placeholder="לדוגמה: זוג + 2">
+                        </label>
+                        <label class="space-y-1 text-sm text-slate-300">צורך בתא מטען
+                            <input id="buyer_cargo_need" type="text" maxlength="80" class="w-full bg-slate-900/60 border-slate-700 rounded-xl text-slate-100" placeholder="נמוך / בינוני / גבוה">
+                        </label>
+                    </div>
+                    <div class="mt-4 grid grid-cols-2 md:grid-cols-6 gap-3 text-sm text-slate-300">
+                        <label class="flex items-center gap-2"><input data-priority="fuel" type="checkbox" class="buyer-priority rounded border-slate-600 bg-slate-900"> חיסכון</label>
+                        <label class="flex items-center gap-2"><input data-priority="safety" type="checkbox" class="buyer-priority rounded border-slate-600 bg-slate-900"> בטיחות</label>
+                        <label class="flex items-center gap-2"><input data-priority="reliability" type="checkbox" class="buyer-priority rounded border-slate-600 bg-slate-900"> אמינות</label>
+                        <label class="flex items-center gap-2"><input data-priority="performance" type="checkbox" class="buyer-priority rounded border-slate-600 bg-slate-900"> ביצועים</label>
+                        <label class="flex items-center gap-2"><input data-priority="comfort" type="checkbox" class="buyer-priority rounded border-slate-600 bg-slate-900"> נוחות</label>
+                        <label class="flex items-center gap-2"><input data-priority="cost" type="checkbox" class="buyer-priority rounded border-slate-600 bg-slate-900"> עלות אחזקה</label>
+                    </div>
+                </details>
+
+                <div class="pt-4 space-y-8">
+                    <label
+                        class="flex items-start gap-4 p-4 rounded-xl bg-slate-800/20 border border-slate-700/50 cursor-pointer group hover:bg-slate-800/40 transition-colors">
+                        <input type="checkbox" id="compareLegalConfirm" name="legal-confirm" required
+                               class="mt-1 w-6 h-6 rounded border-2 border-slate-600 text-primary focus:ring-offset-0 focus:ring-primary bg-slate-900/50 transition-colors">
+                        <span class="text-sm text-slate-300 leading-relaxed">
+                            אני מאשר/ת כי אני מעל גיל 18, וקראתי והסכמתי
+                            <a href="{{ url_for('public.terms') }}" target="_blank" rel="noopener noreferrer"
+                               class="text-primary font-bold hover:underline underline-offset-4">לתנאי השימוש</a>
+                            ו
+                            <a href="{{ url_for('public.privacy') }}" target="_blank" rel="noopener noreferrer"
+                               class="text-primary font-bold hover:underline underline-offset-4">מדיניות הפרטיות</a>
+                            של האתר.
+                        </span>
+                    </label>
+                    <p id="compareLegalError"
+                       class="hidden flex items-center text-red-400 text-sm bg-red-950/30 border border-red-900/50 p-3 rounded-lg">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 ml-2" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd"
+                                  d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                                  clip-rule="evenodd" />
+                        </svg>
+                        אנא אשר/י את תנאי השימוש כדי להמשיך בתהליך.
+                    </p>
+                </div>
+                <div class="flex justify-center mt-6">
+                    <button id="compareBtn" type="button"
+                            class="px-8 py-3 bg-gradient-to-r from-primary to-secondary text-white font-bold rounded-full hover:from-primary/90 hover:to-secondary/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled>
+                        <span class="btn-text">השווה רכבים</span>
+                        <span class="btn-loading hidden flex items-center gap-2">
+                            <span class="loader"></span>
+                            מעבד...
+                        </span>
+                    </button>
+                </div>
+            </div>
+
+            <section id="compareResultReadyPanel" class="hidden space-y-6">
+                <div class="rounded-[2rem] border border-primary/30 bg-dark-lighter/80 p-6 md:p-8 text-center shadow-2xl">
+                    <h3 class="text-2xl md:text-3xl font-black text-white">✅ התוצאה מוכנה</h3>
+                    <p class="mt-3 text-sm md:text-base text-slate-300">
+                        הבדיקה הסתיימה. אפשר לפתוח את התוצאה עכשיו.
+                    </p>
+                    <button id="compareOpenResultButton" type="button" class="mt-6 inline-flex w-full items-center justify-center rounded-2xl bg-gradient-to-r from-primary to-secondary px-8 py-4 text-lg font-black text-white shadow-xl shadow-primary/20 transition hover:opacity-90 md:w-auto md:min-w-[280px]">
+                        פתח תוצאה
+                    </button>
+                </div>
+            </section>
+
+            {% include '_research_compare_panel.html' %}
+
+            <!-- Results Section (hidden initially) -->
+            <div id="resultsSection" class="hidden space-y-6">
+                <p class="text-xs md:text-sm text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 leading-relaxed">
+                    ההשוואה מבוססת על נתונים זמינים והערכות. יש לבצע בדיקה עצמאית לפני רכישה.
+                </p>
+                <!-- Overall Verdict -->
+                <div id="verdictSection" class="bg-gradient-to-br from-slate-800/90 to-slate-900/90 border border-slate-700/70 rounded-2xl p-6 md:p-8">
+                    <h3 class="text-2xl font-bold text-white mb-4">תוצאת ההשוואה</h3>
+                    
+                    <div id="winnerDisplay" class="mb-6">
+                        <!-- Winner will be displayed here -->
+                    </div>
+                    
+                    <div id="assumptionsDisplay" class="mb-4 p-4 bg-slate-700/30 rounded-lg text-sm text-slate-300">
+                        <strong class="text-white">הנחות:</strong>
+                        <ul id="assumptionsList" class="mt-2 space-y-1"></ul>
+                    </div>
+                    
+                    <div id="topReasons" class="space-y-2">
+                        <strong class="text-white">סיבות עיקריות:</strong>
+                        <ul id="reasonsList" class="mt-2 space-y-1 text-slate-300"></ul>
+                    </div>
+                </div>
+
+                <!-- Category Comparisons - responsive with overflow for wide content -->
+                <div id="categoriesSection" class="space-y-4 overflow-x-auto">
+                    <!-- Categories will be rendered here -->
+                </div>
+            </div>
+
+            <!-- Error Section -->
+            <div id="errorSection" class="hidden bg-red-900/30 border border-red-700/50 rounded-2xl p-6 text-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto text-red-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <p id="errorMessage" class="text-red-300 font-medium"></p>
+                <p id="errorRequestId" class="text-xs text-red-400/70 mt-2 hidden"></p>
+                <button id="retryBtn" type="button" class="mt-4 px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-full transition-all">
+                    נסה שוב
+                </button>
+            </div>
+        </section>
+        
+        <!-- Timing Banner (hidden by default) - responsive for mobile -->
+        <div id="compareTimingBanner" class="hidden fixed top-20 sm:top-24 left-1/2 transform -translate-x-1/2 z-50 bg-dark-lighter/95 backdrop-blur-xl border-2 border-primary/50 rounded-2xl shadow-2xl p-4 sm:p-6 max-w-[calc(100vw-2rem)]">
+            <div class="flex flex-col items-center gap-3 sm:gap-4">
+                <div class="relative w-24 h-24 sm:w-32 sm:h-32">
+                    <!-- SVG Circular Progress Ring -->
+                    <svg class="w-24 h-24 sm:w-32 sm:h-32 transform -rotate-90" viewBox="0 0 120 120">
+                        <circle cx="60" cy="60" r="54" fill="none" stroke="#1e293b" stroke-width="8"></circle>
+                        <circle id="compareProgressRing" cx="60" cy="60" r="54" fill="none" stroke="url(#compareRainbowGradient)" stroke-width="8" 
+                                stroke-linecap="round" stroke-dasharray="339.292" stroke-dashoffset="339.292"
+                                style="transition: stroke-dashoffset 0.3s ease, stroke 0.5s ease;"></circle>
+                        <defs>
+                            <linearGradient id="compareRainbowGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" style="stop-color:rgb(255,0,0);stop-opacity:1" />
+                                <stop offset="16.67%" style="stop-color:rgb(255,165,0);stop-opacity:1" />
+                                <stop offset="33.33%" style="stop-color:rgb(255,255,0);stop-opacity:1" />
+                                <stop offset="50%" style="stop-color:rgb(0,255,0);stop-opacity:1" />
+                                <stop offset="66.67%" style="stop-color:rgb(0,127,255);stop-opacity:1" />
+                                <stop offset="83.33%" style="stop-color:rgb(139,0,255);stop-opacity:1" />
+                                <stop offset="100%" style="stop-color:rgb(255,0,0);stop-opacity:1" />
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                    <!-- Center Text (elapsed time) -->
+                    <div class="absolute inset-0 flex items-center justify-center">
+                        <span id="compareElapsedTime" class="text-2xl sm:text-3xl font-black text-white">0</span>
+                    </div>
+                </div>
+                <div class="text-center">
+                    <div id="compareEtaText" class="text-xs sm:text-sm text-slate-300 font-medium"></div>
+                    <div id="compareStatusText" class="text-xs text-slate-400 mt-1">מעבד...</div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+</main>
+
+<!-- Car data JSON -->
+<script type="application/json" id="car-data">
+    {{ car_models_data | tojson }}
+</script>
+{% include '_research_consent_modal.html' %}
+
+<script src="{{ url_for('static', filename='research.js') }}"></script>
+<script nonce="{{ csp_nonce }}">
+(function() {
+    'use strict';
+
+    function getCSRFToken() {
+        var meta = document.querySelector('meta[name="csrf-token"]');
+        return meta ? meta.getAttribute('content') : '';
+    }
+
+    function trackEvent(name, payload) {
+        try {
+            if (window.posthog && typeof window.posthog.capture === 'function') {
+                window.posthog.capture(name, payload || {});
+            }
+        } catch (error) {}
+    }
+    
+    // ============================================================
+    // CAR DATA & MODEL MAP
+    // ============================================================
+    
+    const carDataScript = document.getElementById('car-data');
+    let CAR_DATA = {};
+    if (carDataScript) {
+        try {
+            CAR_DATA = JSON.parse(carDataScript.textContent || carDataScript.innerHTML || '{}');
+        } catch (e) {
+            console.error('[CAR-DATA] JSON parse error', e);
+            CAR_DATA = {};
+        }
+    }
+    
+    // Build model map: { make: [ {name, years:[min,max]} ] }
+    const MODEL_MAP = {};
+    function buildModelMap() {
+        Object.entries(CAR_DATA || {}).forEach(([make, models]) => {
+            if (!Array.isArray(models)) return;
+            MODEL_MAP[make] = models.map(str => {
+                let name = String(str || '').trim();
+                let years = null;
+                const m = name.match(/\((\d{4})\s*-\s*(\d{2,4})\)/);
+                if (m) {
+                    const start = parseInt(m[1], 10);
+                    let end = parseInt(m[2], 10);
+                    if (end < 100) end = 2000 + end;
+                    years = [start, end];
+                    name = name.replace(m[0], '').trim();
+                }
+                return { name, years };
+            });
+        });
+    }
+    buildModelMap();
+    
+    // Build flat list for autocomplete: [{make, model, display, yearStart, yearEnd}]
+    const FLAT_CARS_LIST = [];
+    function buildFlatCarsList() {
+        Object.entries(CAR_DATA || {}).forEach(([make, models]) => {
+            if (!Array.isArray(models)) return;
+            models.forEach(str => {
+                let name = String(str || '').trim();
+                let yearStart = null, yearEnd = null;
+                const m = name.match(/\((\d{4})\s*-\s*(\d{2,4})\)/);
+                if (m) {
+                    yearStart = parseInt(m[1], 10);
+                    let end = parseInt(m[2], 10);
+                    if (end < 100) end = 2000 + end;
+                    yearEnd = end;
+                    name = name.replace(m[0], '').trim();
+                }
+                FLAT_CARS_LIST.push({
+                    make: make,
+                    model: name,
+                    display: `${make} ${name}`,
+                    yearStart: yearStart,
+                    yearEnd: yearEnd
+                });
+            });
+        });
+    }
+    buildFlatCarsList();
+    
+    // ============================================================
+    // STATE
+    // ============================================================
+    
+    let comparisonResult = null;
+    const legalAccepted = {{ 'true' if legal_accepted else 'false' }};
+    const termsVersion = "{{ terms_version }}";
+    const privacyVersion = "{{ privacy_version }}";
+    window.legalAccepted = legalAccepted;
+    window.__IS_AUTHENTICATED__ = {{ 'true' if current_user.is_authenticated else 'false' }};
+
+    const legalConfirmCheckbox = document.getElementById('compareLegalConfirm');
+    const legalConfirmError = document.getElementById('compareLegalError');
+
+    function showCompareLegalError(message) {
+        if (!legalConfirmError) return;
+        if (message) legalConfirmError.textContent = message;
+        legalConfirmError.classList.remove('hidden');
+    }
+
+    function requireCompareLegalConfirm() {
+        if (!legalConfirmCheckbox || !legalConfirmError) return { ok: true };
+        if (!legalConfirmCheckbox.checked) {
+            showCompareLegalError('Please check the consent box before continuing.');
+            return { ok: false };
+        }
+        legalConfirmError.classList.add('hidden');
+        return { ok: true };
+    }
+
+    function researchPromptSeenKey(flowType, historyId) {
+        return `research_prompt_seen_${flowType}_${historyId}`;
+    }
+
+    function hasSeenResearchPrompt(flowType, historyId) {
+        if (!historyId) return false;
+        try {
+            return sessionStorage.getItem(researchPromptSeenKey(flowType, historyId)) === '1';
+        } catch (error) {
+            return false;
+        }
+    }
+
+    function markResearchPromptSeen(flowType, historyId) {
+        if (!historyId) return;
+        try {
+            sessionStorage.setItem(researchPromptSeenKey(flowType, historyId), '1');
+        } catch (error) {}
+    }
+
+    function setCompareResearchMessage(message, tone) {
+        if (!compareResearchMessage) return;
+        if (!message) {
+            compareResearchMessage.textContent = '';
+            compareResearchMessage.classList.add('hidden');
+            compareResearchMessage.classList.remove('text-emerald-300', 'text-amber-300', 'text-red-300');
+            compareResearchMessage.classList.add('text-emerald-300');
+            return;
+        }
+        compareResearchMessage.textContent = message;
+        compareResearchMessage.classList.remove('hidden', 'text-emerald-300', 'text-amber-300', 'text-red-300');
+        compareResearchMessage.classList.add(
+            tone === 'error' ? 'text-red-300' : tone === 'warning' ? 'text-amber-300' : 'text-emerald-300'
+        );
+    }
+
+    function scrollToCompareResult() {
+        resultsSection?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function hideCompareResearchCard() {
+        compareResearchSection?.classList.add('hidden');
+        compareResearchFormWrap?.classList.add('hidden');
+        researchCardVisible = false;
+        researchFormOpen = false;
+    }
+
+    function resetCompareResearchCard() {
+        hideCompareResearchCard();
+        compareResearchForm?.reset();
+        setCompareResearchMessage('', 'success');
+    }
+
+    function closeCompareResult() {
+        isResultOpen = false;
+        resultsSection?.classList.add('hidden');
+    }
+
+    function openCompareResult(options = {}) {
+        if (!resultsSection || !isResultReady) return;
+        const userInitiated = options.userInitiated !== false;
+        const alreadyOpen = isResultOpen;
+        isResultOpen = true;
+        resultsSection.classList.remove('hidden');
+        if (resultReadyPanel) {
+            resultReadyPanel.classList.remove('hidden');
+        }
+        scrollToCompareResult();
+        if (userInitiated && !alreadyOpen) {
+            trackEvent('result_opened', {
+                flow_type: 'compare',
+                compare_history_id: currentHistoryId,
+            });
+        }
+    }
+
+    function showCompareReadyPanel() {
+        if (!resultReadyPanel) return;
+        resultReadyPanel.classList.remove('hidden');
+        if (currentHistoryId && resultReadyPanelTrackedForHistory !== currentHistoryId) {
+            trackEvent('result_ready_panel_shown', {
+                flow_type: 'compare',
+                compare_history_id: currentHistoryId,
+            });
+            resultReadyPanelTrackedForHistory = currentHistoryId;
+        }
+    }
+
+    function showCompareResearchCard() {
+        if (!compareResearchSection || !currentHistoryId || hasSeenResearchPrompt('compare', currentHistoryId)) {
+            hideCompareResearchCard();
+            return;
+        }
+        compareResearchSection.classList.remove('hidden');
+        researchCardVisible = true;
+        if (compareResearchTrackedForHistory !== currentHistoryId) {
+            trackEvent('research_card_shown', {
+                flow_type: 'compare',
+                compare_history_id: currentHistoryId,
+            });
+            compareResearchTrackedForHistory = currentHistoryId;
+        }
+    }
+
+    function closeCompareResearch(options = {}) {
+        const reason = options.reason || 'closed';
+        const trackSkipped = options.trackSkipped === true;
+        if (currentHistoryId) {
+            markResearchPromptSeen('compare', currentHistoryId);
+            trackEvent('research_card_closed', {
+                flow_type: 'compare',
+                compare_history_id: currentHistoryId,
+                reason,
+            });
+            if (trackSkipped) {
+                trackEvent('research_skipped', {
+                    flow_type: 'compare',
+                    compare_history_id: currentHistoryId,
+                });
+            }
+        }
+        hideCompareResearchCard();
+        if (options.openResult === true) {
+            openCompareResult({ userInitiated: true });
+        }
+    }
+
+    function openCompareResearchForm() {
+        if (!currentHistoryId || !compareResearchFormWrap) return;
+        compareResearchFormWrap.classList.remove('hidden');
+        researchFormOpen = true;
+        setCompareResearchMessage('', 'success');
+        trackEvent('research_started', {
+            flow_type: 'compare',
+            compare_history_id: currentHistoryId,
+        });
+        const firstInput = compareResearchForm?.querySelector('input, select, textarea');
+        firstInput?.focus();
+    }
+
+    function resetCompareResultFlowState() {
+        isLoading = false;
+        isResultReady = false;
+        isResultOpen = false;
+        currentHistoryId = null;
+        currentComparedCars = [];
+        researchCardVisible = false;
+        researchFormOpen = false;
+        resultReadyPanel?.classList.add('hidden');
+        closeCompareResult();
+        resetCompareResearchCard();
+    }
+
+    function syncCompareResearchContext(carsList) {
+        currentComparedCars = Array.isArray(carsList) ? carsList : [];
+        if (!compareSubjectVehicle) return;
+        ['car_1', 'car_2', 'car_3'].forEach((slotValue, index) => {
+            const option = compareSubjectVehicle.querySelector(`option[value="${slotValue}"]`);
+            if (!option) return;
+            const car = currentComparedCars[index];
+            option.textContent = car
+                ? `${car.make || ''} ${car.model || ''}`.trim()
+                : `רכב ${index + 1}`;
+            option.disabled = !car;
+        });
+        compareSubjectVehicle.value = currentComparedCars[0] ? 'car_1' : 'unknown';
+    }
+    
+    // Category names in Hebrew
+    const CATEGORY_NAMES = {
+        'reliability_risk': 'אמינות וסיכונים',
+        'ownership_cost': 'עלות בעלות',
+        'practicality_comfort': 'נוחות ופרקטיות',
+        'driving_performance': 'ביצועים ונהיגה'
+    };
+    
+    // ============================================================
+    // DOM ELEMENTS
+    // ============================================================
+    
+    const compareBtn = document.getElementById('compareBtn');
+    const resultReadyPanel = document.getElementById('compareResultReadyPanel');
+    const openResultButton = document.getElementById('compareOpenResultButton');
+    const resultsSection = document.getElementById('resultsSection');
+    const errorSection = document.getElementById('errorSection');
+    const retryBtn = document.getElementById('retryBtn');
+    
+    // Timing Banner Elements
+    const compareTimingBanner = document.getElementById('compareTimingBanner');
+    const compareElapsedTime = document.getElementById('compareElapsedTime');
+    const compareEtaText = document.getElementById('compareEtaText');
+    const compareStatusText = document.getElementById('compareStatusText');
+    const compareProgressRing = document.getElementById('compareProgressRing');
+    const RING_CIRCUMFERENCE = 339.292; // 2 * PI * 54
+    const DEFAULT_COMPARE_ESTIMATE_MS = 70000; // 70 seconds default ETA for compare
+    
+    let compareTimingInterval = null;
+    let compareTimingStartTime = null;
+    let compareInFlight = false;
+    let compareIdempotencyKey = null;
+    let isLoading = false;
+    let isResultReady = false;
+    let isResultOpen = false;
+    let currentHistoryId = null;
+    let currentComparedCars = [];
+    const compareResearchSection = document.getElementById('compareResearchSection');
+    const compareResearchFormWrap = document.getElementById('compareResearchFormWrap');
+    const compareResearchForm = document.getElementById('compareResearchForm');
+    const compareResearchMessage = document.getElementById('compareResearchMessage');
+    const compareSubjectVehicle = document.getElementById('compareSubjectVehicle');
+    const compareResearchAnswerNow = document.getElementById('compareResearchAnswerNow');
+    const compareResearchSkip = document.getElementById('compareResearchSkip');
+    const compareResearchClose = document.getElementById('compareResearchClose');
+    const compareResearchDismiss = document.getElementById('compareResearchDismiss');
+    const compareOpenResultNow = document.getElementById('compareOpenResultNow');
+    const researchClient = window.YedaResearch
+        ? window.YedaResearch.createClient({
+            accepted: document.getElementById('researchConsentModal')?.dataset.accepted === 'true',
+            defaultSource: 'compare_results',
+            onConsentOpen: function () {
+                trackEvent('research_consent_opened', { flow_type: 'compare' });
+            },
+            onConsentAccepted: function () {
+                trackEvent('research_consented', { flow_type: 'compare' });
+            }
+        })
+        : null;
+    let researchCardVisible = false;
+    let researchFormOpen = false;
+    let compareResearchTrackedForHistory = null;
+    let resultReadyPanelTrackedForHistory = null;
+    
+    // ============================================================
+    // TIMING BANNER FUNCTIONS
+    // ============================================================
+    
+    function startCompareTimingBanner() {
+        if (!compareTimingBanner) return;
+        
+        // Fetch ETA estimate
+        fetch('/api/timing/estimate?kind=compare', {
+            method: 'GET',
+            credentials: 'include'
+        }).then(res => res.json()).then(res => {
+            if (res && res.ok) {
+                const data = res.data || {};
+                const p75_ms = data.p75_ms || DEFAULT_COMPARE_ESTIMATE_MS;
+                const count = data.sample_size || 0;
+                
+                if (compareEtaText) {
+                    if (count > 0) {
+                        compareEtaText.textContent = `זמן משוער: ~${Math.ceil(p75_ms / 1000)} שניות (מבוסס על ${count} השוואות)`;
+                    } else {
+                        compareEtaText.textContent = `זמן משוער: ~${Math.ceil(p75_ms / 1000)} שניות`;
+                    }
+                }
+                
+                // Start timer
+                compareTimingStartTime = performance.now();
+                compareTimingBanner.classList.remove('hidden');
+                
+                // Update timer every 100ms
+                compareTimingInterval = setInterval(() => {
+                    const elapsed = Math.floor((performance.now() - compareTimingStartTime) / 1000);
+                    if (compareElapsedTime) compareElapsedTime.textContent = elapsed;
+                    
+                    // Update progress ring (0 to 100% based on p75_ms)
+                    const elapsedMs = performance.now() - compareTimingStartTime;
+                    const progress = Math.min(1, elapsedMs / p75_ms);
+                    const offset = RING_CIRCUMFERENCE * (1 - progress);
+                    if (compareProgressRing) {
+                        compareProgressRing.style.strokeDashoffset = offset;
+                        
+                        // Rainbow hue cycling
+                        const hue = (elapsedMs / p75_ms) * 360;
+                        compareProgressRing.style.stroke = `hsl(${hue % 360}, 80%, 60%)`;
+                    }
+                }, 100);
+            }
+        }).catch(err => {
+            console.warn('Failed to fetch timing estimate:', err);
+            // Show banner anyway with default
+            compareTimingStartTime = performance.now();
+            compareTimingBanner.classList.remove('hidden');
+            if (compareEtaText) compareEtaText.textContent = `זמן משוער: ~${Math.ceil(DEFAULT_COMPARE_ESTIMATE_MS / 1000)} שניות`;
+            
+            compareTimingInterval = setInterval(() => {
+                const elapsed = Math.floor((performance.now() - compareTimingStartTime) / 1000);
+                if (compareElapsedTime) compareElapsedTime.textContent = elapsed;
+                
+                const elapsedMs = performance.now() - compareTimingStartTime;
+                const progress = Math.min(1, elapsedMs / DEFAULT_COMPARE_ESTIMATE_MS);
+                const offset = RING_CIRCUMFERENCE * (1 - progress);
+                if (compareProgressRing) {
+                    compareProgressRing.style.strokeDashoffset = offset;
+                    const hue = (elapsedMs / DEFAULT_COMPARE_ESTIMATE_MS) * 360;
+                    compareProgressRing.style.stroke = `hsl(${hue % 360}, 80%, 60%)`;
+                }
+            }, 100);
+        });
+    }
+    
+    function stopCompareTimingBanner(showCompletionMessage = true) {
+        if (compareTimingInterval) {
+            clearInterval(compareTimingInterval);
+            compareTimingInterval = null;
+        }
+        
+        if (showCompletionMessage && compareTimingStartTime && compareTimingBanner && !compareTimingBanner.classList.contains('hidden')) {
+            const finalElapsed = Math.floor((performance.now() - compareTimingStartTime) / 1000);
+            if (compareStatusText) compareStatusText.textContent = `הושלם תוך ${finalElapsed} שניות`;
+            
+            // Hide after 1.5 seconds
+            setTimeout(() => {
+                if (compareTimingBanner) compareTimingBanner.classList.add('hidden');
+                if (compareStatusText) compareStatusText.textContent = 'מעבד...';
+                if (compareProgressRing) {
+                    compareProgressRing.style.strokeDashoffset = RING_CIRCUMFERENCE;
+                    compareProgressRing.style.stroke = 'url(#compareRainbowGradient)';
+                }
+            }, 1500);
+        } else {
+            if (compareTimingBanner) compareTimingBanner.classList.add('hidden');
+            if (compareStatusText) compareStatusText.textContent = 'מעבד...';
+            if (compareProgressRing) {
+                compareProgressRing.style.strokeDashoffset = RING_CIRCUMFERENCE;
+                compareProgressRing.style.stroke = 'url(#compareRainbowGradient)';
+            }
+        }
+        
+        compareTimingStartTime = null;
+    }
+    
+    // ============================================================
+    // AUTOCOMPLETE INITIALIZATION (for each slot)
+    // ============================================================
+    
+    function initAutoComplete(slotSuffix) {
+        const searchInput = document.getElementById(`car_search_${slotSuffix}`);
+        const dropdown = document.getElementById(`car_dropdown_${slotSuffix}`);
+        const makeHidden = document.getElementById(`car_make_${slotSuffix}`);
+        const modelHidden = document.getElementById(`car_model_${slotSuffix}`);
+        const yearStartHidden = document.getElementById(`car_year_start_${slotSuffix}`);
+        const yearEndHidden = document.getElementById(`car_year_end_${slotSuffix}`);
+        const yearSelect = document.getElementById(`year_${slotSuffix}`);
+        const selectedDisplay = document.getElementById(`car_selected_${slotSuffix}`);
+        const clearBtn = document.querySelector(`.car-slot-container[data-slot="${slotSuffix}"] .clear-slot-btn`);
+
+        if (!searchInput || !dropdown) return;
+
+        let highlightIndex = -1;
+        let filteredItems = [];
+
+        function filterCars(query) {
+            if (!query || query.length < 1) return [];
+            const q = query.toLowerCase().trim();
+            return FLAT_CARS_LIST.filter(car => {
+                const searchStr = `${car.make} ${car.model}`.toLowerCase();
+                return searchStr.includes(q) || car.make.toLowerCase().startsWith(q) || car.model.toLowerCase().startsWith(q);
+            }).slice(0, 20);
+        }
+
+        function renderDropdown(items) {
+            filteredItems = items;
+            highlightIndex = -1;
+            if (items.length === 0) {
+                dropdown.classList.remove('open');
+                dropdown.innerHTML = '';
+                return;
+            }
+            dropdown.innerHTML = items.map((car, idx) => {
+                const yearText = car.yearStart && car.yearEnd ? `(${car.yearStart}-${car.yearEnd})` : '';
+                return `<div class="autocomplete-item" data-index="${idx}">
+                    <span class="item-make">${escapeHtml(car.make)}</span> ${escapeHtml(car.model)} <span class="item-years">${yearText}</span>
+                </div>`;
+            }).join('');
+            dropdown.classList.add('open');
+
+            dropdown.querySelectorAll('.autocomplete-item').forEach(item => {
+                item.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    selectItem(parseInt(item.dataset.index));
+                });
+            });
+        }
+
+        function selectItem(index) {
+            const car = filteredItems[index];
+            if (!car) return;
+
+            searchInput.value = car.display;
+            makeHidden.value = car.make;
+            modelHidden.value = car.model;
+            yearStartHidden.value = car.yearStart || '';
+            yearEndHidden.value = car.yearEnd || '';
+
+            selectedDisplay.textContent = `✓ ${car.display}`;
+            selectedDisplay.classList.remove('hidden');
+
+            // Populate year dropdown
+            const nowYear = new Date().getFullYear();
+            let from = car.yearStart || (nowYear - 20);
+            let to = car.yearEnd || (nowYear + 1);
+            yearSelect.innerHTML = '<option value="">בחר שנתון...</option>';
+            for (let y = to; y >= from; y--) {
+                const opt = document.createElement('option');
+                opt.value = String(y);
+                opt.textContent = String(y);
+                yearSelect.appendChild(opt);
+            }
+            yearSelect.disabled = false;
+
+            dropdown.classList.remove('open');
+            dropdown.innerHTML = '';
+            updateClearButton(slotSuffix);
+            updateSlotTitle(slotSuffix, car.make, car.model);
+            updateCompareButton();
+        }
+
+        searchInput.addEventListener('input', () => {
+            const items = filterCars(searchInput.value);
+            renderDropdown(items);
+            // Clear hidden fields if user edits after selection
+            if (makeHidden.value) {
+                makeHidden.value = '';
+                modelHidden.value = '';
+                yearStartHidden.value = '';
+                yearEndHidden.value = '';
+                selectedDisplay.classList.add('hidden');
+                yearSelect.innerHTML = '<option value="">בחר רכב תחילה</option>';
+                yearSelect.disabled = true;
+                updateClearButton(slotSuffix);
+                resetSlotTitle(slotSuffix);
+                updateCompareButton();
+            }
+        });
+
+        searchInput.addEventListener('keydown', (e) => {
+            const items = dropdown.querySelectorAll('.autocomplete-item');
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                highlightIndex = Math.min(highlightIndex + 1, items.length - 1);
+                items.forEach((item, i) => item.classList.toggle('highlighted', i === highlightIndex));
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                highlightIndex = Math.max(highlightIndex - 1, 0);
+                items.forEach((item, i) => item.classList.toggle('highlighted', i === highlightIndex));
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (highlightIndex >= 0 && highlightIndex < filteredItems.length) {
+                    selectItem(highlightIndex);
+                }
+            } else if (e.key === 'Escape') {
+                dropdown.classList.remove('open');
+            }
+        });
+
+        searchInput.addEventListener('blur', () => {
+            setTimeout(() => dropdown.classList.remove('open'), 200);
+        });
+        searchInput.addEventListener('focus', () => {
+            if (searchInput.value.length >= 1) {
+                const items = filterCars(searchInput.value);
+                renderDropdown(items);
+            }
+        });
+
+        // Year select change handler
+        yearSelect.addEventListener('change', () => {
+            updateClearButton(slotSuffix);
+            updateCompareButton();
+        });
+
+        // Clear button
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => {
+                searchInput.value = '';
+                makeHidden.value = '';
+                modelHidden.value = '';
+                yearStartHidden.value = '';
+                yearEndHidden.value = '';
+                selectedDisplay.classList.add('hidden');
+                yearSelect.innerHTML = '<option value="">בחר רכב תחילה</option>';
+                yearSelect.disabled = true;
+                const engineSelect = document.getElementById(`engine_${slotSuffix}`);
+                const gearSelect = document.getElementById(`gear_${slotSuffix}`);
+                if (engineSelect) engineSelect.value = 'בנזין';
+                if (gearSelect) gearSelect.value = 'אוטומטית';
+                updateClearButton(slotSuffix);
+                resetSlotTitle(slotSuffix);
+                updateCompareButton();
+            });
+        }
+    }
+    
+    // ============================================================
+    // HISTORY LOADING FROM QUERY PARAM
+    // ============================================================
+    
+    /**
+     * Get load ID from URL query parameter
+     * @returns {string|null} The load ID or null if not present
+     */
+    function getLoadIdFromQuery() {
+        const params = new URLSearchParams(window.location.search);
+        return params.get('load');
+    }
+    
+    /**
+     * Populate car selectors from cars array (from history)
+     * @param {Array} cars - Array of car objects with make, model, year, engine_type, gearbox
+     */
+    async function populateSelectorsFromCars(cars) {
+        if (!Array.isArray(cars) || cars.length === 0) return;
+        
+        for (let i = 0; i < Math.min(cars.length, 3); i++) {
+            const car = cars[i];
+            const slotSuffix = i + 1;
+            
+            const searchInput = document.getElementById(`car_search_${slotSuffix}`);
+            const makeHidden = document.getElementById(`car_make_${slotSuffix}`);
+            const modelHidden = document.getElementById(`car_model_${slotSuffix}`);
+            const yearStartHidden = document.getElementById(`car_year_start_${slotSuffix}`);
+            const yearEndHidden = document.getElementById(`car_year_end_${slotSuffix}`);
+            const yearSelect = document.getElementById(`year_${slotSuffix}`);
+            const selectedDisplay = document.getElementById(`car_selected_${slotSuffix}`);
+            const engineSelect = document.getElementById(`engine_${slotSuffix}`);
+            const gearSelect = document.getElementById(`gear_${slotSuffix}`);
+            
+            if (!searchInput || !car.make) continue;
+            
+            const display = `${car.make} ${car.model}`;
+            searchInput.value = display;
+            if (makeHidden) makeHidden.value = car.make;
+            if (modelHidden) modelHidden.value = car.model;
+            if (selectedDisplay) {
+                selectedDisplay.textContent = `✓ ${display}`;
+                selectedDisplay.classList.remove('hidden');
+            }
+            
+            // Populate year dropdown
+            const matchingCar = FLAT_CARS_LIST.find(c => c.make === car.make && c.model === car.model);
+            const nowYear = new Date().getFullYear();
+            let from = matchingCar?.yearStart || (nowYear - 20);
+            let to = matchingCar?.yearEnd || (nowYear + 1);
+            if (yearStartHidden) yearStartHidden.value = from;
+            if (yearEndHidden) yearEndHidden.value = to;
+            
+            yearSelect.innerHTML = '<option value="">בחר שנתון...</option>';
+            for (let y = to; y >= from; y--) {
+                const opt = document.createElement('option');
+                opt.value = String(y);
+                opt.textContent = String(y);
+                yearSelect.appendChild(opt);
+            }
+            yearSelect.disabled = false;
+            
+            if (car.year) {
+                yearSelect.value = String(car.year);
+            }
+            
+            if (car.engine_type && engineSelect) engineSelect.value = car.engine_type;
+            if (car.gearbox && gearSelect) gearSelect.value = car.gearbox;
+            
+            updateClearButton(slotSuffix);
+            updateSlotTitle(slotSuffix, car.make, car.model);
+        }
+        
+        updateCompareButton();
+    }
+    
+    /**
+     * Load comparison from history by ID
+     * @param {string} loadId - The comparison ID to load
+     */
+    async function loadComparisonFromHistory(loadId) {
+        console.log('[COMPARE] Loading comparison from history, id:', loadId);
+        resetCompareResultFlowState();
+        
+        try {
+            const response = await fetch(`/api/compare/${loadId}`, {
+                method: 'GET',
+                credentials: 'include',
+                headers: {
+                    'Accept': 'application/json'
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok || data.ok === false) {
+                // Handle error
+                const errorMsg = data.error?.message || data.message || 'השוואה לא נמצאה או אינה שייכת לחשבון שלך';
+                console.error('[COMPARE] Failed to load comparison:', errorMsg);
+                
+                // Show error in results section
+                resultsSection.classList.remove('hidden');
+                resultsSection.innerHTML = `
+                    <div class="bg-red-900/30 border border-red-700/60 rounded-2xl p-6 text-center">
+                        <div class="text-4xl mb-4">⚠️</div>
+                        <h3 class="text-xl font-bold text-white mb-2">שגיאה בטעינת ההשוואה</h3>
+                        <p class="text-red-300">${escapeHtml(errorMsg)}</p>
+                        <a href="/compare" class="inline-block mt-4 px-6 py-2 bg-primary hover:bg-primary/80 rounded-full text-white font-semibold transition-colors">
+                            התחל השוואה חדשה
+                        </a>
+                    </div>
+                `;
+                return;
+            }
+            
+            const record = data.data;
+            
+            // Build compatible result object for renderResults
+            const resultCompat = {
+                comparison_id: record.id,
+                cars_selected: record.cars_selected || {},
+                computed_result: record.computed_result || {},
+                model_output: record.model_output || {},
+                sources_index: record.sources_index || {},
+                assumptions: record.assumptions || {},
+                narrative: record.narrative || null,
+                ai: record.ai || null
+            };
+            
+            // For populateSelectorsFromCars, use the list format
+            const carsList = record.cars_selected_list || [];
+            await populateSelectorsFromCars(carsList);
+            
+            // Render results using existing function
+            comparisonResult = resultCompat;
+            currentHistoryId = resultCompat.comparison_id || null;
+            renderResults(resultCompat, { openImmediately: true });
+            syncCompareResearchContext(carsList);
+            
+            // Scroll to results section
+            setTimeout(() => {
+                resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 100);
+            
+            console.log('[COMPARE] Successfully loaded comparison from history');
+            
+        } catch (err) {
+            console.error('[COMPARE] Error loading comparison from history:', err);
+            
+            // Show generic error
+            resultsSection.classList.remove('hidden');
+            resultsSection.innerHTML = `
+                <div class="bg-red-900/30 border border-red-700/60 rounded-2xl p-6 text-center">
+                    <div class="text-4xl mb-4">⚠️</div>
+                    <h3 class="text-xl font-bold text-white mb-2">שגיאה בטעינת ההשוואה</h3>
+                    <p class="text-red-300">אירעה שגיאה בטעינת ההשוואה. נסה שוב מאוחר יותר.</p>
+                    <a href="/compare" class="inline-block mt-4 px-6 py-2 bg-primary hover:bg-primary/80 rounded-full text-white font-semibold transition-colors">
+                        התחל השוואה חדשה
+                    </a>
+                </div>
+            `;
+        }
+    }
+    
+    function updateClearButton(slotSuffix) {
+        const makeHidden = document.getElementById(`car_make_${slotSuffix}`);
+        const clearBtn = document.querySelector(`.car-slot-container[data-slot="${slotSuffix}"] .clear-slot-btn`);
+        if (clearBtn && makeHidden) {
+            if (makeHidden.value) {
+                clearBtn.classList.remove('hidden');
+            } else {
+                clearBtn.classList.add('hidden');
+            }
+        }
+    }
+
+    function updateSlotTitle(slotSuffix, make, model) {
+        const titleEl = document.getElementById(`slot-title-${slotSuffix}`);
+        if (!titleEl) return;
+        const name = [make, model].filter(Boolean).join(' ').trim();
+        if (name) {
+            const suffix = Number(slotSuffix) === 3
+                ? '<span class="text-slate-500">(אופציונלי)</span>'
+                : '<span class="text-secondary">*</span>';
+            titleEl.innerHTML = escapeHtml(name) + ' ' + suffix;
+        }
+    }
+
+    function resetSlotTitle(slotSuffix) {
+        const titleEl = document.getElementById(`slot-title-${slotSuffix}`);
+        if (!titleEl) return;
+        if (Number(slotSuffix) === 1) {
+            titleEl.innerHTML = 'רכב 1 <span class="text-secondary">*</span>';
+        } else if (Number(slotSuffix) === 2) {
+            titleEl.innerHTML = 'רכב 2 <span class="text-secondary">*</span>';
+        } else {
+            titleEl.innerHTML = 'רכב 3 <span class="text-slate-500">(אופציונלי)</span>';
+        }
+    }
+    
+    // ============================================================
+    // VALIDATION & COMPARE BUTTON
+    // ============================================================
+    
+    function getSelectedCar(slotSuffix) {
+        const make = document.getElementById(`car_make_${slotSuffix}`)?.value || '';
+        const model = document.getElementById(`car_model_${slotSuffix}`)?.value || '';
+        const year = document.getElementById(`year_${slotSuffix}`)?.value || '';
+        const engineSelect = document.getElementById(`engine_${slotSuffix}`);
+        const gearSelect = document.getElementById(`gear_${slotSuffix}`);
+        
+        if (!make || !model || !year) return null;
+        
+        const car = {
+            make: make,
+            model: model,
+            year: parseInt(year, 10),
+            engine_type: engineSelect?.value || 'בנזין',
+            gearbox: gearSelect?.value || 'אוטומטית'
+        };
+        
+        // Include year_start/year_end for the backend
+        const yearStart = document.getElementById(`car_year_start_${slotSuffix}`)?.value;
+        const yearEnd = document.getElementById(`car_year_end_${slotSuffix}`)?.value;
+        if (yearStart) car.year_start = parseInt(yearStart, 10);
+        if (yearEnd) car.year_end = parseInt(yearEnd, 10);
+        
+        return car;
+    }
+    
+    function getSelectedCars() {
+        const cars = [];
+        for (let i = 1; i <= 3; i++) {
+            const car = getSelectedCar(i);
+            if (car) cars.push(car);
+        }
+        return cars;
+    }
+    
+    function collectBuyerProfile() {
+        const profile = {};
+        const addNumber = (id, key) => {
+            const raw = document.getElementById(id)?.value;
+            if (raw !== undefined && raw !== null && String(raw).trim() !== '') {
+                const num = Number(raw);
+                if (!Number.isNaN(num)) profile[key] = num;
+            }
+        };
+        const addText = (id, key) => {
+            const raw = document.getElementById(id)?.value;
+            const text = raw == null ? '' : String(raw).trim().slice(0, 80);
+            if (text) profile[key] = text;
+        };
+        addNumber('buyer_budget_min', 'budget_min');
+        addNumber('buyer_budget_max', 'budget_max');
+        addNumber('buyer_annual_km', 'annual_km');
+        addText('buyer_main_use', 'main_use');
+        addText('buyer_family_size', 'family_size');
+        addText('buyer_cargo_need', 'cargo_need');
+        const weights = {};
+        document.querySelectorAll('.buyer-priority:checked').forEach((el) => {
+            const key = el.getAttribute('data-priority');
+            if (key) weights[key] = 10;
+        });
+        if (Object.keys(weights).length) profile.priority_weights = weights;
+        return Object.keys(profile).length ? profile : null;
+    }
+
+    function hasDuplicates(cars) {
+        const keys = cars.map(c => `${c.make}|${c.model}|${c.year}|${c.engine_type}|${c.gearbox}`);
+        return new Set(keys).size !== keys.length;
+    }
+    
+    function updateCompareButton() {
+        const cars = getSelectedCars();
+        const valid = cars.length >= 2 && !hasDuplicates(cars);
+        compareBtn.disabled = !valid;
+    }
+    
+    // ============================================================
+    // COMPARISON API CALL
+    // ============================================================
+    
+    async function ensureLegalAcceptance() {
+        if (window.legalAccepted) return true;
+        const res = await fetch('/api/legal/accept', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
+            credentials: 'include',
+            body: JSON.stringify({
+                legal_confirm: true,
+                terms_version: termsVersion,
+                privacy_version: privacyVersion
+            })
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+            window.legalAccepted = true;
+            return true;
+        }
+        return false;
+    }
+    
+    async function runComparison() {
+        if (compareInFlight) return;
+        const cars = getSelectedCars();
+        if (cars.length < 2) return;
+        const legalConfirm = requireCompareLegalConfirm();
+        if (!legalConfirm.ok) return;
+        
+        if (hasDuplicates(cars)) {
+            alert('לא ניתן להשוות רכבים זהים. אנא בחר רכבים שונים.');
+            return;
+        }
+        
+        // UI state
+        resetCompareResultFlowState();
+        isLoading = true;
+        trackEvent('result_requested', {
+            flow_type: 'compare',
+            selected_count: cars.length,
+        });
+        compareInFlight = true;
+        compareIdempotencyKey = compareIdempotencyKey || (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+        compareBtn.querySelector('.btn-text').classList.add('hidden');
+        compareBtn.querySelector('.btn-loading').classList.remove('hidden');
+        compareBtn.disabled = true;
+        resultsSection.classList.add('hidden');
+        errorSection.classList.add('hidden');
+        document.getElementById('errorRequestId').classList.add('hidden');
+        retryBtn?.classList.remove('hidden');
+        
+        try {
+            if (!window.legalAccepted) {
+                const acceptedViaBanner = await ensureLegalAcceptance();
+                if (!acceptedViaBanner) {
+                    showCompareLegalError('יש לאשר תנאי שימוש ומדיניות פרטיות.');
+                    return;
+                }
+            }
+            
+            // Start timing banner before API call
+            startCompareTimingBanner();
+            
+            const buyerProfile = collectBuyerProfile();
+            const comparePayload = { cars, legal_confirm: true };
+            if (buyerProfile) {
+                comparePayload.buyer_profile = buyerProfile;
+            }
+
+            const resp = await fetch('/api/compare', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Idempotency-Key': compareIdempotencyKey,
+                    'X-CSRF-Token': getCSRFToken(),
+                },
+                body: JSON.stringify(comparePayload)
+            });
+            
+            const data = await resp.json();
+            
+            if (!resp.ok || !data.ok) {
+                // Extract error message and request_id
+                // Handle both standard API format: { ok:false, error:{code,message}, request_id }
+                // and legal enforcement format: { error:"TERMS_NOT_ACCEPTED", message:"..." }
+                let errorMsg = 'השוואה נכשלה';
+                let errorCode = '';
+                let requestId = data.request_id || '';
+                
+                if (data.ok === false && data.error && typeof data.error === 'object') {
+                    // Standard API error format
+                    errorMsg = data.error.message || 'שגיאה';
+                    errorCode = data.error.code || '';
+                    if (data.error.details?.request_id) {
+                        requestId = data.error.details.request_id;
+                    }
+                } else if (typeof data.error === 'string') {
+                    // Legacy/legal enforcement format
+                    errorCode = data.error;
+                    errorMsg = data.message || errorCode;
+                }
+                
+                // Handle specific error codes
+                // Use a custom error object that extends Error-like behavior
+                const createCompareError = (msg, reqId) => {
+                    const error = new Error(msg);
+                    error.requestId = reqId;
+                    return error;
+                };
+                
+                if (errorCode === 'TERMS_NOT_ACCEPTED' || data.error === 'TERMS_NOT_ACCEPTED') {
+                    showCompareLegalError('יש לאשר תנאי שימוש ומדיניות פרטיות.');
+                    throw createCompareError('נדרש לאשר תנאי שימוש ומדיניות פרטיות', requestId);
+                }
+                if (errorCode === 'limit_reached' || data.error === 'limit_reached') {
+                    throw createCompareError('הגעת למקסימום 3 השוואות היום. נסה מחר.', requestId);
+                }
+                if (errorCode === 'daily_limit_reached') {
+                    const resetAt = data.error?.details?.reset_at ? new Date(data.error.details.reset_at).toLocaleString('he-IL') : '';
+                    retryBtn?.classList.add('hidden');
+                    throw createCompareError(`הגעת למגבלת השימוש היומית. ניתן לנסות שוב אחרי ${resetAt}`, requestId);
+                }
+                
+                throw createCompareError(errorMsg, requestId);
+            }
+            
+            comparisonResult = data.data;
+            currentHistoryId = comparisonResult?.comparison_id || null;
+            compareIdempotencyKey = null;
+            renderResults(comparisonResult);
+            syncCompareResearchContext(comparisonResult?.cars_selected_list || []);
+            // Feedback CTA for compare results
+            if (typeof window.renderFeedbackCTA === 'function') {
+                window.renderFeedbackCTA(resultsSection, currentHistoryId);
+            }
+            
+        } catch (err) {
+            console.error('[COMPARE] Error:', err);
+            // Handle both standard Error objects and errors with requestId
+            const errorMessage = err.message || 'שגיאה בביצוע ההשוואה';
+            const requestId = err.requestId || '';
+            
+            document.getElementById('errorMessage').textContent = errorMessage;
+            
+            // Show request_id if available
+            const errorRequestIdEl = document.getElementById('errorRequestId');
+            if (requestId && errorRequestIdEl) {
+                errorRequestIdEl.textContent = `מזהה בקשה: ${requestId}`;
+                errorRequestIdEl.classList.remove('hidden');
+            }
+            
+            errorSection.classList.remove('hidden');
+        } finally {
+            if (!isResultReady) {
+                hideCompareResearchCard();
+                resultReadyPanel?.classList.add('hidden');
+            }
+            isLoading = false;
+            // Stop timing banner
+            stopCompareTimingBanner();
+            
+            compareBtn.querySelector('.btn-text').classList.remove('hidden');
+            compareBtn.querySelector('.btn-loading').classList.add('hidden');
+            compareInFlight = false;
+            updateCompareButton();
+        }
+    }
+    
+    // ============================================================
+    // RESULTS RENDERING
+    // ============================================================
+    
+    const ACCENT_COLORS = {
+        'car_1': { class: 'car-accent-1', color: '#ef4444', name: 'אדום' },
+        'car_2': { class: 'car-accent-2', color: '#3b82f6', name: 'כחול' },
+        'car_3': { class: 'car-accent-3', color: '#22c55e', name: 'ירוק' }
+    };
+    
+    function decisionHeader(label) {
+        if (label === 'car_1' || label === 'car_2' || label === 'car_3') return 'הבחירה הסבירה יותר';
+        if (label === 'depends') return 'תלוי שימוש';
+        return 'אין הכרעה חד משמעית';
+    }
+
+    function buildLegacyDecisionFallback(computed) {
+        const label = computed?.overall_winner && computed.overall_winner !== 'tie' ? computed.overall_winner : (computed?.overall_winner === 'tie' ? 'tie' : 'unknown');
+        return {
+            overall_decision: {
+                label,
+                text: 'אין מספיק מידע מנוסח ללא מדדים גלויים, לכן חשוב להשוות מצב בפועל, היסטוריית טיפולים ועלויות צפויות.'
+            },
+            category_decisions: [],
+            key_differences: [],
+            choose_car_1_if: ['מתאים יותר אם מצב הרכב, ההיסטוריה והעלויות בפועל מתאימים לשימוש שלך.'],
+            choose_car_2_if: ['מתאים יותר אם מצב הרכב, ההיסטוריה והעלויות בפועל מתאימים לשימוש שלך.'],
+            avoid_or_check_car_1_if: ['בדוק היסטוריית טיפולים, תאונות, תקלות ידועות ועלויות אחזקה.'],
+            avoid_or_check_car_2_if: ['בדוק היסטוריית טיפולים, תאונות, תקלות ידועות ועלויות אחזקה.'],
+            competitors_to_consider: [],
+            practical_summary: 'ההחלטה צריכה להישען על התאמה לשימוש ובדיקת רכב מקצועית, לא על מדד יחיד.'
+        };
+    }
+
+    function renderBulletList(items) {
+        const list = Array.isArray(items) ? items.filter(Boolean) : [];
+        if (!list.length) return '<li class="text-slate-500">אין מידע מספק.</li>';
+        return list.map(item => `<li>• ${escapeHtml(item)}</li>`).join('');
+    }
+
+    function carName(carsSelected, key) {
+        return carsSelected?.[key]?.display_name || key;
+    }
+
+    function renderDecisionResult(decision, carsSelected, carKeys, result) {
+        const winnerDisplay = document.getElementById('winnerDisplay');
+        const overall = decision?.overall_decision || {};
+        const label = overall.label || 'unknown';
+        const selectedName = carsSelected?.[label]?.display_name;
+        const title = decisionHeader(label);
+        winnerDisplay.innerHTML = `
+            <div class="space-y-3">
+                <div class="inline-flex items-center rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-bold text-primary">תקציר החלטה</div>
+                <h4 class="text-2xl md:text-3xl font-black text-white">${escapeHtml(title)}</h4>
+                ${selectedName ? `<div class="text-lg font-bold text-slate-100">${escapeHtml(selectedName)}</div>` : ''}
+                <p class="text-slate-300 leading-7">${escapeHtml(overall.text || 'אין הכרעה חד משמעית בלי בדיקה של מצב הרכב בפועל.')}</p>
+            </div>
+        `;
+    }
+
+    function findCategoryDecision(decision, key) {
+        return (decision?.category_decisions || []).find(item => item && item.category_key === key) || null;
+    }
+
+    function renderCategoryDecisionCard(decision, key, fallbackTitle, carsSelected, carKeys) {
+        const item = findCategoryDecision(decision, key);
+        const title = item?.category_name_he || fallbackTitle;
+        const pref = item?.preferred && item.preferred !== 'unknown' ? item.preferred : 'depends';
+        let prefDisplay;
+        if (pref.startsWith('car_') && carsSelected) {
+            const carIdx = parseInt(pref.replace('car_', ''), 10);
+            const carDisplayName = carsSelected[pref]?.display_name || `רכב ${carIdx}`;
+            prefDisplay = `<span class="car-result-chip car-chip-${carIdx}">${escapeHtml(carDisplayName)}</span>`;
+        } else {
+            prefDisplay = `<span class="rounded-full border border-slate-600 bg-slate-900/60 px-3 py-1 text-xs text-slate-300">תלוי שימוש ומצב בפועל</span>`;
+        }
+        return `
+            <article class="rounded-2xl border border-slate-700/70 bg-dark-lighter/70 p-4 md:p-5 space-y-2">
+                <div class="flex items-center justify-between gap-3">
+                    <h4 class="text-lg font-bold text-white">${escapeHtml(title)}</h4>
+                    ${prefDisplay}
+                </div>
+                ${item?.why ? `<p class="text-sm leading-7 text-slate-300">${escapeHtml(item.why)}</p>` : ''}
+                ${item?.important_caveat ? `<p class="text-xs leading-6 text-amber-200"><span class="font-bold">מה לבדוק:</span> ${escapeHtml(item.important_caveat)}</p>` : ''}
+            </article>
+        `;
+    }
+
+    function renderDecisionSections(decision, carsSelected, carKeys, result) {
+        const profile = result?.model_output?.cars || {};
+        const carProfileLine = (key, field) => {
+            const cp = profile?.[key]?.car_profile || {};
+            const value = field.split('.').reduce((obj, part) => obj && obj[part], cp);
+            if (Array.isArray(value)) return value.filter(Boolean).slice(0, 3).join(', ');
+            return value || '';
+        };
+        const keyDiffs = Array.isArray(decision?.key_differences) ? decision.key_differences : [];
+        const competitors = Array.isArray(decision?.competitors_to_consider) ? decision.competitors_to_consider : [];
+        const gridCols = carKeys.length >= 3 ? 'md:grid-cols-3' : 'md:grid-cols-2';
+        return `
+            <section class="grid grid-cols-1 ${gridCols} gap-4">
+                <article class="rounded-2xl border border-slate-700/70 bg-slate-900/50 p-4">
+                    <h4 class="text-lg font-bold text-white mb-3">למי כל רכב מתאים</h4>
+                    ${carKeys.map((ck, index) => `
+                        <div class="mb-3">
+                            <div class="font-bold text-slate-100 flex items-center gap-2 flex-wrap">
+                                <span class="car-result-chip car-chip-${index + 1}">${escapeHtml(carName(carsSelected, ck))}</span>
+                                <span class="text-slate-400 text-sm">– מתאים יותר אם</span>
+                            </div>
+                            <ul class="mt-1 text-sm leading-7 text-slate-300">${renderBulletList(decision[`choose_car_${index + 1}_if`])}</ul>
+                        </div>
+                    `).join('')}
+                </article>
+                <article class="rounded-2xl border border-slate-700/70 bg-slate-900/50 p-4">
+                    <h4 class="text-lg font-bold text-white mb-3">מה לבדוק לפני החלטה</h4>
+                    ${carKeys.map((ck, index) => `
+                        <div class="mb-3">
+                            <div class="font-bold text-slate-100 flex items-center gap-2 flex-wrap">
+                                <span class="car-result-chip car-chip-${index + 1}">${escapeHtml(carName(carsSelected, ck))}</span>
+                            </div>
+                            <ul class="mt-1 text-sm leading-7 text-slate-300">${renderBulletList(decision[`avoid_or_check_car_${index + 1}_if`])}</ul>
+                        </div>
+                    `).join('')}
+                </article>
+            </section>
+            <section class="rounded-2xl border border-slate-700/70 bg-dark-lighter/70 p-4 md:p-5">
+                <h4 class="text-lg font-bold text-white mb-3">הבדלים מרכזיים</h4>
+                <div class="space-y-3">
+                    ${keyDiffs.length ? keyDiffs.map(diff => `
+                        <div class="rounded-xl bg-slate-900/50 border border-slate-700/60 p-3">
+                            <div class="font-bold text-slate-100 mb-2">${escapeHtml(diff.title || 'פער שחשוב להבין')}</div>
+                            <div class="space-y-2">
+                                ${carKeys.map((ck, index) => diff[`car_${index + 1}`] ? `
+                                    <div class="flex items-start gap-2 text-sm text-slate-300">
+                                        <span class="car-result-chip car-chip-${index + 1} shrink-0">${escapeHtml(carName(carsSelected, ck))}</span>
+                                        <span>${escapeHtml(diff[`car_${index + 1}`])}</span>
+                                    </div>
+                                ` : '').filter(Boolean).join('')}
+                                ${diff.meaning_for_buyer ? `<div class="text-xs text-slate-400 border-t border-slate-700/40 pt-2 mt-1"><span class="font-medium text-slate-300">משמעות לרוכש:</span> ${escapeHtml(diff.meaning_for_buyer)}</div>` : ''}
+                            </div>
+                        </div>
+                    `).join('') : '<p class="text-sm text-slate-400">אין פערים מרכזיים מנוסחים במידע הזמין.</p>'}
+                </div>
+            </section>
+            ${renderCategoryDecisionCard(decision, 'pricing_and_value', 'מחיר ותמורה', carsSelected, carKeys)}
+            ${renderCategoryDecisionCard(decision, 'trim_and_equipment', 'רמות גימור ואבזור', carsSelected, carKeys)}
+            ${renderCategoryDecisionCard(decision, 'license_fee_and_running_cost', 'אגרה ועלויות שוטפות', carsSelected, carKeys)}
+            ${renderCategoryDecisionCard(decision, 'powertrain_and_performance', 'מכלולים וביצועים', carsSelected, carKeys)}
+            ${renderCategoryDecisionCard(decision, 'fuel_consumption', 'צריכת דלק/חשמל', carsSelected, carKeys)}
+            ${renderCategoryDecisionCard(decision, 'official_safety', 'בטיחות רשמית', carsSelected, carKeys)}
+            ${renderCategoryDecisionCard(decision, 'reliability_and_risk', 'אמינות וסיכונים', carsSelected, carKeys)}
+            ${renderCategoryDecisionCard(decision, 'resale_and_market_confidence', 'סחירות ועלויות אחזקה', carsSelected, carKeys)}
+            <section class="grid grid-cols-1 ${gridCols} gap-4">
+                ${carKeys.map((ck, index) => `
+                    <article class="rounded-2xl border border-slate-700/70 bg-slate-900/50 p-4">
+                        <div class="mb-2">
+                            <span class="car-result-chip car-chip-${index + 1}">${escapeHtml(carName(carsSelected, ck))}</span>
+                        </div>
+                        <ul class="text-sm leading-7 text-slate-300">
+                            <li>מחיר: ${escapeHtml(carProfileLine(ck, 'pricing_israel.used_price_range_ils') || carProfileLine(ck, 'pricing_israel.new_price_range_ils') || 'לא נמצא במקור מאומת')}</li>
+                            <li>בטיחות רשמית: ${escapeHtml(carProfileLine(ck, 'official_safety.rating') || 'לא נמצא מקור רשמי')}</li>
+                            <li>צריכת דלק/חשמל: ${escapeHtml(carProfileLine(ck, 'fuel_consumption.official_value') || carProfileLine(ck, 'fuel_consumption.real_world_value') || 'לא נמצא מידע מאומת')}</li>
+                        </ul>
+                    </article>
+                `).join('')}
+            </section>
+            <section class="rounded-2xl border border-slate-700/70 bg-dark-lighter/70 p-4 md:p-5">
+                <h4 class="text-lg font-bold text-white mb-3">מתחרים שכדאי לבדוק</h4>
+                <ul class="text-sm leading-7 text-slate-300">
+                    ${competitors.length ? competitors.map(item => `<li>• <span class="font-bold text-slate-100">${escapeHtml(item.model || '')}</span> – ${escapeHtml(item.why_consider || '')}</li>`).join('') : '<li>אין מתחרים נוספים במידע הזמין.</li>'}
+                </ul>
+            </section>
+            <section class="rounded-2xl border border-primary/30 bg-primary/10 p-4 md:p-5">
+                <h4 class="text-lg font-bold text-white mb-2">סיכום פרקטי</h4>
+                <p class="text-sm md:text-base leading-8 text-slate-200">${escapeHtml(decision?.practical_summary || 'אין סיכום זמין כרגע.')}</p>
+            </section>
+        `;
+    }
+
+    function renderResults(result, options = {}) {
+        const carsSelected = result.cars_selected || {};
+        const carKeys = Object.keys(carsSelected).filter(k => k.startsWith('car_'));
+        const computed = result.computed_result || {};
+        
+        const getDisplayName = (carKey) => {
+            return carsSelected[carKey]?.display_name || carKey;
+        };
+
+        const decision = result.decision_result || computed.decision_result || buildLegacyDecisionFallback(computed);
+        renderDecisionResult(decision, carsSelected, carKeys, result);
+
+        const assumptionsList = document.getElementById('assumptionsList');
+        const assumptions = result.assumptions || {};
+        const assumptionsEntries = Object.entries(assumptions);
+        if (assumptionsEntries.length === 0) {
+            document.getElementById('assumptionsDisplay').classList.add('hidden');
+        } else {
+            document.getElementById('assumptionsDisplay').classList.remove('hidden');
+            assumptionsList.innerHTML = assumptionsEntries.map(([_key, assumptionText]) =>
+                `<li>• ${escapeHtml(assumptionText)}</li>`
+            ).join('');
+        }
+
+        const reasonsList = document.getElementById('reasonsList');
+        reasonsList.innerHTML = '<li>הפירוט מוצג לפי התאמה, פערים ומה לבדוק לפני החלטה.</li>';
+
+        const categoriesSection = document.getElementById('categoriesSection');
+        categoriesSection.innerHTML = renderDecisionSections(decision, carsSelected, carKeys, result);
+        isLoading = false;
+        isResultReady = true;
+        isResultOpen = false;
+        closeCompareResult();
+        showCompareReadyPanel();
+        showCompareResearchCard();
+        trackEvent('result_rendered', {
+            flow_type: 'compare',
+            compare_history_id: currentHistoryId,
+            compared_count: carKeys.length,
+        });
+        if (options.openImmediately) {
+            resultReadyPanel?.classList.add('hidden');
+            openCompareResult({ userInitiated: false });
+        }
+    }
+    
+    // ============================================================
+    // UTILITY FUNCTIONS
+    // ============================================================
+    
+    function escapeHtml(value) {
+        if (value === null || value === undefined) return '';
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function sanitizeUrl(url) {
+        if (!url) return '';
+        var trimmed = url.replace(/^\s+/, '');
+        if (/^https?:\/\//i.test(trimmed)) return trimmed;
+        if (/^mailto:/i.test(trimmed)) return trimmed;
+        return '';
+    }
+    
+    
+    function getScoreColor(score) {
+        if (score >= 75) return 'text-green-400';
+        if (score >= 50) return 'text-yellow-400';
+        return 'text-red-400';
+    }
+    
+    
+    // ============================================================
+    // EVENT LISTENERS
+    // ============================================================
+
+    openResultButton?.addEventListener('click', function () {
+        openCompareResult({ userInitiated: true });
+    });
+    compareOpenResultNow?.addEventListener('click', function () {
+        closeCompareResearch({ reason: 'open_result_now', openResult: true });
+    });
+    compareResearchAnswerNow?.addEventListener('click', function () {
+        openCompareResearchForm();
+    });
+    compareResearchSkip?.addEventListener('click', function () {
+        closeCompareResearch({ reason: 'skip', trackSkipped: true });
+    });
+    compareResearchClose?.addEventListener('click', function () {
+        closeCompareResearch({ reason: 'close_button' });
+    });
+    compareResearchDismiss?.addEventListener('click', function () {
+        closeCompareResearch({ reason: 'dismiss_form' });
+    });
+
+    if (compareResearchForm && researchClient) {
+        compareResearchForm.addEventListener('submit', async function (event) {
+            event.preventDefault();
+            if (!currentHistoryId) {
+                setCompareResearchMessage('צריך קודם להשלים השוואה כדי לשמור תשובות מחקר.', 'error');
+                return;
+            }
+            const responses = [];
+            const subjectVehicle = compareSubjectVehicle ? compareSubjectVehicle.value : 'unknown';
+            const annualInsurance = document.getElementById('compareAnnualInsurance')?.value || '';
+            const annualTotalCost = document.getElementById('compareAnnualTotalCost')?.value || '';
+            const satisfactionScore = document.getElementById('compareSatisfactionScore')?.value || '';
+            const wouldBuyAgain = compareResearchForm.querySelector('input[name="compare_would_buy_again"]:checked')?.value || '';
+
+            if (subjectVehicle) {
+                responses.push({
+                    question_code: 'subject_vehicle',
+                    response: {
+                        subject_vehicle_slot: subjectVehicle,
+                    },
+                });
+            }
+            if (annualInsurance) {
+                responses.push({
+                    question_code: 'annual_insurance',
+                    response: {
+                        annual_insurance_ils: annualInsurance,
+                    },
+                });
+            }
+            if (annualTotalCost) {
+                responses.push({
+                    question_code: 'annual_total_cost',
+                    response: {
+                        annual_total_cost_ils: annualTotalCost,
+                    },
+                });
+            }
+            if (satisfactionScore || wouldBuyAgain) {
+                responses.push({
+                    question_code: 'owner_satisfaction',
+                    response: {
+                        satisfaction_score: satisfactionScore || '8',
+                        would_buy_again: wouldBuyAgain === 'true',
+                    },
+                });
+            }
+            if (!responses.length) {
+                setCompareResearchMessage('צריך למלא לפחות תשובת מחקר אחת כדי לשמור.', 'warning');
+                return;
+            }
+            if (!(await researchClient.ensureConsent('compare_results'))) {
+                return;
+            }
+            try {
+                await researchClient.saveResponses({
+                    flow_type: 'compare',
+                    source_analysis_type: 'compare_history',
+                    source_record_id: currentHistoryId,
+                    vehicle_context: {
+                        compare_history_id: currentHistoryId,
+                        vehicles: currentComparedCars,
+                    },
+                    responses,
+                });
+                setCompareResearchMessage('תודה — התשובות נשמרו למחקר בלבד.', 'success');
+                markResearchPromptSeen('compare', currentHistoryId);
+                trackEvent('research_completed', {
+                    flow_type: 'compare',
+                    compare_history_id: currentHistoryId,
+                    saved_count: responses.length,
+                });
+            } catch (err) {
+                trackEvent('research_save_failed', {
+                    flow_type: 'compare',
+                    compare_history_id: currentHistoryId,
+                    message: err.message || 'save_failed',
+                });
+                setCompareResearchMessage('לא הצלחנו לשמור את התשובות כרגע. התוצאה שלך עדיין זמינה.', 'error');
+            }
+        });
+    }
+    
+    compareBtn.addEventListener('click', function() {
+        if (!window.__IS_AUTHENTICATED__) {
+            window.showLoginModal('compare_gate');
+            return;
+        }
+        runComparison();
+    });
+    
+    retryBtn.addEventListener('click', () => {
+        errorSection.classList.add('hidden');
+    });
+    
+    // ============================================================
+    // INITIALIZE
+    // ============================================================
+    
+    // Initialize autocomplete for all 3 slots
+    initAutoComplete(1);
+    initAutoComplete(2);
+    initAutoComplete(3);
+    
+    console.log('[COMPARE] Initialized with', Object.keys(CAR_DATA).length, 'manufacturers');
+    
+    // Check for history load parameter
+    const loadId = getLoadIdFromQuery();
+    if (loadId) {
+        console.log('[COMPARE] Found load parameter:', loadId);
+        loadComparisonFromHistory(loadId);
+    }
+})();
+</script>
+
+{% include "_login_modal.html" %}
+{% include "_footer.html" %}
+
+</body>
+</html>

@@ -1,0 +1,19 @@
+<footer class="mt-16 py-8 text-center border-t border-slate-800/50 bg-dark-lighter/30 backdrop-blur-md">
+    <div class="max-w-7xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-4 md:gap-6">
+        <div class="flex items-center gap-3 opacity-75 hover:opacity-100 transition-opacity">
+            <span class="font-bold text-white">yedaarechevAI</span>
+        </div>
+        <div class="flex flex-col items-center gap-2 text-slate-400 text-xs md:text-sm">
+            <p class="text-slate-500">© 2026 yedaarechevAI</p>
+            <p class="text-slate-500 text-center max-w-md">המידע המוצג באתר הינו כללי בלבד ואינו מהווה ייעוץ מקצועי או משפטי</p>
+        </div>
+        <div class="flex gap-4 md:gap-6 text-xs md:text-sm font-medium">
+            <a href="{{ url_for('public.privacy') }}" target="_blank" rel="noopener noreferrer" class="text-slate-400 hover:text-primary transition-colors">
+                מדיניות פרטיות
+            </a>
+            <a href="{{ url_for('public.terms') }}" target="_blank" rel="noopener noreferrer" class="text-slate-400 hover:text-primary transition-colors">
+                תנאי שימוש
+            </a>
+        </div>
+    </div>
+</footer>

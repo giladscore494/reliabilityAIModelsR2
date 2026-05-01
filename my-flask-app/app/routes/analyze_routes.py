@@ -12,12 +12,17 @@ from flask_login import login_required, current_user
 from app.extensions import db
 from app.models import SearchHistory
 from app.quota import check_and_increment_ip_rate_limit, get_client_ip, log_access_decision, PER_IP_PER_MIN_LIMIT
-from app.utils.http_helpers import api_error, api_ok, is_owner_user
+from app.utils.http_helpers import api_error, api_ok, is_owner_user, _utcnow
 from app.services import analyze_service
 from app.factory import QUOTA_RESERVATION_TTL_SECONDS
 
 bp = Blueprint('analyze', __name__)
-DEFAULT_ESTIMATE_MS = {"analyze": 15000, "advisor": 12000}
+# DEFAULT_ESTIMATE_MS: Fallback timing estimates for various API operations (in milliseconds).
+# - analyze: Standard reliability analysis (~15s)
+# - advisor: Car recommendation engine (~12s)
+# - compare: Multi-car comparison with web grounding (~70s) - longer due to fetching multiple car metrics from web sources
+# - invoice: Invoice analysis (~35s) includes OCR + pricing benchmarks, so it runs longer than standard analysis.
+DEFAULT_ESTIMATE_MS = {"analyze": 15000, "advisor": 12000, "compare": 70000, "invoice": 35000}
 TIMING_SAMPLE_LIMIT = 50
 
 
@@ -46,7 +51,7 @@ def analyze_car():
     client_ip = get_client_ip()
     ip_allowed, ip_count, ip_resets_at = check_and_increment_ip_rate_limit(client_ip, limit=per_ip_limit)
     if not ip_allowed:
-        retry_after = max(0, int((ip_resets_at - datetime.utcnow()).total_seconds()))
+        retry_after = max(0, int((ip_resets_at - _utcnow()).total_seconds()))
         resp = api_error(
             "rate_limited",
             "חרגת ממגבלת הבקשות לדקה.",
@@ -89,21 +94,25 @@ def analyze_car():
 def timing_estimate():
     """
     Returns estimated timing for an endpoint.
-    Supports both 'kind' (analyze|advisor) and 'endpoint' (analyze) parameters for backward compatibility.
+    Supports both 'kind' (analyze|advisor|compare|invoice) and 'endpoint' (analyze) parameters for backward compatibility.
     Filters out null/zero/negative durations and never fails even if history is missing.
     """
     # Support both 'kind' and 'endpoint' parameters
     raw_kind = request.args.get('kind') or request.args.get('endpoint') or 'analyze'
     kind = raw_kind.lower()
     
-    if kind not in ['analyze', 'advisor']:
-        return api_error('INVALID_KIND', 'Only "analyze" and "advisor" are supported', status=400)
+    if kind not in ['analyze', 'advisor', 'compare', 'invoice']:
+        return api_error('INVALID_KIND', 'Only "analyze", "advisor", "compare" and "invoice" are supported', status=400)
 
     # Choose the right table based on kind
     if kind == 'analyze':
         from app.models import SearchHistory as HistoryModel
-    else:  # advisor
+    elif kind == 'advisor':
         from app.models import AdvisorHistory as HistoryModel
+    elif kind == 'invoice':
+        from app.models import ServiceInvoice as HistoryModel
+    else:  # compare
+        from app.models import ComparisonHistory as HistoryModel
 
     default_estimate = DEFAULT_ESTIMATE_MS.get(kind, 15000)
 
@@ -159,11 +168,19 @@ def timing_estimate():
             current_app.logger.warning("Timing estimate query failed for %s: %s", scope_kind, e)
             return []
 
+    # Determine the correct timestamp column for ordering
+    # SearchHistory and AdvisorHistory use 'timestamp', ComparisonHistory uses 'created_at'
+    sort_col = getattr(HistoryModel, "timestamp", None)
+    if sort_col is None:
+        sort_col = getattr(HistoryModel, "created_at", None)
+    if sort_col is None:
+        sort_col = HistoryModel.id
+
     try:
         user_records = _safe_query(
             lambda: db.session.query(HistoryModel.duration_ms)
             .filter(HistoryModel.user_id == current_user.id)
-            .order_by(HistoryModel.timestamp.desc())
+            .order_by(sort_col.desc())
             .limit(TIMING_SAMPLE_LIMIT)
             .all(),
             f"{kind}_user",
@@ -174,7 +191,7 @@ def timing_estimate():
         if not stats:
             global_records = _safe_query(
                 lambda: db.session.query(HistoryModel.duration_ms)
-                .order_by(HistoryModel.timestamp.desc())
+                .order_by(sort_col.desc())
                 .limit(TIMING_SAMPLE_LIMIT)
                 .all(),
                 f"{kind}_global",
@@ -200,8 +217,7 @@ def timing_estimate():
             {
                 "kind": kind,
                 "avg_ms": avg_ms,
-                # average_ms kept for backward compatibility; TODO: remove once all clients use avg_ms/estimate_ms.
-                "average_ms": avg_ms,
+                "average_ms": avg_ms,  # backward compatibility alias for avg_ms
                 "median_ms": median_ms,
                 "estimate_ms": estimate_ms,
                 "p75_ms": p75_ms,

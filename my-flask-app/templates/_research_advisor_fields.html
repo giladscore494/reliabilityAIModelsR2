@@ -1,0 +1,156 @@
+<section id="advisorResearchSection" class="mt-6 hidden rounded-[1.75rem] border border-slate-700/70 bg-slate-900/60 p-6 md:p-8">
+    <div class="flex items-start justify-between gap-4">
+        <div class="space-y-2">
+            <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase">מחקר אופציונלי</p>
+            <h3 class="text-2xl font-bold text-white">עזור לבנות את מאגר האמינות הישראלי</h3>
+            <p class="text-sm leading-7 text-slate-300">
+                יש לך 45 שניות? כמה תשובות קצרות על רכב שהיה אצלך יעזרו לנו לשפר את האמינות וההמלצות לכולם.
+            </p>
+            <p class="text-sm leading-7 text-slate-400">
+                החלק הזה אופציונלי לגמרי. התוצאה שלך כבר מוכנה ואפשר לפתוח אותה בלי לענות.
+            </p>
+        </div>
+        <button id="advisorResearchClose" type="button" class="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 bg-slate-950/40 text-slate-300 transition hover:border-slate-500 hover:text-white" aria-label="סגור כרטיס מחקר">
+            ✕
+        </button>
+    </div>
+
+    <div class="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+        <button id="advisorResearchAnswerNow" type="button" class="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-primary to-secondary px-5 py-3 text-sm font-bold text-white transition hover:opacity-90">
+            עונה עכשיו
+        </button>
+        <button id="advisorResearchSkip" type="button" class="inline-flex items-center justify-center rounded-2xl border border-slate-600 bg-slate-950/40 px-5 py-3 text-sm font-semibold text-slate-200 transition hover:border-slate-500 hover:text-white">
+            לא עכשיו
+        </button>
+    </div>
+
+    <div id="advisorResearchFormWrap" class="mt-6 hidden rounded-3xl border border-slate-700 bg-slate-950/40 p-5 md:p-6">
+        <div class="mb-5 flex items-start justify-between gap-4">
+            <div class="space-y-2">
+                <h4 class="text-lg font-bold text-white">שאלון מחקר קצר</h4>
+                <p class="text-sm leading-7 text-slate-400">
+                    השאלון אופציונלי, לא משפיע על התוצאה שכבר הופקה, ושמירה בפועל תתבצע רק אחרי אישור מחקר נפרד וברור.
+                </p>
+            </div>
+            <button id="advisorResearchDismiss" type="button" class="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 bg-slate-950/40 text-slate-300 transition hover:border-slate-500 hover:text-white" aria-label="סגור שאלון מחקר">
+                ✕
+            </button>
+        </div>
+
+        <form id="advisorResearchForm" class="space-y-5">
+            <div class="grid gap-5 md:grid-cols-2">
+                <div class="space-y-2">
+                    <label for="advisorResearchCurrentVehicle" class="block text-sm font-semibold text-slate-200">איזה רכב יש/היה לך?</label>
+                    <input id="advisorResearchCurrentVehicle" type="text" maxlength="120" placeholder="לדוגמה: Toyota Corolla 2018"
+                           class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white" />
+                </div>
+                <div class="space-y-2">
+                    <label for="advisorResearchOwnershipDuration" class="block text-sm font-semibold text-slate-200">כמה זמן היה אצלך?</label>
+                    <select id="advisorResearchOwnershipDuration" class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white">
+                        <option value="">בחר/י אפשרות</option>
+                        <option value="less_than_6_months">פחות מ-6 חודשים</option>
+                        <option value="6_12_months">6–12 חודשים</option>
+                        <option value="1_2_years">שנה–שנתיים</option>
+                        <option value="2_4_years">2–4 שנים</option>
+                        <option value="4_plus_years">מעל 4 שנים</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid gap-5 md:grid-cols-2">
+                <div class="space-y-2">
+                    <label for="advisorResearchMileageBucket" class="block text-sm font-semibold text-slate-200">בערך כמה ק״מ נסעת איתו?</label>
+                    <select id="advisorResearchMileageBucket" class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white">
+                        <option value="">בחר/י אפשרות</option>
+                        <option value="0-50k">עד 50,000</option>
+                        <option value="50k-100k">50,000–100,000</option>
+                        <option value="100k-150k">100,000–150,000</option>
+                        <option value="150k-200k">150,000–200,000</option>
+                        <option value="200k+">מעל 200,000</option>
+                        <option value="unknown">לא יודע/ת</option>
+                    </select>
+                </div>
+                <div class="space-y-2">
+                    <p class="text-sm font-semibold text-slate-200">היו תקלות משמעותיות?</p>
+                    <div class="flex flex-wrap gap-3 text-sm">
+                        <label class="inline-flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2">
+                            <input type="radio" name="advisorResearchMajorFaults" value="yes" class="text-primary">
+                            <span>כן</span>
+                        </label>
+                        <label class="inline-flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2">
+                            <input type="radio" name="advisorResearchMajorFaults" value="no" class="text-primary">
+                            <span>לא</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div id="advisorResearchFaultTypeWrap" class="hidden space-y-2">
+                <label for="advisorResearchMajorFaultType" class="block text-sm font-semibold text-slate-200">אם כן, סוג התקלה</label>
+                <select id="advisorResearchMajorFaultType" class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white">
+                    <option value="">בחר/י אפשרות</option>
+                    <option value="engine">מנוע</option>
+                    <option value="gearbox">גיר</option>
+                    <option value="hybrid_battery">סוללה היברידית/חשמלית</option>
+                    <option value="electrical">חשמל</option>
+                    <option value="suspension">מתלים/בלמים</option>
+                    <option value="ac">מזגן</option>
+                    <option value="other">אחר</option>
+                </select>
+            </div>
+
+            <div class="grid gap-5 md:grid-cols-2">
+                <div class="space-y-2">
+                    <label for="advisorResearchMaintenanceCostBucket" class="block text-sm font-semibold text-slate-200">עלות אחזקה שנתית משוערת</label>
+                    <select id="advisorResearchMaintenanceCostBucket" class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white">
+                        <option value="">בחר/י אפשרות</option>
+                        <option value="0-2000">0–2,000 ₪</option>
+                        <option value="2000-4000">2,000–4,000 ₪</option>
+                        <option value="4000-7000">4,000–7,000 ₪</option>
+                        <option value="7000-10000">7,000–10,000 ₪</option>
+                        <option value="10000+">מעל 10,000 ₪</option>
+                        <option value="unknown">לא יודע/ת</option>
+                    </select>
+                </div>
+                <div class="space-y-2">
+                    <label for="advisorResearchActualConsumption" class="block text-sm font-semibold text-slate-200">צריכת דלק בפועל (אופציונלי)</label>
+                    <input id="advisorResearchActualConsumption" type="number" min="0" max="50" step="0.1" placeholder="לדוגמה: 14.5"
+                           class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white" />
+                </div>
+            </div>
+
+            <div class="grid gap-5 md:grid-cols-2">
+                <div class="space-y-2">
+                    <label for="advisorResearchSatisfactionScore" class="block text-sm font-semibold text-slate-200">שביעות רצון</label>
+                    <select id="advisorResearchSatisfactionScore" class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white">
+                        <option value="">בחר/י דירוג</option>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                        <option value="4">4</option>
+                        <option value="5">5</option>
+                    </select>
+                </div>
+                <div class="space-y-2">
+                    <label for="advisorResearchWouldBuyAgain" class="block text-sm font-semibold text-slate-200">היית קונה שוב?</label>
+                    <select id="advisorResearchWouldBuyAgain" class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white">
+                        <option value="">בחר/י אפשרות</option>
+                        <option value="yes">כן</option>
+                        <option value="no">לא</option>
+                        <option value="not_sure">לא בטוח/ה</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="flex flex-col gap-3 md:flex-row md:items-center">
+                <button type="submit" class="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-primary to-secondary px-6 py-3 text-sm font-bold text-white transition hover:opacity-90">
+                    שמור תשובות מחקר
+                </button>
+                <button id="advisorOpenResultNow" type="button" class="inline-flex items-center justify-center rounded-2xl border border-primary/40 bg-primary/10 px-6 py-3 text-sm font-bold text-primary transition hover:bg-primary/20">
+                    פתח תוצאה עכשיו
+                </button>
+                <p id="advisorResearchMessage" class="hidden text-sm text-emerald-300"></p>
+            </div>
+        </form>
+    </div>
+</section>

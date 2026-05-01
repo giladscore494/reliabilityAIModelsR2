@@ -1,0 +1,113 @@
+<section id="reliabilityResearchSection" class="mt-6 hidden rounded-[1.75rem] border border-slate-700/70 bg-slate-900/60 p-6 md:p-8">
+    <div class="flex items-start justify-between gap-4">
+        <div class="space-y-2">
+            <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase">מחקר אופציונלי</p>
+            <h3 class="text-2xl font-bold text-white">עזור לבנות את מאגר האמינות הישראלי</h3>
+            <p class="text-sm leading-7 text-slate-300">
+                יש לך 45 שניות? כמה תשובות קצרות על רכב שהיה אצלך יעזרו לנו לשפר את האמינות וההמלצות לכולם.
+            </p>
+            <p class="text-sm leading-7 text-slate-400">
+                החלק הזה אופציונלי לגמרי. התוצאה שלך כבר מוכנה ואפשר לפתוח אותה בלי לענות.
+            </p>
+        </div>
+        <button id="reliabilityResearchClose" type="button" class="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 bg-slate-950/40 text-slate-300 transition hover:border-slate-500 hover:text-white" aria-label="סגור כרטיס מחקר">
+            ✕
+        </button>
+    </div>
+
+    <div class="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+        <button id="reliabilityResearchAnswerNow" type="button" class="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-primary to-secondary px-5 py-3 text-sm font-bold text-white transition hover:opacity-90">
+            עונה עכשיו
+        </button>
+        <button id="reliabilityResearchSkip" type="button" class="inline-flex items-center justify-center rounded-2xl border border-slate-600 bg-slate-950/40 px-5 py-3 text-sm font-semibold text-slate-200 transition hover:border-slate-500 hover:text-white">
+            לא עכשיו
+        </button>
+    </div>
+
+    <div id="reliabilityResearchFormWrap" class="mt-6 hidden rounded-3xl border border-slate-700 bg-slate-950/40 p-5 md:p-6">
+        <div class="mb-5 flex items-start justify-between gap-4">
+            <div class="space-y-2">
+                <h4 class="text-lg font-bold text-white">שאלון מחקר קצר</h4>
+                <p class="text-sm leading-7 text-slate-400">
+                    השאלון אופציונלי, לא משפיע על התוצאה שכבר הופקה, ושמירה בפועל תתבצע רק אחרי אישור מחקר נפרד וברור.
+                </p>
+            </div>
+            <button id="reliabilityResearchDismiss" type="button" class="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 bg-slate-950/40 text-slate-300 transition hover:border-slate-500 hover:text-white" aria-label="סגור שאלון מחקר">
+                ✕
+            </button>
+        </div>
+
+        <form id="reliabilityResearchForm" class="space-y-5">
+            <div class="grid gap-5 md:grid-cols-2">
+                <div class="space-y-2">
+                    <p class="text-sm font-semibold text-slate-200">האם זה הרכב שלך?</p>
+                    <div class="flex flex-wrap gap-3 text-sm">
+                        <label class="inline-flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2">
+                            <input type="radio" name="ownership_status" value="owner" class="text-primary">
+                            <span>כן, זה הרכב שלי</span>
+                        </label>
+                        <label class="inline-flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2">
+                            <input type="radio" name="ownership_status" value="pre_purchase_research" class="text-primary">
+                            <span>לא, בודק/ת לפני קנייה</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="space-y-2">
+                    <label for="reliabilityGarageType" class="block text-sm font-semibold text-slate-200">איפה מטפלים בדרך כלל?</label>
+                    <select id="reliabilityGarageType" class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white">
+                        <option value="">בחר/י אפשרות</option>
+                        <option value="authorized">מורשה יבואן</option>
+                        <option value="independent">מוסך עצמאי</option>
+                        <option value="both">גם וגם</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid gap-5 md:grid-cols-2">
+                <div class="space-y-2">
+                    <label for="reliabilityLastServiceCost" class="block text-sm font-semibold text-slate-200">כמה עלה הטיפול האחרון? (₪)</label>
+                    <input id="reliabilityLastServiceCost" type="number" min="0" max="100000" step="50" class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white" placeholder="לדוגמה: 1800">
+                </div>
+
+                <div class="space-y-2">
+                    <p class="text-sm font-semibold text-slate-200">האם הרכב עבר טסט בפעם הראשונה?</p>
+                    <div class="flex flex-wrap gap-3 text-sm">
+                        <label class="inline-flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2">
+                            <input type="radio" name="first_test_pass" value="true" class="text-primary">
+                            <span>כן</span>
+                        </label>
+                        <label class="inline-flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2">
+                            <input type="radio" name="first_test_pass" value="false" class="text-primary">
+                            <span>לא</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="space-y-2">
+                <p class="text-sm font-semibold text-slate-200">האם היו תיקונים מחוץ לאחריות?</p>
+                <div class="flex flex-wrap gap-3 text-sm">
+                    <label class="inline-flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2">
+                        <input type="radio" name="out_of_warranty_repairs" value="true" class="text-primary">
+                        <span>כן</span>
+                    </label>
+                    <label class="inline-flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2">
+                        <input type="radio" name="out_of_warranty_repairs" value="false" class="text-primary">
+                        <span>לא</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="flex flex-col gap-3 md:flex-row md:items-center">
+                <button type="submit" class="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-primary to-secondary px-6 py-3 text-sm font-bold text-white transition hover:opacity-90">
+                    שמור/י תשובות מחקר
+                </button>
+                <button id="reliabilityOpenResultNow" type="button" class="inline-flex items-center justify-center rounded-2xl border border-primary/40 bg-primary/10 px-6 py-3 text-sm font-bold text-primary transition hover:bg-primary/20">
+                    פתח תוצאה עכשיו
+                </button>
+                <p id="reliabilityResearchMessage" class="hidden text-sm text-emerald-300"></p>
+            </div>
+        </form>
+    </div>
+</section>

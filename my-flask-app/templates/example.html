@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>yedaarechevAI – ניתוח לדוגמה: {{ example.make }} {{ example.model }} {{ example.year }}</title>
+    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    {% include "_posthog_snippet.html" %}
+    <style>
+        :root { --bg-dark: #0F172A; --text-light: #E2E8F0; --primary: #6366F1; --secondary:#EC4899; }
+        body {
+            font-family: 'Heebo', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-light);
+            margin: 0;
+            overflow-x: hidden;
+        }
+        .fade-in { animation: fadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards; opacity: 0; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        ::-webkit-scrollbar { width: 10px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 5px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+        /* Flat layout (no tabs) — every section open at once. */
+        #results-container .example-section {
+            background: rgba(15, 23, 42, 0.4);
+            border: 1px solid rgba(51, 65, 85, 0.7);
+            border-radius: 1.25rem;
+            padding: 1.5rem;
+            margin-top: 1.25rem;
+        }
+        #results-container .example-section h3.section-title {
+            font-size: 1.125rem;
+            font-weight: 700;
+            color: #fff;
+            margin-bottom: 0.75rem;
+        }
+    </style>
+    <script nonce="{{ csp_nonce }}">
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#6366F1', secondary: '#EC4899',
+                        dark: '#0F172A', 'dark-lighter': '#1E293B',
+                        success: '#10B981', warning: '#F59E0B', danger: '#EF4444',
+                    },
+                    boxShadow: { 'neon': '0 0 20px rgba(99, 102, 241, 0.4)' }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-dark text-slate-200 min-h-screen flex flex-col antialiased selection:bg-primary/30 selection:text-white">
+    {% set active_page = 'example' %}
+    {% include '_navbar.html' %}
+
+    <main class="flex-grow">
+        <!-- How-to-read banner -->
+        <div class="bg-gradient-to-r from-primary/10 to-secondary/10 border-b border-primary/20">
+            <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-3">
+                <p class="text-slate-300 text-xs md:text-sm text-center leading-relaxed">
+                    💡 <strong class="text-white">איך לקרוא את הניתוח:</strong> המערכת מציפה תחומי סיכון ונקודות לבדיקה — לא קובעת אם לקנות. השתמש בממצאים כהכנה לבדיקת מוסך ושיחה עם המוכר.
+                </p>
+            </div>
+        </div>
+
+        <!-- Example banner -->
+        <div class="bg-gradient-to-r from-amber-600/20 to-amber-500/10 border-b border-amber-500/30">
+            <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-4">
+                <div class="flex flex-col md:flex-row items-center justify-between gap-4 max-w-6xl mx-auto">
+                    <p class="text-amber-200 font-bold text-sm md:text-base text-center md:text-right">
+                        דוגמה — זהו ניתוח אמיתי שנוצר עבור רכב לדוגמה. כדי לקבל ניתוח לרכב שלך, התחבר עם Google.
+                    </p>
+                    <a href="{{ url_for('public.login') }}"
+                       class="shrink-0 inline-flex items-center justify-center px-6 py-2.5 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-bold text-sm shadow-lg shadow-primary/20 hover:scale-[1.02] transition-transform"
+                       onclick="if(typeof posthog!=='undefined')try{posthog.capture('signup_clicked',{source:'example'})}catch(e){}">
+                        התחבר עם Google
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <section class="container mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12">
+            <div class="max-w-5xl mx-auto fade-in">
+                <!-- Car header -->
+                <div class="mb-6">
+                    <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase mb-2">ניתוח אמינות לדוגמה</p>
+                    <h1 class="text-3xl md:text-4xl font-extrabold text-white">
+                        {{ example.make }} {{ example.model }} {{ example.year }}
+                    </h1>
+                </div>
+
+                <!-- Results container with the exact ids script.js expects -->
+                <div id="results-container" class="w-full bg-dark-lighter/80 backdrop-blur-xl p-6 md:p-8 rounded-[2rem] border border-slate-700/50 shadow-2xl text-slate-200">
+
+                    <!-- Information status -->
+                    <div id="reliability-score-container" class="w-full mb-8"></div>
+
+                    <!-- Summary (simple + detailed + sources) -->
+                    <div class="example-section">
+                        <h3 class="section-title">סיכום המידע – הסבר פשוט</h3>
+                        <p id="summary-simple-text" class="text-slate-200 leading-relaxed"></p>
+
+                        <button id="summary-toggle-btn" type="button"
+                                class="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600 transition-colors">
+                            להרחבה מקצועית
+                        </button>
+
+                        <div id="summary-detailed-block" class="mt-4 hidden space-y-2">
+                            <h4 class="text-sm font-bold text-slate-300">הסבר מקצועי ומעמיק</h4>
+                            <p id="summary-detailed-text" class="text-slate-300 text-sm leading-relaxed"></p>
+                        </div>
+
+                        <div id="sources-block" class="mt-4 space-y-2 hidden">
+                            <h4 class="text-sm font-bold text-slate-300">מקורות החיפוש</h4>
+                            <ul id="sources-list" class="list-disc list-inside text-sm text-slate-200 space-y-1"></ul>
+                        </div>
+                    </div>
+
+                    <!-- Faults (common_issues + recommended_checks) -->
+                    <div class="example-section">
+                        <h3 class="section-title">תחומי סיכון ובדיקות מומלצות</h3>
+                        <div id="faults"></div>
+                    </div>
+
+                    <!-- Costs -->
+                    <div class="example-section">
+                        <h3 class="section-title">רגישות עלויות</h3>
+                        <div id="costs"></div>
+                    </div>
+
+                    <!-- Reliability report -->
+                    <div class="example-section">
+                        <h3 class="section-title">מה לבדוק לפני החלטה</h3>
+                        <div id="report"></div>
+                    </div>
+
+                    <!-- Competitors = knownUncertainties -->
+                    <div class="example-section">
+                        <h3 class="section-title">מה עוד לא ידוע</h3>
+                        <div id="competitors"></div>
+                    </div>
+                </div>
+
+                <!-- Bottom CTA -->
+                <div class="mt-10 rounded-[2rem] border border-slate-700/70 bg-dark-lighter/70 p-8 text-center">
+                        <h3 class="text-2xl font-extrabold text-white mb-3">מוכנים לדעת מה לבדוק ברכב שלכם?</h3>
+                        <p class="text-slate-400 mb-6">התחברו עם Google וקבלו סקירת תחומי סיכון ורשימת נקודות לבדיקה לפני הקנייה.</p>
+                    <a href="{{ url_for('public.login') }}"
+                       class="inline-flex items-center justify-center px-8 py-4 rounded-2xl bg-gradient-to-r from-primary to-secondary text-white font-black text-lg shadow-xl shadow-primary/20 hover:scale-[1.02] transition-transform"
+                       onclick="if(typeof posthog!=='undefined')try{posthog.capture('signup_clicked',{source:'example'})}catch(e){}">
+                        התחבר עם Google כדי לנתח רכב
+                    </a>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    {% include '_login_modal.html' %}
+    {% include '_footer.html' %}
+
+    <!-- Example data injected for script.js to pick up -->
+    <script type="application/json" id="example-data">{{ result_data | tojson }}</script>
+
+    <!-- Stub auth-data so script.js IIFE doesn't error on missing element -->
+    <script type="application/json" id="auth-data">false</script>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+
+    {% if posthog_key %}
+    <script nonce="{{ csp_nonce }}">
+        if (typeof posthog !== 'undefined') {
+            try { posthog.capture('example_viewed', { example_slug: '{{ slug }}' }); } catch(e) {}
+        }
+    </script>
+    {% endif %}
+</body>
+</html>

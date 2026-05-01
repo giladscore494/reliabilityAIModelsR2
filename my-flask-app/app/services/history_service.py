@@ -2,15 +2,40 @@
 """History service helpers."""
 
 import json
-from typing import List, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional
 from sqlalchemy.exc import SQLAlchemyError
 
 from flask import current_app
 
 from app.extensions import db
-from app.models import SearchHistory, AdvisorHistory
+from app.models import SearchHistory, AdvisorHistory, LeasingAdvisorHistory
 from app.utils.http_helpers import api_ok, api_error, get_request_id
-from app.utils.sanitization import sanitize_analyze_response
+from app.utils.sanitization import (
+    sanitize_analyze_response,
+    sanitize_reliability_report_response,
+    derive_information_status,
+)
+
+def safe_json_obj(value, default=None):
+    """Safely decode value into dict/list, including a double-encoded JSON string."""
+    fallback = {} if default is None else default
+    try:
+        if isinstance(value, (dict, list)):
+            return value
+        if not isinstance(value, str):
+            return fallback
+        stripped = value.strip()
+        if not stripped:
+            return fallback
+        result = json.loads(stripped)
+        if isinstance(result, str):
+            try:
+                result = json.loads(result)
+            except Exception:
+                return fallback
+        return result if isinstance(result, (dict, list)) else fallback
+    except Exception:
+        return fallback
 
 
 def fetch_dashboard_history(user_id: int) -> Tuple[list, list, Optional[str], Optional[str]]:
@@ -47,6 +72,60 @@ def fetch_dashboard_history(user_id: int) -> Tuple[list, list, Optional[str], Op
     return user_searches, advisor_entries, search_error, advisor_error
 
 
+def fetch_leasing_history(user_id: int) -> Tuple[list, Optional[str]]:
+    """Fetch leasing advisor history for dashboard."""
+    logger = current_app.logger
+    try:
+        entries = LeasingAdvisorHistory.query.filter_by(
+            user_id=user_id
+        ).order_by(LeasingAdvisorHistory.created_at.desc()).limit(50).all()
+        return entries, None
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            logger.exception("[DASH] leasing rollback failed request_id=%s", get_request_id())
+        logger.exception("[DASH] leasing DB query failed request_id=%s", get_request_id())
+        return [], "לא הצלחנו לטעון את היסטוריית יועץ הליסינג כעת."
+
+
+def build_leasing_data(entries: list) -> list:
+    """Build leasing history summary for dashboard display."""
+    result = []
+    for e in entries:
+        frame = safe_json_obj(e.frame_input_json, default={})
+        response = safe_json_obj(e.gemini_response_json, default={})
+        if not isinstance(frame, dict):
+            frame = {}
+        top_rec = ""
+        top3 = response.get("top3", []) if isinstance(response, dict) else []
+        if isinstance(top3, list) and top3:
+            first = top3[0]
+            if isinstance(first, dict):
+                top_rec = f"{first.get('make', '')} {first.get('model', '')}"
+        result.append({
+            "id": e.id,
+            "created_at": e.created_at.strftime("%d/%m/%Y %H:%M"),
+            "frame_summary": f"BIK: {frame.get('max_bik', '—')} | {frame.get('source', '')}",
+            "top_recommendation": top_rec.strip(),
+            "duration_ms": e.duration_ms,
+        })
+    return result
+
+
+def _normalize_reliability_history_payload(raw: Any) -> Dict[str, Any]:
+    payload = dict(raw) if isinstance(raw, dict) else {}
+    sanitized_report = sanitize_reliability_report_response(payload.get("reliability_report"))
+    payload["reliability_report"] = sanitized_report
+    payload.update(
+        derive_information_status(
+            payload,
+            sanitized_report=sanitized_report,
+        )
+    )
+    return payload
+
+
 def build_searches_data(user_searches: List[SearchHistory]) -> list:
     logger = current_app.logger
     searches_data = []
@@ -60,8 +139,7 @@ def build_searches_data(user_searches: List[SearchHistory]) -> list:
                 get_request_id(),
             )
             parsed_result = {}
-        parsed_result.pop("reliability_score", None)
-        parsed_result.pop("base_score_calculated", None)
+        parsed_result = _normalize_reliability_history_payload(parsed_result)
         searches_data.append({
             "id": s.id,
             "timestamp": s.timestamp.strftime('%d/%m/%Y %H:%M'),
@@ -75,6 +153,29 @@ def build_searches_data(user_searches: List[SearchHistory]) -> list:
             "duration_ms": getattr(s, "duration_ms", None),
         })
     return searches_data
+
+
+def build_advisor_data(advisor_entries: List[AdvisorHistory]) -> list:
+    """Build advisor history items for dashboard list rendering."""
+    data = []
+    for entry in advisor_entries:
+        parsed_result = safe_json_obj(entry.result_json, default={})
+        if not isinstance(parsed_result, dict):
+            parsed_result = {}
+        cars = parsed_result.get("recommended_cars") if isinstance(parsed_result.get("recommended_cars"), list) else []
+        first = cars[0] if cars else {}
+        top_recommendation = ""
+        if isinstance(first, dict):
+            brand = (first.get("brand") or "").strip()
+            model = (first.get("model") or "").strip()
+            top_recommendation = f"{brand} {model}".strip()
+        data.append({
+            "id": entry.id,
+            "timestamp": entry.timestamp.strftime("%d/%m/%Y %H:%M"),
+            "top_recommendation": top_recommendation,
+            "duration_ms": getattr(entry, "duration_ms", None),
+        })
+    return data
 
 
 def search_details_response(search_id: int, user_id: int):
@@ -93,7 +194,10 @@ def search_details_response(search_id: int, user_id: int):
             "fuel_type": s.fuel_type,
             "transmission": s.transmission,
         }
-        data_safe = sanitize_analyze_response(json.loads(s.result_json))
+        raw = json.loads(s.result_json)
+
+        raw = _normalize_reliability_history_payload(raw)
+        data_safe = sanitize_analyze_response(raw)
         return api_ok({"meta": meta, "data": data_safe})
     except Exception as e:
         try:
@@ -149,6 +253,7 @@ def history_item_response(item_id: int, user_id: int):
             return api_error('NOT_FOUND', 'פריט לא נמצא או אין לך גישה אליו', status=404)
 
         result_data = json.loads(search.result_json) if search.result_json else {}
+        result_data = sanitize_analyze_response(_normalize_reliability_history_payload(result_data))
 
         return api_ok({
             'id': search.id,

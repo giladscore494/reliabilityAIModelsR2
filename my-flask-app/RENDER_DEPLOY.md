@@ -21,13 +21,16 @@ These must be present (app will hard-fail on Render without `SECRET_KEY`/`DATABA
 - `GOOGLE_CLIENT_SECRET`
 - `GEMINI_API_KEY`
 - `GEMINI_RELIABILITY_MODEL_ID` (optional, default: `gemini-3-flash-preview`)
-- `GEMINI_RECOMMENDER_MODEL_ID` (optional, default: `gemini-3-pro-preview`)
+- `GEMINI_RECOMMENDER_MODEL_ID` (optional, default: `gemini-3.1-pro-preview`)
 - `APP_TZ=Asia/Jerusalem` (explicitly set production timezone)
 - `OWNER_EMAILS` (comma-separated, lowercase)
 - `OWNER_BYPASS_QUOTA` (`0` or `1`, controls owner quota bypass)
 - `ADVISOR_OWNER_ONLY` (`0` or `1`, restricts advisor/recommendations to owners)
 - `CANONICAL_BASE_URL=https://yedaarechev.com` (callback + redirects use apex)
 - `WEB_CONCURRENCY` (optional, defaults to 2 gunicorn workers)
+- `POSTHOG_API_KEY` (optional; PostHog analytics API key. If empty/missing, analytics are silently disabled)
+- `POSTHOG_HOST` (optional; default `https://us.i.posthog.com`)
+- `OWNER_EMAIL` (optional; single email address of the site owner for the owner management UI, e.g. `gilad@example.com`)
 
 ## 3) Google OAuth redirect URI (IMPORTANT)
 In Google Cloud Console > APIs & Services > Credentials > OAuth 2.0 Client ID:

@@ -1,32 +1,83 @@
 # -*- coding: utf-8 -*-
 """Advisor routes blueprint."""
 
-from datetime import datetime
+import json
 
-from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app
-from flask_login import login_required, current_user
+from flask import (
+    Blueprint,
+    current_app,
+    flash,
+    redirect,
+    render_template,
+    request,
+    url_for,
+)
+from flask_login import current_user, login_required
 
-from app.quota import check_and_increment_ip_rate_limit, get_client_ip, log_access_decision, PER_IP_PER_MIN_LIMIT
-from app.utils.http_helpers import api_error, is_owner_user
-from app.utils.validation import validate_analyze_request, ValidationError
+from app.quota import (
+    PER_IP_PER_MIN_LIMIT,
+    check_and_increment_ip_rate_limit,
+    get_client_ip,
+    log_access_decision,
+)
+from app.utils.http_helpers import _utcnow, api_error, is_owner_user
+from app.utils.validation import ValidationError, validate_analyze_request
+from app.models import AdvisorHistory
 from app.services import advisor_service
 
 bp = Blueprint('advisor', __name__)
 
 
+def _current_user_email() -> str:
+    if not current_user.is_authenticated:
+        return ""
+    return getattr(current_user, "email", "")
+
+
 @bp.route('/recommendations')
-@login_required
 def recommendations():
+    advisor_owner_only = current_app.config.get('ADVISOR_OWNER_ONLY', False)
+    if current_user.is_authenticated and advisor_owner_only and not is_owner_user():
+        flash("גישה למנוע ההמלצות זמינה לבעלי המערכת בלבד.", "error")
+        return redirect(url_for('dashboard.dashboard'))
+    return render_template(
+        'recommendations.html',
+        user=current_user,
+        user_email=_current_user_email(),
+        is_owner=is_owner_user(),
+        advisor_history_profile=None,
+        advisor_history_result=None,
+        advisor_history_id=None,
+    )
+
+
+@bp.route('/recommendations/history/<int:history_id>')
+@login_required
+def recommendations_history(history_id):
     advisor_owner_only = current_app.config.get('ADVISOR_OWNER_ONLY', False)
     if advisor_owner_only and not is_owner_user():
         flash("גישה למנוע ההמלצות זמינה לבעלי המערכת בלבד.", "error")
         return redirect(url_for('dashboard.dashboard'))
-    user_email = getattr(current_user, "email", "") if current_user.is_authenticated else ""
+    record = AdvisorHistory.query.filter_by(id=history_id, user_id=current_user.id).first()
+    if not record:
+        flash("השאלון המבוקש לא נמצא.", "error")
+        return redirect(url_for('dashboard.dashboard'))
+    try:
+        profile = json.loads(record.profile_json) if record.profile_json else {}
+    except Exception:
+        profile = {}
+    try:
+        result = json.loads(record.result_json) if record.result_json else {}
+    except Exception:
+        result = {}
     return render_template(
         'recommendations.html',
         user=current_user,
-        user_email=user_email,
+        user_email=_current_user_email(),
         is_owner=is_owner_user(),
+        advisor_history_profile=profile,
+        advisor_history_result=result,
+        advisor_history_id=record.id,
     )
 
 
@@ -42,8 +93,17 @@ def advisor_api():
     per_ip_limit = current_app.config.get('PER_IP_PER_MIN_LIMIT', PER_IP_PER_MIN_LIMIT)
 
     if advisor_owner_only and not is_owner_user():
-        log_access_decision('/advisor_api', getattr(current_user, "id", None), 'rejected', 'owner only')
-        return api_error("forbidden", "גישה למנוע ההמלצות זמינה לבעלי המערכת בלבד.", status=403)
+        log_access_decision(
+            '/advisor_api',
+            getattr(current_user, "id", None),
+            'rejected',
+            'owner only',
+        )
+        return api_error(
+            "forbidden",
+            "גישה למנוע ההמלצות זמינה לבעלי המערכת בלבד.",
+            status=403,
+        )
     # Log access decision
     user_id = current_user.id if current_user.is_authenticated else None
     log_access_decision('/advisor_api', user_id, 'allowed', 'authenticated user')
@@ -51,7 +111,7 @@ def advisor_api():
     client_ip = get_client_ip()
     ip_allowed, ip_count, ip_resets_at = check_and_increment_ip_rate_limit(client_ip, limit=per_ip_limit)
     if not ip_allowed:
-        retry_after = max(0, int((ip_resets_at - datetime.utcnow()).total_seconds()))
+        retry_after = max(0, int((ip_resets_at - _utcnow()).total_seconds()))
         resp = api_error(
             "rate_limited",
             "חרגת ממגבלת הבקשות לדקה.",
@@ -67,20 +127,40 @@ def advisor_api():
         return resp
     
     if not request.is_json:
-        log_access_decision('/advisor_api', user_id, 'rejected', 'validation error: content-type')
-        return api_error("invalid_content_type", "Content-Type חייב להיות application/json", status=415, details={"field": "payload"})
+        log_access_decision(
+            '/advisor_api',
+            user_id,
+            'rejected',
+            'validation error: content-type',
+        )
+        return api_error(
+            "invalid_content_type",
+            "Content-Type חייב להיות application/json",
+            status=415,
+            details={"field": "payload"},
+        )
 
     try:
         payload = request.get_json(silent=False) or {}
     except Exception:
-        log_access_decision('/advisor_api', user_id, 'rejected', 'validation error: invalid JSON')
+        log_access_decision(
+            '/advisor_api',
+            user_id,
+            'rejected',
+            'validation error: invalid JSON',
+        )
         return api_error("invalid_json", "קלט JSON לא תקין", status=400, details={"field": "payload"})
 
     # Validate request before processing
     try:
-        validated = validate_analyze_request(payload)
+        validated = validate_analyze_request(payload, is_owner=is_owner_user())
     except ValidationError as e:
-        log_access_decision('/advisor_api', user_id, 'rejected', f'validation error: {e.field}')
+        log_access_decision(
+            '/advisor_api',
+            user_id,
+            'rejected',
+            f'validation error: {e.field}',
+        )
         return api_error("validation_error", e.message, status=400, details={"field": e.field})
 
     return advisor_service.handle_advisor_logic(validated, current_user, user_id)

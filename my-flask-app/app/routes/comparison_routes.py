@@ -1,0 +1,304 @@
+# -*- coding: utf-8 -*-
+"""Comparison routes blueprint for Car Comparison feature."""
+
+import re
+from datetime import datetime, timedelta
+from flask import Blueprint, render_template, request, current_app, session
+from flask_login import current_user, login_required
+
+from car_models_dict import israeli_car_market_full_compilation
+from app.factory import USER_DAILY_LIMIT
+from app.quota import (
+    check_and_increment_ip_rate_limit,
+    get_client_ip,
+    log_access_decision,
+    resolve_app_timezone,
+    compute_quota_window,
+    reserve_daily_quota,
+    finalize_quota_reservation,
+    release_quota_reservation,
+    get_daily_quota_usage,
+    PER_IP_PER_MIN_LIMIT,
+)
+from app.legal import TERMS_VERSION, PRIVACY_VERSION
+from app.models import LegalAcceptance, QuotaReservation
+from app.utils.http_helpers import api_error, api_ok, is_owner_user, get_request_id, _utcnow
+from app.services import comparison_service
+from app.utils.analytics import track_event
+
+bp = Blueprint('comparison', __name__)
+
+
+@bp.route('/compare')
+def compare_page():
+    """Render the car comparison page (publicly accessible GET)."""
+    if not current_user.is_authenticated:
+        return render_template(
+            'compare.html',
+            user=current_user,
+            user_email="",
+            is_owner=False,
+            car_models_data=israeli_car_market_full_compilation,
+            legal_accepted=False,
+            accepted_terms=False,
+            accepted_privacy=False,
+            terms_version=current_app.config.get("TERMS_VERSION", TERMS_VERSION),
+            privacy_version=current_app.config.get("PRIVACY_VERSION", PRIVACY_VERSION),
+        )
+    user_email = getattr(current_user, "email", "") if current_user.is_authenticated else ""
+    terms_version = current_app.config.get("TERMS_VERSION", TERMS_VERSION)
+    privacy_version = current_app.config.get("PRIVACY_VERSION", PRIVACY_VERSION)
+    legal_accepted = LegalAcceptance.query.filter_by(
+        user_id=current_user.id,
+        terms_version=terms_version,
+        privacy_version=privacy_version,
+    ).first() is not None
+    return render_template(
+        'compare.html',
+        user=current_user,
+        user_email=user_email,
+        is_owner=is_owner_user(),
+        car_models_data=israeli_car_market_full_compilation,
+        legal_accepted=legal_accepted,
+        accepted_terms=legal_accepted,
+        accepted_privacy=legal_accepted,
+        terms_version=terms_version,
+        privacy_version=privacy_version,
+    )
+
+
+@bp.route('/api/compare', methods=['POST'])
+@login_required
+def compare_api():
+    """
+    API endpoint for car comparison.
+    Accepts a JSON payload with cars to compare (2-3 cars).
+    Returns comparison results with deterministic scoring.
+    """
+    per_ip_limit = current_app.config.get('PER_IP_PER_MIN_LIMIT', PER_IP_PER_MIN_LIMIT)
+    
+    # Rate limit check
+    client_ip = get_client_ip()
+    ip_allowed, ip_count, ip_resets_at = check_and_increment_ip_rate_limit(client_ip, limit=per_ip_limit)
+    if not ip_allowed:
+        retry_after = max(0, int((ip_resets_at - _utcnow()).total_seconds()))
+        resp = api_error(
+            "rate_limited",
+            "חרגת ממגבלת הבקשות לדקה.",
+            status=429,
+            details={
+                "limit": per_ip_limit,
+                "used": ip_count,
+                "remaining": max(0, per_ip_limit - ip_count),
+                "resets_at": ip_resets_at.isoformat(),
+            },
+        )
+        resp.headers["Retry-After"] = str(retry_after)
+        return resp
+    
+    # Log access
+    user_id = current_user.id if current_user.is_authenticated else None
+    log_access_decision('/api/compare', user_id, 'allowed', 'authenticated user')
+    
+    # Validate content type
+    if not request.is_json:
+        log_access_decision('/api/compare', user_id, 'rejected', 'validation error: content-type')
+        return api_error("invalid_content_type", "Content-Type must be application/json", status=415)
+    
+    # Parse JSON payload
+    try:
+        data = request.get_json(silent=False) or {}
+    except Exception:
+        log_access_decision('/api/compare', user_id, 'rejected', 'validation error: invalid JSON')
+        return api_error("invalid_json", "קלט JSON לא תקין", status=400)
+    
+    # Get session ID for anonymous tracking
+    session_id = session.get('_id') if not user_id else None
+    
+    # Daily quota enforcement
+    tz, _ = resolve_app_timezone()
+    day_key, _, _, resets_at, _, _ = compute_quota_window(tz)
+    daily_limit = current_app.config.get("USER_DAILY_LIMIT", USER_DAILY_LIMIT)
+    owner_bypass = is_owner_user()
+    request_id = get_request_id()
+    reservation_id = None
+    idempotency_key = (request.headers.get("X-Idempotency-Key") or "").strip()
+    if len(idempotency_key) > 64:
+        return api_error("invalid_idempotency_key", "X-Idempotency-Key must be at most 64 chars", status=400)
+    idempotent_retry = False
+    reservation_request_id = request_id
+
+    if not owner_bypass:
+        if idempotency_key:
+            idem_request_id = f"idem:{idempotency_key}"
+            idem_ttl_seconds = int(current_app.config.get("COMPARE_IDEMPOTENCY_TTL_SECONDS", 300))
+            ttl_cutoff = _utcnow() - timedelta(seconds=idem_ttl_seconds)
+            existing = (
+                QuotaReservation.query
+                .filter(
+                    QuotaReservation.user_id == user_id,
+                    QuotaReservation.day == day_key,
+                    QuotaReservation.request_id == idem_request_id,
+                    QuotaReservation.created_at >= ttl_cutoff,
+                    QuotaReservation.status.in_(("reserved", "consumed")),
+                )
+                .order_by(QuotaReservation.created_at.desc())
+                .first()
+            )
+            if existing and existing.status == "reserved":
+                return api_error("request_in_progress", "בקשה זהה עדיין בתהליך.", status=409)
+            if existing and existing.status == "consumed":
+                idempotent_retry = True
+            else:
+                reservation_request_id = idem_request_id
+        try:
+            if not idempotent_retry:
+                ok, used, _active, reservation_id = reserve_daily_quota(
+                    user_id, day_key, daily_limit, reservation_request_id
+                )
+            else:
+                ok, used = True, get_daily_quota_usage(user_id, day_key)
+        except Exception:
+            return api_error("quota_error", "Quota system error", status=500)
+        if not ok:
+            log_access_decision('/api/compare', user_id, 'rejected', 'daily limit reached')
+            return api_error(
+                "daily_limit_reached",
+                f"הגעת למגבלת השימוש היומית. ניתן לנסות שוב לאחר האיפוס.",
+                status=429,
+                details={"limit": daily_limit, "used": used, "reset_at": resets_at.isoformat()},
+                request_id=request_id,
+            )
+
+    # Process comparison
+    try:
+        resp = comparison_service.handle_comparison_request(data, user_id, session_id, owner_bypass=owner_bypass)
+        if reservation_id and not idempotent_retry:
+            if resp.status_code < 400:
+                finalize_quota_reservation(reservation_id, user_id, day_key)
+            else:
+                release_quota_reservation(reservation_id, user_id, day_key)
+        # Check for legal terms enforcement
+        # Support both standard API format and legal enforcement format
+        if resp.status_code == 403:
+            try:
+                resp_json = resp.get_json()
+                if resp_json and resp_json.get("error") == "TERMS_NOT_ACCEPTED":
+                    return resp
+            except Exception:
+                pass  # If JSON parsing fails, just return the response
+        # PostHog: compare_completed
+        if resp.status_code < 400:
+            try:
+                track_event(str(user_id), "compare_completed", {"request_id": get_request_id()})
+            except Exception:
+                pass
+        return resp
+    except Exception:
+        if reservation_id:
+            release_quota_reservation(reservation_id, user_id, day_key)
+        current_app.logger.exception("compare_api failed")
+        return api_error("server_error", "שגיאת שרת בעת השוואה", status=500)
+
+
+@bp.route('/api/compare/history', methods=['GET'])
+@login_required
+def compare_history():
+    """Get comparison history for the current user."""
+    user_id = current_user.id
+    limit = min(int(request.args.get('limit', 10)), 50)
+    
+    try:
+        history = comparison_service.get_comparison_history(user_id, limit=limit)
+        return api_ok({"history": history})
+    except Exception:
+        # Broad catch intentional: ensures JSON error response instead of HTML 500 page
+        # for any failure (database errors, unexpected exceptions, etc.)
+        current_app.logger.exception(
+            "compare_history failed", 
+            extra={"user_id": user_id}
+        )
+        return api_error(
+            "compare_history_failed", 
+            "Failed to load comparison history", 
+            status=500
+        )
+
+
+@bp.route('/api/compare/<int:comparison_id>', methods=['GET'])
+@login_required
+def compare_detail(comparison_id):
+    """Get details of a specific comparison."""
+    user_id = current_user.id
+    
+    detail = comparison_service.get_comparison_detail(comparison_id, user_id)
+    if not detail:
+        return api_error("not_found", "השוואה לא נמצאה", status=404)
+    
+    return api_ok(detail)
+
+
+@bp.route('/api/compare/ai-regenerate', methods=['POST'])
+@login_required
+def compare_ai_regenerate():
+    comparison_id_raw = request.args.get("comparison_id", "").strip()
+    if not comparison_id_raw.isdigit():
+        return api_error("invalid_comparison_id", "comparison_id is required", status=400)
+
+    comparison_id = int(comparison_id_raw)
+    try:
+        regenerated = comparison_service.regenerate_comparison_ai(comparison_id, current_user.id)
+    except Exception:
+        current_app.logger.exception(
+            "compare_ai_regenerate failed request_id=%s comparison_id=%s user_id=%s",
+            get_request_id(),
+            comparison_id,
+            current_user.id,
+        )
+        return api_ok({
+            "comparison_id": comparison_id,
+            "ai": {
+                "status": "fallback",
+                "reason": "stage_b_error",
+                "error": "CALL_FAILED:UNKNOWN",
+                "stage_a": None,
+                "stage_b": None,
+            },
+            "narrative": None,
+        })
+
+    if not regenerated:
+        return api_error("not_found", "השוואה לא נמצאה", status=404)
+    return api_ok(regenerated)
+
+
+@bp.route('/api/compare/cars', methods=['GET'])
+@login_required
+def get_available_cars():
+    """
+    Return the car dictionary for the autocomplete.
+    Returns a flat list suitable for frontend autocomplete.
+    """
+    cars_list = []
+    for make, models in israeli_car_market_full_compilation.items():
+        for model_entry in models:
+            # Extract model name and year range from entries like "Corolla (1992-2026)"
+            match = re.match(r'^(.+?)\s*\((\d{4})-(\d{4})\)$', model_entry)
+            if match:
+                model_name = match.group(1).strip()
+                year_start = int(match.group(2))
+                year_end = int(match.group(3))
+            else:
+                model_name = model_entry.strip()
+                year_start = None
+                year_end = None
+            
+            cars_list.append({
+                "make": make,
+                "model": model_name,
+                "display": f"{make} {model_name}",
+                "year_start": year_start,
+                "year_end": year_end,
+            })
+    
+    return api_ok({"cars": cars_list})
