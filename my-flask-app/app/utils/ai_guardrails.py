@@ -4,12 +4,14 @@ import copy
 import json
 import logging
 import re
-from datetime import datetime
+from collections import Counter
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from flask import current_app, has_app_context
 
-GUARDRAIL_VERSION = "2026-05-02-v1"
+GUARDRAIL_VERSION = "2026-05-02-v2"
+AI_GUARDRAIL_VERSION = GUARDRAIL_VERSION
 UNSAFE_TEXT_FALLBACK = "דורש אימות"
 TRUNCATED_TEXT_FALLBACK = "המידע בסעיף זה לא הושלם ולכן הוסתר עד לאימות נוסף."
 RELIABILITY_FALLBACK_TEXT = (
@@ -79,6 +81,16 @@ _ALLOWED_SERVICE_CATEGORIES = {
     "labor",
     "other",
 }
+_GUARDRAIL_COUNTERS: Counter[str] = Counter()
+_CURRENT_YEAR = datetime.now(timezone.utc).year
+_ALLOWED_SOURCE_TYPES = {
+    "user_input",
+    "verified_source",
+    "ai_estimate",
+    "internal_calc",
+    "user_reported",
+    "unknown",
+}
 
 
 def _log_event(event: str, feature: str, **payload: Any) -> None:
@@ -86,6 +98,36 @@ def _log_event(event: str, feature: str, **payload: Any) -> None:
     logger.info(
         json.dumps({"event": event, "feature": feature, **payload}, ensure_ascii=False)
     )
+
+
+def _increment_guardrail_counter(counter_name: str) -> None:
+    _GUARDRAIL_COUNTERS[counter_name] += 1
+
+
+def contains_pii(text: Any) -> bool:
+    return _contains_pii(text)
+
+
+def redact_pii_from_text(text: Any) -> str:
+    return _redact_pii(text) if isinstance(text, str) else _text(text)
+
+
+def safe_json_obj(value: Any, default: Any = None) -> Any:
+    fallback = {} if default is None else default
+    try:
+        if isinstance(value, (dict, list)):
+            return value
+        if not isinstance(value, str):
+            return fallback
+        stripped = value.strip()
+        if not stripped:
+            return fallback
+        parsed = json.loads(stripped)
+        if isinstance(parsed, str):
+            parsed = json.loads(parsed)
+        return parsed if isinstance(parsed, (dict, list)) else fallback
+    except Exception:
+        return fallback
 
 
 def _text(value: Any) -> str:
@@ -286,12 +328,14 @@ def validate_price_range(min_price: Any, max_price: Any) -> bool:
 
 def validate_year_reasonable(value: Any) -> bool:
     year = normalize_year(value)
-    return year is not None and 1950 <= year <= datetime.utcnow().year + 1
+    return year is not None and 1950 <= year <= _CURRENT_YEAR + 1
 
 
 def safe_text_caveat(confidence: Any, source_type: Any) -> str:
     confidence_value = normalize_percent(confidence)
     source = _norm_key(source_type)
+    if source in {"ai_estimate", "unknown"}:
+        return "ברמת ודאות בינונית — דורש אימות."
     if confidence_value is not None and confidence_value < 40:
         return "ברמת ודאות בינונית — דורש אימות מול מקור רשמי."
     if source in {"user_reported", "owner_reported"}:
@@ -323,6 +367,8 @@ def is_probably_truncated_text(text: Any) -> bool:
     if value.count("(") != value.count(")") or value.count("[") != value.count("]"):
         return True
     if value.count("\"") % 2 == 1:
+        return True
+    if re.search(r"(?:בדרך כלל|usually|typically)$", value.lower()):
         return True
     tail = value.lower().split()[-1]
     return tail in _CONNECTOR_ENDINGS
@@ -436,6 +482,67 @@ def _find_recommendations(ai_result: Mapping[str, Any]) -> List[Dict[str, Any]]:
     return _find_recommendations(nested) if isinstance(nested, dict) else []
 
 
+def _classify_source_type(value: Any) -> str:
+    normalized = _norm_key(value).replace(" ", "_")
+    if normalized in _ALLOWED_SOURCE_TYPES:
+        return normalized
+    aliases = {
+        "ai_inference": "ai_estimate",
+        "system_inferred": "ai_estimate",
+        "owner_reported": "user_reported",
+        "source_verified": "verified_source",
+        "calculated": "internal_calc",
+        "mixed": "unknown",
+    }
+    return aliases.get(normalized, "unknown")
+
+
+def _iter_text_values(value: Any) -> Iterable[str]:
+    for _path, text in _deep_walk_strings(value):
+        if text:
+            yield text
+
+
+def _json_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except Exception:
+        return _text(value)
+
+
+def _contains_any(value: Any, tokens: Iterable[str]) -> bool:
+    haystack = _json_text(value).lower()
+    return any(token.lower() in haystack for token in tokens)
+
+
+def _ensure_caveat_list(result: Dict[str, Any], message: str) -> None:
+    caveats = result.get("guardrail_caveats")
+    if not isinstance(caveats, list):
+        caveats = []
+    if message not in caveats:
+        caveats.append(message)
+    result["guardrail_caveats"] = caveats
+
+
+def _append_inspection_caveat(result: Dict[str, Any]) -> None:
+    inspection_note = "לא ניתן לאשר מצב מכני של רכב ספציפי בלי בדיקה מקצועית."
+    _ensure_caveat_list(result, inspection_note)
+    summary = _text(result.get("reliability_summary"))
+    if summary and inspection_note not in summary:
+        result["reliability_summary"] = f"{summary} {inspection_note}".strip()
+
+
+def _low_data_quality(result: Mapping[str, Any]) -> bool:
+    label = _norm_key(result.get("data_quality_label"))
+    if label in {"חסרה", "חלקית", "low", "missing", "partial"}:
+        return True
+    sources = _safe_list(result.get("sources"))
+    source_coverage = normalize_percent(result.get("source_coverage"))
+    return len(sources) < 2 or (source_coverage is not None and source_coverage < 50)
+
+
 def _comparison_sections(ai_result: Mapping[str, Any]) -> List[Dict[str, Any]]:
     decision = _safe_dict(ai_result.get("decision_result"))
     items = decision.get("category_decisions")
@@ -520,6 +627,24 @@ def validate_reliability_result(user_payload: Any, ai_result: Any) -> Dict[str, 
     vehicle_identity = _safe_dict(
         _safe_dict(result.get("vehicle_profile")).get("vehicle_identity") or result.get("vehicle_identity")
     )
+    payload_engine = normalize_engine_type(
+        payload.get("engine")
+        or payload.get("engine_type")
+        or payload.get("fuel_type")
+    )
+    result_engine = normalize_engine_type(
+        vehicle_identity.get("engine_type")
+        or vehicle_identity.get("fuel_type")
+        or _safe_dict(_safe_dict(result.get("vehicle_profile")).get("powertrain_specs")).get("engine")
+    )
+    payload_transmission = normalize_transmission_type(
+        payload.get("transmission") or payload.get("gearbox")
+    )
+    result_transmission = normalize_transmission_type(
+        vehicle_identity.get("transmission")
+        or vehicle_identity.get("gearbox")
+        or _safe_dict(_safe_dict(result.get("vehicle_profile")).get("powertrain_specs")).get("gearbox")
+    )
     for field in ("make", "model"):
         if normalize_make_model(payload.get(field)) and normalize_make_model(vehicle_identity.get(field)):
             if _norm_key(payload.get(field)) != _norm_key(vehicle_identity.get(field)):
@@ -529,18 +654,53 @@ def validate_reliability_result(user_payload: Any, ai_result: Any) -> Dict[str, 
         normalize_year(payload.get("year")),
     ):
         _add_issue(report, "wrong vehicle year", critical=True, section="vehicle_identity")
-    if any(token in json.dumps(result, ensure_ascii=False).lower() for token in ("mechanically sound", "תקין מכנית")):
+    if payload_engine not in {"", "unknown"} and result_engine not in {"", "unknown"} and payload_engine != result_engine:
+        _add_issue(report, "engine or fuel mismatch", critical=True, section="vehicle_identity")
+    if {payload_transmission, result_transmission} == {"automatic", "manual"}:
+        _add_issue(report, "transmission mismatch", critical=True, section="vehicle_identity")
+    if _contains_any(result, ("mechanically sound", "תקין מכנית", "מכאנית תקינה", "safe and sound")):
         _add_issue(report, "claim about specific car mechanical condition without inspection", critical=True, section="reliability_summary")
     confidence = _confidence_from_result(result)
-    if confidence is not None and confidence < 70 and any(
-        token in json.dumps(result, ensure_ascii=False).lower()
-        for token in ("מוכח", "בוודאות", "אין ספק", "guaranteed", "definitely")
+    if _contains_any(result, ("known defect", "defect confirmed", "תקלה ידועה בוודאות")) and not _safe_list(result.get("sources")):
+        _add_issue(report, "unsupported major defect stated as fact", critical=True, section="known_risks")
+    if (confidence is not None and confidence >= 70 and _low_data_quality(result)) or (
+        confidence is not None
+        and confidence < 70
+        and _contains_any(result, ("מוכח", "בוודאות", "אין ספק", "guaranteed", "definitely"))
     ):
         _add_issue(report, "low data quality paired with high-confidence phrasing", critical=True, section="confidence_note")
     if not _safe_list(result.get("sources")):
         _add_issue(report, "source coverage limited", critical=False, section="confidence_note")
+    source_type = _classify_source_type(result.get("source_type"))
+    if source_type in {"ai_estimate", "user_reported", "unknown"}:
+        _add_issue(report, f"source type is {source_type}", critical=False, section="confidence_note")
+    if _contains_any(result, ("israeli certainty", "בישראל בוודאות", "בטוח לשוק הישראלי")) and source_type != "verified_source":
+        _add_issue(report, "Israeli-market version uncertain", critical=False, section="vehicle_identity")
+    if _norm_key(vehicle_identity.get("trim")) in {"לא מאומת", "unknown", "unverified"}:
+        _add_issue(report, "trim not verified", critical=False, section="vehicle_identity")
+    if not _safe_list(result.get("sources")):
+        _add_issue(report, "source confidence medium/low", critical=False, section="confidence_note")
     if not payload.get("mileage_range") and not payload.get("mileage_km"):
         _add_issue(report, "mileage missing", critical=False, section="what_to_check")
+        if _contains_any(result, ("neglect", "מוזנח", "lack of maintenance", "לא טופל")):
+            _add_issue(report, "maintenance neglect inferred without mileage/history", critical=True, section="what_to_check")
+    if any(key in result for key in ("score_0_100", "internal_score", "reliability_score")):
+        score_value = result.get("score_0_100") or result.get("internal_score") or result.get("reliability_score")
+        if not validate_score_range(score_value, 0, 100):
+            _add_issue(report, "internal score out of range", critical=True, section="confidence_note")
+        else:
+            _add_issue(report, "internal score should not be primary user output", critical=False, section="confidence_note")
+    known_risks = _safe_list(result.get("known_risks"))
+    if known_risks:
+        recall_like = set()
+        for item in known_risks:
+            item_key = _norm_key(item)
+            if "recall" in item_key or "ריקול" in item_key or "campaign" in item_key:
+                recall_like.add(item_key)
+        if len(recall_like) != len(
+            [item for item in known_risks if "recall" in _norm_key(item) or "ריקול" in _norm_key(item) or "campaign" in _norm_key(item)]
+        ):
+            _add_issue(report, "recall overlap repeated in conclusions", critical=False, section="known_risks")
     return _finalize_report(report)
 
 
@@ -870,9 +1030,14 @@ def _repair_comparison_result(user_payload: Any, result: Dict[str, Any], report:
 
 def _repair_reliability_result(result: Dict[str, Any]) -> Dict[str, Any]:
     patched = _safe_copy(result)
+    inspection_sections = {"reliability_summary", "what_to_check"}
     for key in ("known_risks", "reliability_summary", "what_to_check", "confidence_note"):
         if key in patched:
             patched[key] = RELIABILITY_FALLBACK_TEXT
+            if key in inspection_sections:
+                _append_inspection_caveat(patched)
+    for key in ("score_0_100", "internal_score", "reliability_score"):
+        patched.pop(key, None)
     vehicle_identity = _safe_dict(
         patched.get("vehicle_identity") or _safe_dict(_safe_dict(patched.get("vehicle_profile")).get("vehicle_identity"))
     )
@@ -882,6 +1047,8 @@ def _repair_reliability_result(result: Dict[str, Any]) -> Dict[str, Any]:
             patched["vehicle_identity"] = vehicle_identity
         else:
             patched.setdefault("vehicle_profile", {}).setdefault("vehicle_identity", {}).update(vehicle_identity)
+    patched["source_type"] = _classify_source_type(patched.get("source_type"))
+    _ensure_caveat_list(patched, safe_text_caveat(patched.get("confidence"), patched.get("source_type")))
     return patched
 
 
@@ -939,6 +1106,15 @@ def _repair_service_result(result: Dict[str, Any]) -> Dict[str, Any]:
 def apply_feature_guardrails(
     feature_key: str, user_payload: Any, ai_result: Any, deterministic_calc: Any = None
 ) -> Tuple[Any, Dict[str, Any]]:
+    request_id = None
+    if has_app_context():
+        try:
+            from app.utils.http_helpers import get_request_id
+
+            request_id = get_request_id()
+        except Exception:
+            request_id = None
+    _increment_guardrail_counter("guardrail_validation_total")
     result = repair_or_hide_truncated_text(
         _normalize_fuel_units_in_payload(
             _soften_payload_text(_safe_copy(ai_result), _confidence_from_result(_safe_dict(ai_result)))
@@ -966,10 +1142,19 @@ def apply_feature_guardrails(
 
     if feature_key == "vehicle_comparison" and isinstance(result, dict):
         result = _repair_comparison_result(user_payload, result, report)
+    elif feature_key == "reliability_analysis" and isinstance(result, dict):
+        result["source_type"] = _classify_source_type(result.get("source_type"))
+        if report.get("warnings"):
+            _ensure_caveat_list(result, safe_text_caveat(result.get("confidence"), result.get("source_type")))
+        if any(key in result for key in ("score_0_100", "internal_score", "reliability_score")):
+            for key in ("score_0_100", "internal_score", "reliability_score"):
+                result.pop(key, None)
     elif feature_key in {"service_prices", "invoice_scanner"} and isinstance(result, dict):
         result = _repair_service_result(result)
 
     repaired = False
+    if report.get("critical_issues"):
+        _increment_guardrail_counter("guardrail_critical_total")
     if should_repair(feature_key, report) and isinstance(result, dict):
         if feature_key == "vehicle_comparison":
             result = _repair_comparison_result(user_payload, result, report)
@@ -987,6 +1172,7 @@ def apply_feature_guardrails(
             result = _repair_service_result(result)
             repaired = True
         if repaired:
+            _increment_guardrail_counter("guardrail_repair_total")
             _log_event(
                 "ai_guardrail_repair_applied",
                 feature_key,
@@ -994,7 +1180,10 @@ def apply_feature_guardrails(
                 critical_count=len(report.get("critical_issues") or []),
             )
     if should_repair(feature_key, report) and not repaired:
+        _increment_guardrail_counter("guardrail_fallback_total")
         result = safe_fallback_on_repair_failure(result, report)
+    if report.get("critical_issues") and not report.get("safe_to_display", True):
+        _increment_guardrail_counter("guardrail_blocked_total")
     if isinstance(result, dict):
         result["guardrail_meta"] = _guardrail_meta(feature_key, report, repaired)
         if feature_key == "dashboard_history" and any(
@@ -1005,4 +1194,13 @@ def apply_feature_guardrails(
             )
         ):
             result.setdefault("legacy_notice", LEGACY_DISPLAY_NOTE)
+    _log_event(
+        "ai_guardrail_validation",
+        feature_key,
+        status=report.get("status"),
+        critical_count=len(report.get("critical_issues") or []),
+        warning_count=len(report.get("warnings") or []),
+        repaired=repaired,
+        request_id=request_id,
+    )
     return result, report

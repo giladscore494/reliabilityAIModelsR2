@@ -36,6 +36,7 @@ from app.utils.sanitization import (
     derive_missing_info,
     derive_information_status,
 )
+from app.utils.ai_guardrails import apply_feature_guardrails
 from app.utils.validation import validate_analyze_request, ValidationError
 from app.factory import (
     build_combined_prompt,
@@ -407,6 +408,17 @@ def handle_analyze_request(
             for deprecated_key in _DEPRECATED_SCORE_KEYS:
                 ai_output.pop(deprecated_key, None)
             sanitized_output = sanitize_analyze_response(ai_output)
+            sanitized_output, validation_report = apply_feature_guardrails(
+                "reliability_analysis",
+                validated,
+                sanitized_output,
+            )
+            if validation_report.get("critical_issues"):
+                logger.warning(
+                    "[GUARDRAIL] blocked original reliability result request_id=%s critical=%s",
+                    get_request_id(),
+                    validation_report.get("critical_issues"),
+                )
 
             new_log = SearchHistory(
                 user_id=user_id,
@@ -433,6 +445,11 @@ def handle_analyze_request(
             logger.warning("[DB] save failed: %s", e)
             db.session.rollback()
             sanitized_output = sanitized_output or sanitize_analyze_response(ai_output)
+            sanitized_output, _ = apply_feature_guardrails(
+                "reliability_analysis",
+                validated,
+                sanitized_output,
+            )
     except Exception as e:
         if not bypass_owner:
             release_quota_reservation(reservation_id, user_id, day_key)
