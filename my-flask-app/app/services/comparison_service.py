@@ -182,29 +182,29 @@ def _sanitize_checked_versions(
     return sanitized
 
 
-def build_checked_versions(
-    cars_selected_slots: Dict[str, Dict[str, Any]],
-    grounded_output: Optional[Dict[str, Any]],
-    ai_checked_versions: Optional[Dict[str, Dict[str, str]]] = None,
-) -> Dict[str, Dict[str, str]]:
+def _normalize_grounded_cars_format(grounded_output: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     grounded_cars_raw = (
         ((grounded_output or {}).get("cars") or {})
         if isinstance(grounded_output, dict)
         else {}
     )
     if isinstance(grounded_cars_raw, list):
-        grounded_cars_raw = {
+        return {
             f"car_{index + 1}": item
             for index, item in enumerate(grounded_cars_raw)
             if isinstance(item, dict)
         }
-    slot_keys = _ordered_compare_slot_keys(
-        cars_selected_slots or {},
-        grounded_cars_raw if isinstance(grounded_cars_raw, dict) else {},
-        ai_checked_versions or {},
-    )
+    return grounded_cars_raw if isinstance(grounded_cars_raw, dict) else {}
+
+
+def build_checked_versions(
+    cars_selected_slots: Dict[str, Dict[str, Any]],
+    grounded_output: Optional[Dict[str, Any]],
+    ai_checked_versions: Optional[Dict[str, Dict[str, str]]] = None,
+) -> Dict[str, Dict[str, str]]:
+    grounded_cars = _normalize_grounded_cars_format(grounded_output)
+    slot_keys = _ordered_compare_slot_keys(cars_selected_slots or {}, grounded_cars, ai_checked_versions or {})
     ai_checked_versions = _sanitize_checked_versions(ai_checked_versions, slot_keys)
-    grounded_cars = grounded_cars_raw if isinstance(grounded_cars_raw, dict) else {}
     result: Dict[str, Dict[str, str]] = {}
 
     for slot_key in slot_keys:

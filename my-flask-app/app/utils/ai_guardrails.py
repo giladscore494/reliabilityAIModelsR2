@@ -463,6 +463,16 @@ def _build_central_differences(ai_result: Mapping[str, Any]) -> List[str]:
     return differences[:8]
 
 
+def _should_rebuild_central_differences(
+    central_differences: Any, rebuilt_differences: List[str]
+) -> bool:
+    if not rebuilt_differences:
+        return False
+    if isinstance(central_differences, list) and not central_differences:
+        return True
+    return isinstance(central_differences, str) and "אין פערים" in central_differences
+
+
 def validate_comparison_result(user_payload: Any, ai_result: Any) -> Dict[str, Any]:
     report = _ensure_report("vehicle_comparison")
     payload = _safe_dict(user_payload)
@@ -497,7 +507,8 @@ def validate_comparison_result(user_payload: Any, ai_result: Any) -> Dict[str, A
         elif selected_trans == "automatic" and slot_trans in {"cvt", "robotic"}:
             _add_issue(report, f"car_{index}: automatic subtype not fully verified", critical=False, section="checked_versions")
     central = result.get("central_differences")
-    if ((isinstance(central, str) and "אין פערים" in central) or (isinstance(central, list) and not central)) and _build_central_differences(result):
+    rebuilt_differences = _build_central_differences(result)
+    if _should_rebuild_central_differences(central, rebuilt_differences):
         _add_issue(report, "central differences missing despite category winners", critical=False, section="central_differences")
     return _finalize_report(report)
 
@@ -859,18 +870,6 @@ def _repair_comparison_result(user_payload: Any, result: Dict[str, Any], report:
 
 def _repair_reliability_result(result: Dict[str, Any]) -> Dict[str, Any]:
     patched = _safe_copy(result)
-    known_risks = patched.get("known_risks")
-    if isinstance(known_risks, list):
-        deduped = []
-        seen = set()
-        for item in known_risks:
-            marker = _norm_key(item)
-            if "recall" in marker or "ריקול" in marker:
-                if marker in seen:
-                    continue
-                seen.add(marker)
-            deduped.append(item)
-        patched["known_risks"] = deduped
     for key in ("known_risks", "reliability_summary", "what_to_check", "confidence_note"):
         if key in patched:
             patched[key] = RELIABILITY_FALLBACK_TEXT
