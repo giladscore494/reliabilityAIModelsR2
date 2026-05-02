@@ -14,7 +14,6 @@ from app.extensions import db
 import app.extensions as extensions
 from app.models import ServiceInvoice, ServiceInvoiceItem, User
 from app.utils.http_helpers import _utcnow
-from app.utils.ai_guardrails import apply_feature_guardrails
 from app.legal import GEMINI_VISION_MODEL_ID
 
 # Pricing mode configuration
@@ -1803,8 +1802,6 @@ def handle_invoice_analysis(
 
     # Include web benchmarks in report (for user history display only)
     report["benchmarks_web"] = benchmarks_web
-    report, _ = apply_feature_guardrails("service_prices", ctx, report)
-    report, _ = apply_feature_guardrails("invoice_scanner", ctx, report)
 
     duration_ms = int((pytime.time() - start_time) * 1000)
 

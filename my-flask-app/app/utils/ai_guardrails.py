@@ -229,8 +229,20 @@ def normalize_transmission_type(value: Any) -> str:
 
 
 def normalize_currency_ils(value: Any) -> Optional[int]:
-    amount = _parse_float(value)
-    return None if amount is None else int(round(amount))
+    if value is None or value == "" or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return int(round(float(value)))
+    text = re.sub(r"[^\d,.\-]", "", str(value))
+    if text.count(",") and "." not in text:
+        text = text.replace(",", "")
+    else:
+        text = text.replace(",", "")
+    try:
+        return int(round(float(text)))
+    except ValueError:
+        amount = _parse_float(value)
+        return None if amount is None else int(round(amount))
 
 
 def normalize_fuel_consumption(value: Any) -> Optional[str]:
@@ -313,7 +325,7 @@ def is_probably_truncated_text(text: Any) -> bool:
     if value.count("\"") % 2 == 1:
         return True
     tail = value.lower().split()[-1]
-    return tail in _CONNECTOR_ENDINGS or len(value.split()) >= 4
+    return tail in _CONNECTOR_ENDINGS
 
 
 def trim_to_last_complete_sentence(text: Any) -> str:
@@ -361,12 +373,14 @@ def _redact_pii(value: Any) -> Any:
     return value
 
 
-def _normalize_fuel_units_in_payload(value: Any) -> Any:
+def _normalize_fuel_units_in_payload(value: Any, key_hint: str = "") -> Any:
     payload = _safe_copy(value)
     if isinstance(payload, str):
-        return normalize_fuel_consumption(payload) or payload
+        if any(token in key_hint.lower() for token in ("fuel", "consumption", "צריכ")):
+            return normalize_fuel_consumption(payload) or payload
+        return payload
     if isinstance(payload, list):
-        return [_normalize_fuel_units_in_payload(item) for item in payload]
+        return [_normalize_fuel_units_in_payload(item, key_hint) for item in payload]
     if isinstance(payload, dict):
         for key, item in list(payload.items()):
             if "fuel" in str(key).lower() or "צריכ" in str(key):
@@ -374,7 +388,7 @@ def _normalize_fuel_units_in_payload(value: Any) -> Any:
                 if normalized:
                     payload[key] = normalized
                     continue
-            payload[key] = _normalize_fuel_units_in_payload(item)
+            payload[key] = _normalize_fuel_units_in_payload(item, str(key))
     return payload
 
 

@@ -12,7 +12,6 @@ from app.models import AdvisorHistory
 from app.quota import log_access_decision
 from app.utils.http_helpers import api_ok, api_error, get_request_id
 from app.utils.sanitization import sanitize_advisor_response, sanitize_profile_for_storage
-from app.utils.ai_guardrails import apply_feature_guardrails
 from app.factory import (
     fuel_map,
     gear_map,
@@ -174,11 +173,6 @@ def handle_advisor_logic(payload, user, user_id):
 
     result = car_advisor_postprocess(user_profile, parsed)
     sanitized_result = sanitize_advisor_response(result)
-    sanitized_result, _ = apply_feature_guardrails(
-        "recommendations",
-        user_profile,
-        sanitized_result,
-    )
     history_id = None
 
     # 🔴 שמירת היסטוריית המלצות למאגר
