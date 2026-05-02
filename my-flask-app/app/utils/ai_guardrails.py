@@ -814,7 +814,7 @@ def validate_leasing_advisor_result(user_payload: Any, ai_result: Any, determini
     result = _safe_dict(ai_result)
     calc = _safe_dict(deterministic_calc)
     tolerance = float(calc.get("tolerance") or 1.0)
-    for key in ("monthly_payment", "down_payment", "final_payment", "balloon_payment", "total_cost"):
+    for key in ("monthly_payment", "down_payment", "final_payment", "balloon_payment", "total_cost", "monthly_bik", "list_price_ils"):
         expected = normalize_currency_ils(calc.get(key))
         actual = normalize_currency_ils(result.get(key))
         if expected is None:
@@ -823,10 +823,37 @@ def validate_leasing_advisor_result(user_payload: Any, ai_result: Any, determini
             _add_issue(report, f"missing {key}", critical=True, section="numbers")
         elif actual is not None and abs(actual - expected) > tolerance:
             _add_issue(report, f"{key} differs from deterministic calculation", critical=True, section="numbers")
-    if any(token in json.dumps(result, ensure_ascii=False).lower() for token in ("guaranteed savings", "safe deal", "ללא סיכון", "חיסכון מובטח")):
+    top3 = _safe_list(result.get("top3"))
+    candidates = {
+        (
+            _norm_key(item.get("make")),
+            _norm_key(item.get("model")),
+        ): item
+        for item in _safe_list(calc.get("candidates"))
+        if isinstance(item, dict)
+    }
+    for index, item in enumerate(top3, start=1):
+        if not isinstance(item, dict):
+            continue
+        matched = candidates.get((_norm_key(item.get("make")), _norm_key(item.get("model"))), {})
+        for key in ("monthly_bik", "list_price_ils"):
+            expected = normalize_currency_ils(matched.get(key))
+            actual = normalize_currency_ils(item.get(key))
+            if expected is not None and actual is not None and abs(actual - expected) > tolerance:
+                _add_issue(report, f"top3_{index}: {key} differs from deterministic calculation", critical=True, section="numbers")
+    if any(token in json.dumps(result, ensure_ascii=False).lower() for token in ("guaranteed savings", "safe deal", "ללא סיכון", "חיסכון מובטח", "guaranteed cheaper", "best deal")):
         _add_issue(report, "unsafe guaranteed-savings language", critical=True, section="prose")
-    if not (result.get("assumptions") or calc.get("assumptions")):
+    assumptions = result.get("assumptions") or calc.get("assumptions") or calc.get("frame")
+    if not assumptions:
         _add_issue(report, "missing key assumptions", critical=True, section="assumptions")
+    elif not _contains_any(assumptions, ("cpi", "index", "interest", "mileage", "residual", "depreciation", "bik", "list_price", "insurance", "service")):
+        _add_issue(report, "missing key assumptions", critical=True, section="assumptions")
+    if not _contains_any(assumptions, ("cpi", "indexation")) and calc.get("cpi_indexed"):
+        _add_issue(report, "CPI/indexation assumption missing", critical=False, section="assumptions")
+    if not _contains_any(assumptions, ("mileage", "ק\"מ", "נסועה")):
+        _add_issue(report, "mileage assumption missing", critical=False, section="assumptions")
+    if _contains_any(result, ("residual", "future value", "ערך עתידי")):
+        _add_issue(report, "residual value estimated", critical=False, section="prose")
     return _finalize_report(report)
 
 
@@ -1151,9 +1178,29 @@ def _repair_recommendations_result(result: Dict[str, Any], report: Mapping[str, 
 def _repair_leasing_result(result: Dict[str, Any], deterministic_calc: Any) -> Dict[str, Any]:
     patched = _safe_copy(result)
     calc = _safe_dict(deterministic_calc)
-    for key in ("monthly_payment", "down_payment", "final_payment", "balloon_payment", "total_cost", "assumptions"):
+    for key in ("monthly_payment", "down_payment", "final_payment", "balloon_payment", "total_cost", "monthly_bik", "list_price_ils", "assumptions"):
         if key in calc:
             patched[key] = calc[key]
+    if "frame" in calc and "assumptions" not in patched:
+        patched["assumptions"] = calc["frame"]
+    top3 = _safe_list(patched.get("top3"))
+    candidate_map = {
+        (_norm_key(item.get("make")), _norm_key(item.get("model"))): item
+        for item in _safe_list(calc.get("candidates"))
+        if isinstance(item, dict)
+    }
+    for item in top3:
+        if not isinstance(item, dict):
+            continue
+        matched = candidate_map.get((_norm_key(item.get("make")), _norm_key(item.get("model"))))
+        if matched:
+            for key in ("monthly_bik", "list_price_ils"):
+                if key in matched:
+                    item[key] = matched[key]
+        if any(token in _norm_key(item.get("reason_he")) for token in ("guaranteed", "safe", "מובטח")):
+            item["reason_he"] = "לפי המידע הזמין, זו נראית אפשרות מתאימה."
+        if _contains_any(item, ("residual", "future value", "ערך עתידי")):
+            item["reason_he"] = f"{_text(item.get('reason_he'))} ערך עתידי הוא הערכה בלבד.".strip()
     return _soften_payload_text(patched, 20)
 
 
@@ -1234,6 +1281,9 @@ def apply_feature_guardrails(
             for key in ("recommended_cars", "recommendations", "top3"):
                 if key in result:
                     result[key] = normalized_cards if key != "top3" else normalized_cards[:3]
+    elif feature_key == "leasing_advisor" and isinstance(result, dict):
+        if "summary" in result and _contains_any(result.get("summary"), ("residual", "future value", "ערך עתידי")):
+            result["summary"] = f"{_text(result.get('summary'))} הערך העתידי הוא הערכה בלבד.".strip()
     elif feature_key in {"service_prices", "invoice_scanner"} and isinstance(result, dict):
         result = _repair_service_result(result)
 
