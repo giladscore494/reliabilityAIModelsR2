@@ -874,10 +874,10 @@ def validate_service_prices_result(user_payload: Any, ai_result: Any) -> Dict[st
         if category and category not in _ALLOWED_SERVICE_CATEGORIES:
             _add_issue(report, f"item_{index}: invalid category", critical=True, section="items")
         price = normalize_currency_ils(row.get("price_ils") or row.get("invoice_price_ils") or row.get("price"))
-        qty = normalize_year(row.get("qty"))
+        qty = _normalize_count(row.get("qty"))
         if price is None:
-            _add_issue(report, f"item_{index}: non-numeric price", critical=True, section="items")
-        if qty is None:
+            _add_issue(report, f"item_{index}: non-numeric price", critical=False, section="items")
+        if qty is None and row.get("qty") not in (None, "", " "):
             _add_issue(report, f"item_{index}: non-numeric quantity", critical=True, section="items")
         if price is not None:
             subtotal += price * (qty or 1)
@@ -885,7 +885,7 @@ def validate_service_prices_result(user_payload: Any, ai_result: Any) -> Dict[st
         confidence = normalize_percent(row.get("confidence"))
         if confidence is not None and confidence < 50:
             _add_issue(report, f"item_{index}: low confidence item should be marked לבדיקה", critical=False, section="items")
-    sample_size = normalize_year(result.get("sample_size") or _safe_dict(result.get("samples_meta")).get("total_cohort_n"))
+    sample_size = _normalize_count(result.get("sample_size") or _safe_dict(result.get("samples_meta")).get("total_cohort_n"))
     if sample_size is not None and sample_size < 10:
         _add_issue(report, "benchmark sample size is low", critical=False, section="benchmarks")
     total = normalize_currency_ils(result.get("total_price_ils") or result.get("total"))
@@ -903,6 +903,22 @@ def validate_invoice_analysis_result(user_payload: Any, ai_result: Any) -> Dict[
         _add_issue(report, "PII detected in invoice result", critical=True, section="pii")
     if any(key in result for key in ("raw_invoice_bytes", "invoice_image_bytes", "image_bytes")):
         _add_issue(report, "raw invoice bytes scheduled for storage", critical=True, section="storage")
+    totals = _safe_dict(result.get("totals"))
+    items = _safe_list(result.get("items"))
+    if totals and items:
+        computed_total = 0
+        for item in items:
+            row = _safe_dict(item)
+            price = normalize_currency_ils(row.get("price_ils"))
+            qty = _normalize_count(row.get("qty")) or 1
+            if price is None and row.get("price_ils") not in (None, ""):
+                _add_issue(report, "non-numeric qty/price in arithmetic path", critical=True, section="items")
+                break
+            if price is not None:
+                computed_total += price * qty
+        expected_total = normalize_currency_ils(totals.get("total_price_ils"))
+        if expected_total is not None and abs(computed_total - expected_total) > 2:
+            _add_issue(report, "invoice total mismatch beyond tolerance", critical=True, section="totals")
     return _finalize_report(report)
 
 
@@ -1206,7 +1222,9 @@ def _repair_leasing_result(result: Dict[str, Any], deterministic_calc: Any) -> D
 
 def _repair_service_result(result: Dict[str, Any]) -> Dict[str, Any]:
     patched = _redact_pii(_safe_copy(result))
-    sample_size = normalize_year(
+    for key in ("raw_invoice_bytes", "invoice_image_bytes", "image_bytes"):
+        patched.pop(key, None)
+    sample_size = _normalize_count(
         patched.get("sample_size") or _safe_dict(patched.get("samples_meta")).get("total_cohort_n")
     )
     if sample_size is not None and sample_size < 10:
@@ -1214,6 +1232,11 @@ def _repair_service_result(result: Dict[str, Any]) -> Dict[str, Any]:
     for item in _safe_list(patched.get("items") or patched.get("line_items") or patched.get("canonical_items")):
         if isinstance(item, dict) and normalize_percent(item.get("confidence")) is not None and normalize_percent(item.get("confidence")) < 50:
             item["review_status"] = "דורש בדיקה"
+        if isinstance(item, dict) and not item.get("canonical_code"):
+            item["canonical_code"] = "unknown_requires_review"
+            item["review_status"] = "דורש בדיקה"
+    if not isinstance(patched.get("report_json"), (dict, list)) and "report_json" in patched:
+        patched["report_json"] = safe_json_obj(patched.get("report_json"), default={})
     return patched
 
 
