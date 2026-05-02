@@ -694,6 +694,216 @@ def test_compare_stage_b_missing_per_car_keys_are_backfilled_for_car_3(
     assert decision["avoid_or_check_car_3_if"]
 
 
+# --- Regression tests: transmission contradiction and empty field backfill ---
+
+
+def test_compare_stage_b_transmission_mismatch_is_overwritten_in_final_payload(
+    app, logged_in_client, monkeypatch
+):
+    """User selected automatic; AI Stage B returns manual in checked_versions → final must not show ידנית."""
+    client, _user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    grounded_output = _grounded_output_fixture()
+    monkeypatch.setattr(
+        comparison_service,
+        "call_stage_a_parallel",
+        _fake_stage_a_parallel(grounded_output),
+    )
+
+    def fake_stage_b(
+        _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC
+    ):
+        return {
+            "decision_result": {
+                "overall_decision": {
+                    "label": "car_1",
+                    "text": "לטויוטה עדיפה קלה.",
+                },
+                "category_decisions": [
+                    {
+                        "category_key": "pricing_and_value",
+                        "category_name_he": "מחיר ותמורה",
+                        "preferred": "car_1",
+                        "why": "משתלמת יותר.",
+                        "important_caveat": None,
+                    }
+                ],
+                "key_differences": [],
+                "choose_car_1_if": ["מי שמחפש אחזקה נמוכה."],
+                "choose_car_2_if": ["מי שמחפש ביצועים."],
+                "avoid_or_check_car_1_if": ["בדקו היסטוריית תאונות."],
+                "avoid_or_check_car_2_if": ["בדקו עלויות ביטוח."],
+                "competitors_to_consider": [],
+                "practical_summary": "שתי אפשרויות סבירות.",
+            },
+            "checked_versions": {
+                "car_1": {
+                    "make": "Toyota",
+                    "model": "Corolla",
+                    "year": "2020",
+                    "trim": "Comfort",
+                    "engine_type": "בנזין",
+                    "transmission": "ידנית",  # ← AI mistake: user selected automatic
+                    "drivetrain": "FWD",
+                    "seats": "5",
+                    "notes": "גרסה מייצגת.",
+                },
+                "car_2": {
+                    "make": "Honda",
+                    "model": "Civic",
+                    "year": "2020",
+                    "trim": "Comfort",
+                    "engine_type": "בנזין",
+                    "transmission": "אוטומטית",
+                    "drivetrain": "FWD",
+                    "seats": "5",
+                    "notes": "גרסה מייצגת.",
+                },
+            },
+            "sources": [],
+        }, None
+
+    monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", fake_stage_b)
+
+    resp = client.post(
+        "/api/compare",
+        json={
+            "cars": [
+                {"make": "Toyota", "model": "Corolla", "year": 2020, "gearbox": "אוטומטית"},
+                {"make": "Honda", "model": "Civic", "year": 2020, "gearbox": "אוטומטית"},
+            ],
+            "legal_confirm": True,
+        },
+        headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+    )
+    assert resp.status_code == 200
+    payload = resp.get_json()["data"]
+    car1_transmission = payload["checked_versions"]["car_1"]["transmission"]
+    assert "ידנית" not in car1_transmission, (
+        f"Transmission mismatch not corrected: got '{car1_transmission}' for user who selected automatic"
+    )
+    assert "אוטומטית" in car1_transmission, (
+        f"Expected אוטומטית after mismatch correction but got: '{car1_transmission}'"
+    )
+
+
+def test_compare_stage_b_checked_versions_empty_fields_are_backfilled_in_final_payload(
+    app, logged_in_client, monkeypatch
+):
+    """AI Stage B returns checked_versions with empty required fields → final payload must have non-empty values."""
+    client, _user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+
+    grounded_output = _grounded_output_fixture()
+    monkeypatch.setattr(
+        comparison_service,
+        "call_stage_a_parallel",
+        _fake_stage_a_parallel(grounded_output),
+    )
+
+    def fake_stage_b(
+        _prompt, timeout_sec=comparison_service.COMPARE_WRITER_TIMEOUT_SEC
+    ):
+        return {
+            "decision_result": {
+                "overall_decision": {
+                    "label": "car_1",
+                    "text": "לטויוטה עדיפה קלה.",
+                },
+                "category_decisions": [],
+                "key_differences": [],
+                "choose_car_1_if": ["מי שמחפש אחזקה נמוכה."],
+                "choose_car_2_if": ["מי שמחפש ביצועים."],
+                "avoid_or_check_car_1_if": ["בדקו היסטוריית תאונות."],
+                "avoid_or_check_car_2_if": ["בדקו עלויות ביטוח."],
+                "competitors_to_consider": [],
+                "practical_summary": "שתי אפשרויות סבירות.",
+            },
+            "checked_versions": {
+                "car_1": {
+                    "make": "Toyota",
+                    "model": "Corolla",
+                    "year": "",        # empty
+                    "trim": "",        # empty
+                    "engine_type": "", # empty
+                    "transmission": "אוטומטית",
+                    "drivetrain": "",  # empty
+                    "seats": "",       # empty
+                    "notes": "",       # empty
+                },
+                "car_2": {
+                    "make": "Honda",
+                    "model": "Civic",
+                    "year": "2020",
+                    "trim": "",        # empty
+                    "engine_type": "בנזין",
+                    "transmission": "אוטומטית",
+                    "drivetrain": "FWD",
+                    "seats": "5",
+                    "notes": "גרסה מייצגת.",
+                },
+            },
+            "sources": [],
+        }, None
+
+    monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", fake_stage_b)
+
+    resp = client.post(
+        "/api/compare",
+        json={
+            "cars": [
+                {"make": "Toyota", "model": "Corolla", "year": 2020},
+                {"make": "Honda", "model": "Civic", "year": 2020},
+            ],
+            "legal_confirm": True,
+        },
+        headers={"Content-Type": "application/json", "Origin": "http://localhost"},
+    )
+    assert resp.status_code == 200
+    payload = resp.get_json()["data"]
+    checked = payload["checked_versions"]
+    for slot_key in ("car_1", "car_2"):
+        slot = checked[slot_key]
+        for field in ("trim", "engine_type", "drivetrain", "seats", "notes"):
+            assert slot.get(field), (
+                f"checked_versions.{slot_key}.{field} must not be empty after backfill, "
+                f"got: {slot.get(field)!r}"
+            )
+
+
+def test_compare_writer_prompt_hard_rules_contain_critical_transmission_rule():
+    """Stage B prompt must include the critical transmission anti-contradiction rule."""
+    cars_selected = {
+        "car_1": {
+            "make": "Toyota",
+            "model": "Corolla",
+            "year": 2020,
+            "transmission": "automatic",
+            "display_name": "Toyota Corolla 2020",
+        },
+        "car_2": {
+            "make": "Honda",
+            "model": "Civic",
+            "year": 2020,
+            "transmission": "automatic",
+            "display_name": "Honda Civic 2020",
+        },
+    }
+    grounded = _grounded_output_fixture()
+    computed = comparison_service.compute_comparison_results(grounded)
+    prompt = comparison_service.build_compare_writer_prompt(cars_selected, computed, grounded)
+
+    assert "CRITICAL" in prompt, "Prompt must have CRITICAL-marked rules"
+    assert "ידנית" in prompt or "manual" in prompt.lower(), (
+        "Prompt must mention manual/ידנית in the context of critical rules"
+    )
+    assert "לא ידוע / לבדיקה" in prompt
+    assert "14." in prompt, "Prompt must include rule 14 (transmission critical rule)"
+    assert "15." in prompt, "Prompt must include rule 15 (required fields rule)"
+    assert "16." in prompt, "Prompt must include rule 16 (decision text rule)"
+
+
 def test_compare_stage_a_timeout_returns_503_with_retryable_error(
     app, logged_in_client, monkeypatch
 ):

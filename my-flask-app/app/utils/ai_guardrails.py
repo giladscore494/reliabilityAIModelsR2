@@ -1121,6 +1121,16 @@ def safe_fallback_on_repair_failure(original_result: Any, validation_report: Map
     return payload
 
 
+_CV_FIELD_FALLBACK = "לא ידוע / לבדיקה"
+_CV_NOTES_FALLBACK = "יש לאמת את המפרט מול מקור רשמי לפני החלטת רכישה."
+_TRANS_VISIBLE = {
+    "automatic": "אוטומטית",
+    "manual": "ידנית",
+    "cvt": "רציפה",
+    "robotic": "רובוטית",
+}
+
+
 def _repair_comparison_result(user_payload: Any, result: Dict[str, Any], report: Mapping[str, Any]) -> Dict[str, Any]:
     patched = _safe_copy(result)
     cars = _safe_list(_safe_dict(user_payload).get("cars") if isinstance(user_payload, dict) else user_payload)
@@ -1131,11 +1141,40 @@ def _repair_comparison_result(user_payload: Any, result: Dict[str, Any], report:
                 "model": normalize_make_model(_safe_dict(car).get("model")),
                 "year": normalize_year(_safe_dict(car).get("year")),
                 "engine_type": normalize_engine_type(_safe_dict(car).get("engine_type") or _safe_dict(car).get("fuel_type")),
-                "transmission": normalize_transmission_type(_safe_dict(car).get("transmission") or _safe_dict(car).get("gearbox")),
-                "notes": "הגרסה שנבחרה דורשת אימות מול מפרט רשמי.",
+                "transmission": _TRANS_VISIBLE.get(
+                    normalize_transmission_type(_safe_dict(car).get("transmission") or _safe_dict(car).get("gearbox")),
+                    _CV_FIELD_FALLBACK,
+                ),
+                "trim": _CV_FIELD_FALLBACK,
+                "drivetrain": _CV_FIELD_FALLBACK,
+                "seats": _CV_FIELD_FALLBACK,
+                "notes": _CV_NOTES_FALLBACK,
             }
             for index, car in enumerate(cars, start=1)
         }
+    else:
+        # Patch individual slots: fix critical mismatches and backfill empty required fields.
+        checked_versions = _find_checked_versions(patched)
+        for index, car in enumerate(cars, start=1):
+            selected = _safe_dict(car)
+            slot_key = f"car_{index}"
+            slot = dict(checked_versions.get(slot_key) or {})
+            if not slot:
+                continue
+            # Fix automatic ↔ manual transmission contradiction (critical mismatch).
+            selected_trans = normalize_transmission_type(selected.get("transmission") or selected.get("gearbox"))
+            slot_trans = normalize_transmission_type(slot.get("transmission") or slot.get("gearbox"))
+            if {selected_trans, slot_trans} == {"automatic", "manual"}:
+                slot["transmission"] = _TRANS_VISIBLE.get(selected_trans, _CV_FIELD_FALLBACK)
+                slot["notes"] = "תיבת ההילוכים תוקנה לפי בחירת המשתמש — יש לאמת מול מפרט רשמי."
+            # Backfill required fields that the AI left empty.
+            for field in ("trim", "engine_type", "drivetrain", "seats", "year"):
+                if not slot.get(field):
+                    slot[field] = _CV_FIELD_FALLBACK
+            if not slot.get("notes"):
+                slot["notes"] = _CV_NOTES_FALLBACK
+            checked_versions[slot_key] = slot
+        patched["checked_versions"] = checked_versions
     differences = _build_central_differences(patched)
     if differences:
         patched["central_differences"] = differences

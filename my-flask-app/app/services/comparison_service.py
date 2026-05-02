@@ -1922,6 +1922,9 @@ HARD RULES:
 11. `checked_versions` is mandatory for every selected car. It must clearly state the representative version being discussed, including uncertainty when trim, transmission, engine, or year are not fully verified.
 12. In `checked_versions.transmission`, use general labels only: אוטומטית, רובוטית, רציפה, ידנית, לא ידוע / לבדיקה. Do not use DSG, DCT, DHT, or CVT as the visible default transmission label.
 13. If the user selected a general engine/transmission value, do not present it as a fully verified exact specification. Use `notes` to explain that it still requires verification against the importer spec or vehicle license.
+14. CRITICAL — transmission/engine/year consistency: If the user selected a transmission type (e.g. automatic), you MUST NOT output a contradictory value (e.g. manual) in `checked_versions`. If you lack certainty, output `לא ידוע / לבדיקה` and explain in `notes`. Silently flipping automatic to manual (or vice versa) is a critical error.
+15. CRITICAL — required fields must never be empty: Every `checked_versions` slot must have non-empty values for `trim`, `engine_type`, `transmission`, `drivetrain`, `seats`, `year`, and `notes`. Use `לא ידוע / לבדיקה` as a safe fallback for any field you cannot verify — never leave them blank.
+16. CRITICAL — decision text fields must never be empty: `overall_decision.text`, every `category_decisions[].why`, every `choose_car_X_if`, every `avoid_or_check_car_X_if`, and `checked_versions.notes` must always contain non-empty Hebrew text. Use cautious fallback wording rather than returning empty strings or empty arrays.
 """
     return prompt
 
