@@ -26,6 +26,7 @@ from app.research import (
     ensure_anon_id,
     validate_research_payload,
 )
+from app.utils.ai_guardrails import validate_research_submission
 from app.utils.validation import ValidationError
 from app.utils.http_helpers import get_request_id, _utcnow
 
@@ -327,6 +328,20 @@ def save_research_responses():
     except ValidationError as exc:
         return _legal_error("VALIDATION_ERROR", exc.message, status=400)
 
+    submission_payload = {
+        "consent_accepted": True,
+        "consent_required": True,
+        "vehicle_context": context_obj,
+        "sample_size": len(validated_responses),
+        "notes": data.get("notes") or data.get("free_text"),
+        "duplicate_report": bool(data.get("duplicate_report")),
+        "repair_cost_ils": data.get("repair_cost_ils"),
+    }
+    research_report = validate_research_submission(submission_payload)
+    if research_report.get("critical_issues"):
+        return _legal_error("VALIDATION_ERROR", "נתוני המחקר דורשים אימות לפני שמירה.", status=400)
+
+    user_id, anon_id = _research_subject()
     source_analysis_type = (data.get("source_analysis_type") or "").strip()
     source_analysis_type = {
         "comparison_history": "compare_history",
@@ -369,7 +384,6 @@ def save_research_responses():
             status=400,
         )
 
-    user_id, anon_id = _research_subject()
     session_query = ResearchResponseSession.query.filter_by(
         flow_type=flow_type,
         source_analysis_type=source_analysis_type,
@@ -453,6 +467,8 @@ def save_research_responses():
             "session_id": response_session.id,
             "saved_count": len(validated_responses),
             "vehicle_context": context_obj,
+            "field_sources": research_report.get("field_sources", {}),
+            "guardrail_status": research_report.get("status"),
         }
     )
 

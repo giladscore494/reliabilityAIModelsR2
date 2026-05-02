@@ -925,17 +925,33 @@ def validate_invoice_analysis_result(user_payload: Any, ai_result: Any) -> Dict[
 def validate_research_submission(payload: Any) -> Dict[str, Any]:
     report = _ensure_report("research_collection")
     data = _safe_dict(payload)
-    if data.get("consent_required") and not data.get("consent_accepted"):
+    if data.get("consent_required", True) and not data.get("consent_accepted"):
         _add_issue(report, "research consent missing", critical=True, section="consent")
     vehicle = _safe_dict(data.get("vehicle") or data.get("vehicle_context"))
     if vehicle.get("year") and not validate_year_reasonable(vehicle.get("year")):
         _add_issue(report, "vehicle year is not reasonable", critical=True, section="vehicle")
     if data.get("repair_cost_ils") is not None and normalize_currency_ils(data.get("repair_cost_ils")) is None:
         _add_issue(report, "repair cost must be numeric ILS", critical=True, section="costs")
+    repair_cost = normalize_currency_ils(data.get("repair_cost_ils"))
+    if repair_cost is not None and repair_cost > 50000:
+        _add_issue(report, "repair cost outlier flagged", critical=False, section="costs")
     if _contains_pii(_text(data.get("notes") or data.get("free_text"))):
         _add_issue(report, "free text contains PII and must be redacted", critical=True, section="notes")
+    if data.get("duplicate_report"):
+        _add_issue(report, "duplicate report flagged", critical=False, section="quality")
+    sample_size = _normalize_count(data.get("sample_size"))
+    if sample_size is not None and sample_size < 10:
+        _add_issue(report, "small sample size caveat required", critical=False, section="quality")
     report["field_sources"] = {
-        key: ("redacted" if key in {"notes", "free_text"} and _contains_pii(value) else "user_reported")
+        key: (
+            "redacted"
+            if key in {"notes", "free_text"} and _contains_pii(value)
+            else "source_verified"
+            if key in {"vehicle", "vehicle_context"}
+            else "calculated"
+            if key in {"sample_size", "repair_cost_ils"}
+            else "user_reported"
+        )
         for key, value in data.items()
     }
     return _finalize_report(report)
@@ -1271,7 +1287,7 @@ def apply_feature_guardrails(
     elif feature_key == "invoice_scanner":
         report = validate_invoice_analysis_result(user_payload, result)
     elif feature_key == "research_collection":
-        report = validate_research_submission(user_payload)
+        report = validate_research_submission(result or user_payload)
     elif feature_key == "dashboard_history":
         report = validate_dashboard_history_payload(result)
     else:
@@ -1307,6 +1323,17 @@ def apply_feature_guardrails(
     elif feature_key == "leasing_advisor" and isinstance(result, dict):
         if "summary" in result and _contains_any(result.get("summary"), ("residual", "future value", "ערך עתידי")):
             result["summary"] = f"{_text(result.get('summary'))} הערך העתידי הוא הערכה בלבד.".strip()
+    elif feature_key == "research_collection" and isinstance(result, dict):
+        if result.get("notes"):
+            result["notes"] = redact_pii_from_text(result.get("notes"))
+        if result.get("free_text"):
+            result["free_text"] = redact_pii_from_text(result.get("free_text"))
+        if _normalize_count(result.get("sample_size")) is not None and _normalize_count(result.get("sample_size")) < 10:
+            result["sample_size_caveat"] = LOW_SAMPLE_NOTE
+    elif feature_key == "dashboard_history" and isinstance(result, dict):
+        for key in ("prompt", "prompt_text", "debug", "debug_info", "internal_score"):
+            result.pop(key, None)
+        result = _redact_pii(result)
     elif feature_key in {"service_prices", "invoice_scanner"} and isinstance(result, dict):
         result = _repair_service_result(result)
 
