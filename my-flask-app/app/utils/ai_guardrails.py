@@ -497,6 +497,14 @@ def _classify_source_type(value: Any) -> str:
     return aliases.get(normalized, "unknown")
 
 
+def _normalize_count(value: Any) -> Optional[int]:
+    number = _parse_float(value)
+    if number is None:
+        return None
+    count = int(round(number))
+    return count if 0 <= count <= 20 else None
+
+
 def _iter_text_values(value: Any) -> Iterable[str]:
     for _path, text in _deep_walk_strings(value):
         if text:
@@ -710,25 +718,59 @@ def validate_recommendation_result(user_payload: Any, ai_result: Any) -> Dict[st
     recommendations = _find_recommendations(_safe_dict(ai_result))
     invalid_cards = 0
     budget_max = normalize_currency_ils(payload.get("budget_max") or payload.get("budget"))
-    required_seats = normalize_year(payload.get("seats") or payload.get("seats_choice"))
-    preferred_trans = normalize_transmission_type(payload.get("transmission_preference") or payload.get("transmission"))
+    required_seats = _normalize_count(
+        payload.get("seats")
+        or payload.get("seats_choice")
+        or payload.get("family_size")
+    )
+    preferred_trans = normalize_transmission_type(
+        payload.get("transmission_preference")
+        or payload.get("transmission")
+        or (_safe_list(payload.get("gears")) or [None])[0]
+    )
+    preferred_body = _norm_key(payload.get("body_style") or payload.get("body_type"))
+    preferred_fuels = {
+        normalize_engine_type(item)
+        for item in _safe_list(payload.get("preferred_fuels") or payload.get("fuels") or payload.get("fuels_he"))
+    }
     ev_rejected = bool(payload.get("reject_ev") or payload.get("ev_rejected") or payload.get("no_ev"))
     for index, card in enumerate(recommendations, start=1):
         invalid = False
-        price = normalize_currency_ils(card.get("price_ils") or card.get("list_price_ils") or card.get("price"))
+        price = normalize_currency_ils(
+            card.get("price_ils")
+            or card.get("list_price_ils")
+            or card.get("price")
+            or (_safe_list(card.get("price_range_nis")) or [None])[1]
+            or card.get("price_range_nis")
+        )
         stretch = bool(card.get("stretch_option") or card.get("is_stretch"))
         if budget_max is not None and price is not None and price > budget_max and not stretch:
             _add_issue(report, f"recommendation_{index}: over budget", critical=True, section="recommendations")
             invalid = True
-        if required_seats and normalize_year(card.get("seats")) and normalize_year(card.get("seats")) < required_seats:
+        seats = _normalize_count(card.get("seats"))
+        if required_seats and seats and seats < required_seats:
             _add_issue(report, f"recommendation_{index}: insufficient seats", critical=True, section="recommendations")
             invalid = True
-        if preferred_trans == "automatic" and normalize_transmission_type(card.get("transmission") or card.get("gearbox")) == "manual":
+        card_transmission = normalize_transmission_type(
+            card.get("transmission") or card.get("gear") or card.get("gearbox")
+        )
+        if preferred_trans == "automatic" and card_transmission == "manual":
             _add_issue(report, f"recommendation_{index}: manual despite automatic requirement", critical=True, section="recommendations")
             invalid = True
-        if ev_rejected and normalize_engine_type(card.get("fuel_type") or card.get("powertrain")) in {"electric", "phev"}:
+        card_fuel = normalize_engine_type(
+            card.get("fuel_type") or card.get("fuel") or card.get("powertrain")
+        )
+        if ev_rejected and card_fuel in {"electric", "phev"}:
             _add_issue(report, f"recommendation_{index}: EV rejected by user", critical=True, section="recommendations")
             invalid = True
+        if preferred_fuels and card_fuel not in {"unknown", ""} and card_fuel not in preferred_fuels:
+            _add_issue(report, f"recommendation_{index}: hard fuel constraint violated", critical=True, section="recommendations")
+            invalid = True
+        if preferred_body and preferred_body not in {"כללי", "unknown"}:
+            card_body = _norm_key(card.get("body_style") or card.get("body_type"))
+            if card_body and card_body != preferred_body:
+                _add_issue(report, f"recommendation_{index}: body preference mismatch", critical=True, section="recommendations")
+                invalid = True
         for key, label in (
             ("why_it_fits", "fit"),
             ("tradeoff", "tradeoff"),
@@ -737,8 +779,28 @@ def validate_recommendation_result(user_payload: Any, ai_result: Any) -> Dict[st
             ("price_caveat", "price caveat"),
         ):
             if not card.get(key) and not (key == "why_it_fits" and card.get("reason_he")):
-                _add_issue(report, f"recommendation_{index}: missing {label}", critical=True, section="recommendations")
-                invalid = True
+                severity = key in {"why_it_fits", "what_to_check", "confidence"} and index == 1
+                _add_issue(
+                    report,
+                    f"recommendation_{index}: missing {label}",
+                    critical=severity,
+                    section="recommendations",
+                )
+                invalid = invalid or severity
+        if not card.get("tradeoff"):
+            _add_issue(report, f"recommendation_{index}: tradeoff missing", critical=False, section="recommendations")
+        if any(token in _norm_key(card.get("availability_note")) for token in ("uncertain", "limited", "not verified")):
+            _add_issue(report, f"recommendation_{index}: market availability uncertain", critical=False, section="recommendations")
+        if _norm_key(card.get("trim")) in {"לא מאומת", "unknown", "unverified"}:
+            _add_issue(report, f"recommendation_{index}: trim/version uncertain", critical=False, section="recommendations")
+        if card.get("available_in_israel") is False:
+            _add_issue(report, f"recommendation_{index}: unavailable in Israeli market", critical=True, section="recommendations")
+            invalid = True
+        if not card.get("price_caveat") and any(
+            token in _norm_key(card.get("price_note") or card.get("price_source"))
+            for token in ("estimated", "estimate", "משוער")
+        ):
+            _add_issue(report, f"recommendation_{index}: price estimate uncertain", critical=False, section="recommendations")
         invalid_cards += int(invalid)
     if recommendations and invalid_cards / max(len(recommendations), 1) > 0.5:
         _add_issue(report, "more than half the recommendation cards are invalid", critical=True, section="recommendations")
@@ -1069,6 +1131,11 @@ def _repair_recommendations_result(result: Dict[str, Any], report: Mapping[str, 
         fixed.setdefault("what_to_check", "בדקו זמינות, מפרט בפועל והיסטוריית טיפולים.")
         fixed.setdefault("confidence", "ברמת ודאות בינונית")
         fixed.setdefault("price_caveat", ESTIMATED_PRICE_NOTE)
+        if any(
+            token in _norm_key(fixed.get("price_note") or fixed.get("price_source"))
+            for token in ("estimated", "estimate", "משוער")
+        ):
+            fixed["price_caveat"] = ESTIMATED_PRICE_NOTE
         safe_cards.append(fixed)
     if not safe_cards:
         patched["recommended_cars"] = []
@@ -1149,6 +1216,24 @@ def apply_feature_guardrails(
         if any(key in result for key in ("score_0_100", "internal_score", "reliability_score")):
             for key in ("score_0_100", "internal_score", "reliability_score"):
                 result.pop(key, None)
+    elif feature_key == "recommendations" and isinstance(result, dict):
+        if report.get("warnings"):
+            normalized_cards = []
+            for card in _find_recommendations(result):
+                fixed = dict(card)
+                fixed["why_it_fits"] = fixed.get("why_it_fits") or fixed.get("reason_he") or "לפי המידע הזמין, יש התאמה חלקית לצרכים שהוגדרו."
+                fixed["tradeoff"] = fixed.get("tradeoff") or "דורש אימות של רמת הגימור והזמינות בפועל."
+                fixed["what_to_check"] = fixed.get("what_to_check") or "בדקו זמינות, מפרט בפועל והיסטוריית טיפולים."
+                fixed["confidence"] = fixed.get("confidence") or "ברמת ודאות בינונית"
+                if not fixed.get("price_caveat") or any(
+                    token in _norm_key(fixed.get("price_note") or fixed.get("price_source"))
+                    for token in ("estimated", "estimate", "משוער")
+                ):
+                    fixed["price_caveat"] = ESTIMATED_PRICE_NOTE
+                normalized_cards.append(fixed)
+            for key in ("recommended_cars", "recommendations", "top3"):
+                if key in result:
+                    result[key] = normalized_cards if key != "top3" else normalized_cards[:3]
     elif feature_key in {"service_prices", "invoice_scanner"} and isinstance(result, dict):
         result = _repair_service_result(result)
 
