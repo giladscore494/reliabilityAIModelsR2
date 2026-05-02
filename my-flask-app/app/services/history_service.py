@@ -15,6 +15,7 @@ from app.utils.sanitization import (
     sanitize_reliability_report_response,
     derive_information_status,
 )
+from app.utils.ai_guardrails import apply_feature_guardrails
 
 def safe_json_obj(value, default=None):
     """Safely decode value into dict/list, including a double-encoded JSON string."""
@@ -101,14 +102,17 @@ def build_leasing_data(entries: list) -> list:
         top3 = response.get("top3", []) if isinstance(response, dict) else []
         if isinstance(top3, list) and top3:
             first = top3[0]
-            if isinstance(first, dict):
-                top_rec = f"{first.get('make', '')} {first.get('model', '')}"
+        if isinstance(first, dict):
+            top_rec = f"{first.get('make', '')} {first.get('model', '')}"
+        response, _ = apply_feature_guardrails("dashboard_history", {}, response)
         result.append({
             "id": e.id,
             "created_at": e.created_at.strftime("%d/%m/%Y %H:%M"),
             "frame_summary": f"BIK: {frame.get('max_bik', '—')} | {frame.get('source', '')}",
             "top_recommendation": top_rec.strip(),
             "duration_ms": e.duration_ms,
+            "guardrail_meta": response.get("guardrail_meta", {}),
+            "legacy_notice": response.get("legacy_notice"),
         })
     return result
 
@@ -140,6 +144,7 @@ def build_searches_data(user_searches: List[SearchHistory]) -> list:
             )
             parsed_result = {}
         parsed_result = _normalize_reliability_history_payload(parsed_result)
+        parsed_result, _ = apply_feature_guardrails("dashboard_history", {}, parsed_result)
         searches_data.append({
             "id": s.id,
             "timestamp": s.timestamp.strftime('%d/%m/%Y %H:%M'),
@@ -151,6 +156,8 @@ def build_searches_data(user_searches: List[SearchHistory]) -> list:
             "transmission": s.transmission or '',
             "data": parsed_result,
             "duration_ms": getattr(s, "duration_ms", None),
+            "guardrail_meta": parsed_result.get("guardrail_meta", {}),
+            "legacy_notice": parsed_result.get("legacy_notice"),
         })
     return searches_data
 
@@ -169,11 +176,14 @@ def build_advisor_data(advisor_entries: List[AdvisorHistory]) -> list:
             brand = (first.get("brand") or "").strip()
             model = (first.get("model") or "").strip()
             top_recommendation = f"{brand} {model}".strip()
+        parsed_result, _ = apply_feature_guardrails("dashboard_history", {}, parsed_result)
         data.append({
             "id": entry.id,
             "timestamp": entry.timestamp.strftime("%d/%m/%Y %H:%M"),
             "top_recommendation": top_recommendation,
             "duration_ms": getattr(entry, "duration_ms", None),
+            "guardrail_meta": parsed_result.get("guardrail_meta", {}),
+            "legacy_notice": parsed_result.get("legacy_notice"),
         })
     return data
 
@@ -198,6 +208,7 @@ def search_details_response(search_id: int, user_id: int):
 
         raw = _normalize_reliability_history_payload(raw)
         data_safe = sanitize_analyze_response(raw)
+        data_safe, _ = apply_feature_guardrails("dashboard_history", {}, data_safe)
         return api_ok({"meta": meta, "data": data_safe})
     except Exception as e:
         try:
@@ -254,6 +265,7 @@ def history_item_response(item_id: int, user_id: int):
 
         result_data = json.loads(search.result_json) if search.result_json else {}
         result_data = sanitize_analyze_response(_normalize_reliability_history_payload(result_data))
+        result_data, _ = apply_feature_guardrails("dashboard_history", {}, result_data)
 
         return api_ok({
             'id': search.id,

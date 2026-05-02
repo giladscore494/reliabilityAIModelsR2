@@ -31,6 +31,7 @@ from app.quota import (
     PER_IP_PER_MIN_LIMIT,
 )
 from app.utils.http_helpers import api_error, api_ok, get_request_id, _utcnow
+from app.utils.ai_guardrails import validate_feature_legal_access
 from app.services import service_prices_service
 
 bp = Blueprint("service_prices", __name__)
@@ -234,19 +235,29 @@ def analyze_invoice():
     # LEGAL GATE #1: Terms & Privacy Acceptance
     # MUST execute BEFORE any file reading or AI call
     # ============================================
-    legal_error = check_legal_acceptance(user_id)
-    if legal_error:
+    legal_guard = validate_feature_legal_access(current_user, "invoice_scanner", "read")
+    if legal_guard:
         log_access_decision("/api/service-prices/analyze", user_id, "rejected", "legal acceptance required")
-        return legal_error
-    
-    # ============================================
-    # LEGAL GATE #2: Feature Consent
-    # MUST execute BEFORE any file reading or AI call
-    # ============================================
-    consent_error = check_feature_consent(user_id)
-    if consent_error:
-        log_access_decision("/api/service-prices/analyze", user_id, "rejected", "feature consent required")
-        return consent_error
+        if legal_guard.get("required_feature_key") == INVOICE_EXT_PROCESSING_KEY:
+            return _legal_gating_error(
+                "FEATURE_CONSENT_REQUIRED",
+                "חובה לאשר אישור ייעודי לעיבוד חשבונית לפני שימוש בפיצ'ר",
+                {"feature_key": INVOICE_EXT_PROCESSING_KEY, "version": INVOICE_EXT_PROCESSING_VERSION},
+            )
+        if legal_guard.get("required_feature_key") == INVOICE_ANON_STORAGE_KEY:
+            return _legal_gating_error(
+                "FEATURE_CONSENT_REQUIRED",
+                "חובה לאשר אישור לשמירת נתונים אנונימיים לפני שימוש בפיצ'ר",
+                {"feature_key": INVOICE_ANON_STORAGE_KEY, "version": INVOICE_ANON_STORAGE_VERSION},
+            )
+        return _legal_gating_error(
+            "LEGAL_ACCEPTANCE_REQUIRED",
+            "חובה לאשר תנאי שימוש ומדיניות פרטיות לפני שימוש בפיצ'ר",
+            {
+                "terms_version": legal_guard.get("required_terms_version"),
+                "privacy_version": legal_guard.get("required_privacy_version"),
+            },
+        )
     
     # Determine if anonymized storage consent was given
     anon_storage_consented = has_accepted_feature(
