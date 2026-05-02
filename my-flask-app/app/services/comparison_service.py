@@ -26,6 +26,7 @@ from app.utils.prompt_defense import (
 import app.extensions as extensions
 from google.genai import types as genai_types
 from app.utils.sanitization import sanitize_comparison_narrative, _sanitize_url
+from app.utils.ai_guardrails import apply_feature_guardrails
 
 logger = logging.getLogger(__name__)
 
@@ -181,24 +182,29 @@ def _sanitize_checked_versions(
     return sanitized
 
 
+def _normalize_grounded_cars_format(grounded_output: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    grounded_cars_raw = (
+        ((grounded_output or {}).get("cars") or {})
+        if isinstance(grounded_output, dict)
+        else {}
+    )
+    if isinstance(grounded_cars_raw, list):
+        return {
+            f"car_{index + 1}": item
+            for index, item in enumerate(grounded_cars_raw)
+            if isinstance(item, dict)
+        }
+    return grounded_cars_raw if isinstance(grounded_cars_raw, dict) else {}
+
+
 def build_checked_versions(
     cars_selected_slots: Dict[str, Dict[str, Any]],
     grounded_output: Optional[Dict[str, Any]],
     ai_checked_versions: Optional[Dict[str, Dict[str, str]]] = None,
 ) -> Dict[str, Dict[str, str]]:
-    slot_keys = _ordered_compare_slot_keys(
-        cars_selected_slots or {},
-        ((grounded_output or {}).get("cars") or {})
-        if isinstance(grounded_output, dict)
-        else {},
-        ai_checked_versions or {},
-    )
+    grounded_cars = _normalize_grounded_cars_format(grounded_output)
+    slot_keys = _ordered_compare_slot_keys(cars_selected_slots or {}, grounded_cars, ai_checked_versions or {})
     ai_checked_versions = _sanitize_checked_versions(ai_checked_versions, slot_keys)
-    grounded_cars = (
-        ((grounded_output or {}).get("cars") or {})
-        if isinstance(grounded_output, dict)
-        else {}
-    )
     result: Dict[str, Dict[str, str]] = {}
 
     for slot_key in slot_keys:
@@ -4833,9 +4839,30 @@ def handle_comparison_request(
                             f"[COMPARISON] decision_result cache heal failed for id={cached.id}: {heal_err}"
                         )
                         db.session.rollback()
-                ai_payload = build_stored_comparison_ai_payload(
-                    computed_result if isinstance(computed_result, dict) else None,
-                    narrative,
+                cached_guarded, _ = apply_feature_guardrails(
+                    "vehicle_comparison",
+                    {"cars": cars_selected if isinstance(cars_selected, list) else []},
+                    {
+                        "checked_versions": checked_versions,
+                        "decision_result": decision_result,
+                        "narrative": narrative,
+                        "computed_result": computed_result,
+                        "sources_index": sources_index if sources_index else {},
+                        "ai": build_stored_comparison_ai_payload(
+                            computed_result if isinstance(computed_result, dict) else None,
+                            narrative,
+                        ),
+                    },
+                )
+                checked_versions = cached_guarded.get("checked_versions", checked_versions)
+                decision_result = cached_guarded.get("decision_result", decision_result)
+                narrative = cached_guarded.get("narrative", narrative)
+                ai_payload = cached_guarded.get(
+                    "ai",
+                    build_stored_comparison_ai_payload(
+                        computed_result if isinstance(computed_result, dict) else None,
+                        narrative,
+                    ),
                 )
                 return api_ok(
                     {
@@ -4853,6 +4880,9 @@ def handle_comparison_request(
                         "sources_index": sources_index if sources_index else {},
                         "assumptions": assumptions,
                         "ai": ai_payload,
+                        "visible_warning": cached_guarded.get("visible_warning"),
+                        "central_differences": cached_guarded.get("central_differences"),
+                        "guardrail_meta": cached_guarded.get("guardrail_meta", {}),
                     }
                 )
             else:
@@ -5129,6 +5159,24 @@ def handle_comparison_request(
         ai_status = "fallback"
         ai_reason = stage_b_reason
     ai_payload = build_ai_payload(computed_result, narrative, ai_status, ai_reason)
+    comparison_guarded, _ = apply_feature_guardrails(
+        "vehicle_comparison",
+        {"cars": validated_cars},
+        {
+            "checked_versions": checked_versions,
+            "decision_result": decision_result,
+            "narrative": narrative,
+            "computed_result": computed_result,
+            "sources_index": sources_index,
+            "ai": ai_payload,
+        },
+    )
+    checked_versions = comparison_guarded.get("checked_versions", checked_versions)
+    decision_result = comparison_guarded.get("decision_result", decision_result)
+    narrative = comparison_guarded.get("narrative", narrative)
+    ai_payload = comparison_guarded.get("ai", ai_payload)
+    visible_warning = comparison_guarded.get("visible_warning")
+    central_differences = comparison_guarded.get("central_differences")
     logger.info(
         "[COMPARISON] response narrative request_id=%s ai_status=%s ai_reason=%s narrative_shape=%s",
         request_id,
@@ -5143,9 +5191,14 @@ def handle_comparison_request(
     stored_computed = dict(computed_result)
     stored_computed["decision_result"] = decision_result
     stored_computed["checked_versions"] = checked_versions
+    if visible_warning:
+        stored_computed["visible_warning"] = visible_warning
+    if central_differences:
+        stored_computed["central_differences"] = central_differences
     if narrative:
         stored_computed["narrative"] = narrative
     stored_computed["ai"] = ai_payload
+    stored_computed["guardrail_meta"] = comparison_guarded.get("guardrail_meta", {})
 
     # Save to database
     try:
@@ -5200,6 +5253,9 @@ def handle_comparison_request(
             "sources_index": sources_index,
             "assumptions": {},
             "ai": ai_payload,
+            "visible_warning": visible_warning,
+            "central_differences": central_differences,
+            "guardrail_meta": comparison_guarded.get("guardrail_meta", {}),
         }
     )
 

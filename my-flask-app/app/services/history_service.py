@@ -10,32 +10,12 @@ from flask import current_app
 from app.extensions import db
 from app.models import SearchHistory, AdvisorHistory, LeasingAdvisorHistory
 from app.utils.http_helpers import api_ok, api_error, get_request_id
+from app.utils.ai_guardrails import apply_feature_guardrails, safe_json_obj
 from app.utils.sanitization import (
     sanitize_analyze_response,
     sanitize_reliability_report_response,
     derive_information_status,
 )
-
-def safe_json_obj(value, default=None):
-    """Safely decode value into dict/list, including a double-encoded JSON string."""
-    fallback = {} if default is None else default
-    try:
-        if isinstance(value, (dict, list)):
-            return value
-        if not isinstance(value, str):
-            return fallback
-        stripped = value.strip()
-        if not stripped:
-            return fallback
-        result = json.loads(stripped)
-        if isinstance(result, str):
-            try:
-                result = json.loads(result)
-            except Exception:
-                return fallback
-        return result if isinstance(result, (dict, list)) else fallback
-    except Exception:
-        return fallback
 
 
 def fetch_dashboard_history(user_id: int) -> Tuple[list, list, Optional[str], Optional[str]]:
@@ -103,12 +83,15 @@ def build_leasing_data(entries: list) -> list:
             first = top3[0]
             if isinstance(first, dict):
                 top_rec = f"{first.get('make', '')} {first.get('model', '')}"
+        response, _ = apply_feature_guardrails("dashboard_history", {}, response)
         result.append({
             "id": e.id,
             "created_at": e.created_at.strftime("%d/%m/%Y %H:%M"),
             "frame_summary": f"BIK: {frame.get('max_bik', '—')} | {frame.get('source', '')}",
             "top_recommendation": top_rec.strip(),
             "duration_ms": e.duration_ms,
+            "guardrail_meta": response.get("guardrail_meta", {}),
+            "legacy_notice": response.get("legacy_notice"),
         })
     return result
 
@@ -130,16 +113,9 @@ def build_searches_data(user_searches: List[SearchHistory]) -> list:
     logger = current_app.logger
     searches_data = []
     for s in user_searches:
-        try:
-            parsed_result = json.loads(s.result_json)
-        except Exception:
-            logger.warning(
-                "[DASH] Malformed result_json search_id=%s request_id=%s",
-                s.id,
-                get_request_id(),
-            )
-            parsed_result = {}
+        parsed_result = safe_json_obj(s.result_json, default={})
         parsed_result = _normalize_reliability_history_payload(parsed_result)
+        parsed_result, _ = apply_feature_guardrails("dashboard_history", {}, parsed_result)
         searches_data.append({
             "id": s.id,
             "timestamp": s.timestamp.strftime('%d/%m/%Y %H:%M'),
@@ -151,6 +127,8 @@ def build_searches_data(user_searches: List[SearchHistory]) -> list:
             "transmission": s.transmission or '',
             "data": parsed_result,
             "duration_ms": getattr(s, "duration_ms", None),
+            "guardrail_meta": parsed_result.get("guardrail_meta", {}),
+            "legacy_notice": parsed_result.get("legacy_notice"),
         })
     return searches_data
 
@@ -169,11 +147,14 @@ def build_advisor_data(advisor_entries: List[AdvisorHistory]) -> list:
             brand = (first.get("brand") or "").strip()
             model = (first.get("model") or "").strip()
             top_recommendation = f"{brand} {model}".strip()
+        parsed_result, _ = apply_feature_guardrails("dashboard_history", {}, parsed_result)
         data.append({
             "id": entry.id,
             "timestamp": entry.timestamp.strftime("%d/%m/%Y %H:%M"),
             "top_recommendation": top_recommendation,
             "duration_ms": getattr(entry, "duration_ms", None),
+            "guardrail_meta": parsed_result.get("guardrail_meta", {}),
+            "legacy_notice": parsed_result.get("legacy_notice"),
         })
     return data
 
@@ -194,10 +175,11 @@ def search_details_response(search_id: int, user_id: int):
             "fuel_type": s.fuel_type,
             "transmission": s.transmission,
         }
-        raw = json.loads(s.result_json)
+        raw = safe_json_obj(s.result_json, default={})
 
         raw = _normalize_reliability_history_payload(raw)
         data_safe = sanitize_analyze_response(raw)
+        data_safe, _ = apply_feature_guardrails("dashboard_history", {}, data_safe)
         return api_ok({"meta": meta, "data": data_safe})
     except Exception as e:
         try:
@@ -252,8 +234,9 @@ def history_item_response(item_id: int, user_id: int):
         if not search:
             return api_error('NOT_FOUND', 'פריט לא נמצא או אין לך גישה אליו', status=404)
 
-        result_data = json.loads(search.result_json) if search.result_json else {}
+        result_data = safe_json_obj(search.result_json, default={}) if search.result_json else {}
         result_data = sanitize_analyze_response(_normalize_reliability_history_payload(result_data))
+        result_data, _ = apply_feature_guardrails("dashboard_history", {}, result_data)
 
         return api_ok({
             'id': search.id,

@@ -19,6 +19,7 @@ from app.quota import (
     PER_IP_PER_MIN_LIMIT,
 )
 from app.utils.http_helpers import api_ok, api_error, get_request_id, is_owner_user, _utcnow
+from app.utils.ai_guardrails import apply_feature_guardrails
 from app.services import leasing_advisor_service as leasing_svc
 from app.services.history_service import fetch_leasing_history, build_leasing_data, safe_json_obj
 from app.legal import TERMS_VERSION, PRIVACY_VERSION, parse_legal_confirm
@@ -242,6 +243,19 @@ def leasing_recommend():
             release_quota_reservation(reservation_id, user_id, day_key)
         log_access_decision("/api/leasing/recommend", user_id, "error", f"AI error: {err}")
         return api_error("leasing_ai_error", err, status=502)
+
+    result, validation_report = apply_feature_guardrails(
+        "leasing_advisor",
+        {"prefs": prefs, "candidates": candidates},
+        result,
+        deterministic_calc={"candidates": candidates, "frame": frame_context},
+    )
+    if validation_report.get("critical_issues"):
+        current_app.logger.warning(
+            "[GUARDRAIL] blocked original leasing result request_id=%s critical=%s",
+            request_id,
+            validation_report.get("critical_issues"),
+        )
 
     # Finalize quota
     if reservation_id:
