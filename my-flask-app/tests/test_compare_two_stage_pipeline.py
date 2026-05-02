@@ -824,19 +824,19 @@ def test_compare_stage_b_checked_versions_empty_fields_are_backfilled_in_final_p
                 "car_1": {
                     "make": "Toyota",
                     "model": "Corolla",
-                    "year": "",        # empty
-                    "trim": "",        # empty
-                    "engine_type": "", # empty
+                    "year": "",
+                    "trim": "",
+                    "engine_type": "",
                     "transmission": "אוטומטית",
-                    "drivetrain": "",  # empty
-                    "seats": "",       # empty
-                    "notes": "",       # empty
+                    "drivetrain": "",
+                    "seats": "",
+                    "notes": "",
                 },
                 "car_2": {
                     "make": "Honda",
                     "model": "Civic",
                     "year": "2020",
-                    "trim": "",        # empty
+                    "trim": "",
                     "engine_type": "בנזין",
                     "transmission": "אוטומטית",
                     "drivetrain": "FWD",

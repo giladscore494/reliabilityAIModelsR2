@@ -107,8 +107,8 @@ def test_manual_selected_automatic_returned_by_ai_is_overwritten():
     assert "ידנית" in transmission, f"Expected ידנית but got: {transmission}"
 
 
-def test_automatic_selected_gearbox_field_manual_returned_by_ai_is_overwritten():
-    """User passed transmission via gearbox field; AI returned manual → must be corrected."""
+def test_automatic_selected_via_gearbox_manual_returned_by_ai_is_overwritten():
+    """User passed automatic via gearbox field; AI returned ידנית → must be corrected."""
     user_payload = {"cars": [{"make": "Honda", "model": "Civic", "year": 2021, "gearbox": "automatic"}]}
     ai_result = {
         "checked_versions": {
@@ -118,7 +118,7 @@ def test_automatic_selected_gearbox_field_manual_returned_by_ai_is_overwritten()
                 "year": "2021",
                 "trim": "Sport",
                 "engine_type": "בנזין",
-                "transmission": "manual",
+                "transmission": "ידנית",
                 "drivetrain": "FWD",
                 "seats": "5",
                 "notes": "גרסה מייצגת.",
@@ -128,7 +128,8 @@ def test_automatic_selected_gearbox_field_manual_returned_by_ai_is_overwritten()
     result, report = apply_feature_guardrails("vehicle_comparison", user_payload, ai_result)
     assert report["status"] == "critical"
     transmission = result["checked_versions"]["car_1"]["transmission"]
-    assert "ידנית" not in transmission and "manual" not in transmission.lower()
+    assert "ידנית" not in transmission, f"Expected no ידנית but got: {transmission}"
+    assert "אוטומטית" in transmission, f"Expected אוטומטית but got: {transmission}"
 
 
 # --- Regression tests: empty required fields are backfilled ---
