@@ -15,6 +15,11 @@ from flask_login import login_user, logout_user, current_user, login_required
 from authlib.integrations.base_client.errors import MismatchingStateError
 
 from app.extensions import db, oauth
+from app.legal import (
+    RELIABILITY_RESULT_ACK_KEY,
+    RELIABILITY_RESULT_ACK_VERSION,
+    has_accepted_feature,
+)
 from app.models import User
 from app.utils.analytics import track_event
 from car_models_dict import israeli_car_market_full_compilation
@@ -49,11 +54,21 @@ def index():
 
 @bp.route('/app')
 def app_page():
+    reliability_results_acknowledged = False
+    if current_user.is_authenticated:
+        reliability_results_acknowledged = has_accepted_feature(
+            current_user.id,
+            RELIABILITY_RESULT_ACK_KEY,
+            RELIABILITY_RESULT_ACK_VERSION,
+        )
     return render_template(
         'reliability_app.html',
         car_models_data=israeli_car_market_full_compilation,
         user=current_user,
         is_owner=is_owner_user(),
+        reliability_results_acknowledged=reliability_results_acknowledged,
+        reliability_result_ack_key=RELIABILITY_RESULT_ACK_KEY,
+        reliability_result_ack_version=RELIABILITY_RESULT_ACK_VERSION,
     )
 
 

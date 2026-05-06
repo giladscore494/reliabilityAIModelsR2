@@ -20,7 +20,13 @@ from app.quota import (
     get_daily_quota_usage,
     PER_IP_PER_MIN_LIMIT,
 )
-from app.legal import TERMS_VERSION, PRIVACY_VERSION
+from app.legal import (
+    TERMS_VERSION,
+    PRIVACY_VERSION,
+    COMPARE_RESULT_ACK_KEY,
+    COMPARE_RESULT_ACK_VERSION,
+    has_accepted_feature,
+)
 from app.models import LegalAcceptance, QuotaReservation
 from app.utils.http_helpers import api_error, api_ok, is_owner_user, get_request_id, _utcnow
 from app.services import comparison_service
@@ -40,10 +46,13 @@ def compare_page():
             is_owner=False,
             car_models_data=israeli_car_market_full_compilation,
             legal_accepted=False,
+            compare_results_acknowledged=False,
             accepted_terms=False,
             accepted_privacy=False,
             terms_version=current_app.config.get("TERMS_VERSION", TERMS_VERSION),
             privacy_version=current_app.config.get("PRIVACY_VERSION", PRIVACY_VERSION),
+            compare_result_ack_key=COMPARE_RESULT_ACK_KEY,
+            compare_result_ack_version=COMPARE_RESULT_ACK_VERSION,
         )
     user_email = getattr(current_user, "email", "") if current_user.is_authenticated else ""
     terms_version = current_app.config.get("TERMS_VERSION", TERMS_VERSION)
@@ -53,6 +62,11 @@ def compare_page():
         terms_version=terms_version,
         privacy_version=privacy_version,
     ).first() is not None
+    compare_results_acknowledged = has_accepted_feature(
+        current_user.id,
+        COMPARE_RESULT_ACK_KEY,
+        COMPARE_RESULT_ACK_VERSION,
+    )
     return render_template(
         'compare.html',
         user=current_user,
@@ -60,10 +74,13 @@ def compare_page():
         is_owner=is_owner_user(),
         car_models_data=israeli_car_market_full_compilation,
         legal_accepted=legal_accepted,
+        compare_results_acknowledged=compare_results_acknowledged,
         accepted_terms=legal_accepted,
         accepted_privacy=legal_accepted,
         terms_version=terms_version,
         privacy_version=privacy_version,
+        compare_result_ack_key=COMPARE_RESULT_ACK_KEY,
+        compare_result_ack_version=COMPARE_RESULT_ACK_VERSION,
     )
 
 

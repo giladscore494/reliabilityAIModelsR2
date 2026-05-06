@@ -18,6 +18,7 @@ from app.legal import (
     INVOICE_FEATURE_KEY, INVOICE_FEATURE_CONSENT_VERSION,
     INVOICE_EXT_PROCESSING_KEY, INVOICE_ANON_STORAGE_KEY,
     INVOICE_EXT_PROCESSING_VERSION, INVOICE_ANON_STORAGE_VERSION,
+    SERVICE_PRICES_RESULT_ACK_KEY, SERVICE_PRICES_RESULT_ACK_VERSION,
     has_accepted_feature, parse_legal_confirm,
 )
 from app.quota import (
@@ -174,6 +175,11 @@ def service_prices_page():
         INVOICE_ANON_STORAGE_KEY,
         INVOICE_ANON_STORAGE_VERSION,
     )
+    service_prices_results_acknowledged = has_accepted_feature(
+        current_user.id,
+        SERVICE_PRICES_RESULT_ACK_KEY,
+        SERVICE_PRICES_RESULT_ACK_VERSION,
+    )
 
     return render_template(
         "service_prices.html",
@@ -191,6 +197,9 @@ def service_prices_page():
         ext_processing_version=INVOICE_EXT_PROCESSING_VERSION,
         anon_storage_key=INVOICE_ANON_STORAGE_KEY,
         anon_storage_version=INVOICE_ANON_STORAGE_VERSION,
+        service_prices_results_acknowledged=service_prices_results_acknowledged,
+        service_prices_result_ack_key=SERVICE_PRICES_RESULT_ACK_KEY,
+        service_prices_result_ack_version=SERVICE_PRICES_RESULT_ACK_VERSION,
         max_file_mb=MAX_FILE_SIZE // (1024 * 1024),
         request_limit_mb=round(current_app.config.get("SERVICE_PRICES_ANALYZE_LIMIT_BYTES", 6 * 1024 * 1024) / (1024 * 1024)),
     )
@@ -555,6 +564,9 @@ def service_prices_history_page():
         ext_processing_version=INVOICE_EXT_PROCESSING_VERSION,
         anon_storage_key=INVOICE_ANON_STORAGE_KEY,
         anon_storage_version=INVOICE_ANON_STORAGE_VERSION,
+        service_prices_results_acknowledged=True,
+        service_prices_result_ack_key=SERVICE_PRICES_RESULT_ACK_KEY,
+        service_prices_result_ack_version=SERVICE_PRICES_RESULT_ACK_VERSION,
         show_history=True,
         max_file_mb=MAX_FILE_SIZE // (1024 * 1024),
         request_limit_mb=round(current_app.config.get("SERVICE_PRICES_ANALYZE_LIMIT_BYTES", 6 * 1024 * 1024) / (1024 * 1024)),

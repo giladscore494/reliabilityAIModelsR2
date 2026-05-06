@@ -14,6 +14,15 @@
             CAR_DATA = {};
         }
     }
+    const ackDataScript = document.getElementById('reliability-ack-data');
+    let RESULT_ACK_DATA = { acknowledged: false, feature_key: '', version: '' };
+    if (ackDataScript) {
+        try {
+            RESULT_ACK_DATA = JSON.parse(ackDataScript.textContent || ackDataScript.innerHTML || '{}');
+        } catch (e) {
+            RESULT_ACK_DATA = { acknowledged: false, feature_key: '', version: '' };
+        }
+    }
 
     const escapeHtml = (value) => {
         if (value === null || value === undefined) return '';
@@ -385,6 +394,7 @@
 
     function openReliabilityResult(options = {}) {
         if (!resultsContainer || !isResultReady) return;
+        if (!ensureReliabilityResultAcknowledgement(options)) return;
         const userInitiated = options.userInitiated !== false;
         const alreadyOpen = isResultOpen;
         isResultOpen = true;
@@ -564,6 +574,11 @@
     const analyzeErrorMeta = document.getElementById('analyze-error-meta');
     const analyzeErrorDebug = document.getElementById('analyze-error-debug');
     const openResultButton = document.getElementById('reliabilityOpenResultButton');
+    const reliabilityResultAckModal = document.getElementById('reliabilityResultAckModal');
+    const reliabilityResultAckCheckbox = document.getElementById('reliabilityResultAckCheckbox');
+    const reliabilityResultAckConfirm = document.getElementById('reliabilityResultAckConfirm');
+    const reliabilityResultAckCancel = document.getElementById('reliabilityResultAckCancel');
+    const reliabilityResultAckError = document.getElementById('reliabilityResultAckError');
     const legalCheckbox = document.getElementById('legal-confirm');
     const legalError = document.getElementById('legal-error');
     let legalAccepted = false;
@@ -599,6 +614,9 @@
     let resultReadyPanelTrackedForHistory = null;
     let analyzeInFlight = false;
     let currentAnalyzeToken = 0;
+    const isAuthenticated = window.__IS_AUTHENTICATED__ === true;
+    let reliabilityResultAckAccepted = !isAuthenticated || RESULT_ACK_DATA.acknowledged === true;
+    let pendingResultOpenOptions = null;
     const ANALYZE_DEBUG_MODE = (() => {
         try {
             const params = new URLSearchParams(window.location.search || '');
@@ -1351,6 +1369,62 @@
         return payload;
     }
 
+    function closeReliabilityResultAckModal() {
+        reliabilityResultAckModal?.classList.add('hidden');
+        reliabilityResultAckError?.classList.add('hidden');
+    }
+
+    function ensureReliabilityResultAcknowledgement(options = {}) {
+        if (!isAuthenticated || reliabilityResultAckAccepted) return true;
+        pendingResultOpenOptions = options;
+        reliabilityResultAckModal?.classList.remove('hidden');
+        return false;
+    }
+
+    async function confirmReliabilityResultAcknowledgement() {
+        if (!reliabilityResultAckCheckbox?.checked) {
+            reliabilityResultAckError?.classList.remove('hidden');
+            return;
+        }
+        reliabilityResultAckError?.classList.add('hidden');
+
+        const featureKey = RESULT_ACK_DATA.feature_key || '';
+        const featureVersion = RESULT_ACK_DATA.version || '';
+        if (!featureKey || !featureVersion) {
+            reliabilityResultAckAccepted = true;
+            closeReliabilityResultAckModal();
+            if (pendingResultOpenOptions) {
+                const options = pendingResultOpenOptions;
+                pendingResultOpenOptions = null;
+                openReliabilityResult(options);
+            }
+            return;
+        }
+
+        const res = await safeFetchJson('/api/legal/accept', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+                legal_confirm: true,
+                feature_consents: [{ feature_key: featureKey, version: featureVersion }],
+            })
+        });
+        if (!(res && res.ok)) {
+            const message = (res && res.error && res.error.message) || 'לא הצלחנו לשמור אישור כרגע.';
+            if (reliabilityResultAckError) reliabilityResultAckError.textContent = message;
+            reliabilityResultAckError?.classList.remove('hidden');
+            return;
+        }
+        reliabilityResultAckAccepted = true;
+        closeReliabilityResultAckModal();
+        if (pendingResultOpenOptions) {
+            const options = pendingResultOpenOptions;
+            pendingResultOpenOptions = null;
+            openReliabilityResult(options);
+        }
+    }
+
     async function handleSubmit(e) {
         e.preventDefault();
         if (analyzeInFlight) {
@@ -1544,6 +1618,11 @@
         openResultButton?.addEventListener('click', function () {
             openReliabilityResult({ userInitiated: true });
         });
+        reliabilityResultAckCancel?.addEventListener('click', function () {
+            pendingResultOpenOptions = null;
+            closeReliabilityResultAckModal();
+        });
+        reliabilityResultAckConfirm?.addEventListener('click', confirmReliabilityResultAcknowledgement);
         reliabilityOpenResultNow?.addEventListener('click', function () {
             closeReliabilityResearch({ reason: 'open_result_now', openResult: true });
         });
