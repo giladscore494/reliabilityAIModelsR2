@@ -841,8 +841,7 @@
         var legalBackdrop = document.getElementById('legal-modal-backdrop');
         if (legalBackdrop) legalBackdrop.addEventListener('click', closeLegalModal);
 
-        var acceptBtnEl = document.getElementById('acceptBtn');
-        if (acceptBtnEl) acceptBtnEl.addEventListener('click', acceptTerms);
+        if (acceptBtn) acceptBtn.addEventListener('click', acceptTerms);
 
         var cancelLegalBtn = document.getElementById('cancel-legal-btn');
         if (cancelLegalBtn) cancelLegalBtn.addEventListener('click', closeLegalModal);
