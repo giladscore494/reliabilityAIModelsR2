@@ -957,7 +957,11 @@ def build_report(
         "negotiation_script": negotiation_lines,
         "grounding_sources": grounding_sources,
         "grounding_status": grounding_status,
-        "disclaimer": "מידע כללי, לא אבחון/התחייבות מחיר",
+        "disclaimer": (
+            "דוח זה הוא כלי תומך החלטה בלבד ואינו בדיקה מקצועית/מכנית או חוות דעת שמאית. "
+            "המידע אינו הוכחה לחיוב יתר, אינו האשמה כלפי מוסך מסוים, "
+            "ויש לאמת כל ממצא באופן עצמאי לפני קבלת החלטה."
+        ),
     }
 
     report["narrative"] = build_invoice_report_narrative(report)

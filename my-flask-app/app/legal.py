@@ -25,6 +25,14 @@ INVOICE_ANON_STORAGE_KEY = "invoice_scanner_anonymized_storage"
 INVOICE_EXT_PROCESSING_VERSION = os.environ.get("INVOICE_EXT_PROCESSING_VERSION", "2026-02-07")
 INVOICE_ANON_STORAGE_VERSION = os.environ.get("INVOICE_ANON_STORAGE_VERSION", "2026-02-07")
 
+# Result acknowledgement consents (audit trail before showing sensitive results)
+RELIABILITY_RESULT_ACK_KEY = "reliability_results_acknowledgement"
+COMPARE_RESULT_ACK_KEY = "compare_results_acknowledgement"
+SERVICE_PRICES_RESULT_ACK_KEY = "service_prices_results_acknowledgement"
+RELIABILITY_RESULT_ACK_VERSION = os.environ.get("RELIABILITY_RESULT_ACK_VERSION", "2026-05-06")
+COMPARE_RESULT_ACK_VERSION = os.environ.get("COMPARE_RESULT_ACK_VERSION", "2026-05-06")
+SERVICE_PRICES_RESULT_ACK_VERSION = os.environ.get("SERVICE_PRICES_RESULT_ACK_VERSION", "2026-05-06")
+
 # Gemini Vision model for invoice OCR
 GEMINI_VISION_MODEL_ID = os.environ.get("GEMINI_VISION_MODEL_ID", "gemini-3-flash-preview")
 

@@ -465,9 +465,10 @@
         {% include '_research_reliability_panel.html' %}
 
         <div id="results-container" class="hidden w-full max-w-5xl mt-8 fade-in delay-300">
-                <p class="text-xs md:text-sm text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-4 leading-relaxed">
-                    הניתוח מבוסס על מידע זמין, חיפוש רשת, נתוני משתמש ומקורות פתוחים. הוא מציף נקודות לבדיקה ואינו קובע את מצב הרכב בפועל.
-                </p>
+                <div class="text-sm md:text-base text-amber-100 bg-amber-500/15 border-2 border-amber-400/40 rounded-2xl p-4 md:p-5 mb-4 leading-relaxed space-y-2">
+                    <p><strong>דיסקליימר חשוב:</strong> התוצאה היא כלי תומך החלטה בלבד ואינה ייעוץ מקצועי, בדיקה מכנית, או חוות דעת שמאית.</p>
+                    <p>יש לבצע אימות עצמאי ובדיקה במוסך/גורם מקצועי מוסמך לפני קבלת החלטה. אין אחריות לטעויות, אי-דיוקים, מידע חסר או הסתמכות על התוצאה.</p>
+                </div>
                 <div
                     class="bg-dark-lighter/80 backdrop-blur-xl p-6 md:p-8 rounded-[2rem] border border-slate-700/50 shadow-2xl text-slate-200">
                     <div id="reliability-score-container" class="w-full mb-10"></div>
@@ -523,6 +524,27 @@
         </div>
     </main>
 
+    <div id="reliabilityResultAckModal" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 bg-black/70"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="w-full max-w-lg rounded-2xl border border-slate-700 bg-dark-lighter p-6 md:p-8 shadow-2xl">
+                <h3 class="text-2xl font-black text-white mb-3">אישור לפני פתיחת התוצאה</h3>
+                <p class="text-slate-300 text-sm leading-relaxed mb-4">
+                    התוצאה מיועדת לתמיכה בקבלת החלטה בלבד, אינה בדיקה מכנית או חוות דעת מקצועית, ועליך לבצע אימות עצמאי.
+                </p>
+                <label class="flex items-start gap-3 text-slate-200 text-sm mb-4 cursor-pointer">
+                    <input id="reliabilityResultAckCheckbox" type="checkbox" class="mt-1 rounded border-slate-600 bg-slate-900 text-primary">
+                    <span>אני מבין/ה שהמידע אינו מחליף בדיקה מקצועית ושאין להסתמך עליו כמקור יחיד לקבלת החלטה.</span>
+                </label>
+                <p id="reliabilityResultAckError" class="hidden text-xs text-danger mb-3">יש לסמן את תיבת האישור כדי להמשיך.</p>
+                <div class="flex gap-3">
+                    <button id="reliabilityResultAckConfirm" type="button" class="flex-1 rounded-full bg-gradient-to-r from-primary to-secondary px-5 py-3 text-white font-bold">אישור ופתיחת התוצאה</button>
+                    <button id="reliabilityResultAckCancel" type="button" class="rounded-full bg-slate-700 hover:bg-slate-600 px-5 py-3 text-white">ביטול</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     {% include "_footer.html" %}
     {% include '_research_consent_modal.html' %}
 
@@ -532,6 +554,13 @@
     </script>
     <script type="application/json" id="car-data">
         {{ car_models_data | tojson }}
+    </script>
+    <script type="application/json" id="reliability-ack-data">
+        {
+            "acknowledged": {% if reliability_results_acknowledged %}true{% else %}false{% endif %},
+            "feature_key": "{{ reliability_result_ack_key|default('') }}",
+            "version": "{{ reliability_result_ack_version|default('') }}"
+        }
     </script>
 
         <script src="{{ url_for('static', filename='research.js') }}"></script>

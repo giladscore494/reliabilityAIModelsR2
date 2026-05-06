@@ -483,9 +483,11 @@
 
             <!-- Results Section (hidden initially) -->
             <div id="resultsSection" class="hidden space-y-6">
-                <p class="text-xs md:text-sm text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 leading-relaxed">
-                    ההשוואה מבוססת על נתונים זמינים והערכות. יש לבצע בדיקה עצמאית לפני רכישה.
-                </p>
+                <div class="text-sm md:text-base text-amber-100 bg-amber-500/15 border-2 border-amber-400/40 rounded-2xl p-4 md:p-5 leading-relaxed space-y-2">
+                    <p><strong>דיסקליימר חשוב:</strong> ההשוואה היא כלי תומך החלטה בלבד ואינה ייעוץ מקצועי, בדיקה מכנית או חוות דעת שמאית.</p>
+                    <p>יש לאמת עצמאית כל נתון מול מקורות נוספים ובדיקה מקצועית. אין אחריות לטעויות, פערים או מידע חסר.</p>
+                </div>
+                <div id="compareApiDisclaimers" class="hidden rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4 text-sm text-slate-200"></div>
                 <!-- Overall Verdict -->
                 <div id="verdictSection" class="bg-gradient-to-br from-slate-800/90 to-slate-900/90 border border-slate-700/70 rounded-2xl p-6 md:p-8">
                     <h3 class="text-2xl font-bold text-white mb-4">תוצאת ההשוואה</h3>
@@ -554,6 +556,26 @@
                 <div class="text-center">
                     <div id="compareEtaText" class="text-xs sm:text-sm text-slate-300 font-medium"></div>
                     <div id="compareStatusText" class="text-xs text-slate-400 mt-1">מעבד...</div>
+                </div>
+            </div>
+        </div>
+        <div id="compareResultAckModal" class="fixed inset-0 z-50 hidden">
+            <div class="absolute inset-0 bg-black/70"></div>
+            <div class="absolute inset-0 flex items-center justify-center p-4">
+                <div class="w-full max-w-lg rounded-2xl border border-slate-700 bg-dark-lighter p-6 md:p-8 shadow-2xl">
+                    <h3 class="text-2xl font-black text-white mb-3">אישור לפני פתיחת תוצאות ההשוואה</h3>
+                    <p class="text-slate-300 text-sm leading-relaxed mb-4">
+                        תוצאת ההשוואה מסייעת בקבלת החלטה בלבד ואינה תחליף לבדיקה מקצועית/מכנית או להערכת שמאי.
+                    </p>
+                    <label class="flex items-start gap-3 text-slate-200 text-sm mb-4 cursor-pointer">
+                        <input id="compareResultAckCheckbox" type="checkbox" class="mt-1 rounded border-slate-600 bg-slate-900 text-primary">
+                        <span>אני מבין/ה שעליי לבצע אימות עצמאי ושאין להסתמך על ההשוואה כמקור יחיד להחלטה.</span>
+                    </label>
+                    <p id="compareResultAckError" class="hidden text-xs text-danger mb-3">יש לסמן את תיבת האישור כדי להמשיך.</p>
+                    <div class="flex gap-3">
+                        <button id="compareResultAckConfirm" type="button" class="flex-1 rounded-full bg-gradient-to-r from-primary to-secondary px-5 py-3 text-white font-bold">אישור ופתיחת התוצאה</button>
+                        <button id="compareResultAckCancel" type="button" class="rounded-full bg-slate-700 hover:bg-slate-600 px-5 py-3 text-white">ביטול</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -655,6 +677,9 @@
     
     let comparisonResult = null;
     const legalAccepted = {{ 'true' if legal_accepted else 'false' }};
+    const compareResultAckAcceptedInitial = {{ 'true' if compare_results_acknowledged else 'false' }};
+    const compareResultAckKey = "{{ compare_result_ack_key|default('') }}";
+    const compareResultAckVersion = "{{ compare_result_ack_version|default('') }}";
     const termsVersion = "{{ terms_version }}";
     const privacyVersion = "{{ privacy_version }}";
     window.legalAccepted = legalAccepted;
@@ -739,6 +764,7 @@
 
     function openCompareResult(options = {}) {
         if (!resultsSection || !isResultReady) return;
+        if (!ensureCompareResultAcknowledgement(options)) return;
         const userInitiated = options.userInitiated !== false;
         const alreadyOpen = isResultOpen;
         isResultOpen = true;
@@ -863,8 +889,14 @@
     const resultReadyPanel = document.getElementById('compareResultReadyPanel');
     const openResultButton = document.getElementById('compareOpenResultButton');
     const resultsSection = document.getElementById('resultsSection');
+    const compareApiDisclaimers = document.getElementById('compareApiDisclaimers');
     const errorSection = document.getElementById('errorSection');
     const retryBtn = document.getElementById('retryBtn');
+    const compareResultAckModal = document.getElementById('compareResultAckModal');
+    const compareResultAckCheckbox = document.getElementById('compareResultAckCheckbox');
+    const compareResultAckConfirm = document.getElementById('compareResultAckConfirm');
+    const compareResultAckCancel = document.getElementById('compareResultAckCancel');
+    const compareResultAckError = document.getElementById('compareResultAckError');
     
     // Timing Banner Elements
     const compareTimingBanner = document.getElementById('compareTimingBanner');
@@ -910,6 +942,63 @@
     let researchFormOpen = false;
     let compareResearchTrackedForHistory = null;
     let resultReadyPanelTrackedForHistory = null;
+    let compareResultAckAccepted = compareResultAckAcceptedInitial;
+    let pendingCompareOpenOptions = null;
+
+    function closeCompareResultAckModal() {
+        compareResultAckModal?.classList.add('hidden');
+        compareResultAckError?.classList.add('hidden');
+    }
+
+    function ensureCompareResultAcknowledgement(options = {}) {
+        if (!window.__IS_AUTHENTICATED__ || compareResultAckAccepted) return true;
+        pendingCompareOpenOptions = options;
+        compareResultAckModal?.classList.remove('hidden');
+        return false;
+    }
+
+    async function confirmCompareResultAcknowledgement() {
+        if (!compareResultAckCheckbox?.checked) {
+            compareResultAckError?.classList.remove('hidden');
+            return;
+        }
+        compareResultAckError?.classList.add('hidden');
+        if (!compareResultAckKey || !compareResultAckVersion) {
+            compareResultAckAccepted = true;
+            closeCompareResultAckModal();
+            if (pendingCompareOpenOptions) {
+                const options = pendingCompareOpenOptions;
+                pendingCompareOpenOptions = null;
+                openCompareResult(options);
+            }
+            return;
+        }
+
+        const res = await fetch('/api/legal/accept', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
+            credentials: 'include',
+            body: JSON.stringify({
+                legal_confirm: true,
+                feature_consents: [{ feature_key: compareResultAckKey, version: compareResultAckVersion }]
+            })
+        });
+        const data = await res.json();
+        if (!(res.ok && data.ok)) {
+            if (compareResultAckError) {
+                compareResultAckError.textContent = data.message || 'לא הצלחנו לשמור אישור כרגע.';
+            }
+            compareResultAckError?.classList.remove('hidden');
+            return;
+        }
+        compareResultAckAccepted = true;
+        closeCompareResultAckModal();
+        if (pendingCompareOpenOptions) {
+            const options = pendingCompareOpenOptions;
+            pendingCompareOpenOptions = null;
+            openCompareResult(options);
+        }
+    }
     
     // ============================================================
     // TIMING BANNER FUNCTIONS
@@ -1895,6 +1984,9 @@
         const carsSelected = result.cars_selected || {};
         const carKeys = Object.keys(carsSelected).filter(k => k.startsWith('car_'));
         const computed = result.computed_result || {};
+        const narrativeDisclaimers = (result.narrative?.disclaimers_he || computed.disclaimers_he || [])
+            .map((item) => String(item || '').trim())
+            .filter(Boolean);
         
         const getDisplayName = (carKey) => {
             return carsSelected[carKey]?.display_name || carKey;
@@ -1902,6 +1994,20 @@
 
         const decision = result.decision_result || computed.decision_result || buildLegacyDecisionFallback(computed);
         renderDecisionResult(decision, carsSelected, carKeys, result);
+        if (compareApiDisclaimers) {
+            if (narrativeDisclaimers.length) {
+                compareApiDisclaimers.innerHTML = `
+                    <p class="font-semibold text-white mb-2">הבהרות נוספות לתוצאה:</p>
+                    <ul class="list-disc list-inside space-y-1 text-slate-200">
+                        ${narrativeDisclaimers.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
+                    </ul>
+                `;
+                compareApiDisclaimers.classList.remove('hidden');
+            } else {
+                compareApiDisclaimers.classList.add('hidden');
+                compareApiDisclaimers.innerHTML = '';
+            }
+        }
 
         const assumptionsList = document.getElementById('assumptionsList');
         const assumptions = result.assumptions || {};
@@ -1974,6 +2080,11 @@
     openResultButton?.addEventListener('click', function () {
         openCompareResult({ userInitiated: true });
     });
+    compareResultAckCancel?.addEventListener('click', function () {
+        pendingCompareOpenOptions = null;
+        closeCompareResultAckModal();
+    });
+    compareResultAckConfirm?.addEventListener('click', confirmCompareResultAcknowledgement);
     compareOpenResultNow?.addEventListener('click', function () {
         closeCompareResearch({ reason: 'open_result_now', openResult: true });
     });

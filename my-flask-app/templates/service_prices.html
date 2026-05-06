@@ -227,6 +227,11 @@
             <!-- Results Section (initially hidden) -->
             <div id="resultsSection" class="hidden mt-8 fade-in">
                 <div class="bg-dark-lighter/60 backdrop-blur-xl border border-slate-700/50 p-6 md:p-8 rounded-3xl shadow-2xl">
+                    <div class="text-sm md:text-base text-amber-100 bg-amber-500/15 border-2 border-amber-400/40 rounded-2xl p-4 md:p-5 mb-6 leading-relaxed space-y-2">
+                        <p><strong>דיסקליימר חשוב:</strong> הדוח הוא כלי תומך החלטה בלבד, אינו בדיקה מקצועית/מכנית ואינו חוות דעת שמאית.</p>
+                        <p>המידע אינו הוכחה לחיוב יתר, אינו האשמה כלפי מוסך מסוים, ויש לאמת כל ממצא עצמאית לפני פעולה.</p>
+                        <p>אין אחריות לטעויות, אי-דיוקים או מידע חלקי.</p>
+                    </div>
                     <div class="flex items-center justify-between mb-6">
                         <h2 class="text-2xl font-bold text-white">תוצאות הניתוח</h2>
                         <div class="flex items-center gap-2">
@@ -299,6 +304,27 @@
                     <p class="text-slate-400 text-center py-8">טוען היסטוריה...</p>
                 </div>
             </div>
+
+            <div id="servicePricesResultAckModal" class="fixed inset-0 z-50 hidden">
+                <div class="absolute inset-0 bg-black/70"></div>
+                <div class="absolute inset-0 flex items-center justify-center p-4">
+                    <div class="w-full max-w-lg rounded-2xl border border-slate-700 bg-dark-lighter p-6 md:p-8 shadow-2xl">
+                        <h3 class="text-2xl font-black text-white mb-3">אישור לפני הצגת תוצאות</h3>
+                        <p class="text-slate-300 text-sm leading-relaxed mb-4">
+                            הדוח אינו הוכחה לחיוב יתר ואינו מהווה טענה או האשמה נגד מוסך ספציפי. יש לאמת עצמאית מול גורם מקצועי.
+                        </p>
+                        <label class="flex items-start gap-3 text-slate-200 text-sm mb-4 cursor-pointer">
+                            <input id="servicePricesResultAckCheckbox" type="checkbox" class="mt-1 rounded border-slate-600 bg-slate-900 text-primary">
+                            <span>אני מבין/ה שהמידע תומך החלטה בלבד ואינו מחליף בדיקה מקצועית או קביעה עובדתית מחייבת.</span>
+                        </label>
+                        <p id="servicePricesResultAckError" class="hidden text-xs text-danger mb-3">יש לסמן את תיבת האישור כדי להמשיך.</p>
+                        <div class="flex gap-3">
+                            <button id="servicePricesResultAckConfirm" type="button" class="flex-1 rounded-full bg-gradient-to-r from-primary to-secondary px-5 py-3 text-white font-bold">אישור והצגת תוצאה</button>
+                            <button id="servicePricesResultAckCancel" type="button" class="rounded-full bg-slate-700 hover:bg-slate-600 px-5 py-3 text-white">ביטול</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </main>
 
@@ -313,6 +339,7 @@
         let featureAccepted = {{ 'true' if feature_accepted else 'false' }};
         let extProcessingAccepted = {{ 'true' if ext_processing_accepted else 'false' }};
         let anonStorageAccepted = {{ 'true' if anon_storage_accepted else 'false' }};
+        let servicePricesResultAckAccepted = {{ 'true' if service_prices_results_acknowledged else 'false' }};
         const termsVersion = "{{ terms_version }}";
         const privacyVersion = "{{ privacy_version }}";
         const featureKey = "{{ feature_key }}";
@@ -321,6 +348,8 @@
         const extProcessingVersion = "{{ ext_processing_version }}";
         const anonStorageKey = "{{ anon_storage_key }}";
         const anonStorageVersion = "{{ anon_storage_version }}";
+        const servicePricesResultAckKey = "{{ service_prices_result_ack_key|default('') }}";
+        const servicePricesResultAckVersion = "{{ service_prices_result_ack_version|default('') }}";
         const maxFileMb = {{ max_file_mb }};
         const requestLimitMb = {{ request_limit_mb }};
         const maxAllowedMb = Math.min(maxFileMb, requestLimitMb);
@@ -353,6 +382,12 @@
         const extProcessingCheckbox = document.getElementById('extProcessingCheckbox');
         const anonStorageCheckbox = document.getElementById('anonStorageCheckbox');
         const acceptBtn = document.getElementById('acceptBtn');
+        const servicePricesResultAckModal = document.getElementById('servicePricesResultAckModal');
+        const servicePricesResultAckCheckbox = document.getElementById('servicePricesResultAckCheckbox');
+        const servicePricesResultAckConfirm = document.getElementById('servicePricesResultAckConfirm');
+        const servicePricesResultAckCancel = document.getElementById('servicePricesResultAckCancel');
+        const servicePricesResultAckError = document.getElementById('servicePricesResultAckError');
+        let pendingServicePricesReport = null;
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
@@ -558,7 +593,9 @@
                 if (data.ok) {
                     currentInvoiceId = data.data.invoice_id;
                     currentReport = data.data.report;
-                    displayResults(currentReport);
+                    if (ensureServicePricesResultAcknowledgement(currentReport)) {
+                        displayResults(currentReport);
+                    }
                     loadHistory(); // Refresh history
                 } else {
                     // Check for legal errors
@@ -682,6 +719,66 @@
             document.getElementById('downloadJsonBtn').onclick = () => downloadReport();
         }
 
+        function closeServicePricesResultAckModal() {
+            servicePricesResultAckModal?.classList.add('hidden');
+            servicePricesResultAckError?.classList.add('hidden');
+        }
+
+        function ensureServicePricesResultAcknowledgement(report) {
+            if (servicePricesResultAckAccepted) return true;
+            pendingServicePricesReport = report;
+            servicePricesResultAckModal?.classList.remove('hidden');
+            return false;
+        }
+
+        async function confirmServicePricesResultAcknowledgement() {
+            if (!servicePricesResultAckCheckbox?.checked) {
+                servicePricesResultAckError?.classList.remove('hidden');
+                return;
+            }
+            servicePricesResultAckError?.classList.add('hidden');
+
+            if (!servicePricesResultAckKey || !servicePricesResultAckVersion) {
+                servicePricesResultAckAccepted = true;
+                closeServicePricesResultAckModal();
+                if (pendingServicePricesReport) {
+                    displayResults(pendingServicePricesReport);
+                    pendingServicePricesReport = null;
+                }
+                return;
+            }
+
+            try {
+                const resp = await fetch('/api/legal/accept', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
+                    body: JSON.stringify({
+                        legal_confirm: true,
+                        feature_consents: [{ feature_key: servicePricesResultAckKey, version: servicePricesResultAckVersion }]
+                    })
+                });
+                const data = await resp.json();
+                if (!(resp.ok && data.ok)) {
+                    if (servicePricesResultAckError) {
+                        servicePricesResultAckError.textContent = data.message || 'לא הצלחנו לשמור אישור כרגע.';
+                    }
+                    servicePricesResultAckError?.classList.remove('hidden');
+                    return;
+                }
+                servicePricesResultAckAccepted = true;
+                closeServicePricesResultAckModal();
+                if (pendingServicePricesReport) {
+                    displayResults(pendingServicePricesReport);
+                    pendingServicePricesReport = null;
+                }
+            } catch (err) {
+                if (servicePricesResultAckError) {
+                    servicePricesResultAckError.textContent = 'לא הצלחנו לשמור אישור כרגע.';
+                }
+                servicePricesResultAckError?.classList.remove('hidden');
+            }
+        }
+
         function getLabelClass(label) {
             if (label.includes('בטווח')) return 'label-good';
             if (label.includes('מעל')) return 'label-expensive';
@@ -744,11 +841,15 @@
         var legalBackdrop = document.getElementById('legal-modal-backdrop');
         if (legalBackdrop) legalBackdrop.addEventListener('click', closeLegalModal);
 
-        var acceptBtn = document.getElementById('acceptBtn');
         if (acceptBtn) acceptBtn.addEventListener('click', acceptTerms);
 
         var cancelLegalBtn = document.getElementById('cancel-legal-btn');
         if (cancelLegalBtn) cancelLegalBtn.addEventListener('click', closeLegalModal);
+        servicePricesResultAckCancel?.addEventListener('click', () => {
+            pendingServicePricesReport = null;
+            closeServicePricesResultAckModal();
+        });
+        servicePricesResultAckConfirm?.addEventListener('click', confirmServicePricesResultAcknowledgement);
     </script>
 </body>
 </html>
