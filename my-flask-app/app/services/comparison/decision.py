@@ -419,12 +419,3 @@ def sanitize_decision_result(
             )
     return sanitized
 
-
-def _validate_decision_writer_response(
-    payload: Any,
-    cars_selected_slots: Optional[Dict[str, Dict[str, Any]]] = None,
-    computed_result: Optional[Dict[str, Any]] = None,
-) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-    from app.services.comparison.writer import _validate_decision_writer_response as _impl
-
-    return _impl(payload, cars_selected_slots, computed_result)
