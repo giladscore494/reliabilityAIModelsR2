@@ -4,6 +4,7 @@
 import concurrent.futures
 import json
 import logging
+import os
 import random
 import re as _re
 import time as pytime
@@ -21,6 +22,11 @@ from app.config import AI_CALL_TIMEOUT_SEC, AI_EXECUTOR, AI_EXECUTOR_WORKERS
 from app.extensions import GEMINI_RELIABILITY_MODEL_ID
 
 logger = logging.getLogger(__name__)
+
+PRIMARY_MODEL = os.environ.get("PRIMARY_MODEL", GEMINI_RELIABILITY_MODEL_ID)
+FALLBACK_MODEL = os.environ.get("FALLBACK_MODEL", GEMINI_RELIABILITY_MODEL_ID)
+RETRIES = int(os.environ.get("RETRIES", "2"))
+RETRY_BACKOFF_SEC = float(os.environ.get("RETRY_BACKOFF_SEC", "1"))
 
 
 def call_model_with_retry(prompt: str) -> dict:

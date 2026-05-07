@@ -4,6 +4,8 @@
 import re
 from typing import Any, Dict, List, Optional
 
+from app.services.comparison.normalization import normalize_compare_writer_winner, ordered_compare_slot_keys
+
 
 PARTIAL_COMPARISON_SUMMARY_PREFIX = "השוואה חלקית:"
 
@@ -65,41 +67,8 @@ def _normalize_short_text(value: Any, max_len: int = 120) -> Optional[str]:
     return text[:max_len]
 
 
-def _ordered_compare_slot_keys(*sources: Any) -> List[str]:
-    seen = set()
-    ordered: List[str] = []
-    for source in sources:
-        if isinstance(source, dict):
-            keys = source.keys()
-        else:
-            keys = source or []
-        for key in keys:
-            if isinstance(key, str) and _COMPARE_SLOT_RE.match(key) and key not in seen:
-                seen.add(key)
-                ordered.append(key)
-    return sorted(
-        ordered, key=lambda value: int(_COMPARE_SLOT_RE.match(value).group(1))
-    )
 
 
-def _normalize_compare_writer_winner(
-    value: Any, allowed_slot_keys: List[str]
-) -> Optional[str]:
-    if value == "tie":
-        return "tie"
-    if not isinstance(value, str):
-        return None
-    if value in allowed_slot_keys:
-        return value
-    legacy_map = {
-        "carA": "car_1",
-        "carB": "car_2",
-        "carC": "car_3",
-    }
-    normalized = legacy_map.get(value)
-    if normalized in allowed_slot_keys:
-        return normalized
-    return None
 
 
 def _empty_single_car_payload() -> Dict[str, Any]:
@@ -118,7 +87,7 @@ def _empty_single_car_payload() -> Dict[str, Any]:
 def build_deterministic_fallback_narrative(
     cars_selected_slots: Dict, computed_result: Dict
 ) -> Dict[str, Any]:
-    car_keys = _ordered_compare_slot_keys(
+    car_keys = ordered_compare_slot_keys(
         cars_selected_slots,
         (computed_result.get("cars") or {})
         if isinstance(computed_result, dict)
@@ -134,7 +103,7 @@ def build_deterministic_fallback_narrative(
             {
                 "category_key": cat,
                 "title_he": "",
-                "winner": _normalize_compare_writer_winner(winner, car_keys) or "tie",
+                "winner": normalize_compare_writer_winner(winner, car_keys) or "tie",
                 "explanations": explanations,
                 "why_it_scored_that_way": [
                     "הסבר AI לא זמין כרגע; מוצגת השוואה מספרית."

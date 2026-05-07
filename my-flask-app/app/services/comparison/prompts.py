@@ -6,9 +6,9 @@ import os
 from typing import Any, Dict, List, Optional
 
 from app.services.comparison.normalization import (
-    _infer_compare_segment_details,
-    _normalize_compare_writer_winner,
-    _ordered_compare_slot_keys,
+    infer_compare_segment_details,
+    normalize_compare_writer_winner,
+    ordered_compare_slot_keys,
     build_checked_versions,
     build_display_name,
 )
@@ -267,7 +267,7 @@ def build_single_car_prompt(car: Dict, region: str = "IL") -> str:
     car_json = json.dumps(sanitized, ensure_ascii=False)
     bounded_car = wrap_user_input_in_boundary(car_json, boundary_tag="car_input")
     data_instruction = create_data_only_instruction()
-    segment_key, segment_signals = _infer_compare_segment_details(sanitized, {})
+    segment_key, segment_signals = infer_compare_segment_details(sanitized, {})
     segment_rule = COMPARE_SEGMENT_PROMPT_RULES.get(
         segment_key,
         COMPARE_SEGMENT_PROMPT_RULES["general_private_car"],
@@ -411,7 +411,7 @@ def build_comparison_prompt(cars: List[Dict[str, str]]) -> str:
     for i, car in enumerate(sanitized_cars):
         slot_key = f"car_{i + 1}"
         slot_mapping[slot_key] = build_display_name(car)
-        segment_key, segment_signals = _infer_compare_segment_details(car, {})
+        segment_key, segment_signals = infer_compare_segment_details(car, {})
         segment_rule = COMPARE_SEGMENT_PROMPT_RULES.get(
             segment_key,
             COMPARE_SEGMENT_PROMPT_RULES["general_private_car"],
@@ -634,7 +634,7 @@ def build_compare_writer_prompt(
             "sources": (grounded_car.get("sources") or [])[:3],
         }
 
-    slot_keys = _ordered_compare_slot_keys(
+    slot_keys = ordered_compare_slot_keys(
         cars_selected_slots,
         (computed_result.get("cars") or {})
         if isinstance(computed_result, dict)
@@ -650,12 +650,12 @@ def build_compare_writer_prompt(
         per_slot_schema_lines.append(f'    "avoid_or_check_{slot_key}_if": ["string"],')
     key_difference_fields = ",".join(f'"{slot_key}":"string"' for slot_key in slot_keys)
     deterministic_preferences = {
-        "overall": _normalize_compare_writer_winner(
+        "overall": normalize_compare_writer_winner(
             computed_result.get("overall_winner"), slot_keys
         )
         or "depends",
         "legacy_category_winners": {
-            category_key: _normalize_compare_writer_winner(winner, slot_keys)
+            category_key: normalize_compare_writer_winner(winner, slot_keys)
             or "depends"
             for category_key, winner in (
                 (computed_result.get("category_winners") or {}).items()
@@ -790,7 +790,7 @@ def build_compare_writer_retry_prompt(
     cars_selected_slots: Dict, computed_result: Dict
 ) -> str:
     """Build a minimal retry prompt for summary+winner only."""
-    slot_keys = _ordered_compare_slot_keys(
+    slot_keys = ordered_compare_slot_keys(
         cars_selected_slots,
         (computed_result.get("cars") or {})
         if isinstance(computed_result, dict)

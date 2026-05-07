@@ -340,6 +340,12 @@ def _normalize_compare_writer_winner(
     return None
 
 
+ordered_compare_slot_keys = _ordered_compare_slot_keys
+
+
+normalize_compare_writer_winner = _normalize_compare_writer_winner
+
+
 def _segment_text_tokens(
     car_slot: Optional[Dict[str, Any]], grounded_car_data: Optional[Dict[str, Any]]
 ) -> str:
@@ -587,6 +593,9 @@ def _infer_compare_segment_details(
         return "family_sedan_hatch_wagon", family_body_hits[:3]
 
     return "general_private_car", ["default_private_car"]
+
+
+infer_compare_segment_details = _infer_compare_segment_details
 
 
 def infer_compare_segment(
