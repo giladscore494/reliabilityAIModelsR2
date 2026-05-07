@@ -30,70 +30,38 @@ from app.utils.ai_guardrails import apply_feature_guardrails
 
 logger = logging.getLogger(__name__)
 
+from app.services.comparison.cache import (
+    _safe_json_obj,
+    _safe_parse_json_cached,
+    compute_request_hash,
+)
+from app.services.comparison.fallbacks import (
+    _empty_single_car_payload,
+    _empty_stage_a_output,
+    build_deterministic_fallback_narrative,
+    mark_partial_comparison_narrative,
+)
+from app.services.comparison.normalization import (
+    build_checked_versions,
+    build_display_name,
+    infer_compare_segment,
+    map_cars_to_slots,
+)
+from app.services.comparison.scoring import (
+    CATEGORY_WEIGHTS,
+    ORDINAL_SCORES_NEGATIVE,
+    ORDINAL_SCORES_POSITIVE,
+    compute_category_score,
+    compute_overall_score,
+    determine_winner,
+    score_ordinal_negative,
+    score_ordinal_positive,
+)
+
 
 # ============================================================
 # JSON PARSING HELPERS
 # ============================================================
-
-
-def _safe_json_obj(value, default):
-    """
-    Safely decode a JSON value that may be None, already decoded, or double-encoded.
-
-    Args:
-        value: The value to decode (may be None, str, dict, or list)
-        default: The default value to return on any error
-
-    Returns:
-        The decoded value as dict/list, or default on any failure.
-        This function NEVER raises an exception.
-    """
-    try:
-        if value is None:
-            return default
-
-        # Already decoded dict or list
-        if isinstance(value, (dict, list)):
-            return value
-
-        if isinstance(value, str):
-            stripped = value.strip()
-            if not stripped:
-                return default
-
-            # First decode attempt
-            result = json.loads(stripped)
-
-            # Check if result is still a string (double-encoded)
-            if isinstance(result, str):
-                try:
-                    result = json.loads(result)
-                except (json.JSONDecodeError, TypeError, ValueError):
-                    # Second decode failed, return default
-                    return default
-
-            # Verify final result is dict or list
-            if isinstance(result, (dict, list)):
-                return result
-            return default
-
-        # Unexpected type
-        return default
-    except (json.JSONDecodeError, TypeError, ValueError):
-        return default
-
-
-def build_display_name(car: Dict[str, Any]) -> str:
-    """Build a human-readable display name for a car.
-    Format: "{make} {model} {year}" or "{make} {model}" if no year.
-    """
-    parts = [car.get("make", ""), car.get("model", "")]
-    year = car.get("year")
-    if year:
-        parts.append(str(year))
-    elif car.get("year_start") and car.get("year_end"):
-        parts.append(f"{car['year_start']}-{car['year_end']}")
-    return " ".join(p for p in parts if p).strip()
 
 
 CHECKED_VERSION_UNKNOWN_HE = "לא ידוע / לבדיקה"
@@ -195,187 +163,6 @@ def _normalize_grounded_cars_format(grounded_output: Optional[Dict[str, Any]]) -
             if isinstance(item, dict)
         }
     return grounded_cars_raw if isinstance(grounded_cars_raw, dict) else {}
-
-
-def build_checked_versions(
-    cars_selected_slots: Dict[str, Dict[str, Any]],
-    grounded_output: Optional[Dict[str, Any]],
-    ai_checked_versions: Optional[Dict[str, Dict[str, str]]] = None,
-) -> Dict[str, Dict[str, str]]:
-    grounded_cars = _normalize_grounded_cars_format(grounded_output)
-    slot_keys = _ordered_compare_slot_keys(cars_selected_slots or {}, grounded_cars, ai_checked_versions or {})
-    ai_checked_versions = _sanitize_checked_versions(ai_checked_versions, slot_keys)
-    result: Dict[str, Dict[str, str]] = {}
-
-    for slot_key in slot_keys:
-        selection = (cars_selected_slots or {}).get(slot_key, {}) or {}
-        grounded_car = (
-            grounded_cars.get(slot_key, {})
-            if isinstance(grounded_cars.get(slot_key, {}), dict)
-            else {}
-        )
-        profile = (
-            grounded_car.get("car_profile")
-            if isinstance(grounded_car.get("car_profile"), dict)
-            else {}
-        )
-        identity = (
-            profile.get("vehicle_identity")
-            if isinstance(profile.get("vehicle_identity"), dict)
-            else {}
-        )
-        powertrain = (
-            profile.get("powertrain_specs")
-            if isinstance(profile.get("powertrain_specs"), dict)
-            else {}
-        )
-        recommended_trim = (
-            profile.get("recommended_trim")
-            if isinstance(profile.get("recommended_trim"), dict)
-            else {}
-        )
-        trims = (
-            profile.get("trim_levels_israel")
-            if isinstance(profile.get("trim_levels_israel"), list)
-            else []
-        )
-
-        make = _normalize_checked_version_text(
-            identity.get("make")
-        ) or _normalize_checked_version_text(selection.get("make"))
-        model = _normalize_checked_version_text(
-            identity.get("model")
-        ) or _normalize_checked_version_text(selection.get("model"))
-        year = (
-            _normalize_checked_version_text(identity.get("year"))
-            or _normalize_checked_version_text(selection.get("year"))
-            or _normalize_checked_version_text(selection.get("year_start"))
-        )
-
-        trim_confidence = str(recommended_trim.get("confidence") or "").strip().lower()
-        trim = _normalize_checked_version_text(recommended_trim.get("trim_name"))
-        if not trim and len(trims) == 1 and isinstance(trims[0], dict):
-            trim = _normalize_checked_version_text(trims[0].get("trim_name"))
-        if not trim or trim_confidence == "low":
-            trim = CHECKED_VERSION_NOT_VERIFIED_HE
-
-        engine_type = (
-            _normalize_checked_version_text(powertrain.get("engine"))
-            or _normalize_checked_version_text(selection.get("engine_type"))
-            or _normalize_checked_version_text(
-                (grounded_car.get("facts") or {}).get("fuel_type")
-            )
-            or CHECKED_VERSION_UNKNOWN_HE
-        )
-        transmission = _normalize_general_transmission_label(
-            powertrain.get("gearbox") or selection.get("gearbox")
-        )
-        drivetrain = _normalize_checked_version_text(
-            powertrain.get("drivetrain"),
-            CHECKED_VERSION_NOT_VERIFIED_HE,
-        )
-        seats_value = powertrain.get("seats")
-        seats = (
-            _normalize_checked_version_text(seats_value)
-            if seats_value not in (None, "")
-            else CHECKED_VERSION_NOT_VERIFIED_HE
-        )
-
-        has_profile = bool(profile)
-        has_sources = bool(
-            powertrain.get("sources")
-            or profile.get("sources")
-            or grounded_car.get("sources")
-            or (
-                trims[0].get("source") if trims and isinstance(trims[0], dict) else None
-            )
-        )
-        has_user_specific = bool(
-            selection.get("year")
-            or selection.get("engine_type")
-            or selection.get("gearbox")
-        )
-
-        if has_sources and has_user_specific:
-            data_basis = "mixed"
-        elif has_sources:
-            data_basis = "verified_source"
-        elif has_profile and has_user_specific:
-            data_basis = "mixed"
-        elif has_profile:
-            data_basis = "ai_inference"
-        else:
-            data_basis = "user_input"
-
-        if has_sources and year and trim != CHECKED_VERSION_NOT_VERIFIED_HE:
-            confidence = "high"
-        elif has_sources and year:
-            confidence = "medium"
-        elif has_profile or has_user_specific:
-            confidence = "low"
-        else:
-            confidence = "unverified"
-
-        note_parts: List[str] = []
-        if has_user_specific and (
-            selection.get("engine_type") or selection.get("gearbox")
-        ):
-            note_parts.append(
-                "סוג המנוע או התיבה נבחרו כערכים כלליים בטופס "
-                "ויש לאמת מול מפרט היבואן או רישיון הרכב."
-            )
-        if trim == CHECKED_VERSION_NOT_VERIFIED_HE:
-            note_parts.append("רמת הגימור לא אומתה במידע הזמין.")
-        if not year:
-            note_parts.append("השנתון המדויק לא אומת.")
-        if data_basis in {"mixed", "ai_inference"}:
-            note_parts.append(
-                "ההשוואה מתייחסת לגרסה מייצגת לפי המידע הזמין "
-                "וייתכנו הבדלים בין רמות גימור, מנועים ותיבות הילוכים."
-            )
-        if not note_parts:
-            note_parts.append("יש לאמת את המפרט מול מקור רשמי לפני החלטת רכישה.")
-
-        fallback = {
-            "make": make,
-            "model": model,
-            "year": year or CHECKED_VERSION_NOT_VERIFIED_HE,
-            "trim": trim,
-            "engine_type": engine_type,
-            "transmission": transmission,
-            "drivetrain": drivetrain,
-            "seats": seats,
-            "data_basis": data_basis,
-            "confidence": confidence,
-            "notes": " ".join(note_parts[:2]),
-        }
-
-        merged = dict(fallback)
-        ai_version = ai_checked_versions.get(slot_key) or {}
-        for key, value in ai_version.items():
-            if value:
-                merged[key] = value
-        if not merged.get("transmission"):
-            merged["transmission"] = CHECKED_VERSION_UNKNOWN_HE
-        merged["transmission"] = _normalize_general_transmission_label(
-            merged.get("transmission")
-        )
-        result[slot_key] = merged
-
-    return result
-
-
-def map_cars_to_slots(validated_cars: List[Dict]) -> Dict[str, Dict]:
-    """Map validated cars to stable slot keys: car_1, car_2, car_3.
-    Each slot includes the original selection fields plus display_name.
-    """
-    slots = {}
-    for i, car in enumerate(validated_cars):
-        slot_key = f"car_{i + 1}"
-        slot_data = dict(car)  # copy
-        slot_data["display_name"] = build_display_name(car)
-        slots[slot_key] = slot_data
-    return slots
 
 
 def _ordered_compare_slot_keys(*sources: Any) -> List[str]:
@@ -682,14 +469,6 @@ def _infer_compare_segment_details(
     return "general_private_car", ["default_private_car"]
 
 
-def infer_compare_segment(
-    car_slot: Optional[Dict[str, Any]], grounded_car_data: Optional[Dict[str, Any]]
-) -> str:
-    """Infer a lightweight compare segment without relying on a missing taxonomy field."""
-    segment_key, _signals = _infer_compare_segment_details(car_slot, grounded_car_data)
-    return segment_key
-
-
 # ============================================================
 # CONFIGURATION
 # ============================================================
@@ -750,24 +529,7 @@ COMPARE_AI_METRICS = {
 }
 
 # Category weights for overall score calculation
-CATEGORY_WEIGHTS = {
-    "reliability_risk": 40,
-    "ownership_cost": 25,
-    "practicality_comfort": 20,
-    "driving_performance": 15,
-}
 
-ORDINAL_SCORES_NEGATIVE = {
-    "low": 100,
-    "medium": 60,
-    "high": 20,
-}
-
-ORDINAL_SCORES_POSITIVE = {
-    "low": 20,
-    "medium": 60,
-    "high": 100,
-}
 
 CATEGORY_LABELS_HE = {
     "reliability_risk": "אמינות וסיכונים",
@@ -1191,57 +953,6 @@ CATEGORY_SCORE_CONFIG = {
 # ============================================================
 
 
-def _safe_parse_json_cached(
-    raw_value: Any, field_name: str = "unknown"
-) -> Tuple[Any, bool]:
-    """
-    Safely parse possibly double-encoded JSON from cached database rows.
-
-    Handles the case where old cached rows stored double-encoded JSON strings,
-    e.g., '"{\\\"a\\\": 1}"' which when parsed once returns a string '{"a": 1}'
-    that itself needs another json.loads() call.
-
-    Args:
-        raw_value: The raw value from the database (string, dict, list, or None).
-                   Can be a JSON string, already-parsed dict/list (from JSONB), or None.
-        field_name: Name of the field (for logging)
-
-    Returns:
-        Tuple of (parsed_value, was_double_encoded)
-        - parsed_value: The parsed dict/list, or the original value if not parseable
-        - was_double_encoded: True if double-encoding was detected and unwrapped
-
-    Never throws; returns (None, False) for truly invalid data.
-    """
-    if raw_value is None:
-        return None, False
-
-    if not isinstance(raw_value, str):
-        # Already parsed (e.g., JSONB column returned dict/list directly)
-        return raw_value, False
-
-    try:
-        # First parse attempt
-        parsed = json.loads(raw_value)
-
-        # Check if result is still a string that looks like JSON
-        if isinstance(parsed, str):
-            stripped = parsed.strip()
-            if stripped.startswith("{") or stripped.startswith("["):
-                # Attempt second parse (unwrap double-encoding)
-                try:
-                    parsed_inner = json.loads(parsed)
-                    return parsed_inner, True  # was double-encoded
-                except (json.JSONDecodeError, TypeError):
-                    # Inner string wasn't valid JSON, return outer parse
-                    return parsed, False
-
-        return parsed, False
-    except (json.JSONDecodeError, TypeError):
-        # Could not parse at all
-        return None, False
-
-
 def _normalize_label(value: Any) -> Optional[str]:
     if value is None:
         return None
@@ -1265,19 +976,6 @@ def _normalize_short_text(value: Any, max_len: int = 120) -> Optional[str]:
     if not text:
         return None
     return text[:max_len]
-
-
-def _empty_single_car_payload() -> Dict[str, Any]:
-    payload = {
-        "car_name": None,
-        "facts": dict(SINGLE_CAR_FACTS_TEMPLATE),
-        "short_notes": [],
-        "sources": [],
-        "car_profile": {},
-    }
-    for category_name, template in SINGLE_CAR_CATEGORY_TEMPLATE.items():
-        payload[category_name] = dict(template)
-    return payload
 
 
 def _normalize_sources(value: Any) -> List[str]:
@@ -1980,28 +1678,6 @@ DATA:{json.dumps(retry_payload, ensure_ascii=False, separators=(",", ":"))}
 # ============================================================
 
 
-def score_ordinal_negative(
-    value: Optional[str], confidence: float = 1.0
-) -> Optional[float]:
-    """Score ordinal value where low is good (e.g., risk: low=good)."""
-    normalized = _normalize_label(value)
-    score = ORDINAL_SCORES_NEGATIVE.get(normalized) if normalized else None
-    if score is None:
-        return None
-    return round(score * confidence, 1)
-
-
-def score_ordinal_positive(
-    value: Optional[str], confidence: float = 1.0
-) -> Optional[float]:
-    """Score ordinal value where high is good (e.g., comfort: high=good)."""
-    normalized = _normalize_label(value)
-    score = ORDINAL_SCORES_POSITIVE.get(normalized) if normalized else None
-    if score is None:
-        return None
-    return round(score * confidence, 1)
-
-
 def _average_scores(scores: List[Optional[float]]) -> Optional[float]:
     valid = [score for score in scores if score is not None]
     if not valid:
@@ -2087,65 +1763,6 @@ def _has_any_stage_a_evidence(car_data: Dict[str, Any]) -> bool:
     if car_data.get("car_profile"):
         return True
     return False
-
-
-def compute_category_score(
-    car_data: Dict, category_name: str
-) -> Tuple[Optional[float], Dict[str, Optional[float]]]:
-    """Compute deterministic weighted score for a category from simplified Stage A evidence."""
-    category_def = CATEGORY_SCORE_CONFIG.get(category_name)
-    if not category_def:
-        return None, {}
-
-    metric_scores = {}
-    total_weighted = 0.0
-    total_weights = 0.0
-    for metric_name, metric_def in category_def.get("subfactors", {}).items():
-        score = _score_subfactor(car_data, category_name, metric_def)
-        metric_scores[metric_name] = score
-        if score is None:
-            continue
-        weight = metric_def.get("weight", 0)
-        total_weighted += score * weight
-        total_weights += weight
-
-    if total_weights == 0:
-        return None, metric_scores
-    return round(total_weighted / total_weights, 1), metric_scores
-
-
-def compute_overall_score(
-    category_scores: Dict[str, Optional[float]],
-) -> Optional[float]:
-    """Compute weighted overall score from category scores."""
-    total_weighted = 0.0
-    total_weights = 0.0
-    for cat_name, weight in CATEGORY_WEIGHTS.items():
-        score = category_scores.get(cat_name)
-        if score is None:
-            continue
-        total_weighted += score * weight
-        total_weights += weight
-    if total_weights == 0:
-        return None
-    return round(total_weighted / total_weights, 1)
-
-
-def determine_winner(
-    scores: Dict[str, Optional[float]], tie_threshold: float = TIE_THRESHOLD
-) -> Optional[str]:
-    """Determine winner from a dict of car_id -> score. Returns 'tie' if scores are close."""
-    valid_scores = {k: v for k, v in scores.items() if v is not None}
-    if not valid_scores:
-        return None
-    if len(valid_scores) < 2:
-        return next(iter(valid_scores))
-    sorted_scores = sorted(valid_scores.items(), key=lambda x: x[1], reverse=True)
-    top_score = sorted_scores[0][1]
-    second_score = sorted_scores[1][1]
-    if abs(top_score - second_score) < tie_threshold:
-        return "tie"
-    return sorted_scores[0][0]
 
 
 def _is_real_winner_id(winner_id: Optional[str], results: Dict[str, Any]) -> bool:
@@ -3167,72 +2784,6 @@ def _salvage_partial_writer_output(
         "overall_summary": summary,
         "category_explanations": category_explanations,
         "disclaimers_he": caveats,
-    }
-
-
-def build_deterministic_fallback_narrative(
-    cars_selected_slots: Dict, computed_result: Dict
-) -> Dict[str, Any]:
-    car_keys = _ordered_compare_slot_keys(
-        cars_selected_slots,
-        (computed_result.get("cars") or {})
-        if isinstance(computed_result, dict)
-        else {},
-    )
-    category_explanations = []
-    for cat in COMPARE_CATEGORY_NAMES:
-        winner = (computed_result.get("category_winners", {}) or {}).get(cat) or "tie"
-        explanations = {}
-        for car_key in car_keys:
-            explanations[car_key] = "מוצגת השוואה מספרית."
-        category_explanations.append(
-            {
-                "category_key": cat,
-                "title_he": "",
-                "winner": _normalize_compare_writer_winner(winner, car_keys) or "tie",
-                "explanations": explanations,
-                "why_it_scored_that_way": [
-                    "הסבר AI לא זמין כרגע; מוצגת השוואה מספרית."
-                ],
-            }
-        )
-    return {
-        "overall_summary": "הסבר AI לא זמין כרגע; מוצגת השוואה מספרית.",
-        "category_explanations": category_explanations,
-        "disclaimers_he": ["אפשר לנסות שוב."],
-    }
-
-
-def mark_partial_comparison_narrative(
-    narrative: Optional[Dict[str, Any]],
-) -> Optional[Dict[str, Any]]:
-    """Add an explicit disclaimer when Stage A succeeded for only part of the cars."""
-    if not isinstance(narrative, dict):
-        return narrative
-    patched = dict(narrative)
-    summary = str(patched.get("overall_summary") or "").strip()
-    if summary and not summary.startswith(PARTIAL_COMPARISON_SUMMARY_PREFIX):
-        patched["overall_summary"] = f"{PARTIAL_COMPARISON_SUMMARY_PREFIX} {summary}"
-    disclaimers = list(patched.get("disclaimers_he") or [])
-    if PARTIAL_COMPARISON_DISCLAIMER not in disclaimers:
-        disclaimers.append(PARTIAL_COMPARISON_DISCLAIMER)
-    patched["disclaimers_he"] = disclaimers[:3]
-    return patched
-
-
-def _empty_stage_a_output(
-    cars_selected_slots: Dict[str, Dict[str, Any]],
-) -> Dict[str, Any]:
-    cars = {}
-    for slot_key, slot_data in (cars_selected_slots or {}).items():
-        empty_payload = _empty_single_car_payload()
-        empty_payload["car_name"] = _normalize_short_text(
-            (slot_data or {}).get("display_name"), 140
-        )
-        cars[slot_key] = empty_payload
-    return {
-        "cars": cars,
-        "sources": [],
     }
 
 
@@ -4384,40 +3935,6 @@ def normalize_model_output(
 # ============================================================
 # REQUEST HASH FOR CACHING
 # ============================================================
-
-
-def compute_request_hash(
-    cars: List[Dict], buyer_profile: Optional[Dict[str, Any]] = None
-) -> str:
-    """
-    Compute a hash for caching based on selected cars and prompt version.
-    Uses 32 characters (128 bits) of SHA256 for adequate collision resistance.
-    Includes year, engine_type, and gearbox in hash calculation.
-    """
-    car_keys = []
-    for c in cars:
-        # Consistent year extraction: prefer year, fallback to year_start
-        year_val = c.get("year")
-        if year_val is None:
-            year_val = c.get("year_start")
-        year_str = str(year_val) if year_val is not None else ""
-
-        key_parts = [
-            c.get("make", ""),
-            c.get("model", ""),
-            year_str,
-            c.get("engine_type", ""),
-            c.get("gearbox", ""),
-        ]
-        car_keys.append("|".join(key_parts))
-
-    data = {
-        "cars": sorted(car_keys),
-        "buyer_profile": buyer_profile,
-        "prompt_version": COMPARISON_PROMPT_VERSION,
-    }
-    data_str = json.dumps(data, sort_keys=True)
-    return hashlib.sha256(data_str.encode()).hexdigest()[:32]  # 128 bits
 
 
 # ============================================================
