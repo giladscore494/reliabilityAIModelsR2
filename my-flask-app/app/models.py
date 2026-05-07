@@ -274,13 +274,13 @@ class ComparisonHistory(db.Model):
 class LegalFeatureAcceptance(db.Model):
     """
     Feature-specific legal acceptance records.
-    Scalable approach: one table for all feature consents (e.g., invoice_scanner).
+    Scalable approach: one table for all feature consents.
     """
     __tablename__ = "legal_feature_acceptance"
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
-    feature_key = db.Column(db.String(64), nullable=False, index=True)  # e.g. "invoice_scanner"
+    feature_key = db.Column(db.String(64), nullable=False, index=True)  # per-feature consent key
     version = db.Column(db.String(32), nullable=False)  # e.g. "2026-02-07"
     accepted_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 

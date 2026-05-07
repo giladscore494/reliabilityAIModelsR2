@@ -4,8 +4,11 @@ from sqlalchemy import inspect, text
 
 def ensure_search_history_cache_key(app, db, logger=None):
     """
-    Runtime defensive check to guarantee search_history.cache_key exists in Postgres.
-    Safe to run multiple times and under concurrency.
+    DEPRECATED runtime ALTER TABLE helper.
+
+    Schema changes are managed by Alembic/Flask-Migrate. This function only runs
+    when ``ENABLE_RUNTIME_DB_BOOTSTRAP`` is explicitly set to a truthy value
+    (intended for emergency-recovery / dev-only use).
     """
     log = logger or getattr(app, "logger", None)
     if os.environ.get("ENABLE_RUNTIME_DB_BOOTSTRAP", "").lower() not in ("1", "true", "yes"):
@@ -68,8 +71,11 @@ def ensure_search_history_cache_key(app, db, logger=None):
 
 def ensure_duration_ms_columns(engine, logger=None):
     """
-    Ensure duration_ms column exists on search_history and advisor_history tables.
-    Idempotent and best-effort: logs warnings on failure without raising.
+    DEPRECATED runtime ALTER TABLE helper.
+
+    Schema changes are managed by Alembic/Flask-Migrate. This function only runs
+    when ``ENABLE_RUNTIME_DB_BOOTSTRAP`` is explicitly set to a truthy value
+    (intended for emergency-recovery / dev-only use).
     """
     log = logger
     if os.environ.get("ENABLE_RUNTIME_DB_BOOTSTRAP", "").lower() not in ("1", "true", "yes"):
