@@ -80,7 +80,6 @@ from app.models import (
     IpRateLimit,
     LegalAcceptance,
     ResearchConsent,
-    LeasingAdvisorHistory,
     Feedback,
 )
 from app.legal import CONTACT_EMAIL, TERMS_VERSION, PRIVACY_VERSION, parse_legal_confirm
@@ -2281,8 +2280,6 @@ def create_app():
     from app.routes.dashboard_routes import bp as dashboard_bp
     from app.routes.legal_routes import bp as legal_bp
     from app.routes.comparison_routes import bp as comparison_bp
-    from app.routes.service_prices_routes import bp as service_prices_bp
-    from app.routes.leasing_routes import bp as leasing_bp
     from app.routes.public_examples_routes import bp as examples_bp
     from app.routes.feedback_routes import bp as feedback_bp
     from app.routes.owner_routes import bp as owner_bp
@@ -2293,8 +2290,6 @@ def create_app():
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(legal_bp)
     app.register_blueprint(comparison_bp)
-    app.register_blueprint(service_prices_bp)
-    app.register_blueprint(leasing_bp)
     app.register_blueprint(examples_bp)
     app.register_blueprint(feedback_bp)
     app.register_blueprint(owner_bp)

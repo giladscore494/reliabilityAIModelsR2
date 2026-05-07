@@ -13,7 +13,7 @@ from app.factory import (
 )
 from app.extensions import db, login_manager, oauth, migrate
 import app.extensions as extensions
-from app.models import User, SearchHistory, AdvisorHistory, DailyQuotaUsage, QuotaReservation, IpRateLimit, LeasingAdvisorHistory
+from app.models import User, SearchHistory, AdvisorHistory, DailyQuotaUsage, QuotaReservation, IpRateLimit
 from app.quota import (
     resolve_app_timezone,
     compute_quota_window,
@@ -44,7 +44,6 @@ __all__ = [
     "DailyQuotaUsage",
     "QuotaReservation",
     "IpRateLimit",
-    "LeasingAdvisorHistory",
     "resolve_app_timezone",
     "compute_quota_window",
     "reserve_daily_quota",
