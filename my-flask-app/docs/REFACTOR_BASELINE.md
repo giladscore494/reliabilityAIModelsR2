@@ -37,6 +37,19 @@ Single head, no merge needed.
 When run against an empty in-memory SQLite there is no current revision —
 expected, the migrations table is created on first `db upgrade`.
 
+## Final verification (Phase 7)
+
+After all in-scope refactor work was applied:
+
+- `python -m compileall -q app main.py` → OK
+- `pytest -q` → **359 passed, 19 warnings** (added 3 new smoke tests in
+  `tests/test_smoke_routes.py`)
+- `ruff check .` → All checks passed (config in `pyproject.toml`)
+- `flask --app main:create_app db heads` → `bb03_research_260425 (head)` —
+  single head, unchanged from baseline
+- `flask --app main:create_app db current` against fresh DB → no current
+  revision (as expected; production runs `db upgrade` in `preDeployCommand`)
+
 ## Decision
 
 App imports cleanly and tests pass. Safe to continue with subsequent phases.

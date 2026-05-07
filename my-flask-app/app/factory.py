@@ -108,20 +108,25 @@ from app.quota import (
 # =========================
 # ========= CONFIG ========
 # =========================
+# Module-level config constants moved to app.config (Phase 3 refactor).
+# Re-exported here so that existing `from app.factory import ...` imports keep
+# working without changes.
+from app.config import (  # noqa: E402,F401
+    AI_CALL_TIMEOUT_SEC,
+    AI_EXECUTOR,
+    AI_EXECUTOR_WORKERS,
+    DEFAULT_API_PAYLOAD_LIMIT_BYTES,
+    GLOBAL_DAILY_LIMIT,
+    MAX_ACTIVE_RESERVATIONS,
+    MAX_CACHE_DAYS,
+    MAX_CONTENT_LENGTH_DEFAULT,
+    PER_IP_PER_MIN_LIMIT,
+    QUOTA_RESERVATION_TTL_SECONDS,
+    SERVICE_PRICES_ANALYZE_LIMIT_BYTES,
+    USER_DAILY_LIMIT,
+)
+
 logger = logging.getLogger(__name__)
-AI_CALL_TIMEOUT_SEC = int(os.environ.get("AI_CALL_TIMEOUT_SEC", "170"))  # timeout for each AI call attempt
-GLOBAL_DAILY_LIMIT = 1000
-USER_DAILY_LIMIT = int(os.environ.get("QUOTA_LIMIT", "5"))
-MAX_CACHE_DAYS = 45
-PER_IP_PER_MIN_LIMIT = 20
-QUOTA_RESERVATION_TTL_SECONDS = int(os.environ.get("QUOTA_RESERVATION_TTL_SECONDS", "600"))
-MAX_ACTIVE_RESERVATIONS = 1
-AI_EXECUTOR_WORKERS = int(os.environ.get("AI_EXECUTOR_WORKERS", "8"))
-AI_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=AI_EXECUTOR_WORKERS)
-MAX_CONTENT_LENGTH_DEFAULT = 8 * 1024 * 1024
-SERVICE_PRICES_ANALYZE_LIMIT_BYTES = 6 * 1024 * 1024  # legacy constant; retained as the upload-size guard for any future large-file route
-DEFAULT_API_PAYLOAD_LIMIT_BYTES = 256 * 1024
-atexit.register(lambda: AI_EXECUTOR.shutdown(wait=True))
 import app.quota as quota_module
 quota_module.USER_DAILY_LIMIT = USER_DAILY_LIMIT
 quota_module.GLOBAL_DAILY_LIMIT = GLOBAL_DAILY_LIMIT
@@ -2225,61 +2230,18 @@ def create_app():
         except Exception:
             logger.exception("[DB] Alembic revision check failed")
 
-    # Gemini key
-    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-    if not GEMINI_API_KEY:
-        logger.warning("[AI] GEMINI_API_KEY missing")
-
-    if GEMINI_API_KEY:
-        try:
-            extensions.ai_client = genai3.Client(api_key=GEMINI_API_KEY)
-            extensions.advisor_client = extensions.ai_client
-            logger.info("[AI] Gemini 3 client initialized")
-        except Exception as e:
-            extensions.ai_client = None
-            extensions.advisor_client = None
-            logger.error("[AI] Failed to init Gemini 3 client: %s", e)
-    else:
-        extensions.ai_client = None
-        extensions.advisor_client = None
-
-    # OAuth
-    oauth.register(
-        name='google',
-        client_id=os.environ.get('GOOGLE_CLIENT_ID'),
-        client_secret=os.environ.get('GOOGLE_CLIENT_SECRET'),
-        server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
-        client_kwargs={'scope': 'openid email profile'},
-        api_base_url='https://www.googleapis.com/oauth2/v1/',
-        userinfo_endpoint='https://openidconnect.googleapis.com/v1/userinfo',
-        claims_options={'iss': {'values': ['https://accounts.google.com', 'accounts.google.com']}}
-    )
+    # AI clients + OAuth — extracted to app.bootstrap.clients (Phase 3).
+    from app.bootstrap.clients import init_ai_clients, init_oauth
+    init_ai_clients(app, logger)
+    init_oauth(app)
 
     # ------------------
     # ===== ROUTES =====
     # ------------------
-    
-    # Register blueprints
-    from app.routes.public_routes import bp as public_bp
-    from app.routes.analyze_routes import bp as analyze_bp
-    from app.routes.advisor_routes import bp as advisor_bp
-    from app.routes.dashboard_routes import bp as dashboard_bp
-    from app.routes.legal_routes import bp as legal_bp
-    from app.routes.comparison_routes import bp as comparison_bp
-    from app.routes.public_examples_routes import bp as examples_bp
-    from app.routes.feedback_routes import bp as feedback_bp
-    from app.routes.owner_routes import bp as owner_bp
-    from app.routes.owner_profile_routes import owner_profile_bp
-    app.register_blueprint(public_bp)
-    app.register_blueprint(analyze_bp)
-    app.register_blueprint(advisor_bp)
-    app.register_blueprint(dashboard_bp)
-    app.register_blueprint(legal_bp)
-    app.register_blueprint(comparison_bp)
-    app.register_blueprint(examples_bp)
-    app.register_blueprint(feedback_bp)
-    app.register_blueprint(owner_bp)
-    app.register_blueprint(owner_profile_bp)
+    # Blueprint registration is delegated to app.bootstrap.blueprints to keep
+    # this factory short. The order/set of blueprints is preserved there.
+    from app.bootstrap.blueprints import register_blueprints
+    register_blueprints(app)
 
 
     @app.cli.command("init-db")
