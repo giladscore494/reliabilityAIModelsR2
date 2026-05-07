@@ -119,9 +119,8 @@ MAX_ACTIVE_RESERVATIONS = 1
 AI_EXECUTOR_WORKERS = int(os.environ.get("AI_EXECUTOR_WORKERS", "8"))
 AI_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=AI_EXECUTOR_WORKERS)
 MAX_CONTENT_LENGTH_DEFAULT = 8 * 1024 * 1024
-SERVICE_PRICES_ANALYZE_LIMIT_BYTES = 6 * 1024 * 1024
+SERVICE_PRICES_ANALYZE_LIMIT_BYTES = 6 * 1024 * 1024  # legacy constant; retained as the upload-size guard for any future large-file route
 DEFAULT_API_PAYLOAD_LIMIT_BYTES = 256 * 1024
-SERVICE_PRICES_ANALYZE_PATH = "/api/service-prices/analyze"
 atexit.register(lambda: AI_EXECUTOR.shutdown(wait=True))
 import app.quota as quota_module
 quota_module.USER_DAILY_LIMIT = USER_DAILY_LIMIT
@@ -1841,7 +1840,6 @@ def create_app():
     except (TypeError, ValueError) as exc:
         raise RuntimeError("Invalid MAX_CONTENT_LENGTH_BYTES; must be an integer") from exc
     app.config["MAX_CONTENT_LENGTH"] = max_content_length
-    app.config["SERVICE_PRICES_ANALYZE_LIMIT_BYTES"] = SERVICE_PRICES_ANALYZE_LIMIT_BYTES
     app.config["DEFAULT_API_PAYLOAD_LIMIT_BYTES"] = DEFAULT_API_PAYLOAD_LIMIT_BYTES
 
     # ===== SECURITY:  Session Cookie Configuration (Tier 1) =====
@@ -1955,13 +1953,8 @@ def create_app():
         else:
             content_length = request.content_length
         path = request.path or ""
-        if path == SERVICE_PRICES_ANALYZE_PATH:
-            limit = SERVICE_PRICES_ANALYZE_LIMIT_BYTES
-        elif path == "/api/leasing/frame":
-            limit = SERVICE_PRICES_ANALYZE_LIMIT_BYTES  # 6 MB for file upload
-        else:
-            limit = DEFAULT_API_PAYLOAD_LIMIT_BYTES
-            # Tight guard for all other write routes to preserve DoS safety.
+        limit = DEFAULT_API_PAYLOAD_LIMIT_BYTES
+        # Tight guard for all write routes to preserve DoS safety.
         if content_length > limit:
             raise RequestEntityTooLarge()
         return None
@@ -1985,7 +1978,7 @@ def create_app():
             return None
         
         # Only check specific endpoints (not login/auth which may come from external OAuth flow)
-        protected_paths = ['/analyze', '/advisor_api', '/api/account/delete', '/api/compare', '/api/leasing']
+        protected_paths = ['/analyze', '/advisor_api', '/api/account/delete', '/api/compare']
         if not any(request.path.startswith(p) for p in protected_paths):
             return None
 
@@ -2055,7 +2048,6 @@ def create_app():
             "/auth",
             "/healthz",
             "/recommendations",
-            "/leasing",
             "/compare",
             "/api/examples",
             "/owner/examples",
@@ -2076,7 +2068,7 @@ def create_app():
             return resp
 
         is_ai_write = request.method in ("POST", "PUT", "PATCH", "DELETE") and path.startswith(
-            ("/analyze", "/advisor_api", "/api/compare", "/api/leasing/recommend")
+            ("/analyze", "/advisor_api", "/api/compare")
         )
         if not is_ai_write:
             return None

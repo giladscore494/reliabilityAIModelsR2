@@ -93,7 +93,7 @@ def accept_legal():
       "terms_version": "2026-02-07",  # optional, uses config default
       "privacy_version": "2026-02-07",  # optional, uses config default
       "feature_consents": [  # optional
-        {"feature_key": "invoice_scanner", "version": "2026-02-07"}
+        {"feature_key": "<feature_key>", "version": "2026-02-07"}
       ]
     }
     """

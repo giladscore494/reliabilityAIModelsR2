@@ -23,7 +23,7 @@ RECOMMENDATION_FALLBACK_TEXT = (
 )
 SERVICE_FALLBACK_TEXT = (
     "לא ניתן להפיק דוח בטוח מהקובץ הזה. חלק מהנתונים לא זוהו או לא עברו הסרת פרטים מזהים."
-)
+)  # kept as a generic safe-fallback string for service-style errors
 LEGACY_DISPLAY_NOTE = "תוצאה ישנה — ייתכן שחלק מהמידע לא עבר את שכבת האימות החדשה."
 ESTIMATED_PRICE_NOTE = "טווח מחיר משוער בלבד — דורש אימות מול לוחות רכב פעילים."
 LOW_SAMPLE_NOTE = "מדגם משתמשים קטן — נתון כיוון בלבד."
@@ -68,18 +68,6 @@ _CONNECTOR_ENDINGS = {
     "אם",
     "בגלל",
     "כולל",
-}
-_ALLOWED_SERVICE_CATEGORIES = {
-    "engine",
-    "brakes",
-    "electrical",
-    "tires",
-    "ac",
-    "transmission",
-    "suspension",
-    "diagnostic",
-    "labor",
-    "other",
 }
 _GUARDRAIL_COUNTERS: Counter[str] = Counter()
 _CURRENT_YEAR = datetime.now(timezone.utc).year
@@ -809,119 +797,6 @@ def validate_recommendation_result(user_payload: Any, ai_result: Any) -> Dict[st
     return _finalize_report(report)
 
 
-def validate_leasing_advisor_result(user_payload: Any, ai_result: Any, deterministic_calc: Any) -> Dict[str, Any]:
-    report = _ensure_report("leasing_advisor")
-    result = _safe_dict(ai_result)
-    calc = _safe_dict(deterministic_calc)
-    tolerance = float(calc.get("tolerance") or 1.0)
-    for key in ("monthly_payment", "down_payment", "final_payment", "balloon_payment", "total_cost", "monthly_bik", "list_price_ils"):
-        expected = normalize_currency_ils(calc.get(key))
-        actual = normalize_currency_ils(result.get(key))
-        if expected is None:
-            continue
-        if key in {"final_payment", "balloon_payment"} and actual is None:
-            _add_issue(report, f"missing {key}", critical=True, section="numbers")
-        elif actual is not None and abs(actual - expected) > tolerance:
-            _add_issue(report, f"{key} differs from deterministic calculation", critical=True, section="numbers")
-    top3 = _safe_list(result.get("top3"))
-    candidates = {
-        (
-            _norm_key(item.get("make")),
-            _norm_key(item.get("model")),
-        ): item
-        for item in _safe_list(calc.get("candidates"))
-        if isinstance(item, dict)
-    }
-    for index, item in enumerate(top3, start=1):
-        if not isinstance(item, dict):
-            continue
-        matched = candidates.get((_norm_key(item.get("make")), _norm_key(item.get("model"))), {})
-        for key in ("monthly_bik", "list_price_ils"):
-            expected = normalize_currency_ils(matched.get(key))
-            actual = normalize_currency_ils(item.get(key))
-            if expected is not None and actual is not None and abs(actual - expected) > tolerance:
-                _add_issue(report, f"top3_{index}: {key} differs from deterministic calculation", critical=True, section="numbers")
-    if any(token in json.dumps(result, ensure_ascii=False).lower() for token in ("guaranteed savings", "safe deal", "ללא סיכון", "חיסכון מובטח", "guaranteed cheaper", "best deal")):
-        _add_issue(report, "unsafe guaranteed-savings language", critical=True, section="prose")
-    assumptions = result.get("assumptions") or calc.get("assumptions") or calc.get("frame")
-    if not assumptions:
-        _add_issue(report, "missing key assumptions", critical=True, section="assumptions")
-    elif not _contains_any(assumptions, ("cpi", "index", "interest", "mileage", "residual", "depreciation", "bik", "list_price", "insurance", "service")):
-        _add_issue(report, "missing key assumptions", critical=True, section="assumptions")
-    if not _contains_any(assumptions, ("cpi", "indexation")) and calc.get("cpi_indexed"):
-        _add_issue(report, "CPI/indexation assumption missing", critical=False, section="assumptions")
-    if not _contains_any(assumptions, ("mileage", "ק\"מ", "נסועה")):
-        _add_issue(report, "mileage assumption missing", critical=False, section="assumptions")
-    if _contains_any(result, ("residual", "future value", "ערך עתידי")):
-        _add_issue(report, "residual value estimated", critical=False, section="prose")
-    return _finalize_report(report)
-
-
-def validate_service_prices_result(user_payload: Any, ai_result: Any) -> Dict[str, Any]:
-    report = _ensure_report("service_prices")
-    result = _safe_dict(ai_result)
-    items = _safe_list(result.get("items") or result.get("line_items") or result.get("canonical_items"))
-    subtotal = 0
-    subtotal_seen = False
-    for index, item in enumerate(items, start=1):
-        row = _safe_dict(item)
-        code = _text(row.get("canonical_code") or row.get("service_code"))
-        if not code:
-            _add_issue(report, f"item_{index}: canonical service code missing", critical=True, section="items")
-        elif code == "unknown_requires_review":
-            _add_issue(report, f"item_{index}: unknown canonical item requires review", critical=False, section="items")
-        category = _norm_key(row.get("category"))
-        if category and category not in _ALLOWED_SERVICE_CATEGORIES:
-            _add_issue(report, f"item_{index}: invalid category", critical=True, section="items")
-        price = normalize_currency_ils(row.get("price_ils") or row.get("invoice_price_ils") or row.get("price"))
-        qty = _normalize_count(row.get("qty"))
-        if price is None:
-            _add_issue(report, f"item_{index}: non-numeric price", critical=False, section="items")
-        if qty is None and row.get("qty") not in (None, "", " "):
-            _add_issue(report, f"item_{index}: non-numeric quantity", critical=True, section="items")
-        if price is not None:
-            subtotal += price * (qty or 1)
-            subtotal_seen = True
-        confidence = normalize_percent(row.get("confidence"))
-        if confidence is not None and confidence < 50:
-            _add_issue(report, f"item_{index}: low confidence item should be marked לבדיקה", critical=False, section="items")
-    sample_size = _normalize_count(result.get("sample_size") or _safe_dict(result.get("samples_meta")).get("total_cohort_n"))
-    if sample_size is not None and sample_size < 10:
-        _add_issue(report, "benchmark sample size is low", critical=False, section="benchmarks")
-    total = normalize_currency_ils(result.get("total_price_ils") or result.get("total"))
-    if subtotal_seen and total is not None and abs(subtotal - total) > 2:
-        _add_issue(report, "total mismatch beyond tolerance", critical=True, section="totals")
-    return _finalize_report(report)
-
-
-def validate_invoice_analysis_result(user_payload: Any, ai_result: Any) -> Dict[str, Any]:
-    report = _ensure_report("invoice_scanner")
-    result = ai_result if isinstance(ai_result, dict) else {}
-    if not isinstance(ai_result, (dict, list)):
-        _add_issue(report, "report_json wrong type", critical=True, section="report_json")
-    if _contains_pii(result):
-        _add_issue(report, "PII detected in invoice result", critical=True, section="pii")
-    if any(key in result for key in ("raw_invoice_bytes", "invoice_image_bytes", "image_bytes")):
-        _add_issue(report, "raw invoice bytes scheduled for storage", critical=True, section="storage")
-    totals = _safe_dict(result.get("totals"))
-    items = _safe_list(result.get("items"))
-    if totals and items:
-        computed_total = 0
-        for item in items:
-            row = _safe_dict(item)
-            price = normalize_currency_ils(row.get("price_ils"))
-            qty = _normalize_count(row.get("qty")) or 1
-            if price is None and row.get("price_ils") not in (None, ""):
-                _add_issue(report, "non-numeric qty/price in arithmetic path", critical=True, section="items")
-                break
-            if price is not None:
-                computed_total += price * qty
-        expected_total = normalize_currency_ils(totals.get("total_price_ils"))
-        if expected_total is not None and abs(computed_total - expected_total) > 2:
-            _add_issue(report, "invoice total mismatch beyond tolerance", critical=True, section="totals")
-    return _finalize_report(report)
-
-
 def validate_research_submission(payload: Any) -> Dict[str, Any]:
     report = _ensure_report("research_collection")
     data = _safe_dict(payload)
@@ -959,13 +834,8 @@ def validate_research_submission(payload: Any) -> Dict[str, Any]:
 
 def validate_feature_legal_access(user: Any, feature_key: str, operation: str) -> Optional[Dict[str, Any]]:
     from app.legal import (
-        INVOICE_ANON_STORAGE_KEY,
-        INVOICE_ANON_STORAGE_VERSION,
-        INVOICE_EXT_PROCESSING_KEY,
-        INVOICE_EXT_PROCESSING_VERSION,
         PRIVACY_VERSION,
         TERMS_VERSION,
-        has_accepted_feature,
     )
     from app.models import LegalAcceptance, ResearchConsent
 
@@ -989,25 +859,6 @@ def validate_feature_legal_access(user: Any, feature_key: str, operation: str) -
             "required_terms_version": terms_version,
             "required_privacy_version": privacy_version,
         }
-    if feature_key == "invoice_scanner":
-        if not has_accepted_feature(user_id, INVOICE_EXT_PROCESSING_KEY, INVOICE_EXT_PROCESSING_VERSION):
-            return {
-                "error": "LEGAL_ACCEPTANCE_REQUIRED",
-                "feature_key": feature_key,
-                "required_terms_version": terms_version,
-                "required_privacy_version": privacy_version,
-                "required_feature_key": INVOICE_EXT_PROCESSING_KEY,
-            }
-        if operation in {"read", "ocr", "vision", "analyze", "write"} and not has_accepted_feature(
-            user_id, INVOICE_ANON_STORAGE_KEY, INVOICE_ANON_STORAGE_VERSION
-        ):
-            return {
-                "error": "LEGAL_ACCEPTANCE_REQUIRED",
-                "feature_key": feature_key,
-                "required_terms_version": terms_version,
-                "required_privacy_version": privacy_version,
-                "required_feature_key": INVOICE_ANON_STORAGE_KEY,
-            }
     if feature_key == "research_collection":
         consent = (
             ResearchConsent.query.filter_by(
@@ -1103,8 +954,6 @@ def safe_fallback_on_repair_failure(original_result: Any, validation_report: Map
     fallback_text = UNSAFE_TEXT_FALLBACK
     if feature == "reliability_analysis":
         fallback_text = RELIABILITY_FALLBACK_TEXT
-    elif feature in {"service_prices", "invoice_scanner"}:
-        fallback_text = SERVICE_FALLBACK_TEXT
     if not isinstance(payload, dict):
         return {"message": fallback_text, "guardrail_meta": _guardrail_meta(feature, validation_report, False)}
     if feature == "recommendations":
@@ -1246,55 +1095,6 @@ def _repair_recommendations_result(result: Dict[str, Any], report: Mapping[str, 
     return patched
 
 
-def _repair_leasing_result(result: Dict[str, Any], deterministic_calc: Any) -> Dict[str, Any]:
-    patched = _safe_copy(result)
-    calc = _safe_dict(deterministic_calc)
-    for key in ("monthly_payment", "down_payment", "final_payment", "balloon_payment", "total_cost", "monthly_bik", "list_price_ils", "assumptions"):
-        if key in calc:
-            patched[key] = calc[key]
-    if "frame" in calc and "assumptions" not in patched:
-        patched["assumptions"] = calc["frame"]
-    top3 = _safe_list(patched.get("top3"))
-    candidate_map = {
-        (_norm_key(item.get("make")), _norm_key(item.get("model"))): item
-        for item in _safe_list(calc.get("candidates"))
-        if isinstance(item, dict)
-    }
-    for item in top3:
-        if not isinstance(item, dict):
-            continue
-        matched = candidate_map.get((_norm_key(item.get("make")), _norm_key(item.get("model"))))
-        if matched:
-            for key in ("monthly_bik", "list_price_ils"):
-                if key in matched:
-                    item[key] = matched[key]
-        if any(token in _norm_key(item.get("reason_he")) for token in ("guaranteed", "safe", "מובטח")):
-            item["reason_he"] = "לפי המידע הזמין, זו נראית אפשרות מתאימה."
-        if _contains_any(item, ("residual", "future value", "ערך עתידי")):
-            item["reason_he"] = f"{_text(item.get('reason_he'))} ערך עתידי הוא הערכה בלבד.".strip()
-    return _soften_payload_text(patched, 20)
-
-
-def _repair_service_result(result: Dict[str, Any]) -> Dict[str, Any]:
-    patched = _redact_pii(_safe_copy(result))
-    for key in ("raw_invoice_bytes", "invoice_image_bytes", "image_bytes"):
-        patched.pop(key, None)
-    sample_size = _normalize_count(
-        patched.get("sample_size") or _safe_dict(patched.get("samples_meta")).get("total_cohort_n")
-    )
-    if sample_size is not None and sample_size < 10:
-        patched["sample_size_caveat"] = LOW_SAMPLE_NOTE
-    for item in _safe_list(patched.get("items") or patched.get("line_items") or patched.get("canonical_items")):
-        if isinstance(item, dict) and normalize_percent(item.get("confidence")) is not None and normalize_percent(item.get("confidence")) < 50:
-            item["review_status"] = "דורש בדיקה"
-        if isinstance(item, dict) and not item.get("canonical_code"):
-            item["canonical_code"] = "unknown_requires_review"
-            item["review_status"] = "דורש בדיקה"
-    if not isinstance(patched.get("report_json"), (dict, list)) and "report_json" in patched:
-        patched["report_json"] = safe_json_obj(patched.get("report_json"), default={})
-    return patched
-
-
 def apply_feature_guardrails(
     feature_key: str, user_payload: Any, ai_result: Any, deterministic_calc: Any = None
 ) -> Tuple[Any, Dict[str, Any]]:
@@ -1319,12 +1119,6 @@ def apply_feature_guardrails(
         report = validate_reliability_result(user_payload, result)
     elif feature_key == "recommendations":
         report = validate_recommendation_result(user_payload, result)
-    elif feature_key == "leasing_advisor":
-        report = validate_leasing_advisor_result(user_payload, result, deterministic_calc)
-    elif feature_key == "service_prices":
-        report = validate_service_prices_result(user_payload, result)
-    elif feature_key == "invoice_scanner":
-        report = validate_invoice_analysis_result(user_payload, result)
     elif feature_key == "research_collection":
         report = validate_research_submission(result or user_payload)
     elif feature_key == "dashboard_history":
@@ -1359,9 +1153,6 @@ def apply_feature_guardrails(
             for key in ("recommended_cars", "recommendations", "top3"):
                 if key in result:
                     result[key] = normalized_cards if key != "top3" else normalized_cards[:3]
-    elif feature_key == "leasing_advisor" and isinstance(result, dict):
-        if "summary" in result and _contains_any(result.get("summary"), ("residual", "future value", "ערך עתידי")):
-            result["summary"] = f"{_text(result.get('summary'))} הערך העתידי הוא הערכה בלבד.".strip()
     elif feature_key == "research_collection" and isinstance(result, dict):
         if result.get("notes"):
             result["notes"] = redact_pii_from_text(result.get("notes"))
@@ -1373,8 +1164,6 @@ def apply_feature_guardrails(
         for key in ("prompt", "prompt_text", "debug", "debug_info", "internal_score"):
             result.pop(key, None)
         result = _redact_pii(result)
-    elif feature_key in {"service_prices", "invoice_scanner"} and isinstance(result, dict):
-        result = _repair_service_result(result)
 
     repaired = False
     if report.get("critical_issues"):
@@ -1388,12 +1177,6 @@ def apply_feature_guardrails(
             repaired = True
         elif feature_key == "recommendations":
             result = _repair_recommendations_result(result, report)
-            repaired = True
-        elif feature_key == "leasing_advisor":
-            result = _repair_leasing_result(result, deterministic_calc)
-            repaired = True
-        elif feature_key in {"service_prices", "invoice_scanner"}:
-            result = _repair_service_result(result)
             repaired = True
         if repaired:
             _increment_guardrail_counter("guardrail_repair_total")
