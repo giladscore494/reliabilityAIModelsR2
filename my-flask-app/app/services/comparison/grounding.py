@@ -9,29 +9,33 @@ import app.extensions as extensions
 from flask import current_app
 from google.genai import types as genai_types
 
-from app.services.comparison.schemas import validate_grounding
-from app.services.comparison_service import (
+from app.services.comparison.constants import (
     COMPARISON_MODEL_ID,
     COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
     COMPARE_STAGE_A_TEMPERATURE,
     COMPARE_STAGE_A_TIMEOUT_SEC,
     PARALLEL_GRACE_SEC,
     _MAX_STAGE_A_SOURCES,
+)
+from app.services.comparison.metrics import _inc_compare_metric
+from app.services.comparison.model_calls import (
     _estimate_token_count,
-    _extract_first_json_object,
-    _inc_compare_metric,
     _is_output_too_long_error,
+    _log_ai_client_error,
+)
+from app.services.comparison.parsing import (
+    _extract_first_json_object,
     _is_valid_single_car_payload,
     _is_valid_stage_a_payload,
-    _log_ai_client_error,
     _repair_json_once,
     _strip_json_code_fences,
     _truncate_error_message,
-    build_single_car_prompt,
-    get_request_id,
     normalize_single_car_payload,
 )
+from app.services.comparison.prompts import build_single_car_prompt
+from app.services.comparison.schemas import validate_grounding
 from app.services.comparison.fallbacks import _empty_stage_a_output
+from app.utils.http_helpers import get_request_id
 
 logger = logging.getLogger(__name__)
 
@@ -288,7 +292,6 @@ def call_stage_a_parallel(
     Returns (merged_model_output, sources_index, errors_list).
     """
     import concurrent.futures
-    from app.services import comparison_service as _compat
     from app.factory import AI_EXECUTOR
 
     slot_keys = list(cars_selected_slots.keys())
@@ -327,7 +330,7 @@ def call_stage_a_parallel(
     stage_a_logger = current_app.logger
     for slot_key, prompt in prompts.items():
         futures[slot_key] = AI_EXECUTOR.submit(
-            _compat.call_gemini_single_car,
+            call_gemini_single_car,
             prompt,
             slot_key,
             COMPARE_STAGE_A_TIMEOUT_SEC,
@@ -393,7 +396,7 @@ def call_stage_a_parallel(
         retry_futures = {}
         for slot_key, prompt in retry_slots.items():
             retry_futures[slot_key] = AI_EXECUTOR.submit(
-                _compat.call_gemini_single_car,
+                call_gemini_single_car,
                 prompt,
                 slot_key,
                 COMPARE_STAGE_A_TIMEOUT_SEC,

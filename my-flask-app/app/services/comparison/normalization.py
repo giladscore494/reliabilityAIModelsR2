@@ -4,6 +4,13 @@
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.services.comparison.constants import (
+    CHECKED_VERSION_CONFIDENCE_ALLOWED,
+    CHECKED_VERSION_DATA_BASIS_ALLOWED,
+    CHECKED_VERSION_NOT_VERIFIED_HE,
+    CHECKED_VERSION_UNKNOWN_HE,
+    _COMPARE_SLOT_RE,
+)
 
 def build_display_name(car: Dict[str, Any]) -> str:
     """Build a human-readable display name for a car.
@@ -16,17 +23,6 @@ def build_display_name(car: Dict[str, Any]) -> str:
     elif car.get("year_start") and car.get("year_end"):
         parts.append(f"{car['year_start']}-{car['year_end']}")
     return " ".join(p for p in parts if p).strip()
-
-
-CHECKED_VERSION_UNKNOWN_HE = "לא ידוע / לבדיקה"
-CHECKED_VERSION_NOT_VERIFIED_HE = "לא מאומת"
-CHECKED_VERSION_DATA_BASIS_ALLOWED = {
-    "user_input",
-    "verified_source",
-    "ai_inference",
-    "mixed",
-}
-CHECKED_VERSION_CONFIDENCE_ALLOWED = {"high", "medium", "low", "unverified"}
 
 
 def _normalize_general_transmission_label(value: Any) -> str:
@@ -117,9 +113,6 @@ def _normalize_grounded_cars_format(grounded_output: Optional[Dict[str, Any]]) -
             if isinstance(item, dict)
         }
     return grounded_cars_raw if isinstance(grounded_cars_raw, dict) else {}
-
-
-_COMPARE_SLOT_RE = re.compile(r"^car_(\d+)$")
 
 
 def build_checked_versions(

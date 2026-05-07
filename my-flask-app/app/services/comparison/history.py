@@ -14,6 +14,8 @@ from app.services.comparison.fallbacks import (
 )
 from app.services.comparison.normalization import map_cars_to_slots
 from app.services.comparison.prompts import build_compare_writer_prompt
+from app.services.comparison.decision import build_deterministic_decision_result
+from app.services.comparison.metrics import _inc_compare_metric
 from app.services.comparison.writer import (
     _salvage_partial_writer_output,
     _summarize_compare_writer_payload,
@@ -28,12 +30,8 @@ from app.services.comparison.writer import (
     resolve_comparison_narrative,
     sanitize_decision_result,
 )
-from app.services.comparison_service import (
-    _inc_compare_metric,
-    build_deterministic_decision_result,
-    get_request_id,
-)
 from app.utils.sanitization import sanitize_comparison_narrative
+from app.utils.http_helpers import get_request_id
 
 def get_comparison_history(user_id: int, limit: int = 10) -> List[Dict]:
     """Get comparison history for a user."""
@@ -171,8 +169,6 @@ def regenerate_comparison_ai(
     comparison_id: int, user_id: int
 ) -> Optional[Dict[str, Any]]:
     """Regenerate AI explanation without recomputing deterministic numeric scoring."""
-    from app.services import comparison_service as _compat
-
     record = ComparisonHistory.query.filter_by(
         id=comparison_id, user_id=user_id
     ).first()
@@ -196,7 +192,7 @@ def regenerate_comparison_ai(
         cars_selected_slots, server_computed_result, model_output
     )
     try:
-        stage_b_output, stage_b_error = _compat.call_gemini_compare_writer(writer_prompt)
+        stage_b_output, stage_b_error = call_gemini_compare_writer(writer_prompt)
     except Exception as exc:
         _inc_compare_metric("compare_ai_regenerate_error_total")
         current_app.logger.exception(

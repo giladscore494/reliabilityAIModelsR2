@@ -244,8 +244,9 @@ def validate_comparison_request(data: Dict) -> Tuple[bool, Optional[str], List[D
 
 
 def validate_compare_writer_response(payload: Any) -> Optional[Dict[str, Any]]:
-    from app.services import comparison_service as _comparison_service
-    validated, _reason = _comparison_service._validate_compare_writer_response(payload)
+    from app.services.comparison.writer import _validate_compare_writer_response
+
+    validated, _reason = _validate_compare_writer_response(payload)
     return validated
 
 

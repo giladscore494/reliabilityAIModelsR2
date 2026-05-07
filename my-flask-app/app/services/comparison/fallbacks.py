@@ -4,16 +4,12 @@
 import re
 from typing import Any, Dict, List, Optional
 
+from app.services.comparison.constants import (
+    COMPARE_CATEGORY_NAMES,
+    PARTIAL_COMPARISON_DISCLAIMER,
+    PARTIAL_COMPARISON_SUMMARY_PREFIX,
+)
 from app.services.comparison.normalization import normalize_compare_writer_winner, ordered_compare_slot_keys
-
-
-PARTIAL_COMPARISON_SUMMARY_PREFIX = "השוואה חלקית:"
-
-
-PARTIAL_COMPARISON_DISCLAIMER = "ההשוואה חלקית כי לא נמצא מידע מלא על כל הרכבים."
-
-
-COMPARE_CATEGORY_NAMES = ("reliability_risk", "ownership_cost", "practicality_comfort", "driving_performance")
 
 
 _COMPARE_SLOT_RE = re.compile(r"^car_(\d+)$")
