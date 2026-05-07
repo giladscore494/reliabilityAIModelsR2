@@ -25,7 +25,6 @@ from app.services.comparison.normalization import (
     _sanitize_checked_versions,
     _segment_text_tokens,
     _infer_compare_segment_details,
-    ordered_compare_slot_keys,
 )
 from app.utils.sanitization import _sanitize_url
 
@@ -47,7 +46,7 @@ def _extract_decision_slot_keys(decision_result: Any) -> List[str]:
         for key in item.keys():
             if isinstance(key, str) and _COMPARE_SLOT_RE.match(key):
                 extracted.append(key)
-    return ordered_compare_slot_keys(extracted)
+    return _ordered_compare_slot_keys(extracted)
 
 
 def _normalize_label(value: Any) -> Optional[str]:
