@@ -12,9 +12,7 @@ from google.genai import types as genai_types
 
 from app.services.comparison.fallbacks import build_deterministic_fallback_narrative
 from app.services.comparison.schemas import validate_compare_writer_response
-from app.utils.sanitization import sanitize_comparison_narrative
-
-from app.services.comparison_service import (  # noqa: F401
+from app.services.comparison.constants import (
     COMPARISON_MODEL_ID,
     COMPARE_WRITER_MAX_OUTPUT_TOKENS,
     COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS,
@@ -23,23 +21,31 @@ from app.services.comparison_service import (  # noqa: F401
     COMPARE_CATEGORY_NAMES,
     COMPARE_SCORE_EXPLANATION_TEMPLATE_HE,
     DECISION_TEXT_FALLBACK_HE,
+    PARTIAL_COMPARISON_DISCLAIMER,
     PARTIAL_COMPARISON_SUMMARY_PREFIX,
     TIE_THRESHOLD,
+)
+from app.services.comparison.decision import (
     _append_unique_text,
     _decision_label,
+    sanitize_decision_result,
+)
+from app.services.comparison.metrics import _inc_compare_metric
+from app.services.comparison.model_calls import (
     _estimate_token_count,
-    _extract_decision_slot_keys,
-    _inc_compare_metric,
     _is_output_too_long_error,
     _log_ai_client_error,
+)
+from app.services.comparison.parsing import (
+    _extract_decision_slot_keys,
     _normalize_compare_writer_winner,
     _normalize_sources,
     _ordered_compare_slot_keys,
     _sanitize_checked_versions,
     _truncate_to_word_limit,
-    get_request_id,
-    sanitize_decision_result,
 )
+from app.utils.http_helpers import get_request_id
+from app.utils.sanitization import sanitize_comparison_narrative
 
 logger = logging.getLogger(__name__)
 
@@ -337,8 +343,6 @@ def _build_stage_a_summary(computed_result: Dict[str, Any]) -> Dict[str, Any]:
         )
     comparison_status = computed_result.get("comparison_status", {}) or {}
     balanced = bool(comparison_status.get("balanced", True))
-    from app.services.comparison_service import PARTIAL_COMPARISON_DISCLAIMER
-
     return {
         "summary": "סיכום מספרי של ההשוואה."
         if balanced

@@ -17,6 +17,11 @@ from app.services.comparison.grounding import call_stage_a_parallel
 from app.services.comparison.normalization import build_checked_versions, map_cars_to_slots
 from app.services.comparison.prompts import build_compare_writer_prompt, build_compare_writer_retry_prompt
 from app.services.comparison.schemas import validate_buyer_profile, validate_comparison_request
+from app.services.comparison.computation import compute_comparison_results
+from app.services.comparison.constants import COMPARISON_MODEL_ID, COMPARISON_PROMPT_VERSION
+from app.services.comparison.decision import build_deterministic_decision_result
+from app.services.comparison.metrics import _inc_compare_metric
+from app.services.comparison.parsing import _extract_stage_a_error_code, _sanitize_stage_a_errors
 from app.services.comparison.writer import (
     _salvage_partial_writer_output,
     _summarize_compare_writer_payload,
@@ -31,20 +36,8 @@ from app.services.comparison.writer import (
     resolve_comparison_narrative,
     sanitize_decision_result,
 )
-from app.services.comparison_service import (
-    COMPARISON_MODEL_ID,
-    COMPARISON_PROMPT_VERSION,
-    _extract_stage_a_error_code,
-    _inc_compare_metric,
-    _sanitize_stage_a_errors,
-    _utcnow,
-    api_error,
-    api_ok,
-    apply_feature_guardrails,
-    build_deterministic_decision_result,
-    compute_comparison_results,
-    get_request_id,
-)
+from app.utils.ai_guardrails import apply_feature_guardrails
+from app.utils.http_helpers import _utcnow, api_error, api_ok, get_request_id
 from app.utils.sanitization import sanitize_comparison_narrative
 
 def enforce_authoritative_numbers(
@@ -75,8 +68,6 @@ def handle_comparison_request(
     Handle a car comparison request.
     Returns Flask response.
     """
-    from app.services import comparison_service as _compat
-
     logger = current_app.logger
     request_id = get_request_id()
     total_start = pytime.perf_counter()
@@ -286,7 +277,7 @@ def handle_comparison_request(
 
     # Stage A: parallel per-car Gemini calls
     stage_a_start = pytime.perf_counter()
-    model_output, sources_index, stage_a_errors = _compat.call_stage_a_parallel(
+    model_output, sources_index, stage_a_errors = call_stage_a_parallel(
         validated_cars, cars_selected_slots
     )
     duration_ms = int((pytime.perf_counter() - stage_a_start) * 1000)
@@ -348,7 +339,7 @@ def handle_comparison_request(
         cars_selected_slots, server_computed_result, model_output, buyer_profile
     )
     stage_b_start = pytime.perf_counter()
-    stage_b_output, stage_b_error = _compat.call_gemini_compare_writer(writer_prompt)
+    stage_b_output, stage_b_error = call_gemini_compare_writer(writer_prompt)
     ai_ms += int((pytime.perf_counter() - stage_b_start) * 1000)
     logger.info(
         "[COMPARISON] stage_b payload request_id=%s partial_stage_a=%s payload_shape=%s",
@@ -372,7 +363,7 @@ def handle_comparison_request(
         retry_prompt = build_compare_writer_retry_prompt(
             cars_selected_slots, server_computed_result
         )
-        retry_output, retry_error = _compat.call_gemini_compare_writer(retry_prompt)
+        retry_output, retry_error = call_gemini_compare_writer(retry_prompt)
         logger.info(
             "[COMPARISON] stage_b retry payload request_id=%s partial_stage_a=%s payload_shape=%s",
             request_id,
