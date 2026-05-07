@@ -38,6 +38,13 @@ issues runtime `ALTER TABLE` statements. All schema changes go through
      `legal_acceptance`, `legal_feature_acceptance`, `research_consent`,
      `research_response_session`, `feedback`, `public_examples`.
 
+## Deploy
+
+- Render `preDeployCommand` runs migrations: `flask --app main:create_app db upgrade && flask --app main:create_app db current`.
+- Render `startCommand` only starts gunicorn — no migration step in the start command.
+- The `Procfile` likewise only invokes gunicorn (it does **not** run `flask db upgrade`).
+- gunicorn workers therefore start only after migrations succeed; if migrations fail, the deploy is rejected before any worker boots.
+
 ## Post-deploy
 
 1. **App import works.**
@@ -70,6 +77,7 @@ issues runtime `ALTER TABLE` statements. All schema changes go through
 
 - `preDeployCommand`: `flask --app main:create_app db upgrade && flask --app main:create_app db current`
 - `startCommand`: `gunicorn "main:create_app()" ...` (gunicorn only — no migration step in the start command)
+- `Procfile`: `web: gunicorn "main:create_app()" ...` (gunicorn only — used by Heroku-style hosts; no migration step)
 
 This separation guarantees migrations run **once per deploy**, not once per
 worker boot, and that gunicorn workers fail fast if the DB is not at head.
@@ -84,6 +92,8 @@ If you need to reconcile a drifted production schema:
    script reviewed by a second engineer, or `flask db stamp <rev>`.
 4. Document the action in the PR / incident notes before applying it.
 
-The legacy runtime helpers in `app/utils/db_bootstrap.py` are gated behind the
-`ENABLE_RUNTIME_DB_BOOTSTRAP=1` env var. They exist only as a manual,
-opt-in escape hatch and are **never** enabled in production.
+The legacy runtime helpers previously in `app/utils/db_bootstrap.py` have
+been moved to `scripts/dev/emergency_db_bootstrap.py`. They are **not**
+imported by application startup. They remain available as a manual,
+opt-in escape hatch (still gated behind `ENABLE_RUNTIME_DB_BOOTSTRAP=1`) and
+are **never** invoked in production.

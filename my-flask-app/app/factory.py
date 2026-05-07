@@ -44,7 +44,6 @@ from app.utils.sanitization import (
     derive_missing_info,
     sanitize_reliability_report_response,
 )
-from app.utils.db_bootstrap import ensure_search_history_cache_key, ensure_duration_ms_columns
 # --- Prompt Injection Defense (Security: Phase 1C) ---
 from app.utils.prompt_defense import (
     sanitize_user_input_for_prompt,
@@ -122,7 +121,6 @@ from app.config import (  # noqa: E402,F401
     MAX_CONTENT_LENGTH_DEFAULT,
     PER_IP_PER_MIN_LIMIT,
     QUOTA_RESERVATION_TTL_SECONDS,
-    SERVICE_PRICES_ANALYZE_LIMIT_BYTES,
     USER_DAILY_LIMIT,
 )
 
@@ -1666,118 +1664,6 @@ def create_app():
     app.config["_PH_CSP_CONNECT"] = _ph_netloc   # e.g. "eu.i.posthog.com"
     app.config["_PH_CSP_SCRIPT"] = _ph_assets     # e.g. "eu-assets.i.posthog.com"
 
-    @app.before_request
-    def ensure_yrc_anon_cookie():
-        """Set a stable anonymous cookie for PostHog distinct_id on anonymous users."""
-        from flask import g
-        if hasattr(request, 'cookies') and not request.cookies.get('yrc_anon'):
-            g._set_yrc_anon = uuid.uuid4().hex
-        else:
-            g._set_yrc_anon = None
-
-    @app.after_request
-    def set_yrc_anon_cookie(response):
-        """Attach the yrc_anon cookie if it was flagged for creation."""
-        from flask import g
-        anon_val = getattr(g, '_set_yrc_anon', None)
-        if anon_val:
-            response.set_cookie(
-                'yrc_anon',
-                anon_val,
-                max_age=365 * 24 * 60 * 60,
-                httponly=True,
-                secure=True,
-                samesite='Lax',
-            )
-        return response
-
-    @app.before_request
-    def assign_request_id_and_redirect():
-        """
-        Assign a request_id + start_time early and enforce canonical host redirect.
-        """
-        import secrets
-        from flask import g
-        if not getattr(g, "request_id", None):
-            g.request_id = str(uuid.uuid4())
-        g.start_time = pytime.perf_counter()
-        g.csp_nonce = secrets.token_urlsafe(16)
-        ensure_anon_id(session)
-
-        host = (request.host or "").lower()
-        # Preserve port if present (e.g., local dev)
-        host_parts = host.split(":")
-        hostname_only = host_parts[0]
-        port_part = f":{host_parts[1]}" if len(host_parts) > 1 else ""
-        if canonical_host and hostname_only == f"www.{canonical_host}":
-            target_host = canonical_host + port_part
-            parsed = urlparse(request.url)
-            redirect_url = parsed._replace(netloc=target_host).geturl()
-            return redirect(redirect_url, code=301)
-
-    @app.context_processor
-    def inject_template_globals():
-        from flask import g
-        from app.utils.auth_helpers import is_owner as _is_owner_check
-        legal_accepted = False
-        research_consent_accepted = False
-        posthog_key = app.config.get("POSTHOG_API_KEY", "")
-        posthog_host = app.config.get("POSTHOG_HOST", "https://us.i.posthog.com")
-        terms_version = app.config.get("TERMS_VERSION", TERMS_VERSION)
-        privacy_version = app.config.get("PRIVACY_VERSION", PRIVACY_VERSION)
-        research_notice_version = app.config.get("RESEARCH_NOTICE_VERSION", RESEARCH_NOTICE_VERSION)
-        if current_user.is_authenticated:
-            try:
-                legal_accepted = LegalAcceptance.query.filter_by(
-                    user_id=current_user.id,
-                    terms_version=terms_version,
-                    privacy_version=privacy_version,
-                ).first() is not None
-                research_consent_accepted = ResearchConsent.query.filter_by(
-                    user_id=current_user.id,
-                    consent_type=RESEARCH_CONSENT_TYPE,
-                    terms_version=terms_version,
-                    privacy_version=privacy_version,
-                    research_notice_version=research_notice_version,
-                ).first() is not None
-            except Exception:
-                legal_accepted = False
-                research_consent_accepted = False
-        else:
-            try:
-                research_consent_accepted = ResearchConsent.query.filter_by(
-                    anon_id=session.get("anon_id"),
-                    consent_type=RESEARCH_CONSENT_TYPE,
-                    terms_version=terms_version,
-                    privacy_version=privacy_version,
-                    research_notice_version=research_notice_version,
-                ).first() is not None
-            except Exception:
-                research_consent_accepted = False
-        app.logger.info(
-            "[POSTHOG] template config injected=%s path=%s host=%s",
-            bool(posthog_key),
-            request.path,
-            posthog_host if posthog_key else "",
-        )
-        return {
-            "is_logged_in": current_user.is_authenticated,
-            "current_user": current_user,
-            "is_owner": _is_owner_check(),
-            "contact_email": app.config.get("CONTACT_EMAIL", CONTACT_EMAIL),
-            "legal_accepted": legal_accepted,
-            "research_consent_accepted": research_consent_accepted,
-            "research_consent_type": app.config.get("RESEARCH_CONSENT_TYPE", RESEARCH_CONSENT_TYPE),
-            "research_notice_version": research_notice_version,
-            "terms_version": terms_version,
-            "privacy_version": privacy_version,
-            "csp_nonce": getattr(g, "csp_nonce", ""),
-            "csrf_token": session.get("csrf_token", ""),
-            "posthog_key": posthog_key,
-            "posthog_host": posthog_host,
-            "is_authenticated": current_user.is_authenticated,
-        }
-
     # Phase 2G: Allowed hosts validation
     ALLOWED_HOSTS = set()
     allowed_hosts_env = os.environ.get("ALLOWED_HOSTS", "").strip()
@@ -1794,7 +1680,7 @@ def create_app():
     if canonical_host:
         ALLOWED_HOSTS.add(canonical_host.lower())
     logger.info("[BOOT] Allowed hosts: %s", ALLOWED_HOSTS)
-    
+
     def is_host_allowed(host: str) -> bool:
         """Check if the given host is in the allowed hosts list."""
         if not host:
@@ -1804,411 +1690,37 @@ def create_app():
         return host_no_port in ALLOWED_HOSTS
 
     # ======================
-    # ✅ Render DB hard-fail
+    # ✅ Render DB hard-fail + extension init (extracted to app.bootstrap.db)
     # ======================
-    db_url = os.environ.get("DATABASE_URL", "").strip()
-    secret_key = os.environ.get("SECRET_KEY", "").strip()
-
-    # Normalize deprecated prefix for SQLAlchemy
-    if db_url.startswith("postgres://"):
-        db_url = db_url.replace("postgres://", "postgresql://", 1)
-
-    # If running on Render, refuse to boot without DATABASE_URL
-    is_render = os.environ.get("RENDER", "").strip() != ""
-    if is_render and not db_url:
-        raise RuntimeError(
-            "DATABASE_URL is missing on Render. "
-            "Set DATABASE_URL (Internal Postgres URL) in Render Environment Variables."
-        )
-    if is_render and not secret_key:
-        raise RuntimeError(
-            "SECRET_KEY is missing on Render. "
-            "Set SECRET_KEY in Render Environment Variables."
-        )
-
-    # Config
-    app.config["SQLALCHEMY_DATABASE_URI"] = db_url if db_url else "sqlite:///:memory:"
-    # SECURITY: Never boot without a real secret key — no fallback in any environment.
-    if not secret_key:
-        raise RuntimeError(
-            "SECRET_KEY is required in ALL environments. "
-            "Set SECRET_KEY as an environment variable."
-        )
-    app.config["SECRET_KEY"] = secret_key
-    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    
-    # ===== SECURITY: MAX_CONTENT_LENGTH (Phase 1D: DoS prevention) =====
-    # Global cap for uploads; route-specific guards enforce tighter limits per endpoint.
-    raw_max_content_length = os.getenv("MAX_CONTENT_LENGTH_BYTES")
-    try:
-        max_content_length = int(raw_max_content_length) if raw_max_content_length else MAX_CONTENT_LENGTH_DEFAULT
-    except (TypeError, ValueError) as exc:
-        raise RuntimeError("Invalid MAX_CONTENT_LENGTH_BYTES; must be an integer") from exc
-    app.config["MAX_CONTENT_LENGTH"] = max_content_length
-    app.config["DEFAULT_API_PAYLOAD_LIMIT_BYTES"] = DEFAULT_API_PAYLOAD_LIMIT_BYTES
-
-    # ===== SECURITY:  Session Cookie Configuration (Tier 1) =====
-    app.config["SESSION_COOKIE_SECURE"] = bool(is_render)
-    app.config["SESSION_COOKIE_HTTPONLY"] = True
-    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-
-    # ===== FIX A: SQLAlchemy Connection Pool (prevents stale connections) =====
-    # pool_pre_ping:  test connection before reusing from pool
-    # pool_recycle:  recycle connections after 240 seconds (Postgres timeout ~300s)
-    # pool_size: base number of connections per worker
-    # max_overflow: additional connections when base is exhausted
-    if db_url and "postgresql" in db_url:
-        app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-            "pool_pre_ping": True,
-            "pool_recycle": 240,
-            "pool_size": 5,
-            "max_overflow": 10,
-            "connect_args": {"connect_timeout": 10, "sslmode": "prefer"}
-        }
-        logger.info("[BOOT] SQLAlchemy configured with pool_pre_ping=True, pool_recycle=240")
-
-    if not db_url:
-        logger.warning("[BOOT] DATABASE_URL not set. Using in-memory sqlite (LOCAL DEV ONLY).")
-
-
-    if db_url:
-        parsed_db_url = urlparse(db_url)
-        safe_host = parsed_db_url.hostname or ""
-        safe_port = f":{parsed_db_url.port}" if parsed_db_url.port else ""
-        safe_db = (parsed_db_url.path or "").lstrip("/")
-        logger.info("[DB] DATABASE host=%s%s db=%s", safe_host, safe_port, safe_db or "(default)")
-    else:
-        logger.info("[DB] DATABASE_URL not provided; using sqlite fallback")
-
-    # Init
-    db.init_app(app)
-    login_manager.init_app(app)
-    oauth.init_app(app)
-    migrate.init_app(app, db)
-    runtime_bootstrap_enabled = os.environ.get("ENABLE_RUNTIME_DB_BOOTSTRAP", "").lower() in ("1", "true", "yes")
-
-    with app.app_context():
-        if runtime_bootstrap_enabled:
-            # Defensive runtime bootstrap is OFF by default. It is gated behind
-            # ENABLE_RUNTIME_DB_BOOTSTRAP=1 and exists only as an emergency hatch.
-            # Schema changes must go through Alembic/Flask-Migrate.
-            ensure_search_history_cache_key(app, db, logger)
-            ensure_duration_ms_columns(db.engine, logger)
-        try:
-            with db.engine.connect() as conn:
-                context = MigrationContext.configure(conn)
-                current_rev = context.get_current_revision()
-            has_duration_ms = False
-            with db.engine.connect() as conn:
-                inspector = inspect(conn)
-                if inspector.has_table("search_history"):
-                    cols = [col["name"] for col in inspector.get_columns("search_history")]
-                    has_duration_ms = "duration_ms" in cols
-            logger.info(
-                "[DB] Alembic revision: %s (duration_ms column: %s)",
-                current_rev or "(none)",
-                "present" if has_duration_ms else "missing",
-            )
-        except Exception:
-            logger.exception("[DB] Alembic revision check failed")
+    from app.bootstrap.db import configure_database
+    db_url, is_render = configure_database(app, logger)
 
     login_manager.login_view = 'public.login'
-    
-    # Phase 2G: Host header validation middleware
-    @app.before_request
-    def validate_host_header():
-        """Validate the Host header to prevent host header injection attacks."""
-        host = request.host
-        if not is_host_allowed(host):
-            logger.warning(f"[SECURITY] Invalid host header: {host}")
-            # For API routes, return JSON error
-            if request.is_json or request.accept_mimetypes.accept_json or request.path.startswith(('/analyze', '/advisor_api', '/search-details')):
-                return api_error("invalid_host", "Invalid host header", status=400)
-            return "Invalid host header", 400
 
-    @app.before_request
-    def block_security_scan_paths():
-        path = (request.path or "").lower()
-        blocked_prefixes = (
-            "/.env", "/.git", "/wp-admin", "/config", "/phpinfo",
-            "/phpmyadmin", "/server-status",
-        )
-        if not any(path == p or path.startswith(f"{p}/") for p in blocked_prefixes):
-            return None
-        client_ip = get_client_ip()
-        try:
-            check_and_increment_ip_rate_limit(client_ip, limit=PER_IP_PER_MIN_LIMIT)
-        except Exception:
-            pass
-        logger.warning(
-            "[SECURITY_SCAN] method=%s path=%s ip=%s ua=%s request_id=%s",
-            request.method,
-            request.path,
-            client_ip,
-            (request.headers.get("User-Agent") or "")[:120],
-            get_request_id(),
-        )
-        return ("", 404)
+    # Phase 4: request lifecycle hooks (before/after/teardown + context_processor)
+    # extracted to app.bootstrap.request_hooks. Closures over canonical_host,
+    # ALLOWED_HOSTS, is_host_allowed, get_client_ip, and
+    # check_and_increment_ip_rate_limit are passed in explicitly.
+    from app.bootstrap.request_hooks import register_request_hooks
+    register_request_hooks(
+        app,
+        canonical_host=canonical_host,
+        allowed_hosts=ALLOWED_HOSTS,
+        is_host_allowed=is_host_allowed,
+        get_client_ip=get_client_ip,
+        check_and_increment_ip_rate_limit=check_and_increment_ip_rate_limit,
+        logger=logger,
+    )
 
-    @app.before_request
-    def enforce_route_specific_payload_limits():
-        if request.method not in ("POST", "PUT", "PATCH"):
-            return None
-        if request.content_length is None:
-            if (request.headers.get("Transfer-Encoding") or "").lower() == "chunked" or request.content_type:
-                raise RequestEntityTooLarge()
-            content_length = 0
-        else:
-            content_length = request.content_length
-        path = request.path or ""
-        limit = DEFAULT_API_PAYLOAD_LIMIT_BYTES
-        # Tight guard for all write routes to preserve DoS safety.
-        if content_length > limit:
-            raise RequestEntityTooLarge()
-        return None
-    
-    # Phase 2H: Origin/Referer protection for session-auth POST endpoints (CSRF-safe without tokens)
-    @app.before_request
-    def ensure_csrf_token():
-        """Ensure a CSRF token exists in the session for Double Submit Cookie pattern."""
-        if "csrf_token" not in session:
-            import secrets
-            session["csrf_token"] = secrets.token_hex(32)
+    # Phase 4: error handlers (413 + login_manager unauthorized) extracted to
+    # app.bootstrap.error_handlers.
+    from app.bootstrap.error_handlers import register_error_handlers
+    register_error_handlers(app, login_manager)
 
-    @app.before_request
-    def check_origin_referer_for_posts():
-        """
-        Validate Origin or Referer header for session-based POST endpoints.
-        This provides CSRF protection without requiring CSRF tokens in fetch() calls.
-        """
-        # Only check POST requests to session-authenticated endpoints
-        if request.method != 'POST':
-            return None
-        
-        # Only check specific endpoints (not login/auth which may come from external OAuth flow)
-        protected_paths = ['/analyze', '/advisor_api', '/api/account/delete', '/api/compare']
-        if not any(request.path.startswith(p) for p in protected_paths):
-            return None
-
-        def _forbidden_response():
-            if request.path.startswith("/api/account/delete"):
-                rid = get_request_id()
-                resp = jsonify({"error": "forbidden", "request_id": rid})
-                resp.status_code = 403
-                resp.headers["X-Request-ID"] = rid
-                return resp
-            return api_error("forbidden_origin", "Request from unauthorized origin", status=403)
-
-        # Get Origin or Referer header
-        origin = request.headers.get('Origin')
-        referer = request.headers.get('Referer')
-        
-        # Extract host from origin or referer
-        if origin:
-            # Origin format: https://example.com or https://example.com:port
-            try:
-                parsed = urlparse(origin)
-                origin_host = parsed.netloc or parsed.hostname
-            except Exception:
-                origin_host = None
-        else:
-            origin_host = None
-        
-        if referer and not origin_host:
-            # Referer format: https://example.com/path
-            try:
-                parsed = urlparse(referer)
-                origin_host = parsed.netloc or parsed.hostname
-            except Exception:
-                origin_host = None
-        
-        if not origin_host:
-            # Fallback: Double Submit Cookie check
-            csrf_header = request.headers.get("X-CSRF-Token", "")
-            csrf_session = session.get("csrf_token", "")
-            if csrf_header and csrf_session and len(csrf_header) == 64 and csrf_header == csrf_session:
-                return None  # CSRF token valid, allow request
-            logger.warning(f"[CSRF] POST to {request.path} with no Origin/Referer and invalid/missing CSRF token")
-            return _forbidden_response()
-
-        host_no_port = origin_host.split(':')[0].lower() if ':' in origin_host else origin_host.lower()
-        if host_no_port not in ALLOWED_HOSTS:
-            logger.warning(f"[CSRF] Blocked POST to {request.path} from disallowed origin: {origin_host}")
-            return _forbidden_response()
-        
-        return None
-
-    @app.before_request
-    def enforce_legal_acceptance():
-        """
-        Centralized legal enforcement to avoid missing endpoints.
-        ProxyFix normalizes request.remote_addr; only allowlisted paths bypass acceptance.
-        """
-        path = request.path or ""
-        allowlist = {
-            "/",
-            "/terms",
-            "/privacy",
-            "/api/legal/accept",
-            "/api/legal/status",
-            "/login",
-            "/logout",
-            "/auth",
-            "/healthz",
-            "/recommendations",
-            "/compare",
-            "/api/examples",
-            "/owner/examples",
-            "/owner/examples/update",
-        }
-        if path in allowlist or path.startswith(("/static/", "/assets/", "/example/")) or path == "/favicon.ico":
-            return None
-        if not current_user.is_authenticated:
-            return None
-        if request.method in ("GET", "HEAD", "OPTIONS"):
-            return None
-
-        def _legal_error(code: str, message: str):
-            rid = get_request_id()
-            resp = jsonify({"error": code, "message": message, "request_id": rid})
-            resp.status_code = 403
-            resp.headers["X-Request-ID"] = rid
-            return resp
-
-        is_ai_write = request.method in ("POST", "PUT", "PATCH", "DELETE") and path.startswith(
-            ("/analyze", "/advisor_api", "/api/compare")
-        )
-        if not is_ai_write:
-            return None
-
-        payload = request.get_json(silent=True) if request.is_json else request.form
-        if not parse_legal_confirm((payload or {}).get("legal_confirm")):
-            return _legal_error("TERMS_NOT_ACCEPTED", "Please accept Terms & Privacy to continue.")
-
-        terms_version = app.config.get("TERMS_VERSION")
-        privacy_version = app.config.get("PRIVACY_VERSION")
-        current_acceptance = LegalAcceptance.query.filter_by(
-            user_id=current_user.id,
-            terms_version=terms_version,
-            privacy_version=privacy_version,
-        ).first()
-        if current_acceptance:
-            return None
-        previous_acceptance = LegalAcceptance.query.filter_by(user_id=current_user.id).first()
-        if previous_acceptance:
-            return _legal_error("TERMS_VERSION_MISMATCH", "Updated Terms & Privacy require re-acceptance.")
-        return _legal_error("TERMS_NOT_ACCEPTED", "Please accept Terms & Privacy to continue.")
-
-    # Handle unauthorized access for AJAX/JSON requests
-    @login_manager.unauthorized_handler
-    def unauthorized():
-        """Return 401 for AJAX/JSON requests, otherwise redirect to login."""
-        if request.is_json or request.accept_mimetypes.accept_json:
-            if request.path.startswith("/api/account/delete"):
-                rid = get_request_id()
-                resp = jsonify({"error": "unauthorized", "message": "Login required", "request_id": rid})
-                resp.status_code = 401
-                resp.headers["X-Request-ID"] = rid
-                return resp
-            log_rejection("unauthenticated", "User not logged in, no valid session")
-            return api_error("unauthenticated", "אנא התחבר כדי להשתמש בשירות זה", status=401)
-        return redirect(url_for('public.login'))
-
-    @app.before_request
-    def log_request_metadata():
-        """
-        Phase 2K: Log request metadata (request_id assigned earlier).
-        """
-        from flask import g
-        request_id = getattr(g, "request_id", str(uuid.uuid4()))
-        g.request_id = request_id
-
-        xfp = request.headers.get("X-Forwarded-Proto", "")
-        xff = request.headers.get("X-Forwarded-For", "")
-        auth_state = current_user.is_authenticated
-        path = request.path or ""
-        
-        if not (path.startswith("/static/") or path == "/favicon.ico"):
-            # Phase 2K: Use logger instead of print
-            logger.info(
-                f"[REQ] request_id={request_id} {request.method} {path} "
-                f"host={request.host} scheme={request.scheme} xfp={xfp} xff={xff} auth={auth_state}"
-            )
-
-    @app.errorhandler(RequestEntityTooLarge)
-    def handle_request_too_large(e):
-        return api_error("payload_too_large", "Payload exceeds limit", status=413, details={"field": "payload"})
-
-    @app.after_request
-    def apply_security_headers(response):
-        rid = get_request_id()
-        response.headers.setdefault("X-Request-ID", rid)
-        response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-        response.headers.setdefault("X-Frame-Options", "DENY")
-        response.headers.setdefault(
-            "Permissions-Policy",
-            "geolocation=(), microphone=(), camera=(), payment=()"
-        )
-        response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
-        response.headers.setdefault("Cross-Origin-Resource-Policy", "same-site")
-        from flask import g
-        csp_nonce = getattr(g, "csp_nonce", "")
-        nonce_directive = f"'nonce-{csp_nonce}'" if csp_nonce else "'unsafe-inline'"
-        ph_script = app.config.get("_PH_CSP_SCRIPT", "")
-        ph_connect = app.config.get("_PH_CSP_CONNECT", "")
-        ph_script_src = f" https://{ph_script}" if ph_script else ""
-        ph_connect_src = f" https://{ph_connect}" if ph_connect else ""
-        response.headers.setdefault(
-            "Content-Security-Policy",
-            f"default-src 'self'; "
-            f"script-src 'self' {nonce_directive} https://cdn.tailwindcss.com https://cdn.jsdelivr.net{ph_script_src}; "
-            f"style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://fonts.googleapis.com; "
-            f"font-src 'self' https://fonts.gstatic.com; "
-            f"img-src 'self' data: https://*.googleusercontent.com; "
-            f"connect-src 'self' https://accounts.google.com https://www.googleapis.com https://openidconnect.googleapis.com https://generativelanguage.googleapis.com{ph_connect_src}; "
-            f"frame-ancestors 'none'; "
-            f"base-uri 'self'; "
-            f"form-action 'self' https://accounts.google.com"
-        )
-        if is_render or request.is_secure:
-            response.headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
-
-        # Structured-ish response log with duration
-        try:
-            from flask import g
-            duration_ms = None
-            if hasattr(g, "start_time"):
-                duration_ms = (pytime.perf_counter() - g.start_time) * 1000
-            user_id = current_user.id if current_user.is_authenticated else "anonymous"
-            if not (request.path.startswith("/static/") or request.path == "/favicon.ico"):
-                logger.info(
-                    f"[RESP] request_id={rid} method={request.method} path={request.path} "
-                    f"status={response.status_code} duration_ms={(duration_ms or 0):.2f} user={user_id}"
-                )
-        except Exception:
-            pass
-        return response
-
-    @app.after_request
-    def apply_cache_control(response):
-        path = request.path or ""
-        if path.startswith("/static/") or path == "/favicon.ico":
-            return response
-        if path == "/dashboard" or path.startswith("/api/history/") or path.startswith("/api/account/"):
-            response.headers["Cache-Control"] = "no-store"
-            response.headers["Pragma"] = "no-cache"
-            response.headers["Expires"] = "0"
-        return response
-
-    @app.teardown_request
-    def teardown_request_handler(exc):
-        try:
-            db.session.rollback()
-        except Exception:
-            logger.exception("[DB] teardown rollback failed")
-        finally:
-            db.session.remove()
+    # Phase 4: security/cache headers extracted to
+    # app.bootstrap.security_headers.
+    from app.bootstrap.security_headers import register_security_headers
+    register_security_headers(app, is_render=is_render, logger=logger)
 
     # ==========================
     # DB schema management
@@ -2221,14 +1733,8 @@ def create_app():
     # bootstrap, use the `flask --app main:create_app init-db` CLI command
     # (defined below) or rely on test fixtures that call db.create_all()
     # explicitly inside an app_context.
-    with app.app_context():
-        try:
-            with db.engine.connect() as conn:
-                context = MigrationContext.configure(conn)
-                current_rev = context.get_current_revision()
-            logger.info("[DB] Alembic current revision: %s", current_rev or "(none)")
-        except Exception:
-            logger.exception("[DB] Alembic revision check failed")
+    from app.bootstrap.db import log_alembic_revision
+    log_alembic_revision(app, logger)
 
     # AI clients + OAuth — extracted to app.bootstrap.clients (Phase 3).
     from app.bootstrap.clients import init_ai_clients, init_oauth

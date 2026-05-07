@@ -32,10 +32,6 @@ MAX_ACTIVE_RESERVATIONS = 1
 # --- HTTP payload limits ---
 MAX_CONTENT_LENGTH_DEFAULT = 8 * 1024 * 1024
 DEFAULT_API_PAYLOAD_LIMIT_BYTES = 256 * 1024
-# Legacy upload-size guard. Kept as a reserved constant so that future
-# large-file routes can opt in by referencing it explicitly. Not currently
-# applied to any path (Service Prices / Leasing routes were removed).
-SERVICE_PRICES_ANALYZE_LIMIT_BYTES = 6 * 1024 * 1024
 
 __all__ = [
     "AI_CALL_TIMEOUT_SEC",
@@ -49,5 +45,4 @@ __all__ = [
     "MAX_ACTIVE_RESERVATIONS",
     "MAX_CONTENT_LENGTH_DEFAULT",
     "DEFAULT_API_PAYLOAD_LIMIT_BYTES",
-    "SERVICE_PRICES_ANALYZE_LIMIT_BYTES",
 ]

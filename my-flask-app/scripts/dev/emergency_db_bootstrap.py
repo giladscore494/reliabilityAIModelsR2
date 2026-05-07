@@ -1,3 +1,29 @@
+"""Emergency / dev-only DB bootstrap helpers.
+
+This module was previously imported from ``app/factory.py`` and gated behind
+``ENABLE_RUNTIME_DB_BOOTSTRAP``. It has been moved out of the application
+runtime path entirely. Schema changes are managed by Alembic / Flask-Migrate
+(see ``docs/DB_DEPLOY_CHECKLIST.md``). This file is retained as an
+emergency-recovery tool only and **must not** be imported by app startup.
+
+To run manually (only in an emergency, e.g. recovering a DB whose Alembic
+state is broken):
+
+    cd my-flask-app
+    ENABLE_RUNTIME_DB_BOOTSTRAP=1 python -c "
+    from main import create_app
+    from app.extensions import db
+    from scripts.dev.emergency_db_bootstrap import (
+        ensure_search_history_cache_key,
+        ensure_duration_ms_columns,
+    )
+    app = create_app()
+    with app.app_context():
+        ensure_search_history_cache_key(app, db)
+        ensure_duration_ms_columns(db.engine)
+    "
+"""
+
 import os
 from sqlalchemy import inspect, text
 

@@ -1,6 +1,6 @@
 from sqlalchemy import create_engine, inspect, text
 
-from app.utils.db_bootstrap import ensure_duration_ms_columns
+from scripts.dev.emergency_db_bootstrap import ensure_duration_ms_columns
 
 
 def test_ensure_duration_ms_columns_adds_missing(tmp_path, monkeypatch):
