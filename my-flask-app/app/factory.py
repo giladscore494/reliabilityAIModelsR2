@@ -1884,6 +1884,9 @@ def create_app():
 
     with app.app_context():
         if runtime_bootstrap_enabled:
+            # Defensive runtime bootstrap is OFF by default. It is gated behind
+            # ENABLE_RUNTIME_DB_BOOTSTRAP=1 and exists only as an emergency hatch.
+            # Schema changes must go through Alembic/Flask-Migrate.
             ensure_search_history_cache_key(app, db, logger)
             ensure_duration_ms_columns(db.engine, logger)
         try:
@@ -2203,33 +2206,24 @@ def create_app():
             db.session.remove()
 
     # ==========================
-    # ✅ Run create_all ONLY ONCE
+    # DB schema management
     # ==========================
+    # Production schema is managed by Alembic/Flask-Migrate via:
+    #   flask --app main:create_app db upgrade
+    # which runs as a Render preDeployCommand (see render.yaml).
+    #
+    # Runtime db.create_all() is intentionally NOT called here. For local/dev
+    # bootstrap, use the `flask --app main:create_app init-db` CLI command
+    # (defined below) or rely on test fixtures that call db.create_all()
+    # explicitly inside an app_context.
     with app.app_context():
         try:
-            lock_path = "/tmp/.db_inited.lock"
-            inspector = inspect(db.engine)
-            quota_usage_exists = inspector.has_table('daily_quota_usage')
-            ip_rate_limit_exists = inspector.has_table('ip_rate_limit')
-            quota_reservation_exists = inspector.has_table('quota_reservation')
-            if not runtime_bootstrap_enabled:
-                logger.info("[DB] Runtime schema bootstrap disabled in this environment")
-            elif is_render:
-                logger.info("[DB] Render detected - skipping db.create_all(); run `flask db upgrade` via release/preDeploy")
-            elif os.environ.get("SKIP_CREATE_ALL", "").lower() in ("1", "true", "yes"):
-                logger.info("[DB] SKIP_CREATE_ALL enabled - skipping db.create_all()")
-            elif os.path.exists(lock_path) and quota_usage_exists and ip_rate_limit_exists and quota_reservation_exists:
-                logger.info("[DB] create_all skipped (lock exists)")
-            else:
-                db.create_all()
-                try:
-                    with open(lock_path, "w", encoding="utf-8") as f:
-                        f.write(str(_utcnow()))
-                except Exception:
-                    pass
-                logger.info("[DB] create_all executed")
-        except Exception as e:
-            logger.warning("[DB] create_all failed: %s", e)
+            with db.engine.connect() as conn:
+                context = MigrationContext.configure(conn)
+                current_rev = context.get_current_revision()
+            logger.info("[DB] Alembic current revision: %s", current_rev or "(none)")
+        except Exception:
+            logger.exception("[DB] Alembic revision check failed")
 
     # Gemini key
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
