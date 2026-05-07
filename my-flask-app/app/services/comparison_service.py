@@ -65,12 +65,15 @@ def call_gemini_single_car(
     return _ground_call_gemini_single_car(prompt, car_label, timeout_sec, request_id, log)
 
 
+_DEFAULT_CALL_GEMINI_SINGLE_CAR = call_gemini_single_car
+
+
 def call_stage_a_parallel(validated_cars, cars_selected_slots):
     """Compatibility wrapper to preserve monkeypatch behavior in legacy tests."""
     from app.services.comparison import grounding
 
     original = grounding.call_gemini_single_car
-    if call_gemini_single_car is original:
+    if call_gemini_single_car is _DEFAULT_CALL_GEMINI_SINGLE_CAR:
         return _call_stage_a_parallel_impl(validated_cars, cars_selected_slots)
     grounding.call_gemini_single_car = call_gemini_single_car
     try:

@@ -15,7 +15,6 @@ from app.services.comparison.constants import (
     _STAGE_A_REQUIRED_KEYS,
 )
 from app.services.comparison.fallbacks import _empty_single_car_payload
-from app.services.comparison.model_calls import _safe_ai_response_snippet
 from app.services.comparison.normalization import (
     _normalize_checked_version_text,
     _normalize_compare_writer_winner,
@@ -278,6 +277,12 @@ def _truncate_log_payload(value: Any, limit: int = 300) -> str:
         raw = str(value)
     raw = " ".join(raw.split())
     return raw[:limit]
+
+
+def _safe_ai_response_snippet(exc: Exception, max_len: int = 280) -> str:
+    from app.services.comparison.model_calls import _safe_ai_response_snippet as _impl
+
+    return _impl(exc, max_len)
 
 
 def _is_valid_single_car_payload(payload: Any) -> bool:
