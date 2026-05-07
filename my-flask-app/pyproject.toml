@@ -30,11 +30,11 @@ extend-ignore = [
     "E501",  # line-too-long (928 pre-existing)
     "W293",  # blank-line-with-whitespace (285 pre-existing)
     "W291",  # trailing-whitespace
-    "E402",  # module-level import not at top (used intentionally in factory.py)
-    "F401",  # unused-import (re-export pattern in main.py / factory.py)
+    "E402",  # module-level import not at top (used intentionally in app/factory.py)
+    "F401",  # unused-import (re-export pattern in app/main.py / app/factory.py)
     "F811",  # redefined-while-unused (overload-style helpers)
     "F841",  # local var assigned but unused
-    "F821",  # undefined-name (pre-existing dead-code path in factory.py)
+    "F821",  # undefined-name (pre-existing dead-code path in app/factory.py)
     "E722",  # bare-except (defensive only)
     "E712",  # `== True/False` comparisons (used in SQLAlchemy filters)
     "E401",  # multiple-imports-on-one-line

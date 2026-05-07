@@ -7,10 +7,10 @@ each concern testable in isolation.
 Currently extracted:
 
 - :mod:`app.bootstrap.blueprints` — registers all route blueprints.
+- :mod:`app.bootstrap.clients`    — initializes Gemini AI client + Google OAuth.
 
 Planned (tracked as remaining technical debt — see PR description):
 
-- ``app.bootstrap.clients`` — Gemini AI client + OAuth init
 - ``app.bootstrap.request_hooks`` — ``before_request`` / ``after_request`` /
   ``teardown_request`` registration
 - ``app.bootstrap.error_handlers`` — Flask error handlers
