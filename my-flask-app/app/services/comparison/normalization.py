@@ -320,6 +320,26 @@ def _ordered_compare_slot_keys(*sources: Any) -> List[str]:
     )
 
 
+def _normalize_compare_writer_winner(
+    value: Any, allowed_slot_keys: List[str]
+) -> Optional[str]:
+    if value == "tie":
+        return "tie"
+    if not isinstance(value, str):
+        return None
+    if value in allowed_slot_keys:
+        return value
+    legacy_map = {
+        "carA": "car_1",
+        "carB": "car_2",
+        "carC": "car_3",
+    }
+    normalized = legacy_map.get(value)
+    if normalized in allowed_slot_keys:
+        return normalized
+    return None
+
+
 def _segment_text_tokens(
     car_slot: Optional[Dict[str, Any]], grounded_car_data: Optional[Dict[str, Any]]
 ) -> str:
