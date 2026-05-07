@@ -128,7 +128,7 @@ def build_checked_versions(
     ai_checked_versions: Optional[Dict[str, Dict[str, str]]] = None,
 ) -> Dict[str, Dict[str, str]]:
     grounded_cars = _normalize_grounded_cars_format(grounded_output)
-    slot_keys = _ordered_compare_slot_keys(cars_selected_slots or {}, grounded_cars, ai_checked_versions or {})
+    slot_keys = ordered_compare_slot_keys(cars_selected_slots or {}, grounded_cars, ai_checked_versions or {})
     ai_checked_versions = _sanitize_checked_versions(ai_checked_versions, slot_keys)
     result: Dict[str, Dict[str, str]] = {}
 
@@ -303,7 +303,7 @@ def map_cars_to_slots(validated_cars: List[Dict]) -> Dict[str, Dict]:
     return slots
 
 
-def _ordered_compare_slot_keys(*sources: Any) -> List[str]:
+def ordered_compare_slot_keys(*sources: Any) -> List[str]:
     seen = set()
     ordered: List[str] = []
     for source in sources:
@@ -320,7 +320,7 @@ def _ordered_compare_slot_keys(*sources: Any) -> List[str]:
     )
 
 
-def _normalize_compare_writer_winner(
+def normalize_compare_writer_winner(
     value: Any, allowed_slot_keys: List[str]
 ) -> Optional[str]:
     if value == "tie":
@@ -339,11 +339,8 @@ def _normalize_compare_writer_winner(
         return normalized
     return None
 
-
-ordered_compare_slot_keys = _ordered_compare_slot_keys
-
-
-normalize_compare_writer_winner = _normalize_compare_writer_winner
+_ordered_compare_slot_keys = ordered_compare_slot_keys
+_normalize_compare_writer_winner = normalize_compare_writer_winner
 
 
 def _segment_text_tokens(
@@ -375,7 +372,7 @@ def _segment_text_tokens(
     return " ".join(str(part).lower() for part in text_parts if part)
 
 
-def _infer_compare_segment_details(
+def infer_compare_segment_details(
     car_slot: Optional[Dict[str, Any]],
     grounded_car_data: Optional[Dict[str, Any]],
 ) -> Tuple[str, List[str]]:
@@ -594,13 +591,12 @@ def _infer_compare_segment_details(
 
     return "general_private_car", ["default_private_car"]
 
-
-infer_compare_segment_details = _infer_compare_segment_details
+_infer_compare_segment_details = infer_compare_segment_details
 
 
 def infer_compare_segment(
     car_slot: Optional[Dict[str, Any]], grounded_car_data: Optional[Dict[str, Any]]
 ) -> str:
     """Infer a lightweight compare segment without relying on a missing taxonomy field."""
-    segment_key, _signals = _infer_compare_segment_details(car_slot, grounded_car_data)
+    segment_key, _signals = infer_compare_segment_details(car_slot, grounded_car_data)
     return segment_key

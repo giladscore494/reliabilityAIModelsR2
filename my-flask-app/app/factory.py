@@ -293,16 +293,24 @@ def _execute_with_timeout(fn, timeout_sec: int):
 _factory_execute_with_timeout = _execute_with_timeout
 
 
-def call_gemini_grounded_once(prompt: str) -> Tuple[Optional[dict], Optional[str]]:
+def _call_with_factory_execute_patch(module, function_name: str, *args):
     patched_execute = globals().get("_execute_with_timeout")
     if patched_execute is _factory_execute_with_timeout:
-        return _reliability_model_service.call_gemini_grounded_once(prompt)
-    original = _reliability_model_service._execute_with_timeout
-    _reliability_model_service._execute_with_timeout = patched_execute
+        return getattr(module, function_name)(*args)
+    original = module._execute_with_timeout
+    module._execute_with_timeout = patched_execute
     try:
-        return _reliability_model_service.call_gemini_grounded_once(prompt)
+        return getattr(module, function_name)(*args)
     finally:
-        _reliability_model_service._execute_with_timeout = original
+        module._execute_with_timeout = original
+
+
+def call_gemini_grounded_once(prompt: str) -> Tuple[Optional[dict], Optional[str]]:
+    return _call_with_factory_execute_patch(
+        _reliability_model_service,
+        "call_gemini_grounded_once",
+        prompt,
+    )
 
 
 def make_user_profile(*args, **kwargs):
@@ -314,15 +322,11 @@ def sanitize_profile_for_prompt(profile: dict) -> dict:
 
 
 def car_advisor_call_gemini_with_search(profile: dict) -> dict:
-    patched_execute = globals().get("_execute_with_timeout")
-    if patched_execute is _factory_execute_with_timeout:
-        return _advisor_ai_service.car_advisor_call_gemini_with_search(profile)
-    original = _advisor_ai_service._execute_with_timeout
-    _advisor_ai_service._execute_with_timeout = patched_execute
-    try:
-        return _advisor_ai_service.car_advisor_call_gemini_with_search(profile)
-    finally:
-        _advisor_ai_service._execute_with_timeout = original
+    return _call_with_factory_execute_patch(
+        _advisor_ai_service,
+        "car_advisor_call_gemini_with_search",
+        profile,
+    )
 
 
 def car_advisor_postprocess(profile: dict, parsed: dict) -> dict:
