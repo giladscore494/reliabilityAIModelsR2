@@ -44,7 +44,6 @@ from app.utils.sanitization import (
     derive_missing_info,
     sanitize_reliability_report_response,
 )
-from app.utils.db_bootstrap import ensure_search_history_cache_key, ensure_duration_ms_columns
 # --- Prompt Injection Defense (Security: Phase 1C) ---
 from app.utils.prompt_defense import (
     sanitize_user_input_for_prompt,
@@ -122,7 +121,6 @@ from app.config import (  # noqa: E402,F401
     MAX_CONTENT_LENGTH_DEFAULT,
     PER_IP_PER_MIN_LIMIT,
     QUOTA_RESERVATION_TTL_SECONDS,
-    SERVICE_PRICES_ANALYZE_LIMIT_BYTES,
     USER_DAILY_LIMIT,
 )
 
@@ -1885,15 +1883,8 @@ def create_app():
     login_manager.init_app(app)
     oauth.init_app(app)
     migrate.init_app(app, db)
-    runtime_bootstrap_enabled = os.environ.get("ENABLE_RUNTIME_DB_BOOTSTRAP", "").lower() in ("1", "true", "yes")
 
     with app.app_context():
-        if runtime_bootstrap_enabled:
-            # Defensive runtime bootstrap is OFF by default. It is gated behind
-            # ENABLE_RUNTIME_DB_BOOTSTRAP=1 and exists only as an emergency hatch.
-            # Schema changes must go through Alembic/Flask-Migrate.
-            ensure_search_history_cache_key(app, db, logger)
-            ensure_duration_ms_columns(db.engine, logger)
         try:
             with db.engine.connect() as conn:
                 context = MigrationContext.configure(conn)
