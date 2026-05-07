@@ -8,7 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from flask import current_app
 
 from app.extensions import db
-from app.models import SearchHistory, AdvisorHistory, LeasingAdvisorHistory
+from app.models import SearchHistory, AdvisorHistory
 from app.utils.http_helpers import api_ok, api_error, get_request_id
 from app.utils.ai_guardrails import apply_feature_guardrails, safe_json_obj
 from app.utils.sanitization import (
@@ -50,50 +50,6 @@ def fetch_dashboard_history(user_id: int) -> Tuple[list, list, Optional[str], Op
         advisor_entries = []
 
     return user_searches, advisor_entries, search_error, advisor_error
-
-
-def fetch_leasing_history(user_id: int) -> Tuple[list, Optional[str]]:
-    """Fetch leasing advisor history for dashboard."""
-    logger = current_app.logger
-    try:
-        entries = LeasingAdvisorHistory.query.filter_by(
-            user_id=user_id
-        ).order_by(LeasingAdvisorHistory.created_at.desc()).limit(50).all()
-        return entries, None
-    except Exception:
-        try:
-            db.session.rollback()
-        except Exception:
-            logger.exception("[DASH] leasing rollback failed request_id=%s", get_request_id())
-        logger.exception("[DASH] leasing DB query failed request_id=%s", get_request_id())
-        return [], "לא הצלחנו לטעון את היסטוריית יועץ הליסינג כעת."
-
-
-def build_leasing_data(entries: list) -> list:
-    """Build leasing history summary for dashboard display."""
-    result = []
-    for e in entries:
-        frame = safe_json_obj(e.frame_input_json, default={})
-        response = safe_json_obj(e.gemini_response_json, default={})
-        if not isinstance(frame, dict):
-            frame = {}
-        top_rec = ""
-        top3 = response.get("top3", []) if isinstance(response, dict) else []
-        if isinstance(top3, list) and top3:
-            first = top3[0]
-            if isinstance(first, dict):
-                top_rec = f"{first.get('make', '')} {first.get('model', '')}"
-        response, _ = apply_feature_guardrails("dashboard_history", {}, response)
-        result.append({
-            "id": e.id,
-            "created_at": e.created_at.strftime("%d/%m/%Y %H:%M"),
-            "frame_summary": f"BIK: {frame.get('max_bik', '—')} | {frame.get('source', '')}",
-            "top_recommendation": top_rec.strip(),
-            "duration_ms": e.duration_ms,
-            "guardrail_meta": response.get("guardrail_meta", {}),
-            "legacy_notice": response.get("legacy_notice"),
-        })
-    return result
 
 
 def _normalize_reliability_history_payload(raw: Any) -> Dict[str, Any]:

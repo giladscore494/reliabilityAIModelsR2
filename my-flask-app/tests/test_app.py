@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 
 import main
 from flask import url_for
-from app.models import LeasingAdvisorHistory, AdvisorHistory
+from app.models import AdvisorHistory
 from main import (
     DailyQuotaUsage,
     IpRateLimit,
@@ -434,27 +434,6 @@ def test_dashboard_handles_bad_json(app, logged_in_client):
     assert resp.status_code == 200
 
 
-def test_dashboard_handles_double_encoded_leasing_json(app, logged_in_client):
-    client, user_id = logged_in_client
-    with app.app_context():
-        bad_row = LeasingAdvisorHistory(
-            user_id=user_id,
-            frame_input_json='{"max_bik": 3500, "source": "catalog"}',
-            candidates_json="[]",
-            prefs_json="{}",
-            gemini_response_json=(
-                '"{\\"top3\\": [{\\"make\\": \\"Toyota\\", '
-                '\\"model\\": \\"Corolla\\"}]}"'
-            ),
-            request_id="req-test",
-            duration_ms=3210,
-        )
-        db.session.add(bad_row)
-        db.session.commit()
-
-    client.post("/api/legal/accept", json={"legal_confirm": True})
-    resp = client.get("/dashboard")
-    assert resp.status_code == 200
 
 
 def test_dashboard_shows_clickable_advisor_history(app, logged_in_client):
