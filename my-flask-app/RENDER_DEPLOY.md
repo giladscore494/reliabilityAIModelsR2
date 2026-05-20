@@ -20,8 +20,9 @@ These must be present (app will hard-fail on Render without `SECRET_KEY`/`DATABA
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `GEMINI_API_KEY`
-- `GEMINI_RELIABILITY_MODEL_ID` (optional, default: `gemini-3-flash-preview`)
-- `GEMINI_RECOMMENDER_MODEL_ID` (optional, default: `gemini-3.1-pro-preview`)
+- `GEMINI_RELIABILITY_MODEL_ID` (optional, default: `gemini-3.5-flash`)
+- `GEMINI_RECOMMENDER_MODEL_ID` (optional, default: `gemini-3.5-flash`)
+- `GEMINI_COMPARE_MODEL_ID` (optional, default: `gemini-3.5-flash`; falls back to `GEMINI_RECOMMENDER_MODEL_ID` if set)
 - `APP_TZ=Asia/Jerusalem` (explicitly set production timezone)
 - `OWNER_EMAILS` (comma-separated, lowercase)
 - `OWNER_BYPASS_QUOTA` (`0` or `1`, controls owner quota bypass)

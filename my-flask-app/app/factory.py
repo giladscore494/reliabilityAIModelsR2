@@ -69,6 +69,7 @@ from app.extensions import (
     migrate,
     GEMINI_RELIABILITY_MODEL_ID,
     GEMINI_RECOMMENDER_MODEL_ID,
+    GEMINI_COMPARE_MODEL_ID,
 )
 from app.models import (
     User,
