@@ -272,6 +272,13 @@
                                     </select>
                                 </div>
                             </div>
+                            <div class="variant-slot-container hidden mt-2 md:col-span-3" id="variant_container_1">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1 block">גרסה טכנית</label>
+                                <select id="variant_1" class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                    <option value="">-- בחר גרסה --</option>
+                                </select>
+                                <input type="hidden" id="variant_id_1">
+                            </div>
                         </div>
                     </div>
 
@@ -324,6 +331,13 @@
                                     </select>
                                 </div>
                             </div>
+                            <div class="variant-slot-container hidden mt-2 md:col-span-3" id="variant_container_2">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1 block">גרסה טכנית</label>
+                                <select id="variant_2" class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                    <option value="">-- בחר גרסה --</option>
+                                </select>
+                                <input type="hidden" id="variant_id_2">
+                            </div>
                         </div>
                     </div>
 
@@ -375,6 +389,13 @@
                                         <option value="לא ידוע / לבדיקה">לא ידוע / לבדיקה</option>
                                     </select>
                                 </div>
+                            </div>
+                            <div class="variant-slot-container hidden mt-2 md:col-span-3" id="variant_container_3">
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1 block">גרסה טכנית</label>
+                                <select id="variant_3" class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                    <option value="">-- בחר גרסה --</option>
+                                </select>
+                                <input type="hidden" id="variant_id_3">
                             </div>
                         </div>
                     </div>
@@ -616,55 +637,98 @@
         }
     }
     
-    // Build model map: { make: [ {name, years:[min,max]} ] }
-    const MODEL_MAP = {};
-    function buildModelMap() {
-        Object.entries(CAR_DATA || {}).forEach(([make, models]) => {
-            if (!Array.isArray(models)) return;
-            MODEL_MAP[make] = models.map(str => {
-                let name = String(str || '').trim();
-                let years = null;
-                const m = name.match(/\((\d{4})\s*-\s*(\d{2,4})\)/);
-                if (m) {
-                    const start = parseInt(m[1], 10);
-                    let end = parseInt(m[2], 10);
-                    if (end < 100) end = 2000 + end;
-                    years = [start, end];
-                    name = name.replace(m[0], '').trim();
-                }
-                return { name, years };
-            });
-        });
-    }
-    buildModelMap();
-    
-    // Build flat list for autocomplete: [{make, model, display, yearStart, yearEnd}]
+    // Fuel/transmission Hebrew label maps for variant auto-fill
+    const FUEL_LABEL_MAP = {
+        'petrol': 'בנזין', 'diesel': 'דיזל',
+        'hybrid': 'היברידי', 'plug_in_hybrid': 'היברידי',
+        'electric': 'חשמלי',
+    };
+    const TRANS_LABEL_MAP = {
+        'automatic': 'אוטומטית', 'manual': 'ידנית',
+        'robotic': 'רובוטית', 'cvt': 'רציפה',
+    };
+
+    // New catalog format: CAR_DATA = { make: { model: { year_start, year_end, variants } } }
+    // Build flat list for autocomplete
     const FLAT_CARS_LIST = [];
     function buildFlatCarsList() {
         Object.entries(CAR_DATA || {}).forEach(([make, models]) => {
-            if (!Array.isArray(models)) return;
-            models.forEach(str => {
-                let name = String(str || '').trim();
-                let yearStart = null, yearEnd = null;
-                const m = name.match(/\((\d{4})\s*-\s*(\d{2,4})\)/);
-                if (m) {
-                    yearStart = parseInt(m[1], 10);
-                    let end = parseInt(m[2], 10);
-                    if (end < 100) end = 2000 + end;
-                    yearEnd = end;
-                    name = name.replace(m[0], '').trim();
-                }
+            if (!models || typeof models !== 'object' || Array.isArray(models)) return;
+            Object.entries(models).forEach(([modelName, info]) => {
                 FLAT_CARS_LIST.push({
                     make: make,
-                    model: name,
-                    display: `${make} ${name}`,
-                    yearStart: yearStart,
-                    yearEnd: yearEnd
+                    model: modelName,
+                    display: `${make} ${modelName}`,
+                    yearStart: info.year_start || null,
+                    yearEnd: info.year_end || null,
                 });
             });
         });
     }
     buildFlatCarsList();
+
+    function populateCompareVariants(slotSuffix) {
+        const container = document.getElementById(`variant_container_${slotSuffix}`);
+        const variantSel = document.getElementById(`variant_${slotSuffix}`);
+        const variantIdHidden = document.getElementById(`variant_id_${slotSuffix}`);
+        if (!container || !variantSel) return;
+        container.classList.add('hidden');
+        variantSel.innerHTML = '<option value="">-- בחר גרסה --</option>';
+        if (variantIdHidden) variantIdHidden.value = '';
+
+        const make = document.getElementById(`car_make_${slotSuffix}`)?.value || '';
+        const model = document.getElementById(`car_model_${slotSuffix}`)?.value || '';
+        const year = document.getElementById(`year_${slotSuffix}`)?.value || '';
+        if (!make || !model || !year) return;
+
+        const info = (CAR_DATA[make] || {})[model];
+        if (!info || !info.variants) return;
+
+        const y = parseInt(year, 10);
+        const filtered = info.variants.filter(v => {
+            const vs = v.year_start || 0;
+            const ve = v.year_end || 9999;
+            return y >= vs && y <= ve;
+        });
+        if (!filtered.length) return;
+
+        container.classList.remove('hidden');
+        filtered.forEach(v => {
+            const opt = document.createElement('option');
+            opt.value = v.variant_id;
+            opt.textContent = v.label;
+            opt.dataset.fuel = v.fuel_type || '';
+            opt.dataset.trans = v.transmission || '';
+            variantSel.appendChild(opt);
+        });
+    }
+
+    function onCompareVariantChange(slotSuffix) {
+        const variantSel = document.getElementById(`variant_${slotSuffix}`);
+        const variantIdHidden = document.getElementById(`variant_id_${slotSuffix}`);
+        if (!variantSel) return;
+        const sel = variantSel.options[variantSel.selectedIndex];
+        if (variantIdHidden) variantIdHidden.value = sel ? sel.value : '';
+        if (!sel || !sel.value) return;
+        // Auto-fill engine and gear
+        const engineSel = document.getElementById(`engine_${slotSuffix}`);
+        const gearSel = document.getElementById(`gear_${slotSuffix}`);
+        if (engineSel && sel.dataset.fuel) {
+            const label = FUEL_LABEL_MAP[sel.dataset.fuel.toLowerCase()] || '';
+            if (label) { for (let i = 0; i < engineSel.options.length; i++) { if (engineSel.options[i].value === label) { engineSel.selectedIndex = i; break; } } }
+        }
+        if (gearSel && sel.dataset.trans) {
+            const label = TRANS_LABEL_MAP[sel.dataset.trans.toLowerCase()] || '';
+            if (label) { for (let i = 0; i < gearSel.options.length; i++) { if (gearSel.options[i].value === label) { gearSel.selectedIndex = i; break; } } }
+        }
+        updateCompareButton();
+    }
+
+    // Wire up variant listeners for each slot
+    for (let s = 1; s <= 3; s++) {
+        const vSel = document.getElementById(`variant_${s}`);
+        if (vSel) vSel.addEventListener('change', () => onCompareVariantChange(s));
+    }
     
     // ============================================================
     // STATE
@@ -1246,6 +1310,7 @@
 
         // Year select change handler
         yearSelect.addEventListener('change', () => {
+            populateCompareVariants(slotSuffix);
             updateClearButton(slotSuffix);
             updateCompareButton();
         });
@@ -1482,9 +1547,9 @@
         const year = document.getElementById(`year_${slotSuffix}`)?.value || '';
         const engineSelect = document.getElementById(`engine_${slotSuffix}`);
         const gearSelect = document.getElementById(`gear_${slotSuffix}`);
-        
+
         if (!make || !model || !year) return null;
-        
+
         const car = {
             make: make,
             model: model,
@@ -1492,13 +1557,17 @@
             engine_type: engineSelect?.value || 'בנזין',
             gearbox: gearSelect?.value || 'אוטומטית'
         };
-        
+
         // Include year_start/year_end for the backend
         const yearStart = document.getElementById(`car_year_start_${slotSuffix}`)?.value;
         const yearEnd = document.getElementById(`car_year_end_${slotSuffix}`)?.value;
         if (yearStart) car.year_start = parseInt(yearStart, 10);
         if (yearEnd) car.year_end = parseInt(yearEnd, 10);
-        
+
+        // Include variant_id if selected
+        const variantId = document.getElementById(`variant_id_${slotSuffix}`)?.value;
+        if (variantId) car.variant_id = variantId;
+
         return car;
     }
     

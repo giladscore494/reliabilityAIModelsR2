@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from flask import Blueprint, render_template, request, current_app, session
 from flask_login import current_user, login_required
 
-from car_models_dict import israeli_car_market_full_compilation
+from app.services.vehicle_catalog_service import get_vehicle_catalog_ui_data, get_flat_vehicle_catalog
 from app.factory import USER_DAILY_LIMIT
 from app.quota import (
     check_and_increment_ip_rate_limit,
@@ -44,7 +44,7 @@ def compare_page():
             user=current_user,
             user_email="",
             is_owner=False,
-            car_models_data=israeli_car_market_full_compilation,
+            car_models_data=get_vehicle_catalog_ui_data(),
             legal_accepted=False,
             compare_results_acknowledged=False,
             accepted_terms=False,
@@ -72,7 +72,7 @@ def compare_page():
         user=current_user,
         user_email=user_email,
         is_owner=is_owner_user(),
-        car_models_data=israeli_car_market_full_compilation,
+        car_models_data=get_vehicle_catalog_ui_data(),
         legal_accepted=legal_accepted,
         compare_results_acknowledged=compare_results_acknowledged,
         accepted_terms=legal_accepted,
@@ -296,26 +296,4 @@ def get_available_cars():
     Return the car dictionary for the autocomplete.
     Returns a flat list suitable for frontend autocomplete.
     """
-    cars_list = []
-    for make, models in israeli_car_market_full_compilation.items():
-        for model_entry in models:
-            # Extract model name and year range from entries like "Corolla (1992-2026)"
-            match = re.match(r'^(.+?)\s*\((\d{4})-(\d{4})\)$', model_entry)
-            if match:
-                model_name = match.group(1).strip()
-                year_start = int(match.group(2))
-                year_end = int(match.group(3))
-            else:
-                model_name = model_entry.strip()
-                year_start = None
-                year_end = None
-            
-            cars_list.append({
-                "make": make,
-                "model": model_name,
-                "display": f"{make} {model_name}",
-                "year_start": year_start,
-                "year_end": year_end,
-            })
-    
-    return api_ok({"cars": cars_list})
+    return api_ok({"cars": get_flat_vehicle_catalog()})

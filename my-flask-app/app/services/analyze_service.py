@@ -170,6 +170,14 @@ def handle_analyze_request(
         "budget_min",
         "budget_max",
         "usage_city_pct",
+        "variant_id",
+        "version_or_trim",
+        "body_type",
+        "catalog_fuel_type",
+        "catalog_engine",
+        "catalog_horsepower_hp",
+        "catalog_transmission",
+        "catalog_drivetrain",
     }
 
     try:

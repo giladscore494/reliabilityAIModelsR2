@@ -22,7 +22,7 @@ from app.legal import (
 )
 from app.models import User
 from app.utils.analytics import track_event
-from car_models_dict import israeli_car_market_full_compilation
+from app.services.vehicle_catalog_service import get_vehicle_catalog_ui_data
 from app.utils.http_helpers import (
     api_ok,
     get_redirect_uri,
@@ -63,7 +63,7 @@ def app_page():
         )
     return render_template(
         'reliability_app.html',
-        car_models_data=israeli_car_market_full_compilation,
+        car_models_data=get_vehicle_catalog_ui_data(),
         user=current_user,
         is_owner=is_owner_user(),
         reliability_results_acknowledged=reliability_results_acknowledged,
