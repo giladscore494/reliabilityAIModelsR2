@@ -22,10 +22,7 @@
         .delay-100 { animation-delay:100ms; }
         .delay-200 { animation-delay:200ms; }
         .delay-300 { animation-delay:300ms; }
-        ::-webkit-scrollbar { width:10px; }
-        ::-webkit-scrollbar-track { background:#ffffff; }
-        ::-webkit-scrollbar-thumb { background:#c4ccd6; border-radius:5px; }
-        ::-webkit-scrollbar-thumb:hover { background:#64748b; }
+        .delay-400 { animation-delay:400ms; }
     </style>
     <script nonce="{{ csp_nonce }}">
         tailwind.config = {
@@ -52,29 +49,30 @@
         <!-- HERO -->
         <section class="relative overflow-hidden">
             <div class="absolute inset-0 pointer-events-none">
-                <div class="absolute top-[-12rem] left-1/2 -translate-x-1/2 w-[70rem] h-[70rem] opacity-25" style="background: radial-gradient(circle, rgba(99,102,241,0.35) 0%, rgba(15,23,42,0) 70%);"></div>
-                <div class="absolute top-40 right-[-8rem] w-80 h-80 rounded-full bg-secondary/10 blur-3xl"></div>
+                <div class="absolute top-[-8rem] left-1/2 -translate-x-1/2 w-[60rem] h-[60rem] opacity-15" style="background: radial-gradient(circle, rgba(47,107,255,0.25) 0%, transparent 65%);"></div>
+                <div class="absolute top-40 right-[-6rem] w-60 h-60 rounded-full bg-[rgba(22,200,230,0.06)] blur-3xl"></div>
             </div>
-            <div class="relative container mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-10 md:pt-20 md:pb-14">
+            <div class="relative container mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-10 md:pt-24 md:pb-16">
                 <div class="max-w-6xl mx-auto grid lg:grid-cols-[1.15fr_0.85fr] gap-10 items-center">
                     <div class="text-center lg:text-right fade-in">
-                        <div class="inline-flex items-center gap-2 rounded-full border border-slate-700/80 bg-slate-900/70 px-4 py-2 text-sm text-slate-300 mb-6">
+                        <div class="yr-chip inline-flex mb-6">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
                             כלי Due Diligence לרכישת רכב יד שנייה בישראל
                         </div>
-                        <h1 class="text-4xl md:text-6xl font-extrabold text-white leading-tight tracking-tight mb-5">
+                        <h1 class="text-4xl md:text-[3.4rem] font-extrabold leading-tight tracking-tight mb-5" style="font-family:'Rubik','Heebo',sans-serif; letter-spacing:-.5px;">
                             לפני שתחתום על הרכב הבא –
-                            <span class="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">דע מה לבדוק.</span>
+                            <span class="yr-accent-text">דע מה לבדוק.</span>
                         </h1>
-                        <p class="text-lg md:text-xl text-slate-300 max-w-2xl leading-relaxed mx-auto lg:mx-0 mb-7">
+                        <p class="text-lg md:text-xl text-slate-300 max-w-2xl leading-relaxed mx-auto lg:mx-0 mb-8">
                             אנחנו לא קובעים אם לקנות — אנחנו מציפים תחומי סיכון, אי-ודאויות, ושאלות קריטיות למוכר, כדי שתגיע לבדיקה במוסך כשאתה מוכן.
                         </p>
                         <div class="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start items-center">
                             {% if current_user.is_authenticated %}
-                            <a href="{{ url_for('public.app_page') }}" class="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 rounded-2xl bg-gradient-to-r from-primary to-secondary text-white font-black text-lg shadow-xl shadow-primary/20 hover:scale-[1.02] transition-transform">
+                            <a href="{{ url_for('public.app_page') }}" class="yr-btn w-full sm:w-auto text-lg px-8 py-4 rounded-2xl">
                                 בדוק את הרכב שלי
                             </a>
                             {% else %}
-                            <a href="{{ url_for('public.login') }}" class="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 rounded-2xl bg-gradient-to-r from-primary to-secondary text-white font-black text-lg shadow-xl shadow-primary/20 hover:scale-[1.02] transition-transform"
+                            <a href="{{ url_for('public.login') }}" class="yr-btn w-full sm:w-auto text-lg px-8 py-4 rounded-2xl"
                                onclick="if(typeof posthog!=='undefined')try{posthog.capture('signup_clicked',{source:'landing'})}catch(e){}">
                                 התחבר עם Google כדי לנתח רכב
                             </a>
@@ -84,25 +82,25 @@
                     </div>
 
                     <div class="fade-in delay-100">
-                        <div class="rounded-[2rem] border border-slate-700/60 bg-dark-lighter/70 backdrop-blur-xl p-6 md:p-8 shadow-2xl">
+                        <div class="yr-chrome-card p-6 md:p-8">
                             <div class="flex items-start justify-between gap-4 mb-6">
                                 <div>
                                     <p class="text-sm text-slate-400">דוגמה לתוצאה</p>
-                                    <h2 class="text-2xl font-bold text-white">Toyota Corolla 2020</h2>
+                                    <h2 class="text-2xl font-bold" style="font-family:'Rubik','Heebo',sans-serif;">Toyota Corolla 2020</h2>
                                 </div>
-                                <div class="w-56 max-w-full rounded-3xl border border-sky-500/30 bg-sky-500/10 px-5 py-4 text-right shadow-lg shadow-sky-900/20">
-                                    <div class="text-xs text-sky-200/80 mb-1">סיקור מבוסס מידע זמין</div>
-                                    <div class="text-xl font-black text-sky-100">איכות מידע: חלקית</div>
+                                <div class="yr-chip--chrome yr-chip">
+                                    <span class="text-xs text-slate-400 leading-none">איכות מידע</span>
+                                    <span class="font-black text-sm">חלקית</span>
                                 </div>
                             </div>
-                            <div class="space-y-4">
-                                <div class="rounded-2xl border border-slate-500/30 bg-slate-500/10 p-4">
-                                    <div class="text-sm text-slate-100 font-bold mb-1">נקודות לבדיקה</div>
-                                    <p class="text-sm text-slate-200">אימות היסטוריית טיפולים, מצב גיר, מסמכים וקמפיינים שבוצעו.</p>
+                            <div class="space-y-3">
+                                <div class="yr-tile">
+                                    <div class="yr-tile__label">נקודות לבדיקה</div>
+                                    <p class="text-sm text-slate-200 leading-relaxed">אימות היסטוריית טיפולים, מצב גיר, מסמכים וקמפיינים שבוצעו.</p>
                                 </div>
-                                <div class="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
-                                    <div class="text-sm text-amber-200 font-bold mb-1">חוסרי מידע</div>
-                                    <p class="text-sm text-slate-200">אין להסתמך רק על הנתונים הציבוריים בלי מסמכים, שאלות למוכר וטווחי עלות אפשריים.</p>
+                                <div class="yr-tile" style="border-color:rgba(214,138,0,.25);">
+                                    <div class="yr-tile__label" style="color:#b45309;">חוסרי מידע</div>
+                                    <p class="text-sm text-slate-200 leading-relaxed">אין להסתמך רק על הנתונים הציבוריים בלי מסמכים, שאלות למוכר וטווחי עלות אפשריים.</p>
                                 </div>
                             </div>
                         </div>
@@ -111,11 +109,59 @@
             </div>
         </section>
 
-        <!-- EXAMPLE GALLERY (moved up — primary proof) -->
+        <!-- PRODUCT AREAS -->
+        <section class="container mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-14">
+            <div class="max-w-6xl mx-auto">
+                <div class="text-center mb-10 fade-in delay-200">
+                    <h2 class="text-3xl md:text-4xl font-extrabold mb-3" style="font-family:'Rubik','Heebo',sans-serif;">מה הכלי עושה בשבילך</h2>
+                    <p class="text-slate-400 max-w-xl mx-auto">ארבעה תחומי בדיקה מרכזיים — הכל במקום אחד</p>
+                </div>
+                <div class="yr-grid-2 fade-in delay-300">
+                    <a href="{{ url_for('public.recommendations_page') }}" class="yr-chrome-card p-6 block group">
+                        <div class="flex items-center gap-3 mb-3">
+                            <div class="w-10 h-10 rounded-xl bg-[rgba(47,107,255,0.1)] border border-[rgba(47,107,255,0.2)] flex items-center justify-center shrink-0">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-[#2f6bff]" viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+                            </div>
+                            <h3 class="text-lg font-bold" style="font-family:'Rubik','Heebo',sans-serif;">התאמת רכב אישית</h3>
+                        </div>
+                        <p class="text-sm text-slate-400 leading-relaxed">מנוע המלצות AI שמבנה פרופיל נהג ומתאים רכבים לפי תקציב, שימוש וצרכים.</p>
+                    </a>
+                    <a href="{{ url_for('public.app_page') }}" class="yr-chrome-card p-6 block group">
+                        <div class="flex items-center gap-3 mb-3">
+                            <div class="w-10 h-10 rounded-xl bg-[rgba(31,157,87,0.1)] border border-[rgba(31,157,87,0.2)] flex items-center justify-center shrink-0">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-[#1f9d57]" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812z" clip-rule="evenodd"/></svg>
+                            </div>
+                            <h3 class="text-lg font-bold" style="font-family:'Rubik','Heebo',sans-serif;">בדיקת אמינות</h3>
+                        </div>
+                        <p class="text-sm text-slate-400 leading-relaxed">סקירת אמינות מבוססת AI — תחומי סיכון, עלויות צפויות ונקודות לבדיקה במוסך.</p>
+                    </a>
+                    <a href="{{ url_for('public.compare_page') }}" class="yr-chrome-card p-6 block group">
+                        <div class="flex items-center gap-3 mb-3">
+                            <div class="w-10 h-10 rounded-xl bg-[rgba(22,200,230,0.1)] border border-[rgba(22,200,230,0.2)] flex items-center justify-center shrink-0">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-[#16c8e6]" viewBox="0 0 20 20" fill="currentColor"><path d="M5 4a1 1 0 00-2 0v7.268a2 2 0 000 3.464V16a1 1 0 102 0v-1.268a2 2 0 000-3.464V4zM11 4a1 1 0 10-2 0v1.268a2 2 0 000 3.464V16a1 1 0 102 0V8.732a2 2 0 000-3.464V4zM16 3a1 1 0 011 1v7.268a2 2 0 010 3.464V16a1 1 0 11-2 0v-1.268a2 2 0 010-3.464V4a1 1 0 011-1z"/></svg>
+                            </div>
+                            <h3 class="text-lg font-bold" style="font-family:'Rubik','Heebo',sans-serif;">השוואת רכבים</h3>
+                        </div>
+                        <p class="text-sm text-slate-400 leading-relaxed">השוואה מקיפה בין עד 3 רכבים — אמינות, עלויות, ביצועים ונוחות.</p>
+                    </a>
+                    <a href="{{ url_for('public.app_page') }}" class="yr-chrome-card p-6 block group">
+                        <div class="flex items-center gap-3 mb-3">
+                            <div class="w-10 h-10 rounded-xl bg-[rgba(214,138,0,0.1)] border border-[rgba(214,138,0,0.2)] flex items-center justify-center shrink-0">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-[#d68a00]" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>
+                            </div>
+                            <h3 class="text-lg font-bold" style="font-family:'Rubik','Heebo',sans-serif;">עלויות וסיכונים</h3>
+                        </div>
+                        <p class="text-sm text-slate-400 leading-relaxed">רגישות עלויות, טווחי תיקונים צפויים, ופערי מחיר — כדי שתדע לתמחר סיכון.</p>
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <!-- EXAMPLE GALLERY -->
         <section id="example-gallery" class="container mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-14">
             <div class="max-w-6xl mx-auto">
                 <div class="text-center mb-8">
-                    <h2 class="text-3xl md:text-4xl font-extrabold text-white mb-3">ניתוחים אמיתיים לדוגמה</h2>
+                    <h2 class="text-3xl md:text-4xl font-extrabold mb-3" style="font-family:'Rubik','Heebo',sans-serif;">ניתוחים אמיתיים לדוגמה</h2>
                     <p class="text-slate-400">לחצו על כרטיסייה כדי לראות מה לבדוק לפני הקנייה</p>
                 </div>
                 <div id="example-cards" class="grid md:grid-cols-3 gap-6">
@@ -124,23 +170,49 @@
             </div>
         </section>
 
+        <!-- TRUST SIGNALS -->
+        <section class="container mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12">
+            <div class="max-w-4xl mx-auto">
+                <div class="yr-glass p-6 md:p-8">
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
+                        <div>
+                            <div class="text-2xl font-black" style="font-family:'Rubik','Heebo',sans-serif; color:#2f6bff;">AI</div>
+                            <div class="text-xs font-semibold text-slate-400 mt-1">מבוסס Gemini Pro</div>
+                        </div>
+                        <div>
+                            <div class="text-2xl font-black" style="font-family:'Rubik','Heebo',sans-serif;">RTL</div>
+                            <div class="text-xs font-semibold text-slate-400 mt-1">עברית מלאה</div>
+                        </div>
+                        <div>
+                            <div class="text-2xl font-black" style="font-family:'Rubik','Heebo',sans-serif; color:#1f9d57;">100%</div>
+                            <div class="text-xs font-semibold text-slate-400 mt-1">שוק ישראלי</div>
+                        </div>
+                        <div>
+                            <div class="text-2xl font-black" style="font-family:'Rubik','Heebo',sans-serif; color:#d68a00;">Due Diligence</div>
+                            <div class="text-xs font-semibold text-slate-400 mt-1">לא ייעוץ לקנות</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <!-- DISCLAIMER + FINAL CTA -->
         <section class="container mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-14">
-            <div class="max-w-3xl mx-auto text-center rounded-[2rem] border border-slate-800 bg-dark-lighter/40 p-8">
-                <p class="text-slate-300 text-sm leading-7 mb-2">
+            <div class="max-w-3xl mx-auto text-center yr-chrome-card p-8">
+                <p class="text-slate-300 text-sm leading-7 mb-4">
                     הכלי מציף תחומי סיכון ומה לבדוק לפני קנייה — לא תחליף לבדיקה פיזית במכון או במוסך, ולא המלצה לקנות או לא לקנות.
                 </p>
                 <div class="flex justify-center gap-4 text-xs text-slate-400 mb-6">
-                    <a href="{{ url_for('public.terms') }}" class="hover:text-primary">תנאי שימוש</a>
+                    <a href="{{ url_for('public.terms') }}" class="hover:text-primary transition-colors">תנאי שימוש</a>
                     <span>·</span>
-                    <a href="{{ url_for('public.privacy') }}" class="hover:text-primary">מדיניות פרטיות</a>
+                    <a href="{{ url_for('public.privacy') }}" class="hover:text-primary transition-colors">מדיניות פרטיות</a>
                 </div>
                 {% if current_user.is_authenticated %}
-                <a href="{{ url_for('public.app_page') }}" class="inline-flex items-center justify-center px-8 py-4 rounded-2xl bg-gradient-to-r from-primary to-secondary text-white font-black text-lg shadow-xl shadow-primary/20 hover:scale-[1.02] transition-transform">
+                <a href="{{ url_for('public.app_page') }}" class="yr-btn text-lg px-8 py-4 rounded-2xl">
                     בדוק את הרכב שלי
                 </a>
                 {% else %}
-                <a href="{{ url_for('public.login') }}" class="inline-flex items-center justify-center px-8 py-4 rounded-2xl bg-gradient-to-r from-primary to-secondary text-white font-black text-lg shadow-xl shadow-primary/20 hover:scale-[1.02] transition-transform"
+                <a href="{{ url_for('public.login') }}" class="yr-btn text-lg px-8 py-4 rounded-2xl"
                    onclick="if(typeof posthog!=='undefined')try{posthog.capture('signup_clicked',{source:'landing_bottom'})}catch(e){}">
                     התחבר עם Google כדי להתחיל
                 </a>
@@ -164,20 +236,20 @@
                 if (!examples.length) { container.parentElement.style.display = 'none'; return; }
                 examples.forEach(function(ex) {
                     var quality = ex.data_quality_label || 'חלקית';
-                    var qualityColor = quality === 'טובה' ? 'emerald' : (quality === 'חסרה' ? 'rose' : 'amber');
+                    var qualityClass = quality === 'טובה' ? 'yr-grade--low' : (quality === 'חסרה' ? 'yr-grade--high' : 'yr-grade--mid');
                     var badgeText = 'איכות מידע: ' + quality;
                     var secondary = ex.top_missing_info || ex.top_verification_focus || ex.decision_readiness || '';
                     var card = document.createElement('a');
                     card.href = '/example/' + ex.slug;
-                    card.className = 'rounded-2xl border border-slate-700/60 bg-dark-lighter/70 p-6 hover:border-primary/40 transition-all hover:-translate-y-1 block';
+                    card.className = 'yr-chrome-card p-6 block';
                     card.innerHTML =
                         '<div class="flex items-start justify-between mb-3">' +
-                            '<div><p class="text-white font-bold text-lg">' + (ex.label || '') + '</p></div>' +
-                            '<div class="px-3 py-1.5 rounded-full text-xs font-bold bg-' + qualityColor + '-500/15 text-' + qualityColor + '-300 border border-' + qualityColor + '-500/30">' + badgeText + '</div>' +
+                            '<div><p class="font-bold text-lg" style="font-family:Rubik,Heebo,sans-serif;">' + (ex.label || '') + '</p></div>' +
+                            '<span class="yr-grade ' + qualityClass + '">' + badgeText + '</span>' +
                         '</div>' +
                         '<p class="text-slate-400 text-sm leading-relaxed mb-4">' + (ex.summary || '') + '</p>' +
                         (secondary ? '<p class="text-slate-300 text-xs leading-relaxed mb-4">' + secondary + '</p>' : '') +
-                        '<span class="text-primary text-sm font-semibold">ראה תחומי סיכון ומה לבדוק &larr;</span>';
+                        '<span class="text-sm font-semibold" style="color:#2f6bff;">ראה תחומי סיכון ומה לבדוק &larr;</span>';
                     container.appendChild(card);
                 });
             })

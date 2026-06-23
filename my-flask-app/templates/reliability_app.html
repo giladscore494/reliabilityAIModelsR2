@@ -25,29 +25,24 @@
         .delay-200 { animation-delay:200ms; }
         .delay-300 { animation-delay:300ms; }
 
-        .loader { border:3px solid rgba(255,255,255,0.2); border-top-color:var(--primary); border-radius:50%; width:1.5rem; height:1.5rem; animation:spin 1s linear infinite; }
+        .loader { border:3px solid rgba(47,107,255,0.2); border-top-color:#2f6bff; border-radius:50%; width:1.5rem; height:1.5rem; animation:spin 1s linear infinite; }
         @keyframes spin { to { transform:rotate(360deg); } }
 
         .tab-btn {
-            padding:0.5rem 1rem; font-weight:600; font-size:0.875rem;
-            border-bottom:2px solid transparent; border-top-left-radius:0.5rem; border-top-right-radius:0.5rem;
-            background:transparent; color:#46505c; transition:all 0.2s ease; margin-inline-end:0.5rem;
+            padding:0.6rem 1.1rem; font-weight:600; font-size:0.875rem;
+            border-radius:999px;
+            background:linear-gradient(180deg,#fdfefe,#f0f2f6);
+            border:1px solid var(--yr-border,#e3e8ef);
+            color:#46505c; transition:all 0.2s ease; margin-inline-end:0.4rem;
         }
-        .tab-btn:hover { color:#2f6bff; border-color:rgba(47,107,255,0.3); }
-        .tab-btn.active { color:#2f6bff; border-color:#2f6bff; background:rgba(47,107,255,0.10); }
+        .tab-btn:hover { color:#2f6bff; border-color:rgba(47,107,255,.3); background:rgba(47,107,255,.06); }
+        .tab-btn.active { color:#fff; border-color:rgba(47,107,255,.5); background:linear-gradient(180deg,#3b7bff,#1f57e6); box-shadow:0 8px 20px -10px rgba(31,87,230,.5); }
         .tab-content { display:none; }
         .tab-content.active { display:block; animation:fadeIn 0.3s ease-out; }
 
-        ::-webkit-scrollbar { width:10px; }
-        ::-webkit-scrollbar-track { background:#ffffff; }
-        ::-webkit-scrollbar-thumb { background:#c4ccd6; border-radius:5px; }
-        ::-webkit-scrollbar-thumb:hover { background:#64748b; }
-
         .ltr-select { direction:ltr; text-align:left; }
         .ltr-select-wrapper .pointer-events-none { left:auto; right:1rem; }
-        /* show-flex:allows hidden+flex coexistence - display:flex applies when .hidden is removed */
         .show-flex:not(.hidden) { display:flex !important; }
-        /* ring-overtime:pulsing animation when elapsed time exceeds estimate */
         @keyframes ring-pulse { 0%, 100% { opacity:1; } 50% { opacity:0.5; } }
         .ring-overtime { animation:ring-pulse 1s ease-in-out infinite; }
     </style>
@@ -79,16 +74,19 @@
              style="background: radial-gradient(circle, rgba(99,102,241,0.3) 0%, rgba(15,23,42,0) 70%);"></div>
 
         <div class="relative z-10 text-center max-w-4xl mx-auto mb-14 fade-in space-y-5">
-            <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase">סקירת רכב</p>
-            <h2 class="text-4xl md:text-6xl font-extrabold text-white leading-tight tracking-tight">
-                סקירת מידע וסיכונים לרכב לפני החלטה
+            <div class="yr-chip inline-flex">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812z" clip-rule="evenodd"/></svg>
+                סקירת אמינות AI
+            </div>
+            <h2 class="text-4xl md:text-6xl font-extrabold leading-tight" style="font-family:'Rubik','Heebo',sans-serif; letter-spacing:-.5px;">
+                סקירת מידע וסיכונים <span class="yr-accent-text">לרכב לפני החלטה</span>
             </h2>
             <p class="text-xl md:text-2xl text-slate-400 max-w-2xl mx-auto leading-relaxed">
                 הניתוח מבוסס על מידע זמין, חיפוש רשת, נתוני משתמש ומקורות פתוחים. הוא מציף נקודות לבדיקה ואינו קובע את מצב הרכב בפועל.
             </p>
         </div>
 
-        <div class="relative z-10 w-full max-w-4xl bg-dark-lighter/60 backdrop-blur-xl border border-slate-700/50 p-8 md:p-12 rounded-[2.5rem] shadow-2xl fade-in delay-100">
+        <div class="relative z-10 w-full max-w-4xl yr-chrome-card p-8 md:p-12 fade-in delay-100">
             {% if is_logged_in %}
             
             <!-- History Comparison Section -->
@@ -99,7 +97,7 @@
                         type="button"
                         id="refresh-history-btn"
                         data-action="load-history"
-                        class="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors">
+                        class="px-3 py-1.5 text-sm bg-white/70 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors">
                         רענן
                     </button>
                 </div>
@@ -108,7 +106,7 @@
                         <label for="history-select-1" class="block text-sm text-slate-400 mb-2">בחר חיפוש ראשון</label>
                         <select 
                             id="history-select-1" 
-                            class="w-full bg-slate-900/70 border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all">
+                            class="w-full bg-white border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all">
                             <option value="">-- בחר חיפוש קודם --</option>
                         </select>
                     </div>
@@ -116,7 +114,7 @@
                         <label for="history-select-2" class="block text-sm text-slate-400 mb-2">בחר חיפוש שני</label>
                         <select 
                             id="history-select-2" 
-                            class="w-full bg-slate-900/70 border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all">
+                            class="w-full bg-white border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all">
                             <option value="">-- בחר חיפוש קודם --</option>
                         </select>
                     </div>
@@ -144,7 +142,7 @@
                         </svg>
                     </div>
                     <div>
-                        <h3 class="text-2xl font-bold text-white">מפרט הרכב לבדיקה</h3>
+                        <h3 class="text-2xl font-bold" style="font-family:'Rubik','Heebo',sans-serif;">מפרט הרכב לבדיקה</h3>
                         <p class="text-slate-400 text-sm">אנא מלא את הפרטים המדויקים ביותר לקבלת תוצאה מיטבית</p>
                     </div>
                 </div>
@@ -156,7 +154,7 @@
                         </label>
                         <div class="relative ltr-select-wrapper">
                             <select id="make" name="make" required
-                                    class="ltr-select w-full appearance-none bg-slate-900/50 border-2 border-slate-700 rounded-xl px-5 py-4 text-white focus:ring-0 focus:border-primary transition-all hover:border-slate-600 cursor-pointer">
+                                    class="ltr-select w-full appearance-none bg-white border-2 border-slate-700 rounded-xl px-5 py-4 text-white focus:ring-0 focus:border-primary transition-all hover:border-slate-600 cursor-pointer">
                                 <option value="">-- בחר יצרן --</option>
                                 {% if car_models_data %}
                                     {% for make in car_models_data.keys()|sort %}
@@ -181,7 +179,7 @@
                         </label>
                         <div class="relative ltr-select-wrapper">
                             <select id="model" name="model" required disabled
-                                    class="ltr-select w-full appearance-none bg-slate-900/50 border-2 border-slate-700 rounded-xl px-5 py-4 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                    class="ltr-select w-full appearance-none bg-white border-2 border-slate-700 rounded-xl px-5 py-4 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                 <option value="">-- בחר יצרן תחילה --</option>
                             </select>
                             <div class="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
@@ -201,7 +199,7 @@
                         </label>
                         <div class="relative ltr-select-wrapper">
                             <select id="year" name="year" required disabled
-                                    class="ltr-select w-full appearance-none bg-slate-900/50 border-2 border-slate-700 rounded-xl px-5 py-4 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                    class="ltr-select w-full appearance-none bg-white border-2 border-slate-700 rounded-xl px-5 py-4 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                 <option value="">-- בחר דגם תחילה --</option>
                             </select>
                             <div class="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
@@ -216,7 +214,7 @@
                     </div>
                 </div>
 
-                <div class="bg-slate-800/30 p-6 rounded-2xl border border-slate-700/50 space-y-6">
+                <div class="bg-white/50 p-6 rounded-2xl border border-slate-700/50 space-y-6">
                     <h4 class="text-lg font-bold text-white flex items-center">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 ml-2 text-primary"
                              viewBox="0 0 20 20" fill="currentColor">
@@ -230,7 +228,7 @@
                         <div class="space-y-2">
                             <label class="text-xs font-bold uppercase tracking-wider text-slate-400">קילומטראז'</label>
                             <select id="mileage_range" name="mileage_range"
-                                    class="w-full bg-slate-900/50 border-slate-700 rounded-xl text-sm focus:ring-primary">
+                                    class="w-full bg-white border-slate-700 rounded-xl text-sm focus:ring-primary">
                                 <option>עד 50,000 ק"מ</option>
                                 <option>50,000 - 100,000 ק"מ</option>
                                 <option selected>100,000 - 150,000 ק"מ</option>
@@ -241,7 +239,7 @@
                         <div class="space-y-2">
                             <label class="text-xs font-bold uppercase tracking-wider text-slate-400">סוג מנוע</label>
                             <select id="fuel_type" name="fuel_type"
-                                    class="w-full bg-slate-900/50 border-slate-700 rounded-xl text-sm focus:ring-primary">
+                                    class="w-full bg-white border-slate-700 rounded-xl text-sm focus:ring-primary">
                                 <option selected>בנזין</option>
                                 <option>דיזל</option>
                                 <option>היברידי (רגיל/פלאג-אין)</option>
@@ -251,7 +249,7 @@
                         <div class="space-y-2">
                             <label class="text-xs font-bold uppercase tracking-wider text-slate-400">תיבת הילוכים</label>
                             <select id="transmission" name="transmission"
-                                    class="w-full bg-slate-900/50 border-slate-700 rounded-xl text-sm focus:ring-primary">
+                                    class="w-full bg-white border-slate-700 rounded-xl text-sm focus:ring-primary">
                                 <option selected>אוטומטית</option>
                                 <option>רובוטית</option>
                                 <option>רציפה</option>
@@ -267,12 +265,12 @@
                         </label>
                         <input type="text" id="sub_model" name="sub_model"
                                placeholder="לדוגמה: Premium, Sport, GLI, 1.5 Turbo..."
-                               class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 focus:ring-primary focus:border-primary placeholder-slate-600 text-right"
+                               class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary focus:border-primary placeholder-slate-600 text-right"
                                dir="rtl">
                     </div>
                 </div>
 
-                <div class="bg-slate-800/30 p-6 rounded-2xl border border-slate-700/50 space-y-6">
+                <div class="bg-white/50 p-6 rounded-2xl border border-slate-700/50 space-y-6">
                     <h4 class="text-lg font-bold text-white flex items-center">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 ml-2 text-primary" viewBox="0 0 20 20" fill="currentColor">
                             <path fill-rule="evenodd" d="M5 3a3 3 0 00-3 3v2a3 3 0 003 3h2a3 3 0 013 3v2a3 3 0 003 3h2a3 3 0 003-3v-2a3 3 0 00-3-3h-2a3 3 0 01-3-3V6a3 3 0 00-3-3H5z" clip-rule="evenodd" />
@@ -284,17 +282,17 @@
                         <div class="space-y-2">
                             <label class="text-xs font-bold uppercase tracking-wider text-slate-400">נסועה שנתית (ק״מ)</label>
                             <input id="annual_km" name="annual_km" type="number" min="0" max="60000" step="500" value="15000"
-                                   class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 focus:ring-primary focus:border-primary">
+                                   class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary focus:border-primary">
                         </div>
                         <div class="space-y-2">
                             <label class="text-xs font-bold uppercase tracking-wider text-slate-400">% נסיעה עירונית</label>
                             <input id="city_pct" name="city_pct" type="number" min="0" max="100" step="5" value="50"
-                                   class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 focus:ring-primary focus:border-primary">
+                                   class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary focus:border-primary">
                         </div>
                         <div class="space-y-2">
                             <label class="text-xs font-bold uppercase tracking-wider text-slate-400">נהג / עומס</label>
                             <select id="driver_style" name="driver_style"
-                                    class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
+                                    class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
                                 <option value="calm">רגוע</option>
                                 <option value="normal" selected>רגיל</option>
                                 <option value="aggressive">אגרסיבי</option>
@@ -305,7 +303,7 @@
                         <div class="space-y-2">
                             <label class="text-xs font-bold uppercase tracking-wider text-slate-400">טופוגרפיה</label>
                             <select id="terrain" name="terrain"
-                                    class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
+                                    class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
                                 <option value="flat">מישורית</option>
                                 <option value="mixed" selected>מעורבת</option>
                                 <option value="hilly">הררית</option>
@@ -314,7 +312,7 @@
                         <div class="space-y-2">
                             <label class="text-xs font-bold uppercase tracking-wider text-slate-400">אקלים</label>
                             <select id="climate" name="climate"
-                                    class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
+                                    class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
                                 <option value="center" selected>מרכז</option>
                                 <option value="coastal">חופי</option>
                                 <option value="north">צפון</option>
@@ -324,7 +322,7 @@
                         <div class="space-y-2">
                             <label class="text-xs font-bold uppercase tracking-wider text-slate-400">חניה קבועה</label>
                             <select id="parking" name="parking"
-                                    class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
+                                    class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
                                 <option value="outdoor" selected>חוץ</option>
                                 <option value="covered">מקורה</option>
                             </select>
@@ -334,7 +332,7 @@
                         <div class="space-y-2">
                             <label class="text-xs font-bold uppercase tracking-wider text-slate-400">עומס רכב</label>
                             <select id="load" name="load"
-                                    class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
+                                    class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
                                 <option value="light">קל</option>
                                 <option value="family" selected>משפחתי</option>
                                 <option value="heavy">כבד</option>
@@ -345,9 +343,9 @@
 
                 <div class="pt-4 space-y-8">
                     <label
-                        class="flex items-start gap-4 p-4 rounded-xl bg-slate-800/20 border border-slate-700/50 cursor-pointer group hover:bg-slate-800/40 transition-colors">
+                        class="flex items-start gap-4 p-4 rounded-xl bg-white/20 border border-slate-700/50 cursor-pointer group hover:bg-white/40 transition-colors">
                         <input type="checkbox" id="legal-confirm" name="legal-confirm" required
-                               class="mt-1 w-6 h-6 rounded border-2 border-slate-600 text-primary focus:ring-offset-0 focus:ring-primary bg-slate-900/50 checked:bg-primary transition-colors">
+                               class="mt-1 w-6 h-6 rounded border-2 border-slate-600 text-primary focus:ring-offset-0 focus:ring-primary bg-white checked:bg-primary transition-colors">
                         <span class="text-sm text-slate-300 leading-relaxed">
                             אני מאשר/ת כי אני מעל גיל 18, וקראתי והסכמתי
                             <a href="{{ url_for('public.terms') }}" target="_blank" rel="noopener noreferrer"
@@ -359,7 +357,7 @@
                         </span>
                     </label>
                     <p id="legal-error"
-                       class="hidden show-flex items-center text-red-400 text-sm bg-red-950/30 border border-red-900/50 p-3 rounded-lg">
+                       class="hidden show-flex items-center text-red-500 text-sm bg-red-50 border border-red-200 p-3 rounded-lg">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 ml-2" viewBox="0 0 20 20" fill="currentColor">
                             <path fill-rule="evenodd"
                                   d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
@@ -369,7 +367,7 @@
                     </p>
 
                     <button type="submit" id="submit-button" aria-busy="false"
-                            class="relative w-full md:w-auto md:min-w-[360px] mx-auto flex items-center justify-center py-5 px-10 bg-gradient-to-r from-primary to-secondary hover:from-primary/110 hover:to-secondary/110 text-white font-black text-xl rounded-2xl shadow-xl shadow-primary/20 transition-all hover:scale-[1.02] active:scale-95 overflow-hidden group">
+                            class="yr-btn relative w-full md:w-auto md:min-w-[360px] mx-auto flex items-center justify-center py-5 px-10 font-black text-xl rounded-2xl overflow-hidden group">
                         <span
                             class="absolute inset-0 w-full h-full bg-white/20 group-hover:w-0 transition-all duration-500 ease-out opacity-0 group-hover:opacity-100"></span>
                         <span class="button-text relative z-10 flex items-center">הפעל מנוע ניתוח AI</span>
@@ -382,22 +380,22 @@
             {% else %}
             <div class="text-center py-8 space-y-8">
                 <div class="relative inline-block">
-                    <div class="absolute inset-0 bg-primary/30 blur-3xl rounded-full"></div>
+                    <div class="absolute inset-0 bg-primary/20 blur-3xl rounded-full"></div>
                     <div
-                        class="relative bg-dark-lighter p-6 rounded-3xl border border-slate-700/50 shadow-xl">
+                        class="relative yr-glass p-6 rounded-3xl">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-20 w-20 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                         </svg>
                     </div>
                 </div>
                 <div>
-                    <h3 class="text-3xl font-bold text-white mb-4">התחבר כדי להמשיך</h3>
+                    <h3 class="text-3xl font-bold text-white mb-4" style="font-family:'Rubik','Heebo',sans-serif;">התחבר כדי להמשיך</h3>
                     <p class="text-slate-400 text-lg max-w-md mx-auto">
                         התחבר עם חשבון Google שלך כדי לגשת למערכת.
                     </p>
                 </div>
                 <a href="{{ url_for('public.login') }}"
-                   class="inline-flex items-center justify-center px-10 py-5 text-xl font-bold text-white transition-colors bg-primary hover:bg-indigo-500 rounded-2xl shadow-lg shadow-primary/20">
+                   class="yr-btn inline-flex items-center justify-center px-10 py-5 text-xl rounded-2xl">
                     <svg class="w-7 h-7 ml-3" fill="currentColor" viewBox="0 0 24 24">
                         <path
                             d="M21.35,11.1H12.18V13.83H18.69C18.36,17.64 15.19,19.27 12.19,19.27C8.36,19.27 5,16.25 5,12C5,7.9 8.2,4.73 12.2,4.73C15.29,4.73 17.1,6.7 17.1,6.7L19,4.72C19,4.72 16.56,2 12.1,2C6.42,2 2.03,6.8 2.03,12C2.03,17.05 6.16,22 12.25,22C17.6,22 21.5,18.33 21.5,12.91C21.5,11.76 21.35,11.1 21.35,11.1V11.1Z" />
@@ -409,7 +407,7 @@
         </div>
 
         <!-- Timing Banner (hidden by default) -->
-        <div id="timingBanner" role="status" class="hidden fixed top-24 left-1/2 transform -translate-x-1/2 z-50 bg-dark-lighter/95 backdrop-blur-xl border-2 border-primary/50 rounded-2xl shadow-2xl p-6">
+        <div id="timingBanner" role="status" class="hidden fixed top-24 left-1/2 transform -translate-x-1/2 z-50 yr-glass border-2 border-primary/30 rounded-2xl shadow-2xl p-6">
             <div class="flex flex-col items-center gap-4">
                 <div class="relative w-32 h-32">
                     <!-- SVG Circular Progress Ring -->
@@ -443,35 +441,35 @@
         </div>
 
         <section id="reliabilityResultReadyPanel" class="hidden w-full max-w-4xl mt-16 fade-in delay-300">
-            <div class="rounded-[2rem] border border-primary/30 bg-dark-lighter/80 p-6 md:p-8 text-center shadow-2xl">
-                <h3 class="text-2xl md:text-3xl font-black text-white">✅ התוצאה מוכנה</h3>
+            <div class="yr-ready-panel">
+                <h3 class="text-2xl md:text-3xl font-black" style="font-family:'Rubik','Heebo',sans-serif;">התוצאה מוכנה</h3>
                 <p class="mt-3 text-sm md:text-base text-slate-300">
                     הבדיקה הסתיימה. אפשר לפתוח את התוצאה עכשיו.
                 </p>
-                <button id="reliabilityOpenResultButton" type="button" class="mt-6 inline-flex w-full items-center justify-center rounded-2xl bg-gradient-to-r from-primary to-secondary px-8 py-4 text-lg font-black text-white shadow-xl shadow-primary/20 transition hover:opacity-90 md:w-auto md:min-w-[280px]">
+                <button id="reliabilityOpenResultButton" type="button" class="yr-btn mt-6 px-8 py-4 text-lg rounded-2xl w-full md:w-auto md:min-w-[280px]">
                     פתח תוצאה
                 </button>
             </div>
         </section>
 
         <section id="analyze-error-panel" class="hidden w-full max-w-4xl mt-8 fade-in delay-300">
-            <div class="rounded-[2rem] border border-red-500/40 bg-red-950/20 p-6 md:p-8 shadow-2xl">
-                <h3 id="analyze-error-title" class="text-2xl font-black text-white">אירעה שגיאה</h3>
-                <p id="analyze-error-message" class="mt-3 text-sm md:text-base text-red-100"></p>
-                <dl id="analyze-error-meta" class="mt-4 grid gap-3 text-sm text-red-100 sm:grid-cols-3"></dl>
-                <pre id="analyze-error-debug" class="mt-4 hidden overflow-x-auto rounded-2xl border border-red-500/30 bg-slate-950/60 p-4 text-xs text-red-100 whitespace-pre-wrap"></pre>
+            <div class="yr-chrome-card border-red-400/40 p-6 md:p-8" style="border-color:rgba(239,68,68,.3);">
+                <h3 id="analyze-error-title" class="text-2xl font-black text-white" style="font-family:'Rubik','Heebo',sans-serif;">אירעה שגיאה</h3>
+                <p id="analyze-error-message" class="mt-3 text-sm md:text-base text-slate-300"></p>
+                <dl id="analyze-error-meta" class="mt-4 grid gap-3 text-sm text-slate-300 sm:grid-cols-3"></dl>
+                <pre id="analyze-error-debug" class="mt-4 hidden overflow-x-auto rounded-2xl border border-red-400/30 bg-white/50 p-4 text-xs text-slate-400 whitespace-pre-wrap"></pre>
             </div>
         </section>
 
         {% include '_research_reliability_panel.html' %}
 
         <div id="results-container" class="hidden w-full max-w-5xl mt-8 fade-in delay-300">
-                <div class="text-sm md:text-base text-amber-100 bg-amber-500/15 border-2 border-amber-400/40 rounded-2xl p-4 md:p-5 mb-4 leading-relaxed space-y-2">
+                <div class="yr-disclaimer--warn text-sm md:text-base mb-4 leading-relaxed space-y-2" style="padding:16px 20px; border-radius:var(--yr-radius,18px);">
                     <p><strong>דיסקליימר חשוב:</strong> התוצאה היא כלי תומך החלטה בלבד ואינה ייעוץ מקצועי, בדיקה מכנית, או חוות דעת שמאית.</p>
                     <p>יש לבצע אימות עצמאי ובדיקה במוסך/גורם מקצועי מוסמך לפני קבלת החלטה. אין אחריות לטעויות, אי-דיוקים, מידע חסר או הסתמכות על התוצאה.</p>
                 </div>
                 <div
-                    class="bg-dark-lighter/80 backdrop-blur-xl p-6 md:p-8 rounded-[2rem] border border-slate-700/50 shadow-2xl text-slate-200">
+                    class="yr-chrome-card p-6 md:p-8 text-slate-200">
                     <div id="reliability-score-container" class="w-full mb-10"></div>
 
 
@@ -492,7 +490,7 @@
                         <button
                             id="summary-toggle-btn"
                             type="button"
-                            class="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600 transition-colors">
+                            class="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold bg-white/70 hover:bg-slate-700 text-slate-100 border border-slate-600 transition-colors">
                             להרחבה מקצועית
                         </button>
 
@@ -526,21 +524,21 @@
     </main>
 
     <div id="reliabilityResultAckModal" class="fixed inset-0 z-50 hidden">
-        <div class="absolute inset-0 bg-black/70"></div>
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
         <div class="absolute inset-0 flex items-center justify-center p-4">
-            <div class="w-full max-w-lg rounded-2xl border border-slate-700 bg-dark-lighter p-6 md:p-8 shadow-2xl">
-                <h3 class="text-2xl font-black text-white mb-3">אישור לפני פתיחת התוצאה</h3>
+            <div class="yr-chrome-card w-full max-w-lg p-6 md:p-8">
+                <h3 class="text-2xl font-black text-white mb-3" style="font-family:'Rubik','Heebo',sans-serif;">אישור לפני פתיחת התוצאה</h3>
                 <p class="text-slate-300 text-sm leading-relaxed mb-4">
                     התוצאה מיועדת לתמיכה בקבלת החלטה בלבד, אינה בדיקה מכנית או חוות דעת מקצועית, ועליך לבצע אימות עצמאי.
                 </p>
                 <label class="flex items-start gap-3 text-slate-200 text-sm mb-4 cursor-pointer">
-                    <input id="reliabilityResultAckCheckbox" type="checkbox" class="mt-1 rounded border-slate-600 bg-slate-900 text-primary">
+                    <input id="reliabilityResultAckCheckbox" type="checkbox" class="mt-1 rounded border-slate-600 bg-white text-primary">
                     <span>אני מבין/ה שהמידע אינו מחליף בדיקה מקצועית ושאין להסתמך עליו כמקור יחיד לקבלת החלטה.</span>
                 </label>
                 <p id="reliabilityResultAckError" class="hidden text-xs text-danger mb-3">יש לסמן את תיבת האישור כדי להמשיך.</p>
                 <div class="flex gap-3">
-                    <button id="reliabilityResultAckConfirm" type="button" class="flex-1 rounded-full bg-gradient-to-r from-primary to-secondary px-5 py-3 text-white font-bold">אישור ופתיחת התוצאה</button>
-                    <button id="reliabilityResultAckCancel" type="button" class="rounded-full bg-slate-700 hover:bg-slate-600 px-5 py-3 text-white">ביטול</button>
+                    <button id="reliabilityResultAckConfirm" type="button" class="yr-btn flex-1 px-5 py-3 rounded-full">אישור ופתיחת התוצאה</button>
+                    <button id="reliabilityResultAckCancel" type="button" class="yr-btn--chrome yr-btn px-5 py-3 rounded-full">ביטול</button>
                 </div>
             </div>
         </div>
