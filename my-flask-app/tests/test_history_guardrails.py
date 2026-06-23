@@ -11,8 +11,11 @@ def test_critical_unresolved_result_is_not_displayed_normally():
         {},
         {"phone": "050-1234567", "prompt": "secret"},
     )
-    assert report["status"] == "critical"
+    # After the new dashboard-history repair, PII is redacted and debug fields
+    # are removed, so the *repaired* payload should no longer be critical.
+    assert report["status"] in ("passed", "warnings")
     assert "050-1234567" not in json.dumps(result, ensure_ascii=False)
+    assert "prompt" not in {k for k in result if k != "guardrail_meta"}
 
 
 def test_legacy_result_shows_caveat():

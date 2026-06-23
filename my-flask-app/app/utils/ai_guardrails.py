@@ -1095,8 +1095,34 @@ def _repair_recommendations_result(result: Dict[str, Any], report: Mapping[str, 
     return patched
 
 
+_DASHBOARD_DEBUG_KEYS = frozenset({"prompt", "prompt_text", "debug", "debug_info", "internal_score"})
+
+
+def _repair_dashboard_history_result(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Recursively sanitise a dashboard-history payload.
+
+    * Recursively redacts PII (not just top-level).
+    * Recursively removes debug/internal keys at any nesting depth.
+    * Repairs truncated text via ``repair_or_hide_truncated_text``.
+    * Adds ``legacy_notice`` when guardrail metadata is missing/old.
+    """
+
+    def _strip_debug(node: Any) -> Any:
+        if isinstance(node, dict):
+            return {k: _strip_debug(v) for k, v in node.items() if k not in _DASHBOARD_DEBUG_KEYS}
+        if isinstance(node, list):
+            return [_strip_debug(item) for item in node]
+        return node
+
+    patched = _strip_debug(_safe_copy(result))
+    patched = _redact_pii(patched)
+    patched = repair_or_hide_truncated_text(patched, "dashboard_history")
+    return patched
+
+
 def apply_feature_guardrails(
-    feature_key: str, user_payload: Any, ai_result: Any, deterministic_calc: Any = None
+    feature_key: str, user_payload: Any, ai_result: Any, deterministic_calc: Any = None,
+    *, log_validation: bool = True,
 ) -> Tuple[Any, Dict[str, Any]]:
     request_id = None
     if has_app_context():
@@ -1161,9 +1187,7 @@ def apply_feature_guardrails(
         if _normalize_count(result.get("sample_size")) is not None and _normalize_count(result.get("sample_size")) < 10:
             result["sample_size_caveat"] = LOW_SAMPLE_NOTE
     elif feature_key == "dashboard_history" and isinstance(result, dict):
-        for key in ("prompt", "prompt_text", "debug", "debug_info", "internal_score"):
-            result.pop(key, None)
-        result = _redact_pii(result)
+        result = _repair_dashboard_history_result(result)
 
     repaired = False
     if report.get("critical_issues"):
@@ -1178,14 +1202,24 @@ def apply_feature_guardrails(
         elif feature_key == "recommendations":
             result = _repair_recommendations_result(result, report)
             repaired = True
+        elif feature_key == "dashboard_history":
+            # The dashboard repair already ran above; re-validate the repaired
+            # payload and only keep critical status if issues persist.
+            recheck = validate_dashboard_history_payload(result)
+            if not recheck.get("critical_issues"):
+                report = recheck
+                repaired = True
+            else:
+                repaired = False
         if repaired:
             _increment_guardrail_counter("guardrail_repair_total")
-            _log_event(
-                "ai_guardrail_repair_applied",
-                feature_key,
-                fields_repaired=report.get("affected_sections") or [],
-                critical_count=len(report.get("critical_issues") or []),
-            )
+            if log_validation:
+                _log_event(
+                    "ai_guardrail_repair_applied",
+                    feature_key,
+                    fields_repaired=report.get("affected_sections") or [],
+                    critical_count=len(report.get("critical_issues") or []),
+                )
     if should_repair(feature_key, report) and not repaired:
         _increment_guardrail_counter("guardrail_fallback_total")
         result = safe_fallback_on_repair_failure(result, report)
@@ -1201,13 +1235,14 @@ def apply_feature_guardrails(
             )
         ):
             result.setdefault("legacy_notice", LEGACY_DISPLAY_NOTE)
-    _log_event(
-        "ai_guardrail_validation",
-        feature_key,
-        status=report.get("status"),
-        critical_count=len(report.get("critical_issues") or []),
-        warning_count=len(report.get("warnings") or []),
-        repaired=repaired,
-        request_id=request_id,
-    )
+    if log_validation:
+        _log_event(
+            "ai_guardrail_validation",
+            feature_key,
+            status=report.get("status"),
+            critical_count=len(report.get("critical_issues") or []),
+            warning_count=len(report.get("warnings") or []),
+            repaired=repaired,
+            request_id=request_id,
+        )
     return result, report

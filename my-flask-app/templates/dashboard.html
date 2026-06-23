@@ -206,16 +206,15 @@
                                     <span class="text-primary text-base font-normal">
                                         {{ s.year }}
                                     </span>
-                                    {% if s.data.get('reliability_report') %}
+                                    {% if s.has_reliability_report %}
                                         <span class="text-[10px] px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-500/40">כולל דוח</span>
                                     {% endif %}
-                                    {% if s.data.get('vehicle_profile') %}
-                                        {% set vp = s.data.get('vehicle_profile') %}
-                                        {% if vp.get('vehicle_identity', {}).get('israel_market_status') == 'discontinued_in_israel' %}
+                                    {% if s.get('israel_market_status') %}
+                                        {% if s.israel_market_status == 'discontinued_in_israel' %}
                                             <span class="text-[10px] px-2 py-1 rounded-full bg-red-500/20 text-red-200 border border-red-500/40">הופסק בישראל</span>
-                                        {% elif vp.get('vehicle_identity', {}).get('israel_market_status') == 'parallel_import' %}
+                                        {% elif s.israel_market_status == 'parallel_import' %}
                                             <span class="text-[10px] px-2 py-1 rounded-full bg-blue-500/20 text-blue-200 border border-blue-500/40">יבוא מקביל</span>
-                                        {% elif vp.get('vehicle_identity', {}).get('israel_market_status') == 'sold_used_only' %}
+                                        {% elif s.israel_market_status == 'sold_used_only' %}
                                             <span class="text-[10px] px-2 py-1 rounded-full bg-amber-500/20 text-amber-200 border border-amber-500/40">יד שנייה בלבד</span>
                                         {% endif %}
                                     {% endif %}
@@ -241,17 +240,17 @@
                                 </div>
                             </div>
 
-                            {% if s.data.get('data_quality_label') or s.data.get('decision_readiness') %}
+                            {% if s.get('data_quality_label') or s.get('decision_readiness') %}
                                 <div class="flex flex-col items-end gap-1">
                                     <div class="text-sm font-bold text-emerald-200">
-                                        איכות מידע: {{ s.data.get('data_quality_label') or 'חלקית' }}
+                                        איכות מידע: {{ s.get('data_quality_label') or 'חלקית' }}
                                     </div>
-                                    {% if s.data.get('decision_readiness') %}
+                                    {% if s.get('decision_readiness') %}
                                         <div class="text-[11px] text-slate-300">
-                                            {{ s.data.get('decision_readiness') }}
+                                            {{ s.get('decision_readiness') }}
                                         </div>
                                     {% endif %}
-                                    {% set top_note = (s.data.get('missing_critical_info') or s.data.get('verification_focus') or []) %}
+                                    {% set top_note = (s.get('missing_critical_info') or s.get('verification_focus') or []) %}
                                     {% if top_note %}
                                         <div class="text-[10px] text-slate-400 max-w-[15rem] text-right">
                                             {{ top_note[0] }}
@@ -551,7 +550,7 @@
         if (issues.length) {
             issuesListHtml = `
                 <ul class="list-disc pr-5 space-y-1 text-xs text-slate-100">
-                    ${issues.map(i => `<li>${i}</li>`).join('')}
+                    ${issues.map(i => `<li>${escapeHtml(i)}</li>`).join('')}
                 </ul>
             `;
         }
@@ -572,10 +571,10 @@
                         <tbody>
                             ${issuesWithCosts.map(it => `
                                 <tr class="border-b border-[#cfd5dd]">
-                                    <td class="px-2 py-1 text-slate-100">${it.issue || ''}</td>
-                                    <td class="px-2 py-1 text-slate-100">${it.avg_cost_ILS || ''}</td>
-                                    <td class="px-2 py-1 text-slate-100">${it.severity || ''}</td>
-                                    <td class="px-2 py-1 text-slate-300 text-[11px]">${it.source || ''}</td>
+                                    <td class="px-2 py-1 text-slate-100">${escapeHtml(it.issue || '')}</td>
+                                    <td class="px-2 py-1 text-slate-100">${escapeHtml(String(it.avg_cost_ILS || ''))}</td>
+                                    <td class="px-2 py-1 text-slate-100">${escapeHtml(it.severity || '')}</td>
+                                    <td class="px-2 py-1 text-slate-300 text-[11px]">${escapeHtml(it.source || '')}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
@@ -604,7 +603,7 @@
         if (checks.length) {
             checksHtml = `
                 <ul class="list-disc pr-5 space-y-1 text-xs text-slate-100">
-                    ${checks.map(c => `<li>${c}</li>`).join('')}
+                    ${checks.map(c => `<li>${escapeHtml(c)}</li>`).join('')}
                 </ul>
             `;
         }
@@ -615,8 +614,8 @@
                 <ul class="list-disc pr-5 space-y-1 text-xs text-slate-300">
                     ${competitors.map(c => `
                         <li>
-                            <span class="font-semibold text-slate-100">${c.model || ''}:</span>
-                            <span>${c.brief_summary || ''}</span>
+                            <span class="font-semibold text-slate-100">${escapeHtml(c.model || '')}:</span>
+                            <span>${escapeHtml(c.brief_summary || '')}</span>
                         </li>
                     `).join('')}
                 </ul>
@@ -700,22 +699,22 @@
 
         const mileageNoteHtml = mileageNote
             ? `<div class="mt-2 text-[11px] text-amber-300">
-                   <span class="font-bold">אזהרה:</span> ${mileageNote}
+                   <span class="font-bold">אזהרה:</span> ${escapeHtml(mileageNote)}
                </div>`
             : '';
 
         const sourceTagHtml = sourceTag
             ? `<div class="mt-4 text-[11px] text-slate-500 border-t border-[#cfd5dd] pt-2">
-                   ${sourceTag}
+                   ${escapeHtml(sourceTag)}
                </div>`
             : '';
 
         const simpleSummaryHtml = simpleSummary
-            ? `<p class="text-sm text-slate-100 leading-relaxed whitespace-pre-line">${simpleSummary}</p>`
+            ? `<p class="text-sm text-slate-100 leading-relaxed whitespace-pre-line">${escapeHtml(simpleSummary)}</p>`
             : '<p class="text-sm text-slate-400">אין סיכום פשוט זמין.</p>';
 
         const fullSummaryHtml = fullSummary
-            ? `<p class="text-sm text-slate-200 leading-relaxed whitespace-pre-line">${fullSummary}</p>`
+            ? `<p class="text-sm text-slate-200 leading-relaxed whitespace-pre-line">${escapeHtml(fullSummary)}</p>`
             : '<p class="text-sm text-slate-400">אין סיכום מקצועי זמין.</p>';
 
         // --- NEW BUTTONS NAVIGATION (MODIFIED SECTION) ---
