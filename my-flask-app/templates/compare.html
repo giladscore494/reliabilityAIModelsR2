@@ -39,22 +39,22 @@
         }
         .fade-in { animation:fadeIn 0.4s ease-out forwards; opacity:0; }
         @keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
-        .loader { border:3px solid rgba(255,255,255,0.2); border-top-color:var(--primary, #2f6bff); border-radius:50%; width:1.5rem; height:1.5rem; animation:spin 1s linear infinite; }
+        .loader { border:3px solid rgba(47,107,255,0.2); border-top-color:#2f6bff; border-radius:50%; width:1.5rem; height:1.5rem; animation:spin 1s linear infinite; }
         @keyframes spin { to { transform:rotate(360deg); } }
-        
-        /* LTR select for car dropdowns */
+
         .ltr-select { direction:ltr; text-align:left; }
-        
-        /* Category rows */
+
         .category-row {
-            background:#ffffff;
-            border:1px solid #cfd5dd;
-            border-radius:0.75rem;
+            background:linear-gradient(180deg,#ffffff,#f7f9fc);
+            border:1px solid var(--yr-border,#e3e8ef);
+            border-radius:var(--yr-radius,18px);
             overflow:hidden;
             transition:all 0.2s ease;
+            box-shadow:0 6px 18px -12px rgba(20,40,80,.12);
         }
         .category-row:hover {
-            border-color:#c4ccd6;
+            border-color:var(--yr-border-strong,#cfd5dd);
+            box-shadow:0 14px 34px -18px rgba(20,40,80,.18);
         }
         .category-header {
             display:flex;
@@ -62,25 +62,23 @@
             justify-content:space-between;
             padding:1rem 1.25rem;
             cursor:pointer;
-            background:#ffffff;
+            background:linear-gradient(180deg,#ffffff,#fafbfd);
             flex-wrap:wrap;
             gap:0.75rem;
         }
         .category-header:hover {
-            background:#eef1f6;
+            background:linear-gradient(180deg,#f7f9fc,#eef1f6);
         }
         .category-content {
             display:none;
             padding:0 1.25rem 1rem;
-            border-top:1px solid #cfd5dd;
+            border-top:1px solid var(--yr-border,#e3e8ef);
         }
         .category-content.open {
             display:block;
             animation:fadeIn 0.3s ease-out;
         }
-        
-        
-        /* Winner badge */
+
         .winner-badge {
             background:linear-gradient(135deg, #1f9d57, #059669);
             color:white;
@@ -90,10 +88,7 @@
             border-radius:9999px;
             white-space:nowrap;
         }
-        
-        
 
-        /* Per-car accent colors */
         .car-accent-1 { --accent:#e23b4e; }
         .car-accent-2 { --accent:#3b82f6; }
         .car-accent-3 { --accent:#22c55e; }
@@ -101,7 +96,6 @@
         .car-title { color:var(--accent); }
         .car-score { color:var(--accent); }
 
-        /* Car result chip styles */
         .car-result-chip {
             display:inline-flex;
             align-items:center;
@@ -119,22 +113,21 @@
         .car-result-chip.car-chip-2 { --chip-color:#3b82f6; }
         .car-result-chip.car-chip-3 { --chip-color:#22c55e; }
 
-        /* Autocomplete styles */
         .autocomplete-container { position:relative; }
         .autocomplete-input {
             direction:ltr;
             text-align:left;
-            transition:border-color 0.2s;
+            transition:border-color 0.2s, box-shadow 0.2s;
         }
         .autocomplete-input:-webkit-autofill,
         .autocomplete-input:-webkit-autofill:hover,
         .autocomplete-input:-webkit-autofill:focus {
             -webkit-text-fill-color:#2a313b;
-            -webkit-box-shadow:0 0 0px 1000px #eef1f6 inset;
-            box-shadow:0 0 0px 1000px #eef1f6 inset;
+            -webkit-box-shadow:0 0 0px 1000px #fff inset;
+            box-shadow:0 0 0px 1000px #fff inset;
         }
         .autocomplete-input::placeholder {
-            color:#6b7480;
+            color:#94a0ad;
             direction:rtl;
             text-align:right;
         }
@@ -148,30 +141,30 @@
             max-height:250px;
             overflow-y:auto;
             background:#ffffff;
-            border:1px solid #c4ccd6;
-            border-radius:0.75rem;
+            border:1px solid var(--yr-border,#e3e8ef);
+            border-radius:14px;
             margin-top:4px;
-            box-shadow:0 10px 30px rgba(0,0,0,0.5);
+            box-shadow:0 14px 34px -18px rgba(20,40,80,.22);
         }
         .autocomplete-dropdown.open { display:block; }
         .autocomplete-item {
             padding:0.75rem 1rem;
             cursor:pointer;
             color:#2a313b;
-            border-bottom:1px solid #cfd5dd;
+            border-bottom:1px solid var(--yr-border,#e3e8ef);
             direction:ltr;
             text-align:left;
+            transition:background .15s;
         }
         .autocomplete-item:last-child { border-bottom:none; }
-        .autocomplete-item:hover, .autocomplete-item.highlighted { background:#cfd5dd; color:white; }
+        .autocomplete-item:hover, .autocomplete-item.highlighted { background:rgba(47,107,255,.08); color:#1c2530; }
         .autocomplete-item .item-make { font-weight:600; }
         .autocomplete-item .item-years { color:#6b7480; font-size:0.8rem; margin-right:0.5rem; }
 
-        /* Narrative section */
         .narrative-section {
-            background:linear-gradient(135deg, rgba(47,107,255,0.1), rgba(236,72,153,0.1));
-            border:1px solid rgba(47,107,255,0.3);
-            border-radius:1rem;
+            background:linear-gradient(135deg, rgba(47,107,255,0.06), rgba(22,200,230,0.04));
+            border:1px solid rgba(47,107,255,0.18);
+            border-radius:var(--yr-radius,18px);
             padding:1.5rem;
         }
         .tie-badge {
@@ -183,9 +176,7 @@
             border-radius:9999px;
             white-space:nowrap;
         }
-        /* show-flex:allows hidden+show-flex coexistence - display:flex applies when .hidden is removed */
         .show-flex:not(.hidden) { display:flex !important; }
-        /* ring-overtime:pulsing animation when elapsed time exceeds estimate */
         @keyframes ring-pulse { 0%, 100% { opacity:1; } 50% { opacity:0.5; } }
         .ring-overtime { animation:ring-pulse 1s ease-in-out infinite; }
     </style>
@@ -201,13 +192,13 @@
          style="background: radial-gradient(circle, rgba(99,102,241,0.25) 0%, rgba(15,23,42,0) 70%);"></div>
 
     {% if not user or not user.is_authenticated %}
-        <div class="relative z-10 max-w-xl mx-auto text-center bg-dark-lighter/70 border border-slate-700/70 rounded-3xl p-10">
-            <h2 class="text-3xl font-extrabold text-white mb-4">השוואת רכבים – התחברות נדרשת</h2>
+        <div class="relative z-10 max-w-xl mx-auto text-center yr-chrome-card p-10">
+            <h2 class="text-3xl font-extrabold mb-4" style="font-family:'Rubik','Heebo',sans-serif;">השוואת רכבים – התחברות נדרשת</h2>
             <p class="text-slate-400 mb-6 text-sm md:text-base">
                 כדי להשתמש בכלי השוואת הרכבים, יש להתחבר עם חשבון Google.
             </p>
             <a href="{{ url_for('public.login') }}"
-               class="inline-flex items-center justify-center px-8 py-3 rounded-full bg-primary text-white font-semibold text-sm hover:bg-indigo-500 transition-colors shadow-lg shadow-primary/20">
+               class="yr-btn px-8 py-3 rounded-full text-sm">
                 התחברות מהירה עם Google
             </a>
         </div>
@@ -215,8 +206,11 @@
         <section class="relative z-10 max-w-6xl mx-auto space-y-8">
             <!-- Header -->
             <header class="text-center space-y-4 max-w-3xl mx-auto">
-                <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase">השוואת רכבים</p>
-                <h2 class="text-4xl md:text-[3.2rem] font-extrabold text-white">
+                <div class="yr-chip inline-flex">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M5 4a1 1 0 00-2 0v7.268a2 2 0 000 3.464V16a1 1 0 102 0v-1.268a2 2 0 000-3.464V4zM11 4a1 1 0 10-2 0v1.268a2 2 0 000 3.464V16a1 1 0 102 0V8.732a2 2 0 000-3.464V4zM16 3a1 1 0 011 1v7.268a2 2 0 010 3.464V16a1 1 0 11-2 0v-1.268a2 2 0 010-3.464V4a1 1 0 011-1z"/></svg>
+                    השוואת רכבים
+                </div>
+                <h2 class="text-4xl md:text-[3.2rem] font-extrabold" style="font-family:'Rubik','Heebo',sans-serif; letter-spacing:-.5px;">
                     השוואת רכבים
                 </h2>
                 <p class="text-slate-400 max-w-2xl mx-auto">
@@ -225,12 +219,12 @@
             </header>
 
             <!-- Car Selection -->
-            <div id="carSelectionSection" class="bg-dark-lighter/70 border border-slate-700/70 rounded-[1.75rem] p-6 md:p-8">
-                <h3 class="text-xl font-bold text-white mb-6">בחר רכבים להשוואה</h3>
+            <div id="carSelectionSection" class="yr-chrome-card p-6 md:p-8">
+                <h3 class="text-xl font-bold mb-6" style="font-family:'Rubik','Heebo',sans-serif;">בחר רכבים להשוואה</h3>
 
                 <div class="space-y-6">
                     <!-- Car Slot 1 -->
-                    <div class="car-slot-container car-accent-1 border-2 rounded-xl p-4 bg-slate-800/30" data-slot="1" style="border-color: var(--accent);">
+                    <div class="car-slot-container car-accent-1 border-2 rounded-xl p-4 bg-white/60" data-slot="1" style="border-color: var(--accent);">
                         <div class="flex items-center justify-between mb-4">
                             <h4 id="slot-title-1" class="text-lg font-bold car-title">רכב 1 <span class="text-secondary">*</span></h4>
                             <button type="button" class="clear-slot-btn hidden px-3 py-1 text-xs bg-slate-700 hover:bg-red-600 rounded-full text-slate-300 hover:text-white transition-colors">
@@ -240,7 +234,7 @@
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div class="autocomplete-container md:col-span-1">
                                 <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 block">חפש רכב</label>
-                                <input type="text" id="car_search_1" class="autocomplete-input w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 focus:ring-primary focus:border-primary" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
+                                <input type="text" id="car_search_1" class="autocomplete-input w-full bg-white border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 focus:ring-primary focus:border-primary" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
                                 <div id="car_dropdown_1" class="autocomplete-dropdown"></div>
                                 <input type="hidden" id="car_make_1" name="make_1">
                                 <input type="hidden" id="car_model_1" name="model_1">
@@ -251,7 +245,7 @@
                             <div class="space-y-2">
                                 <label class="text-xs font-bold uppercase tracking-wider text-slate-400">שנתון</label>
                                 <select id="year_1" name="year_1" disabled
-                                        class="ltr-select w-full appearance-none bg-slate-900/50 border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                        class="ltr-select w-full appearance-none bg-white border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                     <option value="">בחר רכב תחילה</option>
                                 </select>
                             </div>
@@ -259,7 +253,7 @@
                                 <div class="space-y-2">
                                     <label class="text-xs font-bold uppercase tracking-wider text-slate-400">סוג מנוע</label>
                                     <select id="engine_1" name="engine_1"
-                                            class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                            class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
                                         <option value="בנזין" selected>בנזין</option>
                                         <option value="דיזל">דיזל</option>
                                         <option value="היברידי">היברידי</option>
@@ -269,7 +263,7 @@
                                 <div class="space-y-2">
                                     <label class="text-xs font-bold uppercase tracking-wider text-slate-400">תיבת הילוכים</label>
                                     <select id="gear_1" name="gear_1"
-                                            class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                            class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
                                         <option value="אוטומטית" selected>אוטומטית</option>
                                         <option value="רובוטית">רובוטית</option>
                                         <option value="רציפה">רציפה</option>
@@ -282,7 +276,7 @@
                     </div>
 
                     <!-- Car Slot 2 -->
-                    <div class="car-slot-container car-accent-2 border-2 rounded-xl p-4 bg-slate-800/30" data-slot="2" style="border-color: var(--accent);">
+                    <div class="car-slot-container car-accent-2 border-2 rounded-xl p-4 bg-white/60" data-slot="2" style="border-color: var(--accent);">
                         <div class="flex items-center justify-between mb-4">
                             <h4 id="slot-title-2" class="text-lg font-bold car-title">רכב 2 <span class="text-secondary">*</span></h4>
                             <button type="button" class="clear-slot-btn hidden px-3 py-1 text-xs bg-slate-700 hover:bg-red-600 rounded-full text-slate-300 hover:text-white transition-colors">
@@ -292,7 +286,7 @@
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div class="autocomplete-container md:col-span-1">
                                 <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 block">חפש רכב</label>
-                                <input type="text" id="car_search_2" class="autocomplete-input w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 focus:ring-primary focus:border-primary" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
+                                <input type="text" id="car_search_2" class="autocomplete-input w-full bg-white border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 focus:ring-primary focus:border-primary" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
                                 <div id="car_dropdown_2" class="autocomplete-dropdown"></div>
                                 <input type="hidden" id="car_make_2" name="make_2">
                                 <input type="hidden" id="car_model_2" name="model_2">
@@ -303,7 +297,7 @@
                             <div class="space-y-2">
                                 <label class="text-xs font-bold uppercase tracking-wider text-slate-400">שנתון</label>
                                 <select id="year_2" name="year_2" disabled
-                                        class="ltr-select w-full appearance-none bg-slate-900/50 border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                        class="ltr-select w-full appearance-none bg-white border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                     <option value="">בחר רכב תחילה</option>
                                 </select>
                             </div>
@@ -311,7 +305,7 @@
                                 <div class="space-y-2">
                                     <label class="text-xs font-bold uppercase tracking-wider text-slate-400">סוג מנוע</label>
                                     <select id="engine_2" name="engine_2"
-                                            class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                            class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
                                         <option value="בנזין" selected>בנזין</option>
                                         <option value="דיזל">דיזל</option>
                                         <option value="היברידי">היברידי</option>
@@ -321,7 +315,7 @@
                                 <div class="space-y-2">
                                     <label class="text-xs font-bold uppercase tracking-wider text-slate-400">תיבת הילוכים</label>
                                     <select id="gear_2" name="gear_2"
-                                            class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                            class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
                                         <option value="אוטומטית" selected>אוטומטית</option>
                                         <option value="רובוטית">רובוטית</option>
                                         <option value="רציפה">רציפה</option>
@@ -334,7 +328,7 @@
                     </div>
 
                     <!-- Car Slot 3 (optional) -->
-                    <div class="car-slot-container car-accent-3 border-2 rounded-xl p-4 bg-slate-800/30" data-slot="3" style="border-color: var(--accent);">
+                    <div class="car-slot-container car-accent-3 border-2 rounded-xl p-4 bg-white/60" data-slot="3" style="border-color: var(--accent);">
                         <div class="flex items-center justify-between mb-4">
                             <h4 id="slot-title-3" class="text-lg font-bold car-title">רכב 3 <span class="text-slate-500">(אופציונלי)</span></h4>
                             <button type="button" class="clear-slot-btn hidden px-3 py-1 text-xs bg-slate-700 hover:bg-red-600 rounded-full text-slate-300 hover:text-white transition-colors">
@@ -344,7 +338,7 @@
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div class="autocomplete-container md:col-span-1">
                                 <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 block">חפש רכב</label>
-                                <input type="text" id="car_search_3" class="autocomplete-input w-full bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 focus:ring-primary focus:border-primary" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
+                                <input type="text" id="car_search_3" class="autocomplete-input w-full bg-white border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 focus:ring-primary focus:border-primary" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
                                 <div id="car_dropdown_3" class="autocomplete-dropdown"></div>
                                 <input type="hidden" id="car_make_3" name="make_3">
                                 <input type="hidden" id="car_model_3" name="model_3">
@@ -355,7 +349,7 @@
                             <div class="space-y-2">
                                 <label class="text-xs font-bold uppercase tracking-wider text-slate-400">שנתון</label>
                                 <select id="year_3" name="year_3" disabled
-                                        class="ltr-select w-full appearance-none bg-slate-900/50 border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                        class="ltr-select w-full appearance-none bg-white border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                     <option value="">בחר רכב תחילה</option>
                                 </select>
                             </div>
@@ -363,7 +357,7 @@
                                 <div class="space-y-2">
                                     <label class="text-xs font-bold uppercase tracking-wider text-slate-400">סוג מנוע</label>
                                     <select id="engine_3" name="engine_3"
-                                            class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                            class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
                                         <option value="בנזין" selected>בנזין</option>
                                         <option value="דיזל">דיזל</option>
                                         <option value="היברידי">היברידי</option>
@@ -373,7 +367,7 @@
                                 <div class="space-y-2">
                                     <label class="text-xs font-bold uppercase tracking-wider text-slate-400">תיבת הילוכים</label>
                                     <select id="gear_3" name="gear_3"
-                                            class="w-full bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
+                                            class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
                                         <option value="אוטומטית" selected>אוטומטית</option>
                                         <option value="רובוטית">רובוטית</option>
                                         <option value="רציפה">רציפה</option>
@@ -386,23 +380,23 @@
                     </div>
                 </div>
                 
-                <details id="buyerProfilePanel" class="rounded-2xl border border-slate-700/70 bg-slate-900/30 p-4 md:p-5">
-                    <summary class="cursor-pointer text-lg font-bold text-white">התאמה לשימוש שלי</summary>
+                <details id="buyerProfilePanel" class="yr-tile p-4 md:p-5">
+                    <summary class="cursor-pointer text-lg font-bold" style="font-family:'Rubik','Heebo',sans-serif;">התאמה לשימוש שלי</summary>
                     <p class="mt-3 text-xs text-slate-400 leading-relaxed">
                         הפרטים האלה משפיעים רק על התאמת ההסבר אליך, לא על הנתונים העובדתיים של הרכבים.
                     </p>
                     <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
                         <label class="space-y-1 text-sm text-slate-300">תקציב מינימלי
-                            <input id="buyer_budget_min" type="number" min="0" max="2000000" class="w-full bg-slate-900/60 border-slate-700 rounded-xl text-slate-100" placeholder="₪">
+                            <input id="buyer_budget_min" type="number" min="0" max="2000000" class="w-full bg-white border-slate-700 rounded-xl text-slate-100" placeholder="₪">
                         </label>
                         <label class="space-y-1 text-sm text-slate-300">תקציב מקסימלי
-                            <input id="buyer_budget_max" type="number" min="0" max="2000000" class="w-full bg-slate-900/60 border-slate-700 rounded-xl text-slate-100" placeholder="₪">
+                            <input id="buyer_budget_max" type="number" min="0" max="2000000" class="w-full bg-white border-slate-700 rounded-xl text-slate-100" placeholder="₪">
                         </label>
                         <label class="space-y-1 text-sm text-slate-300">נסועה שנתית
-                            <input id="buyer_annual_km" type="number" min="0" max="100000" class="w-full bg-slate-900/60 border-slate-700 rounded-xl text-slate-100" placeholder="ק״מ">
+                            <input id="buyer_annual_km" type="number" min="0" max="100000" class="w-full bg-white border-slate-700 rounded-xl text-slate-100" placeholder="ק״מ">
                         </label>
                         <label class="space-y-1 text-sm text-slate-300">שימוש עיקרי
-                            <select id="buyer_main_use" class="w-full bg-slate-900/60 border-slate-700 rounded-xl text-slate-100">
+                            <select id="buyer_main_use" class="w-full bg-white border-slate-700 rounded-xl text-slate-100">
                                 <option value="">ללא התאמה אישית</option>
                                 <option value="city">עירוני</option>
                                 <option value="highway">בין-עירוני</option>
@@ -414,27 +408,27 @@
                             </select>
                         </label>
                         <label class="space-y-1 text-sm text-slate-300">גודל משפחה
-                            <input id="buyer_family_size" type="text" maxlength="80" class="w-full bg-slate-900/60 border-slate-700 rounded-xl text-slate-100" placeholder="לדוגמה: זוג + 2">
+                            <input id="buyer_family_size" type="text" maxlength="80" class="w-full bg-white border-slate-700 rounded-xl text-slate-100" placeholder="לדוגמה: זוג + 2">
                         </label>
                         <label class="space-y-1 text-sm text-slate-300">צורך בתא מטען
-                            <input id="buyer_cargo_need" type="text" maxlength="80" class="w-full bg-slate-900/60 border-slate-700 rounded-xl text-slate-100" placeholder="נמוך / בינוני / גבוה">
+                            <input id="buyer_cargo_need" type="text" maxlength="80" class="w-full bg-white border-slate-700 rounded-xl text-slate-100" placeholder="נמוך / בינוני / גבוה">
                         </label>
                     </div>
                     <div class="mt-4 grid grid-cols-2 md:grid-cols-6 gap-3 text-sm text-slate-300">
-                        <label class="flex items-center gap-2"><input data-priority="fuel" type="checkbox" class="buyer-priority rounded border-slate-600 bg-slate-900"> חיסכון</label>
-                        <label class="flex items-center gap-2"><input data-priority="safety" type="checkbox" class="buyer-priority rounded border-slate-600 bg-slate-900"> בטיחות</label>
-                        <label class="flex items-center gap-2"><input data-priority="reliability" type="checkbox" class="buyer-priority rounded border-slate-600 bg-slate-900"> אמינות</label>
-                        <label class="flex items-center gap-2"><input data-priority="performance" type="checkbox" class="buyer-priority rounded border-slate-600 bg-slate-900"> ביצועים</label>
-                        <label class="flex items-center gap-2"><input data-priority="comfort" type="checkbox" class="buyer-priority rounded border-slate-600 bg-slate-900"> נוחות</label>
-                        <label class="flex items-center gap-2"><input data-priority="cost" type="checkbox" class="buyer-priority rounded border-slate-600 bg-slate-900"> עלות אחזקה</label>
+                        <label class="flex items-center gap-2"><input data-priority="fuel" type="checkbox" class="buyer-priority rounded border-slate-600 bg-white"> חיסכון</label>
+                        <label class="flex items-center gap-2"><input data-priority="safety" type="checkbox" class="buyer-priority rounded border-slate-600 bg-white"> בטיחות</label>
+                        <label class="flex items-center gap-2"><input data-priority="reliability" type="checkbox" class="buyer-priority rounded border-slate-600 bg-white"> אמינות</label>
+                        <label class="flex items-center gap-2"><input data-priority="performance" type="checkbox" class="buyer-priority rounded border-slate-600 bg-white"> ביצועים</label>
+                        <label class="flex items-center gap-2"><input data-priority="comfort" type="checkbox" class="buyer-priority rounded border-slate-600 bg-white"> נוחות</label>
+                        <label class="flex items-center gap-2"><input data-priority="cost" type="checkbox" class="buyer-priority rounded border-slate-600 bg-white"> עלות אחזקה</label>
                     </div>
                 </details>
 
                 <div class="pt-4 space-y-8">
                     <label
-                        class="flex items-start gap-4 p-4 rounded-xl bg-slate-800/20 border border-slate-700/50 cursor-pointer group hover:bg-slate-800/40 transition-colors">
+                        class="flex items-start gap-4 p-4 rounded-xl bg-white/50 border border-slate-700/50 cursor-pointer group hover:bg-white/70 transition-colors">
                         <input type="checkbox" id="compareLegalConfirm" name="legal-confirm" required
-                               class="mt-1 w-6 h-6 rounded border-2 border-slate-600 text-primary focus:ring-offset-0 focus:ring-primary bg-slate-900/50 transition-colors">
+                               class="mt-1 w-6 h-6 rounded border-2 border-slate-600 text-primary focus:ring-offset-0 focus:ring-primary bg-white transition-colors">
                         <span class="text-sm text-slate-300 leading-relaxed">
                             אני מאשר/ת כי אני מעל גיל 18, וקראתי והסכמתי
                             <a href="{{ url_for('public.terms') }}" target="_blank" rel="noopener noreferrer"
@@ -446,7 +440,7 @@
                         </span>
                     </label>
                     <p id="compareLegalError"
-                       class="hidden show-flex items-center text-red-400 text-sm bg-red-950/30 border border-red-900/50 p-3 rounded-lg">
+                       class="hidden show-flex items-center text-red-500 text-sm bg-red-50 border border-red-200 p-3 rounded-lg">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 ml-2" viewBox="0 0 20 20" fill="currentColor">
                             <path fill-rule="evenodd"
                                   d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
@@ -457,7 +451,7 @@
                 </div>
                 <div class="flex justify-center mt-6">
                     <button id="compareBtn" type="button" aria-busy="false"
-                            class="px-8 py-3 bg-gradient-to-r from-primary to-secondary text-white font-bold rounded-full hover:from-primary/90 hover:to-secondary/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            class="yr-btn px-8 py-3 rounded-full disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                             disabled>
                         <span class="btn-text">השווה רכבים</span>
                         <span class="btn-loading hidden show-flex items-center gap-2">
@@ -469,12 +463,12 @@
             </div>
 
             <section id="compareResultReadyPanel" class="hidden space-y-6">
-                <div class="rounded-[2rem] border border-primary/30 bg-dark-lighter/80 p-6 md:p-8 text-center shadow-2xl">
-                    <h3 class="text-2xl md:text-3xl font-black text-white">✅ התוצאה מוכנה</h3>
+                <div class="yr-ready-panel">
+                    <h3 class="text-2xl md:text-3xl font-black" style="font-family:'Rubik','Heebo',sans-serif;">התוצאה מוכנה</h3>
                     <p class="mt-3 text-sm md:text-base text-slate-300">
                         הבדיקה הסתיימה. אפשר לפתוח את התוצאה עכשיו.
                     </p>
-                    <button id="compareOpenResultButton" type="button" class="mt-6 inline-flex w-full items-center justify-center rounded-2xl bg-gradient-to-r from-primary to-secondary px-8 py-4 text-lg font-black text-white shadow-xl shadow-primary/20 transition hover:opacity-90 md:w-auto md:min-w-[280px]">
+                    <button id="compareOpenResultButton" type="button" class="yr-btn mt-6 px-8 py-4 text-lg rounded-2xl w-full md:w-auto md:min-w-[280px]">
                         פתח תוצאה
                     </button>
                 </div>
@@ -484,26 +478,26 @@
 
             <!-- Results Section (hidden initially) -->
             <div id="resultsSection" class="hidden space-y-6">
-                <div class="text-sm md:text-base text-amber-100 bg-amber-500/15 border-2 border-amber-400/40 rounded-2xl p-4 md:p-5 leading-relaxed space-y-2">
+                <div class="yr-disclaimer--warn text-sm md:text-base leading-relaxed space-y-2" style="padding:16px 20px; border-radius:var(--yr-radius,18px);">
                     <p><strong>דיסקליימר חשוב:</strong> ההשוואה היא כלי תומך החלטה בלבד ואינה ייעוץ מקצועי, בדיקה מכנית או חוות דעת שמאית.</p>
                     <p>יש לאמת עצמאית כל נתון מול מקורות נוספים ובדיקה מקצועית. אין אחריות לטעויות, פערים או מידע חסר.</p>
                 </div>
-                <div id="compareApiDisclaimers" class="hidden rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4 text-sm text-slate-200"></div>
+                <div id="compareApiDisclaimers" class="hidden yr-disclaimer--info p-4 text-sm" style="border-radius:var(--yr-radius,18px);"></div>
                 <!-- Overall Verdict -->
-                <div id="verdictSection" class="bg-gradient-to-br from-slate-800/90 to-slate-900/90 border border-slate-700/70 rounded-2xl p-6 md:p-8">
-                    <h3 class="text-2xl font-bold text-white mb-4">תוצאת ההשוואה</h3>
+                <div id="verdictSection" class="yr-chrome-card p-6 md:p-8">
+                    <h3 class="text-2xl font-bold mb-4" style="font-family:'Rubik','Heebo',sans-serif;">תוצאת ההשוואה</h3>
                     
                     <div id="winnerDisplay" class="mb-6">
                         <!-- Winner will be displayed here -->
                     </div>
                     
-                    <div id="assumptionsDisplay" class="mb-4 p-4 bg-slate-700/30 rounded-lg text-sm text-slate-300">
-                        <strong class="text-white">הנחות:</strong>
+                    <div id="assumptionsDisplay" class="mb-4 p-4 bg-white/60 rounded-2xl border border-slate-700/50 text-sm text-slate-300">
+                        <strong>הנחות:</strong>
                         <ul id="assumptionsList" class="mt-2 space-y-1"></ul>
                     </div>
                     
                     <div id="topReasons" class="space-y-2">
-                        <strong class="text-white">סיבות עיקריות:</strong>
+                        <strong>סיבות עיקריות:</strong>
                         <ul id="reasonsList" class="mt-2 space-y-1 text-slate-300"></ul>
                     </div>
                 </div>
@@ -515,7 +509,7 @@
             </div>
 
             <!-- Error Section -->
-            <div id="errorSection" class="hidden bg-red-900/30 border border-red-700/50 rounded-2xl p-6 text-center">
+            <div id="errorSection" class="hidden yr-chrome-card border-red-400/30 rounded-2xl p-6 text-center" style="border-color:rgba(239,68,68,.25);">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto text-red-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
@@ -528,7 +522,7 @@
         </section>
         
         <!-- Timing Banner (hidden by default) - responsive for mobile -->
-        <div id="compareTimingBanner" role="status" class="hidden fixed top-20 sm:top-24 left-1/2 transform -translate-x-1/2 z-50 bg-dark-lighter/95 backdrop-blur-xl border-2 border-primary/50 rounded-2xl shadow-2xl p-4 sm:p-6 max-w-[calc(100vw-2rem)]">
+        <div id="compareTimingBanner" role="status" class="hidden fixed top-20 sm:top-24 left-1/2 transform -translate-x-1/2 z-50 yr-glass p-4 sm:p-6 max-w-[calc(100vw-2rem)]" style="border-color:rgba(47,107,255,.3); box-shadow:0 30px 70px -28px rgba(20,40,80,.34);">
             <div class="flex flex-col items-center gap-3 sm:gap-4">
                 <div class="relative w-24 h-24 sm:w-32 sm:h-32">
                     <!-- SVG Circular Progress Ring -->
@@ -563,19 +557,19 @@
         <div id="compareResultAckModal" class="fixed inset-0 z-50 hidden">
             <div class="absolute inset-0 bg-black/70"></div>
             <div class="absolute inset-0 flex items-center justify-center p-4">
-                <div class="w-full max-w-lg rounded-2xl border border-slate-700 bg-dark-lighter p-6 md:p-8 shadow-2xl">
-                    <h3 class="text-2xl font-black text-white mb-3">אישור לפני פתיחת תוצאות ההשוואה</h3>
+                <div class="w-full max-w-lg yr-chrome-card p-6 md:p-8">
+                    <h3 class="text-2xl font-black mb-3" style="font-family:'Rubik','Heebo',sans-serif;">אישור לפני פתיחת תוצאות ההשוואה</h3>
                     <p class="text-slate-300 text-sm leading-relaxed mb-4">
                         תוצאת ההשוואה מסייעת בקבלת החלטה בלבד ואינה תחליף לבדיקה מקצועית/מכנית או להערכת שמאי.
                     </p>
                     <label class="flex items-start gap-3 text-slate-200 text-sm mb-4 cursor-pointer">
-                        <input id="compareResultAckCheckbox" type="checkbox" class="mt-1 rounded border-slate-600 bg-slate-900 text-primary">
+                        <input id="compareResultAckCheckbox" type="checkbox" class="mt-1 rounded border-slate-600 bg-white text-primary">
                         <span>אני מבין/ה שעליי לבצע אימות עצמאי ושאין להסתמך על ההשוואה כמקור יחיד להחלטה.</span>
                     </label>
                     <p id="compareResultAckError" class="hidden text-xs text-danger mb-3">יש לסמן את תיבת האישור כדי להמשיך.</p>
                     <div class="flex gap-3">
-                        <button id="compareResultAckConfirm" type="button" class="flex-1 rounded-full bg-gradient-to-r from-primary to-secondary px-5 py-3 text-white font-bold">אישור ופתיחת התוצאה</button>
-                        <button id="compareResultAckCancel" type="button" class="rounded-full bg-slate-700 hover:bg-slate-600 px-5 py-3 text-white">ביטול</button>
+                        <button id="compareResultAckConfirm" type="button" class="yr-btn flex-1 rounded-full px-5 py-3">אישור ופתיחת התוצאה</button>
+                        <button id="compareResultAckCancel" type="button" class="yr-btn--chrome yr-btn rounded-full px-5 py-3">ביטול</button>
                     </div>
                 </div>
             </div>
@@ -1381,7 +1375,7 @@
                 // Show error in results section
                 resultsSection.classList.remove('hidden');
                 resultsSection.innerHTML = `
-                    <div class="bg-red-900/30 border border-red-700/60 rounded-2xl p-6 text-center">
+                    <div class="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
                         <div class="text-4xl mb-4">⚠️</div>
                         <h3 class="text-xl font-bold text-white mb-2">שגיאה בטעינת ההשוואה</h3>
                         <p class="text-red-300">${escapeHtml(errorMsg)}</p>
@@ -1430,7 +1424,7 @@
             // Show generic error
             resultsSection.classList.remove('hidden');
             resultsSection.innerHTML = `
-                <div class="bg-red-900/30 border border-red-700/60 rounded-2xl p-6 text-center">
+                <div class="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
                     <div class="text-4xl mb-4">⚠️</div>
                     <h3 class="text-xl font-bold text-white mb-2">שגיאה בטעינת ההשוואה</h3>
                     <p class="text-red-300">אירעה שגיאה בטעינת ההשוואה. נסה שוב מאוחר יותר.</p>
@@ -1813,14 +1807,14 @@
         if (!carKeys.length) return '';
         const gridCols = carKeys.length >= 3 ? 'md:grid-cols-3' : 'md:grid-cols-2';
         return `
-            <section class="rounded-2xl border border-slate-700/70 bg-slate-900/50 p-4 md:p-5">
+            <section class="rounded-2xl border border-slate-700/70 bg-white p-4 md:p-5">
                 <div class="inline-flex items-center rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-bold text-primary mb-3">גרסה שנבדקה</div>
                 <p class="text-sm leading-7 text-slate-400 mb-4">הקטע מציג את הגרסה המייצגת שלפיה נוסחה ההשוואה, כולל מה עדיין דורש אימות.</p>
                 <div class="grid grid-cols-1 ${gridCols} gap-4">
                     ${carKeys.map((ck, index) => {
                         const version = checkedVersions?.[ck] || {};
                         return `
-                            <article class="rounded-2xl border border-slate-700/70 bg-dark-lighter/70 p-4 space-y-3">
+                            <article class="rounded-2xl border border-slate-700/70 bg-white p-4 space-y-3">
                                 <div class="flex items-center gap-2 flex-wrap">
                                     <span class="car-result-chip car-chip-${index + 1}">${escapeHtml(carName(carsSelected, ck))}</span>
                                 </div>
@@ -1875,10 +1869,10 @@
             const carDisplayName = carsSelected[pref]?.display_name || `רכב ${carIdx}`;
             prefDisplay = `<span class="text-xs text-slate-400 ml-1">עדיפות: </span><span class="car-result-chip car-chip-${carIdx}">${escapeHtml(carDisplayName)}</span>`;
         } else {
-            prefDisplay = `<span class="rounded-full border border-slate-600 bg-slate-900/60 px-3 py-1 text-xs text-slate-300">תלוי שימוש ומצב בפועל</span>`;
+            prefDisplay = `<span class="rounded-full border border-slate-600 bg-white px-3 py-1 text-xs text-slate-300">תלוי שימוש ומצב בפועל</span>`;
         }
         return `
-            <article class="rounded-2xl border border-slate-700/70 bg-dark-lighter/70 p-4 md:p-5 space-y-2">
+            <article class="rounded-2xl border border-slate-700/70 bg-white p-4 md:p-5 space-y-2">
                 <div class="flex items-center justify-between gap-3">
                     <h4 class="text-lg font-bold text-white">${escapeHtml(title)}</h4>
                     <div class="flex items-center gap-1">${prefDisplay}</div>
@@ -1903,7 +1897,7 @@
         return `
             ${renderCheckedVersions(result, carsSelected, carKeys)}
             <section class="grid grid-cols-1 ${gridCols} gap-4">
-                <article class="rounded-2xl border border-slate-700/70 bg-slate-900/50 p-4">
+                <article class="rounded-2xl border border-slate-700/70 bg-white p-4">
                     <h4 class="text-lg font-bold text-white mb-3">למי כל רכב מתאים</h4>
                     ${carKeys.map((ck, index) => `
                         <div class="mb-3">
@@ -1915,7 +1909,7 @@
                         </div>
                     `).join('')}
                 </article>
-                <article class="rounded-2xl border border-slate-700/70 bg-slate-900/50 p-4">
+                <article class="rounded-2xl border border-slate-700/70 bg-white p-4">
                     <h4 class="text-lg font-bold text-white mb-3">מה לבדוק לפני החלטה</h4>
                     ${carKeys.map((ck, index) => `
                         <div class="mb-3">
@@ -1927,11 +1921,11 @@
                     `).join('')}
                 </article>
             </section>
-            <section class="rounded-2xl border border-slate-700/70 bg-dark-lighter/70 p-4 md:p-5">
+            <section class="rounded-2xl border border-slate-700/70 bg-white p-4 md:p-5">
                 <h4 class="text-lg font-bold text-white mb-3">הבדלים מרכזיים</h4>
                 <div class="space-y-3">
                     ${keyDiffs.length ? keyDiffs.map(diff => `
-                        <div class="rounded-xl bg-slate-900/50 border border-slate-700/60 p-3">
+                        <div class="rounded-xl bg-white border border-slate-700/60 p-3">
                             <div class="font-bold text-slate-100 mb-2">${escapeHtml(diff.title || 'פער שחשוב להבין')}</div>
                             <div class="space-y-2">
                                 ${carKeys.map((ck, index) => diff[`car_${index + 1}`] ? `
@@ -1956,7 +1950,7 @@
             ${renderCategoryDecisionCard(decision, 'resale_and_market_confidence', 'סחירות ועלויות אחזקה', carsSelected, carKeys)}
             <section class="grid grid-cols-1 ${gridCols} gap-4">
                 ${carKeys.map((ck, index) => `
-                    <article class="rounded-2xl border border-slate-700/70 bg-slate-900/50 p-4">
+                    <article class="rounded-2xl border border-slate-700/70 bg-white p-4">
                         <div class="mb-2">
                             <span class="car-result-chip car-chip-${index + 1}">${escapeHtml(carName(carsSelected, ck))}</span>
                         </div>
@@ -1968,7 +1962,7 @@
                     </article>
                 `).join('')}
             </section>
-            <section class="rounded-2xl border border-slate-700/70 bg-dark-lighter/70 p-4 md:p-5">
+            <section class="rounded-2xl border border-slate-700/70 bg-white p-4 md:p-5">
                 <h4 class="text-lg font-bold text-white mb-3">מתחרים שכדאי לבדוק</h4>
                 <ul class="text-sm leading-7 text-slate-300">
                     ${competitors.length ? competitors.map(item => `<li>• <span class="font-bold text-slate-100">${escapeHtml(item.model || '')}</span> – ${escapeHtml(item.why_consider || '')}</li>`).join('') : '<li>אין מתחרים נוספים במידע הזמין.</li>'}
