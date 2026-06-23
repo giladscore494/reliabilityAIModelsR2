@@ -2,27 +2,36 @@
 <html lang="he" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<title>בקרוב – המלצות רכבים</title>
-<style>
-    body {
-        margin: 0;
-        padding: 0;
-        background:#eef1f6;
-        color:#E2E8F0;
-        font-family: Heebo, sans-serif;
-        display:flex;
-        flex-direction:column;
-        align-items:center;
-        justify-content:center;
-        min-height:100vh;
-        text-align:center;
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>בקרוב – yedaarechevAI</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio"></script>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<script nonce="{{ csp_nonce }}">
+    tailwind.config = {
+        darkMode:'class',
+        theme:{ extend:{ colors:{slate:{50:'#0e1218',100:'#1c2530',200:'#2a313b',300:'#46505c',400:'#6b7480',500:'#9aa3af',600:'#c4ccd6',700:'#e3e8ef',800:'#eef1f6',900:'#ffffff',950:'#f7f9fc'}, primary:'#2f6bff', secondary:'#1f57e6', dark:'#eef1f6', 'dark-lighter':'#ffffff' } } }
     }
-    h1 { font-size: 4rem; font-weight:900; }
-</style>
-    <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
+</script>
+<link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
 </head>
-<body>
-    <h1>בקרוב...</h1>
-    {% include "_footer.html" %}
+<body class="min-h-screen flex flex-col">
+{% set active_page = '' %}
+{% include '_navbar.html' %}
+
+<main class="flex-grow flex items-center justify-center px-4">
+    <div class="yr-glass yr-rise text-center" style="padding:48px 40px;max-width:480px;width:100%;">
+        <div class="w-16 h-16 mx-auto rounded-2xl bg-primary/10 flex items-center justify-center mb-5">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2f6bff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+        </div>
+        <h1 class="text-3xl font-extrabold text-white mb-3">בקרוב...</h1>
+        <p class="text-slate-400 mb-6 leading-relaxed">תוכן זה יתווסף בקרוב. בינתיים ניתן להמשיך להשתמש בסקירת האמינות והמלצות הרכב.</p>
+        <a href="{{ url_for('public.app_page') }}" class="yr-btn">לעבור לסקירת הרכב</a>
+    </div>
+</main>
+
+{% include "_footer.html" %}
 </body>
 </html>

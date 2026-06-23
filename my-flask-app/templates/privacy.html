@@ -26,34 +26,12 @@
 </head>
 <body class="min-h-screen flex flex-col">
 
-  <!-- NAV -->
-  <header class="yr-header">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
-      <a href="{{ url_for('public.index') }}" class="yr-brand group">
-        <span class="yr-brand__mark">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11l1.5-4.2A2 2 0 0 1 8.4 5.4h7.2a2 2 0 0 1 1.9 1.4L19 11 M5 11h14v5H5z M5 16v2 M19 16v2"></path></svg>
-        </span>
-        <span class="flex flex-col leading-none">
-          <span class="yr-brand__name yr-chrome-text">ידע רכב</span>
-          <span class="yr-brand__sub">AI&nbsp;CAR&nbsp;ADVISOR</span>
-        </span>
-      </a>
-      <div class="flex items-center gap-3 sm:gap-6 text-sm font-medium">
-        {% if user and user.is_authenticated %}
-        <a href="{{ url_for('public.app_page') }}" class="px-4 py-2 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition">סקירת רכב</a>
-        <a href="{{ url_for('dashboard.dashboard') }}" class="px-4 py-2 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition">החיפושים שלי</a>
-        <a href="{{ url_for('public.logout') }}" class="px-4 py-2 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition">התנתק</a>
-        {% else %}
-        <a href="{{ url_for('public.app_page') }}" class="px-5 py-2 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition">לסקירת הרכב</a>
-        <a href="{{ url_for('public.login') }}" class="px-6 py-2 rounded-full font-bold bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 transition-all text-white shadow-lg">התחברות</a>
-        {% endif %}
-      </div>
-    </div>
-  </header>
+  {% set active_page = 'privacy' %}
+  {% include '_navbar.html' %}
 
   <!-- MAIN -->
   <main class="flex-grow container mx-auto px-4 sm:px-6 lg:px-8 py-16 md:py-24">
-    <div class="max-w-4xl mx-auto bg-dark-lighter/50 backdrop-blur-xl shadow-xl p-10 rounded-3xl border border-slate-700/50 fade-in">
+    <div class="max-w-4xl mx-auto bg-white/80 backdrop-blur-xl shadow-xl p-8 sm:p-10 rounded-3xl border border-[#cfd5dd] fade-in">
       <h2 class="text-4xl md:text-5xl font-extrabold text-white mb-6">מדיניות פרטיות</h2>
       <p class="text-slate-400 mb-2"><strong>עדכון אחרון:</strong> 25 באפריל 2026</p>
       <p class="text-slate-500 text-sm mb-6">
@@ -62,17 +40,17 @@
         גרסת הסכמת מחקר: <code>{{ research_consent_version or '2026-04-25' }}</code>
       </p>
 
-      <p class="text-xs text-slate-400 bg-slate-800/50 border border-slate-700/60 rounded-xl p-3 mb-6">
+      <p class="text-xs text-slate-400 bg-[#f0f2f6] border border-[#cfd5dd] rounded-xl p-3 mb-6">
         <strong>הבהרה:</strong> המדיניות מנוסחת כברירת מחדל תפעולית, ומומלץ להשלים בדיקה והתאמה סופית מול עורך דין ישראלי המתמחה בדיני פרטיות וצרכנות לפני עלייה לפרודקשן.
       </p>
 
-      <p class="text-slate-300 leading-relaxed mb-6">
+      <p class="text-slate-200 leading-relaxed mb-6">
         מסמך זה מסביר אילו נתונים אנו אוספים בעת שימוש ב-yedaarechevAI, לאילו מטרות, איך הם נשמרים, ומתי הם עשויים להיות משויכים
         למשתמש מזוהה לעומת מבקר אנונימי.
       </p>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">1. אילו נתונים נאספים</h3>
-      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+      <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li><strong>נתוני חשבון:</strong> שם, כתובת אימייל ומזהה Google כאשר אתה מתחבר.</li>
         <li><strong>נתוני מוצר:</strong> פרטי רכב, פרופילי שימוש, תוצאות סקירת רכב, השוואות רכבים, תוצאות Advisor, היסטוריית שימוש בדשבורד וזמני עיבוד.</li>
         <li><strong>נתוני תפעול:</strong> מזהי בקשה, חותמות זמן, User-Agent, כתובת IP מקוצרת או מגובבת, ומידע אבטחה/קצב שימוש.</li>
@@ -80,32 +58,32 @@
       </ul>
 
       <h3 id="research-notice" class="text-2xl font-bold text-white mt-10 mb-4">2. הודעת מחקר – מחקר אופציונלי אחרי התוצאה</h3>
-      <p class="text-slate-300 mb-4">
+      <p class="text-slate-200 mb-4">
         בחלק מהזרימות באתר אנו עשויים להציג שאלות מחקר אופציונליות לאחר קבלת תוצאה או המלצה. שמירת תשובות אלה מחייבת אישור מחקר ייעודי ומפורש ואינה תנאי לשימוש בשירות, למעט מידע שנדרש ישירות להפעלת השירות עצמו.
       </p>
-      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-4">
+      <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-4">
         <li>אנו שומרים תשובות במבנה JSON ייעודי, ולא כטקסט חופשי ככל שניתן.</li>
         <li>התשובות עשויות להיות מקושרות להקשר רכב, סוג זרימה, ולרשומת תוצאה רלוונטית (למשל חיפוש אמינות, השוואה או היסטוריית Advisor).</li>
         <li>נשמרים גם פרטי ביקורת של ההסכמה: גרסת תקנון, גרסת פרטיות, גרסת הודעת המחקר, זמן אישור, IP מקוצר/מגובב, שפה ו-User-Agent.</li>
         <li>אם המשתמש מחובר, המידע עשוי להיות משויך לחשבון. אם לא, ניתן לשייך אותו למזהה אנונימי פנימי של הדפדפן/סשן.</li>
       </ul>
-      <p class="text-slate-300 mb-6">
+      <p class="text-slate-200 mb-6">
         מטרות האיסוף הן מחקר מוצר, שיפור זרימות, בדיקת איכות תוצרים, ויצירת אנליטיקות או תוצרים מצטברים/אנונימיים. אם יופקו תובנות מסחריות,
         הן אמורות להתבסס על מידע מצטבר או שעבר אנונימיזציה, ולא על נתוני משתמש מזוהים.
       </p>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">3. שימוש ב-AI וספקי צד שלישי</h3>
-      <p class="text-slate-300 mb-4">
+      <p class="text-slate-200 mb-4">
         לצורך הפעלת חלק מהשירותים אנו משתמשים בספקי AI או תשתית, למשל Google לצורך התחברות ו-Google Gemini לצורך חלק מהעיבוד.
         לא כל פיצ'ר מעביר את אותו היקף מידע, ואנו שואפים לצמצם זיהוי ישיר כאשר אין בכך צורך.
       </p>
-      <p class="text-slate-300 mb-6">
+      <p class="text-slate-200 mb-6">
         נתוני קלט מסוימים, ובכלל זה נתוני רכב, העדפות שימוש או תשובות למחקר, עשויים להיות מעובדים באמצעות ספקי צד שלישי רק במידה הנדרשת
         להפעלת השירות או לשיפורו, ובהתאם להסכמות הרלוונטיות.
       </p>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">4. מטרות העיבוד</h3>
-      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+      <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li>הפעלת ההתחברות, שמירת סשן והגנה מפני שימוש לרעה.</li>
         <li>הפקת תוצאות אמינות, השוואה או המלצה מותאמות לקלט.</li>
         <li>הצגת היסטוריה ודשבורד למשתמשים מחוברים.</li>
@@ -114,47 +92,47 @@
       </ul>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">5. איך נשמר המידע</h3>
-      <p class="text-slate-300 mb-4">
+      <p class="text-slate-200 mb-4">
         הנתונים נשמרים במסד נתונים מנוהל, בכפוף לבקרות גישה, לוגים, TLS ואמצעים תפעוליים נוספים. כתובת IP לצורכי הסכמה אינה נשמרת ככתובת מלאה
         כאשר ניתן לצמצם אותה או לגבב אותה.
       </p>
-      <p class="text-slate-300 mb-6">
+      <p class="text-slate-200 mb-6">
         עוגיות וסשן פנימי משמשים לצורך התחברות, CSRF וניהול מזהה אנונימי טכני. איננו מצהירים כאן על שימוש בעוגיות פרסום של צד שלישי.
       </p>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">6. תקופות שמירה</h3>
-      <p class="text-slate-300 mb-6">
+      <p class="text-slate-200 mb-6">
         תקופות השמירה תלויות בסוג המידע ובצורך התפעולי. היסטוריית מוצר והסכמות עשויות להישמר כל עוד החשבון פעיל או כל עוד קיים צורך סביר
         בתיעוד, אלא אם נמחקו מוקדם יותר, בכפוף לגיבויים, דרישות דין ומגבלות טכניות.
       </p>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">7. מחיקה, גישה וזכויות</h3>
-      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-4">
+      <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-4">
         <li>ניתן למחוק חשבון דרך <a href="{{ url_for('dashboard.dashboard') }}" class="text-primary hover:underline">הדשבורד</a>; מחיקה זו מיועדת למחוק נתונים משויכים במערכות התפעוליות.</li>
         <li>ניתן לפנות אלינו בבקשות עיון, מחיקה או בירור, בכפוף לדין החל וליכולת התפעולית.</li>
         <li>מידע מסוים עשוי להישאר לזמן מוגבל בגיבויים, לוגים או רשומות הנדרשות לצורכי אבטחה ותפעול.</li>
       </ul>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">8. פיצ'רים משלימים – חשבוניות ומחירי טיפול</h3>
-      <p class="text-slate-300 mb-4">
+      <p class="text-slate-200 mb-4">
         בפיצ'רים אלה ייתכן עיבוד של מסמכים או נתונים שחולצו מהם. כאשר הפיצ'ר פעיל, המידע הרלוונטי משמש להפקת דוח, להשוואות סטטיסטיות,
         ולשיפור המערכת. הפיצ'ר עשוי לדרוש הסכמה ייעודית נפרדת.
       </p>
-      <p class="text-slate-300 mb-6">
+      <p class="text-slate-200 mb-6">
         ככל האפשר אנו מצמצמים שמירה של קבצים גולמיים ושל פרטים מזהים שאינם נחוצים להפעלת השירות.
       </p>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">9. יצירת קשר</h3>
-      <p class="text-slate-300 leading-relaxed">
+      <p class="text-slate-200 leading-relaxed">
         לפניות משפטיות, בקשות מחיקה, או שאלות בנושא פרטיות, ניתן ליצור קשר בכתובת
         <a href="mailto:{{ contact_email }}" class="text-primary hover:underline">{{ contact_email }}</a>.
       </p>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">10. מידע שאיננו אוספים במכוון</h3>
-      <p class="text-slate-300 mb-3">
+      <p class="text-slate-200 mb-3">
         כיום איננו אוספים במכוון את הסוגים הבאים, אלא אם תוסיפנו אותם בעתיד לאחר עדכון מדיניות הפרטיות:
       </p>
-      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+      <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li>מספרי רישוי / לוחיות זיהוי של הרכב.</li>
         <li>כתובת מגורים מדויקת.</li>
         <li>עבירות תנועה.</li>
@@ -165,14 +143,14 @@
       </ul>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">11. שלוש שכבות נתונים מופרדות</h3>
-      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+      <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li><strong>היסטוריית מוצר רגילה</strong> — חיפושים, השוואות והמלצות שביצעת, להצגה בדשבורד שלך.</li>
         <li><strong>הקשר חשיבה ל-AI</strong> — תת-קבוצה קטנה ומסוננת של תשובותיך שעשויה להישלח למודל AI רק כאשר היא משפרת את התוצר.</li>
         <li><strong>מאגר עסקי / מחקרי</strong> — נתונים מובנים ומצורפים שמשמשים, בכפוף להסכמה, לבניית מאגר אמינות רכב ישראלי. אין ערבוב בין שכבות אלה.</li>
       </ul>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">12. מאגר מצרפי / עסקי</h3>
-      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+      <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li>בכפוף להסכמתך הנפרדת, תשובות פרופיל הרכב והניסיון בבעלות עשויות לשמש לבניית מאגרי נתונים סטטיסטיים מצטברים.</li>
         <li>המטרה היא לשפר ניקוד אמינות, המלצות ותובנות שוק רלוונטיות לישראל.</li>
         <li>החברה רשאית לעשות שימוש מסחרי בתובנות מצרפיות/אנונימיזציות.</li>
@@ -180,21 +158,21 @@
       </ul>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">13. הודעת עיבוד AI</h3>
-      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+      <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li>חלק מנתוני הרכב/הבקשה עשויים להישלח לספקי AI חיצוניים לצורך הפקת תשובה.</li>
         <li>אנו שולחים רק נתונים רלוונטיים; מזהים אישיים אינם נשלחים אלא אם הדבר נחוץ טכנית.</li>
         <li>תוצרי AI עשויים לכלול שגיאות ואין להתייחס אליהם כייעוץ מקצועי, משפטי, פיננסי או בטיחותי.</li>
       </ul>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">14. בסיס משפטי / הסכמה</h3>
-      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+      <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li>חלק מהנתונים נדרשים לצורך מתן השירות.</li>
         <li>איסוף מחקרי/עסקי אופציונלי מתבצע בכפוף להסכמה נפרדת ומפורשת.</li>
         <li>ניתן לסרב לאיסוף מחקרי כל עוד הוא אינו נדרש לתפקוד הליבה של השירות.</li>
       </ul>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">15. שיתוף נתונים עם מעבדים</h3>
-      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+      <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li>ספק אירוח/תשתית.</li>
         <li>ספק מסד נתונים מנוהל.</li>
         <li>ספק הזדהות (Google OAuth).</li>
@@ -203,7 +181,7 @@
       </ul>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">16. תקופות שמירה (ברירות מחדל)</h3>
-      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+      <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li>נתוני חשבון נשמרים כל עוד החשבון קיים.</li>
         <li>היסטוריית חיפוש נשמרת לדשבורד עד למחיקה או שינוי מדיניות.</li>
         <li>תשובות מאגר עסקי נשמרות כל עוד נדרש לניתוח מצרפי, אלא אם נדרשת מחיקה לפי דין כשהן עוד קשורות למשתמש.</li>
@@ -211,7 +189,7 @@
       </ul>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">17. זכויות המשתמש</h3>
-      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+      <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li>זכות עיון בנתונים שאתה אישית סיפקת.</li>
         <li>זכות תיקון מידע לא מדויק.</li>
         <li>זכות לבקש מחיקה (בכפוף לדרישות דין ומגבלות תפעוליות).</li>
@@ -220,7 +198,7 @@
       </ul>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">18. אבטחת מידע</h3>
-      <ul class="list-disc pr-6 space-y-2 text-slate-300 mb-6">
+      <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li>בקרות גישה, TLS, ניטור והרשאות.</li>
         <li>גיבוב (hash) של מזהים טכניים כגון IP ו-User-Agent כאשר ניתן.</li>
         <li>הפרדה בין היסטוריית מוצר לבין מאגר מחקר/עסקי.</li>
@@ -228,7 +206,7 @@
       </ul>
 
       <h3 class="text-2xl font-bold text-white mt-10 mb-4">19. שינויים במדיניות</h3>
-      <p class="text-slate-300 mb-2">
+      <p class="text-slate-200 mb-2">
         גרסת מדיניות נוכחית: <code>{{ privacy_version or '2026-04-25' }}</code>.
         עדכוני מהותיים עשויים להיות מוצגים בתוך המוצר. המשך שימוש לאחר עדכון מהווה הסכמה לתנאים החדשים, בכפוף לדין החל.
       </p>

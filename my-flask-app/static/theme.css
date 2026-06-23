@@ -657,4 +657,22 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
   .yr-data-row__label{ border-left:none; border-bottom:1px solid var(--yr-border); }
   .yr-method-row{ grid-template-columns:1fr; }
   .yr-method-row__label{ border-left:none; }
+  .yr-glass{ padding:24px 20px; }
+}
+
+/* Legal pages — readable prose on mobile */
+@media (max-width:480px){
+  main .max-w-4xl{ padding:1.25rem !important; }
+  main .max-w-4xl h2{ font-size:1.75rem; }
+  main .max-w-4xl h3{ font-size:1.15rem; }
+  main .max-w-4xl ul{ padding-right:1.25rem; }
+}
+
+/* Dashboard card overflow protection */
+.history-card{ overflow:hidden; word-break:break-word; }
+.detail-section{ overflow:hidden; word-break:break-word; }
+.detail-section table{ font-size:11px; }
+@media (max-width:480px){
+  .detail-section table th,
+  .detail-section table td{ padding:4px 6px; font-size:10px; }
 }
