@@ -16,11 +16,11 @@
             darkMode: 'class',
             theme: {
                 extend: {
-                    colors: {
-                        primary: '#818CF8',
-                        secondary: '#6366F1',
-                        dark: '#0B0F19',
-                        'dark-lighter': '#161B26'
+                    colors: {slate:{50:'#0e1218',100:'#1c2530',200:'#2a313b',300:'#46505c',400:'#6b7480',500:'#9aa3af',600:'#c4ccd6',700:'#e3e8ef',800:'#eef1f6',900:'#ffffff',950:'#f7f9fc'},
+                        primary: '#2f6bff',
+                        secondary: '#1f57e6',
+                        dark: '#eef1f6',
+                        'dark-lighter': '#ffffff'
                     }
                 }
             }
@@ -29,115 +29,116 @@
 
     <style>
         body {
-            font-family: 'Heebo', system-ui, -apple-system, sans-serif;
-            background-color: #0B0F19;
-            color: #E2E8F0;
-            margin: 0;
-            -webkit-tap-highlight-color: transparent;
+            font-family:'Heebo', system-ui, -apple-system, sans-serif;
+            background-color:#eef1f6;
+            color:#2a313b;
+            margin:0;
+            -webkit-tap-highlight-color:transparent;
         }
 
         ::-webkit-scrollbar {
-            width: 6px;
+            width:6px;
         }
 
         ::-webkit-scrollbar-track {
-            background: #161B26;
+            background:#ffffff;
         }
 
         ::-webkit-scrollbar-thumb {
-            background: #475569;
-            border-radius: 10px;
+            background:#c4ccd6;
+            border-radius:10px;
         }
 
         .no-scrollbar::-webkit-scrollbar {
-            display: none;
+            display:none;
         }
 
         .no-scrollbar {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
+            -ms-overflow-style:none;
+            scrollbar-width:none;
         }
 
         @keyframes fadeInOverlay {
             from {
-                opacity: 0;
-                transform: translateY(10px);
+                opacity:0;
+                transform:translateY(10px);
             }
             to {
-                opacity: 1;
-                transform: translateY(0);
+                opacity:1;
+                transform:translateY(0);
             }
         }
 
         .overlay-open {
-            animation: fadeInOverlay 0.25s ease-out;
+            animation:fadeInOverlay 0.25s ease-out;
         }
 
         .dashboard-tab {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
-            padding: 0.8rem 1rem;
-            border-radius: 9999px;
-            border: 1px solid rgba(51, 65, 85, 0.85);
-            background: rgba(15, 23, 42, 0.55);
-            color: #94A3B8;
-            font-size: 0.85rem;
-            font-weight: 700;
-            transition: all 0.2s ease;
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            gap:0.5rem;
+            padding:0.8rem 1rem;
+            border-radius:9999px;
+            border:1px solid rgba(207,213,221, 0.85);
+            background:rgba(255,255,255, 0.55);
+            color:#6b7480;
+            font-size:0.85rem;
+            font-weight:700;
+            transition:all 0.2s ease;
         }
 
         .dashboard-tab:hover {
-            background: rgba(30, 41, 59, 0.9);
-            color: #E2E8F0;
+            background:rgba(255,255,255, 0.9);
+            color:#2a313b;
         }
 
         .dashboard-tab.is-active {
-            background: rgba(51, 65, 85, 0.88);
-            border-color: rgba(99, 102, 241, 0.4);
-            color: #FFFFFF;
-            box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.12) inset;
+            background:rgba(207,213,221, 0.88);
+            border-color:rgba(47,107,255, 0.4);
+            color:#0e1218;
+            box-shadow:0 0 0 1px rgba(47,107,255, 0.12) inset;
         }
 
         .history-card {
-            background: rgba(30, 41, 59, 0.78);
-            border: 1px solid rgba(71, 85, 105, 0.45);
-            border-radius: 1.25rem;
-            padding: 1.1rem 1.25rem;
+            background:rgba(255,255,255, 0.78);
+            border:1px solid rgba(207,213,221, 0.45);
+            border-radius:1.25rem;
+            padding:1.1rem 1.25rem;
         }
 
         .history-empty {
-            background: rgba(30, 41, 59, 0.38);
-            border: 1px solid rgba(51, 65, 85, 0.75);
-            border-radius: 1.5rem;
-            padding: 2.5rem 1.5rem;
+            background:rgba(255,255,255, 0.38);
+            border:1px solid rgba(207,213,221, 0.75);
+            border-radius:1.5rem;
+            padding:2.5rem 1.5rem;
         }
 
         .detail-nav-btn {
-            border-radius: 9999px;
-            border: 1px solid rgba(71, 85, 105, 0.7);
-            background: rgba(30, 41, 59, 0.78);
-            color: #CBD5E1;
-            font-size: 0.75rem;
-            font-weight: 600;
-            padding: 0.45rem 0.85rem;
-            transition: all 0.2s ease;
-            white-space: nowrap;
+            border-radius:9999px;
+            border:1px solid rgba(207,213,221, 0.7);
+            background:rgba(255,255,255, 0.78);
+            color:#46505c;
+            font-size:0.75rem;
+            font-weight:600;
+            padding:0.45rem 0.85rem;
+            transition:all 0.2s ease;
+            white-space:nowrap;
         }
 
         .detail-nav-btn:hover {
-            background: rgba(51, 65, 85, 0.95);
-            color: #FFFFFF;
+            background:rgba(207,213,221, 0.95);
+            color:#0e1218;
         }
 
         .detail-section {
-            background: rgba(30, 41, 59, 0.72);
-            border: 1px solid rgba(51, 65, 85, 0.75);
-            border-radius: 1.25rem;
-            padding: 1rem;
+            background:rgba(255,255,255, 0.72);
+            border:1px solid rgba(207,213,221, 0.75);
+            border-radius:1.25rem;
+            padding:1rem;
         }
     </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
 </head>
 <body class="bg-dark text-slate-200 min-h-screen flex flex-col antialiased">
 

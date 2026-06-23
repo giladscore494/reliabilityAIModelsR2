@@ -15,10 +15,10 @@
             darkMode: 'class',
             theme: {
                 extend: {
-                    colors: {
-                        primary: '#818CF8', secondary: '#6366F1',
-                        dark: '#0B0F19', 'dark-lighter': '#161B26',
-                        success: '#10B981', warning: '#F59E0B', danger: '#EF4444',
+                    colors: {slate:{50:'#0e1218',100:'#1c2530',200:'#2a313b',300:'#46505c',400:'#6b7480',500:'#9aa3af',600:'#c4ccd6',700:'#e3e8ef',800:'#eef1f6',900:'#ffffff',950:'#f7f9fc'},
+                        primary: '#2f6bff', secondary: '#1f57e6',
+                        dark: '#eef1f6', 'dark-lighter': '#ffffff',
+                        success: '#1f9d57', warning: '#d68a00', danger: '#e23b4e',
                     }
                 }
             }
@@ -27,14 +27,15 @@
 
     <style>
         body {
-            font-family: 'Heebo', system-ui, -apple-system, sans-serif;
-            background-color: #0B0F19;
-            color: #E2E8F0;
-            margin: 0;
+            font-family:'Heebo', system-ui, -apple-system, sans-serif;
+            background-color:#eef1f6;
+            color:#2a313b;
+            margin:0;
         }
-        .fade-in { animation: fadeIn 0.4s ease-out forwards; opacity: 0; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .fade-in { animation:fadeIn 0.4s ease-out forwards; opacity:0; }
+        @keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
     </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
 </head>
 <body class="bg-dark text-slate-200 min-h-screen flex flex-col antialiased">
     {% set active_page = 'owner' %}

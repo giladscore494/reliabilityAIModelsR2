@@ -11,45 +11,45 @@
     <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 
     <style>
-        :root { --bg-dark: #0B0F19; --text-light: #E2E8F0; --primary: #818CF8; --secondary:#6366F1; }
+        :root { --bg-dark:#eef1f6; --text-light:#E2E8F0; --primary:#2f6bff; --secondary:#1f57e6; }
         body {
-            font-family: 'Heebo', system-ui, -apple-system, sans-serif;
-            background-color: var(--bg-dark);
-            color: var(--text-light);
-            margin: 0;
-            overflow-x: hidden;
+            font-family:'Heebo', system-ui, -apple-system, sans-serif;
+            background-color:var(--bg-dark);
+            color:var(--text-light);
+            margin:0;
+            overflow-x:hidden;
         }
-        .fade-in { animation: fadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards; opacity: 0; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-        .delay-100 { animation-delay: 100ms; }
-        .delay-200 { animation-delay: 200ms; }
-        .delay-300 { animation-delay: 300ms; }
+        .fade-in { animation:fadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards; opacity:0; }
+        @keyframes fadeIn { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+        .delay-100 { animation-delay:100ms; }
+        .delay-200 { animation-delay:200ms; }
+        .delay-300 { animation-delay:300ms; }
 
-        .loader { border: 3px solid rgba(255,255,255,0.2); border-top-color: var(--primary); border-radius: 50%; width: 1.5rem; height: 1.5rem; animation: spin 1s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
+        .loader { border:3px solid rgba(255,255,255,0.2); border-top-color:var(--primary); border-radius:50%; width:1.5rem; height:1.5rem; animation:spin 1s linear infinite; }
+        @keyframes spin { to { transform:rotate(360deg); } }
 
         .tab-btn {
-            padding: 0.5rem 1rem; font-weight: 600; font-size: 0.875rem;
-            border-bottom: 2px solid transparent; border-top-left-radius: 0.5rem; border-top-right-radius: 0.5rem;
-            background: transparent; color: #cbd5e1; transition: all 0.2s ease; margin-inline-end: 0.5rem;
+            padding:0.5rem 1rem; font-weight:600; font-size:0.875rem;
+            border-bottom:2px solid transparent; border-top-left-radius:0.5rem; border-top-right-radius:0.5rem;
+            background:transparent; color:#46505c; transition:all 0.2s ease; margin-inline-end:0.5rem;
         }
-        .tab-btn:hover { color: #818cf8; border-color: rgba(99,102,241,0.3); }
-        .tab-btn.active { color: #818cf8; border-color: #818CF8; background: rgba(99,102,241,0.10); }
-        .tab-content { display: none; }
-        .tab-content.active { display: block; animation: fadeIn 0.3s ease-out; }
+        .tab-btn:hover { color:#2f6bff; border-color:rgba(47,107,255,0.3); }
+        .tab-btn.active { color:#2f6bff; border-color:#2f6bff; background:rgba(47,107,255,0.10); }
+        .tab-content { display:none; }
+        .tab-content.active { display:block; animation:fadeIn 0.3s ease-out; }
 
-        ::-webkit-scrollbar { width: 10px; }
-        ::-webkit-scrollbar-track { background: #161B26; }
-        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 5px; }
-        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+        ::-webkit-scrollbar { width:10px; }
+        ::-webkit-scrollbar-track { background:#ffffff; }
+        ::-webkit-scrollbar-thumb { background:#c4ccd6; border-radius:5px; }
+        ::-webkit-scrollbar-thumb:hover { background:#64748b; }
 
-        .ltr-select { direction: ltr; text-align: left; }
-        .ltr-select-wrapper .pointer-events-none { left: auto; right: 1rem; }
-        /* show-flex: allows hidden+flex coexistence - display:flex applies when .hidden is removed */
-        .show-flex:not(.hidden) { display: flex !important; }
-        /* ring-overtime: pulsing animation when elapsed time exceeds estimate */
-        @keyframes ring-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-        .ring-overtime { animation: ring-pulse 1s ease-in-out infinite; }
+        .ltr-select { direction:ltr; text-align:left; }
+        .ltr-select-wrapper .pointer-events-none { left:auto; right:1rem; }
+        /* show-flex:allows hidden+flex coexistence - display:flex applies when .hidden is removed */
+        .show-flex:not(.hidden) { display:flex !important; }
+        /* ring-overtime:pulsing animation when elapsed time exceeds estimate */
+        @keyframes ring-pulse { 0%, 100% { opacity:1; } 50% { opacity:0.5; } }
+        .ring-overtime { animation:ring-pulse 1s ease-in-out infinite; }
     </style>
 
     <script nonce="{{ csp_nonce }}">
@@ -57,16 +57,17 @@
             darkMode: 'class',
             theme: {
                 extend: {
-                    colors: {
-                        primary: '#818CF8', secondary: '#6366F1',
-                        dark: '#0B0F19', 'dark-lighter': '#161B26',
-                        success: '#10B981', warning: '#F59E0B', danger: '#EF4444',
+                    colors: {slate:{50:'#0e1218',100:'#1c2530',200:'#2a313b',300:'#46505c',400:'#6b7480',500:'#9aa3af',600:'#c4ccd6',700:'#e3e8ef',800:'#eef1f6',900:'#ffffff',950:'#f7f9fc'},
+                        primary: '#2f6bff', secondary: '#1f57e6',
+                        dark: '#eef1f6', 'dark-lighter': '#ffffff',
+                        success: '#1f9d57', warning: '#d68a00', danger: '#e23b4e',
                     },
                     boxShadow: { 'neon': '0 4px 24px -10px rgba(129, 140, 248, 0.3)' }
                 }
             }
         }
     </script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
 </head>
 <body class="bg-dark text-slate-200 min-h-screen flex flex-col antialiased selection:bg-primary/30 selection:text-white">
 
@@ -413,7 +414,7 @@
                 <div class="relative w-32 h-32">
                     <!-- SVG Circular Progress Ring -->
                     <svg class="w-32 h-32 transform -rotate-90" viewBox="0 0 120 120">
-                        <circle cx="60" cy="60" r="54" fill="none" stroke="#161B26" stroke-width="8"></circle>
+                        <circle cx="60" cy="60" r="54" fill="none" stroke="#ffffff" stroke-width="8"></circle>
                         <circle id="progressRing" cx="60" cy="60" r="54" fill="none" stroke="url(#rainbowGradient)" stroke-width="8" 
                                 stroke-linecap="round" stroke-dasharray="339.292" stroke-dashoffset="339.292"
                                 style="transition: stroke-dashoffset 0.3s ease, stroke 0.5s ease;"></circle>

@@ -1,0 +1,286 @@
+/* ============================================================
+   ידע רכב · Yeda Rechev — Premium White / Chrome Design System
+   UI/UX layer only. No logic, selectors, or data fields changed.
+   Loaded after the per-page Tailwind config so it cascades last.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800;900&family=Rubik:wght@500;600;700;800&display=swap');
+
+/* ---------- Design tokens ---------- */
+:root{
+  --yr-bg:            #eef1f6;   /* bright base */
+  --yr-bg-2:          #f7f9fc;
+  --yr-surface:       #ffffff;   /* solid white panel */
+  --yr-glass:         rgba(255,255,255,.78);
+  --yr-glass-soft:    rgba(255,255,255,.58);
+  --yr-chrome:        #c4ccd6;   /* metallic silver */
+  --yr-chrome-light:  #eef1f6;
+  --yr-chrome-dark:   #8a94a1;
+  --yr-ink:           #0e1218;   /* dark text */
+  --yr-ink-2:         #1c2530;
+  --yr-muted:         #6b7480;   /* muted text */
+  --yr-muted-2:       #94a0ad;
+  --yr-border:        #e3e8ef;   /* chrome border */
+  --yr-border-strong: #cfd5dd;
+  --yr-accent:        #2f6bff;   /* AI blue */
+  --yr-accent-2:      #1f57e6;
+  --yr-accent-cyan:   #16c8e6;
+  --yr-success:       #1f9d57;
+  --yr-warning:       #d68a00;
+  --yr-risk:          #e23b4e;
+  --yr-shadow-sm:     0 6px 18px -12px rgba(20,40,80,.30);
+  --yr-shadow:        0 14px 34px -18px rgba(20,40,80,.30);
+  --yr-shadow-lg:     0 30px 70px -28px rgba(20,40,80,.34);
+  --yr-radius:        18px;
+  --yr-radius-lg:     26px;
+  --carbon: repeating-linear-gradient(45deg,rgba(20,40,80,.045) 0 1px,transparent 1px 6px),
+            repeating-linear-gradient(-45deg,rgba(20,40,80,.045) 0 1px,transparent 1px 6px);
+}
+
+/* ---------- Base / ambient background ---------- */
+html,body{ scroll-behavior:smooth; }
+body{
+  font-family:'Heebo',system-ui,-apple-system,'Segoe UI',sans-serif !important;
+  color:var(--yr-ink) !important;
+  background-color:var(--yr-bg) !important;
+  background-image:
+    radial-gradient(900px 560px at 88% -6%, rgba(47,107,255,.10), transparent 60%),
+    radial-gradient(760px 620px at -4% 104%, rgba(22,200,230,.08), transparent 62%),
+    linear-gradient(180deg,#f7f9fc,#eef1f6) !important;
+  background-attachment:fixed;
+}
+::selection{ background:rgba(47,107,255,.18); }
+
+/* Refined chrome scrollbar */
+::-webkit-scrollbar{ width:11px; height:11px; }
+::-webkit-scrollbar-track{ background:#e9edf3; }
+::-webkit-scrollbar-thumb{ background:linear-gradient(180deg,#cfd5dd,#aeb6c1); border-radius:6px; border:2px solid #e9edf3; }
+::-webkit-scrollbar-thumb:hover{ background:linear-gradient(180deg,#aeb6c1,#8a94a1); }
+
+/* ---------- text-white → ink on the now-light surfaces ---------- */
+/* Headings/body that used to sit on dark surfaces become readable ink. */
+html .text-white{ color:var(--yr-ink) !important; }
+/* …but keep white on colored buttons / saturated badges (higher specificity). */
+html a[class*="from-primary"], html button[class*="from-primary"],
+html [class*="bg-gradient-to"][class*="from-primary"].text-white,
+html .bg-primary.text-white, html .bg-secondary.text-white,
+html [class*="bg-red-5"].text-white, html [class*="bg-red-6"].text-white,
+html [class*="bg-emerald-5"].text-white, html [class*="bg-emerald-6"].text-white,
+html [class*="bg-green-5"].text-white, html [class*="bg-green-6"].text-white,
+html [class*="bg-amber-5"].text-white, html [class*="bg-amber-6"].text-white,
+html [class*="bg-blue-5"].text-white, html [class*="bg-blue-6"].text-white,
+html [class*="bg-indigo-5"].text-white, html [class*="bg-indigo-6"].text-white,
+html [class*="bg-sky-5"].text-white, html [class*="bg-sky-6"].text-white{
+  color:#fff !important;
+}
+
+/* Typographic refinement for headings */
+h1,h2,h3{ font-family:'Rubik','Heebo',sans-serif; letter-spacing:-.4px; }
+
+/* Contrast fix: light accent-text shades (100–300) were tuned for dark bg.
+   Darken them so colored labels stay readable on the white base. */
+html .text-emerald-100,html .text-emerald-200,html .text-emerald-300{ color:#047857 !important; }
+html .text-green-100,html .text-green-200,html .text-green-300{ color:#15803d !important; }
+html .text-red-100,html .text-red-200,html .text-red-300{ color:#b91c1c !important; }
+html .text-rose-100,html .text-rose-200,html .text-rose-300{ color:#be123c !important; }
+html .text-amber-100,html .text-amber-200,html .text-amber-300{ color:#b45309 !important; }
+html .text-yellow-100,html .text-yellow-200,html .text-yellow-300{ color:#a16207 !important; }
+html .text-orange-100,html .text-orange-200,html .text-orange-300{ color:#c2410c !important; }
+html .text-sky-100,html .text-sky-200,html .text-sky-300{ color:#0369a1 !important; }
+html .text-blue-100,html .text-blue-200,html .text-blue-300{ color:#1d4ed8 !important; }
+html .text-indigo-100,html .text-indigo-200,html .text-indigo-300{ color:#4338ca !important; }
+html .text-cyan-100,html .text-cyan-200,html .text-cyan-300{ color:#0e7490 !important; }
+html .text-violet-100,html .text-violet-200,html .text-violet-300{ color:#6d28d9 !important; }
+
+/* ---------- Form controls (light chrome) ---------- */
+input[type="text"],input[type="email"],input[type="number"],input[type="search"],
+select,textarea{
+  background:#fff;
+  color:var(--yr-ink-2);
+  border:1px solid var(--yr-border);
+  border-radius:12px;
+  transition:border-color .18s, box-shadow .18s, background .18s;
+}
+input::placeholder,textarea::placeholder{ color:#aeb6c1; }
+input:focus,select:focus,textarea:focus{
+  outline:none;
+  border-color:var(--yr-accent);
+  box-shadow:0 0 0 3px rgba(47,107,255,.16);
+  background:#fff;
+}
+
+/* Accessible, keyboard-visible focus everywhere */
+a:focus-visible,button:focus-visible,[role="button"]:focus-visible,
+input:focus-visible,select:focus-visible,textarea:focus-visible,
+[tabindex]:focus-visible{
+  outline:2px solid var(--yr-accent);
+  outline-offset:2px;
+  border-radius:8px;
+}
+
+/* ============================================================
+   Reusable premium components
+   ============================================================ */
+
+/* Chrome card — solid white luxury panel */
+.yr-chrome-card{
+  background:linear-gradient(180deg,#ffffff,#f7f9fc);
+  border:1px solid var(--yr-border);
+  border-radius:var(--yr-radius-lg);
+  box-shadow:var(--yr-shadow), inset 0 1px 0 rgba(255,255,255,.9);
+  transition:transform .2s ease, box-shadow .2s ease;
+}
+.yr-chrome-card:hover{ transform:translateY(-3px); box-shadow:var(--yr-shadow-lg); }
+
+/* Glass panel — frosted glassmorphism */
+.yr-glass{
+  background:linear-gradient(180deg,var(--yr-glass),var(--yr-glass-soft));
+  -webkit-backdrop-filter:blur(20px) saturate(140%);
+  backdrop-filter:blur(20px) saturate(140%);
+  border:1px solid rgba(255,255,255,.9);
+  border-radius:var(--yr-radius-lg);
+  box-shadow:var(--yr-shadow), inset 0 1px 0 rgba(255,255,255,.95);
+}
+
+/* Metric chip */
+.yr-chip{
+  display:inline-flex; align-items:center; gap:8px;
+  padding:7px 13px; border-radius:999px;
+  background:rgba(47,107,255,.08);
+  border:1px solid rgba(47,107,255,.16);
+  color:var(--yr-accent-2);
+  font-weight:700; font-size:13px;
+}
+.yr-chip--chrome{
+  background:linear-gradient(180deg,#fdfefe,#eef1f6);
+  border:1px solid var(--yr-border-strong);
+  color:var(--yr-ink-2);
+}
+
+/* Score gauge (decorative ring + value) */
+.yr-gauge{
+  position:relative; display:inline-grid; place-items:center;
+  width:var(--g,120px); height:var(--g,120px); border-radius:50%;
+  background:conic-gradient(var(--yr-accent) calc(var(--val,0)*1%), #e7ebf1 0);
+  box-shadow:inset 0 2px 6px rgba(20,40,80,.12);
+}
+.yr-gauge::after{
+  content:""; position:absolute; inset:11px; border-radius:50%;
+  background:#fff; box-shadow:inset 0 1px 0 #fff, 0 2px 8px -4px rgba(20,40,80,.25);
+}
+.yr-gauge > *{ position:relative; z-index:1; }
+.yr-gauge__num{ font-family:'Rubik',sans-serif; font-weight:800; font-size:1.8rem; color:var(--yr-ink); letter-spacing:-1px; }
+.yr-gauge__label{ font-size:11px; font-weight:600; color:var(--yr-muted-2); }
+
+/* Premium primary button */
+.yr-btn{
+  position:relative; overflow:hidden;
+  display:inline-flex; align-items:center; justify-content:center; gap:9px;
+  padding:14px 26px; border:none; border-radius:14px; cursor:pointer;
+  font:700 16px/1 'Heebo',sans-serif; color:#fff;
+  background:linear-gradient(180deg,var(--yr-accent),var(--yr-accent-2));
+  box-shadow:0 14px 30px -12px rgba(31,87,230,.55), inset 0 1px 0 rgba(255,255,255,.35);
+  transition:transform .18s ease, box-shadow .18s ease;
+}
+.yr-btn:hover{ transform:translateY(-2px); box-shadow:0 20px 40px -12px rgba(31,87,230,.65); }
+
+/* Secondary / chrome button */
+.yr-btn--chrome{
+  color:var(--yr-ink-2);
+  background:linear-gradient(180deg,#fdfefe,#eef1f5 48%,#dde2e9 52%,#f3f5f8);
+  border:1px solid var(--yr-border-strong);
+  box-shadow:inset 0 1px 0 #fff, 0 4px 10px rgba(20,40,80,.08);
+}
+.yr-btn--chrome:hover{ transform:translateY(-2px); box-shadow:inset 0 1px 0 #fff, 0 8px 18px rgba(20,40,80,.12); }
+
+/* Risk / caution note */
+.yr-risk-note{
+  display:flex; gap:11px; align-items:flex-start;
+  padding:13px 15px; border-radius:14px;
+  background:rgba(226,59,78,.06); border:1px solid rgba(226,59,78,.18);
+  color:#9a2330; font-size:14px; line-height:1.5;
+}
+.yr-risk-note--warn{ background:rgba(214,138,0,.07); border-color:rgba(214,138,0,.22); color:#8a5800; }
+.yr-risk-note--info{ background:rgba(47,107,255,.06); border-color:rgba(47,107,255,.16); color:#1f57e6; }
+
+/* Section header */
+.yr-section-header{
+  font-family:'Rubik',sans-serif; font-weight:700; font-size:1.05rem;
+  color:#46505c; margin:0 0 14px;
+}
+
+/* Responsive grids */
+.yr-grid{ display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); }
+.yr-grid-2{ display:grid; gap:18px; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); }
+.yr-grid-3{ display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); }
+
+/* RTL form layout helper */
+.yr-form{ direction:rtl; text-align:right; }
+.yr-form .yr-field{ display:flex; flex-direction:column; gap:.4rem; margin-bottom:1rem; }
+.yr-form label{ font-weight:600; font-size:.85rem; color:var(--yr-muted); }
+
+/* Soft reveal for safe content */
+@keyframes yr-rise{ from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:none;} }
+.yr-rise{ animation:yr-rise .5s cubic-bezier(.16,1,.3,1) both; }
+
+/* Chrome gradient text (brand / highlights) */
+.yr-chrome-text{
+  background:linear-gradient(180deg,#5a636f 0%,#1c2530 28%,#8a94a1 52%,#1c2530 74%,#5a636f 100%);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+.yr-accent-text{
+  background:linear-gradient(120deg,var(--yr-accent-2),var(--yr-accent-cyan));
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+
+/* ============================================================
+   Shared navbar / footer (white-chrome glass identity)
+   ============================================================ */
+.yr-header{
+  position:sticky; top:0; z-index:50;
+  background:rgba(255,255,255,.82);
+  -webkit-backdrop-filter:saturate(160%) blur(16px);
+  backdrop-filter:saturate(160%) blur(16px);
+  border-bottom:1px solid var(--yr-border);
+  box-shadow:0 10px 30px -22px rgba(20,40,80,.35);
+}
+.yr-header::after{ /* subtle carbon accent strip */
+  content:""; display:block; height:2px;
+  background:linear-gradient(90deg,var(--yr-accent-cyan),var(--yr-accent),var(--yr-accent-2));
+  opacity:.55;
+}
+.yr-brand{ display:flex; align-items:center; gap:12px; text-decoration:none; }
+.yr-brand__mark{
+  position:relative; width:40px; height:40px; border-radius:11px; overflow:hidden;
+  background:linear-gradient(150deg,#3b7bff,#1f57e6);
+  display:flex; align-items:center; justify-content:center;
+  box-shadow:0 6px 16px -4px rgba(47,107,255,.5), inset 0 1px 0 rgba(255,255,255,.4);
+}
+.yr-brand__name{
+  font-family:'Rubik',sans-serif; font-weight:800; font-size:22px; line-height:1; letter-spacing:-.5px;
+}
+.yr-brand__sub{ font-size:10px; font-weight:600; letter-spacing:2.5px; color:var(--yr-chrome-dark); }
+.yr-nav-pill{
+  padding:9px 18px; border-radius:999px;
+  border:1px solid var(--yr-border);
+  background:#fff; color:var(--yr-ink-2);
+  font-weight:600; font-size:14px; text-decoration:none;
+  transition:transform .18s, box-shadow .18s, border-color .18s, background .18s;
+}
+.yr-nav-pill:hover{ transform:translateY(-1px); border-color:var(--yr-border-strong); box-shadow:0 6px 16px -10px rgba(20,40,80,.4); }
+.yr-nav-pill--active{
+  background:linear-gradient(180deg,#eef4ff,#dfe9ff);
+  border-color:rgba(47,107,255,.30); color:var(--yr-accent-2); font-weight:700;
+}
+.yr-footer{
+  margin-top:64px; padding:34px 16px; text-align:center;
+  background:rgba(255,255,255,.6);
+  -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px);
+  border-top:1px solid var(--yr-border);
+}
+
+@media (max-width:640px){
+  .yr-brand__name{ font-size:19px; }
+}
+</content>
+</invoke>
