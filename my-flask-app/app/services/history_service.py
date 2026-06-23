@@ -17,6 +17,10 @@ from app.utils.sanitization import (
     derive_information_status,
 )
 
+# Dashboard query limits — keep dashboard lightweight.
+DASHBOARD_SEARCH_LIMIT = 50
+DASHBOARD_ADVISOR_LIMIT = 50
+
 
 def fetch_dashboard_history(user_id: int) -> Tuple[list, list, Optional[str], Optional[str]]:
     search_error = None
@@ -26,7 +30,7 @@ def fetch_dashboard_history(user_id: int) -> Tuple[list, list, Optional[str], Op
     try:
         user_searches = SearchHistory.query.filter_by(
             user_id=user_id
-        ).order_by(SearchHistory.timestamp.desc()).all()
+        ).order_by(SearchHistory.timestamp.desc()).limit(DASHBOARD_SEARCH_LIMIT).all()
     except Exception:
         search_error = "לא הצלחנו לטעון את ההיסטוריה כעת."
         try:
@@ -39,7 +43,7 @@ def fetch_dashboard_history(user_id: int) -> Tuple[list, list, Optional[str], Op
     try:
         advisor_entries = AdvisorHistory.query.filter_by(
             user_id=user_id
-        ).order_by(AdvisorHistory.timestamp.desc()).all()
+        ).order_by(AdvisorHistory.timestamp.desc()).limit(DASHBOARD_ADVISOR_LIMIT).all()
     except Exception:
         advisor_error = "לא הצלחנו לטעון את היסטוריית ההמלצות כעת."
         try:
@@ -65,13 +69,66 @@ def _normalize_reliability_history_payload(raw: Any) -> Dict[str, Any]:
     return payload
 
 
+def _extract_lightweight_card_fields(parsed_result: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract only the minimal safe fields needed for dashboard card rendering.
+
+    This avoids sending the full AI result payload to the template and keeps
+    the dashboard HTML small and fast.
+    """
+    card = {}
+    for key in (
+        "data_quality_label",
+        "decision_readiness",
+        "missing_critical_info",
+        "verification_focus",
+    ):
+        val = parsed_result.get(key)
+        if val is not None:
+            card[key] = val
+    # Include whether a reliability_report and vehicle_profile exist (booleans, not full data).
+    rr = parsed_result.get("reliability_report")
+    card["has_reliability_report"] = bool(rr and isinstance(rr, dict) and rr.get("available") is not False and len(rr) > 0)
+    vp = parsed_result.get("vehicle_profile")
+    if isinstance(vp, dict):
+        vi = vp.get("vehicle_identity")
+        if isinstance(vi, dict):
+            card["israel_market_status"] = vi.get("israel_market_status")
+    card["guardrail_meta"] = parsed_result.get("guardrail_meta", {})
+    card["legacy_notice"] = parsed_result.get("legacy_notice")
+    return card
+
+
 def build_searches_data(user_searches: List[SearchHistory]) -> list:
+    """Build lightweight search-history cards for the dashboard list.
+
+    Per-row guardrail validation is replaced by a single batch sanitise pass
+    (``apply_feature_guardrails`` with ``log_validation=False``) followed by
+    one aggregated log line.
+    """
     logger = current_app.logger
-    searches_data = []
+    request_id = get_request_id()
+    searches_data: list = []
+    total = 0
+    warnings_count = 0
+    critical_count = 0
+    repaired_count = 0
     for s in user_searches:
+        total += 1
         parsed_result = safe_json_obj(s.result_json, default={})
         parsed_result = _normalize_reliability_history_payload(parsed_result)
-        parsed_result, _ = apply_feature_guardrails("dashboard_history", {}, parsed_result)
+        parsed_result, report = apply_feature_guardrails(
+            "dashboard_history", {}, parsed_result, log_validation=False,
+        )
+        if report.get("warnings"):
+            warnings_count += 1
+        if report.get("critical_issues"):
+            critical_count += 1
+        if report.get("status") == "passed" or (
+            isinstance(parsed_result, dict) and parsed_result.get("guardrail_meta", {}).get("repaired")
+        ):
+            repaired_count += 1
+
+        card_fields = _extract_lightweight_card_fields(parsed_result)
         searches_data.append({
             "id": s.id,
             "timestamp": s.timestamp.strftime('%d/%m/%Y %H:%M'),
@@ -81,18 +138,27 @@ def build_searches_data(user_searches: List[SearchHistory]) -> list:
             "mileage_range": s.mileage_range or '',
             "fuel_type": s.fuel_type or '',
             "transmission": s.transmission or '',
-            "data": parsed_result,
             "duration_ms": getattr(s, "duration_ms", None),
-            "guardrail_meta": parsed_result.get("guardrail_meta", {}),
-            "legacy_notice": parsed_result.get("legacy_notice"),
+            **card_fields,
         })
+    if total:
+        logger.info(
+            "[DASH] history_guardrail_summary request_id=%s total=%d warnings=%d critical=%d repaired=%d",
+            request_id, total, warnings_count, critical_count, repaired_count,
+        )
     return searches_data
 
 
 def build_advisor_data(advisor_entries: List[AdvisorHistory]) -> list:
-    """Build advisor history items for dashboard list rendering."""
-    data = []
+    """Build lightweight advisor-history cards for dashboard list rendering."""
+    logger = current_app.logger
+    request_id = get_request_id()
+    data: list = []
+    total = 0
+    warnings_count = 0
+    critical_count = 0
     for entry in advisor_entries:
+        total += 1
         parsed_result = safe_json_obj(entry.result_json, default={})
         if not isinstance(parsed_result, dict):
             parsed_result = {}
@@ -103,7 +169,13 @@ def build_advisor_data(advisor_entries: List[AdvisorHistory]) -> list:
             brand = (first.get("brand") or "").strip()
             model = (first.get("model") or "").strip()
             top_recommendation = f"{brand} {model}".strip()
-        parsed_result, _ = apply_feature_guardrails("dashboard_history", {}, parsed_result)
+        parsed_result, report = apply_feature_guardrails(
+            "dashboard_history", {}, parsed_result, log_validation=False,
+        )
+        if report.get("warnings"):
+            warnings_count += 1
+        if report.get("critical_issues"):
+            critical_count += 1
         data.append({
             "id": entry.id,
             "timestamp": entry.timestamp.strftime("%d/%m/%Y %H:%M"),
@@ -112,6 +184,11 @@ def build_advisor_data(advisor_entries: List[AdvisorHistory]) -> list:
             "guardrail_meta": parsed_result.get("guardrail_meta", {}),
             "legacy_notice": parsed_result.get("legacy_notice"),
         })
+    if total:
+        logger.info(
+            "[DASH] advisor_guardrail_summary request_id=%s total=%d warnings=%d critical=%d",
+            request_id, total, warnings_count, critical_count,
+        )
     return data
 
 
