@@ -1,0 +1,885 @@
+# YEDA_ADVISOR_PROTOTYPE_PARITY_SPEC_FOR_CODEX
+
+Temporary Codex reference file for the Yeda Car Advisor prototype parity work.
+
+## Purpose
+
+This file replaces the visual prototype ZIP as a text-only implementation specification.
+
+Codex must treat this file as the single source of truth for restoring prototype-level behavior in the real repository, while preserving the existing backend, API contracts, form payload, legal flow, login/owner checks, analytics, research flow, and result quality.
+
+This file is intentionally temporary. It should be used during the three implementation runs and then removed from the repository/worktree during Run 3.
+
+Temporary file name to reference in prompts:
+
+`YEDA_ADVISOR_PROTOTYPE_PARITY_SPEC_FOR_CODEX.md`
+
+---
+
+## Repository context
+
+Expected repository:
+
+`reliabilityAIModelsR2`
+
+Important files likely involved:
+
+- `my-flask-app/templates/recommendations.html`
+- `my-flask-app/static/recommendations.js`
+- `my-flask-app/static/theme.css`
+- `my-flask-app/templates/_navbar.html` only if absolutely necessary
+- optional docs/test/helper files if needed in Run 3
+
+Do not change backend contracts unless absolutely required.
+
+---
+
+## Product goal
+
+The real advisor page currently looks partially inspired by the prototype, but it does not fully behave like the prototype.
+
+The missing product behavior is:
+
+1. A premium sticky dark chrome advisor shell.
+2. Step indicator and progress bar.
+3. Existing questionnaire as the source of truth.
+4. Preference summary screen before calling the backend.
+5. Premium AI analyzing screen while backend request is running.
+6. Results screen with top recommendation hero and score gauge.
+7. Internal same-page compare view for current recommended cars.
+8. Internal same-page details view per recommended car.
+9. Cost breakdown visualization.
+10. Risk notes and due diligence separated into readable sections.
+11. Strict preservation of every important result field.
+
+The design direction is premium Hebrew RTL SaaS:
+
+- dark chrome header
+- light/white page body
+- glass/chrome cards
+- rounded cards
+- subtle shadows
+- clean spacing
+- clear hierarchy
+- mobile-friendly layout
+- no fake data
+- no hidden missing values
+
+---
+
+## Non-negotiable rules
+
+Codex must follow these rules in every run:
+
+1. Do not change Flask route names.
+2. Do not change advisor API endpoint contracts.
+3. Do not rename existing form input `name` attributes or IDs used by `buildPayload()`.
+4. Do not remove owner-only logic.
+5. Do not remove Google login requirements.
+6. Do not remove legal disclaimers or consent flow.
+7. Do not remove PostHog analytics calls.
+8. Do not make real Gemini/OpenAI/API calls during tests.
+9. Do not require `GEMINI_API_KEY`.
+10. Do not reduce or simplify the payload sent to the backend.
+11. Do not remove existing result fields from rendering.
+12. Do not hallucinate missing values.
+13. Use `לא זמין`, `דורש בדיקה`, or `חישוב חלקי` where data is missing or incomplete.
+14. Any model/API/user text rendered into HTML must be escaped.
+15. Preserve RTL and Hebrew UX.
+16. Keep mobile layout usable.
+17. Use existing CSS variables from `theme.css` where possible.
+
+---
+
+## Required existing-result field preservation
+
+The following fields, or their existing aliases in the current code, must remain visible somewhere in the user flow: card, details view, compare view, or methodology section.
+
+- brand
+- model
+- year
+- trim, if available
+- fuel
+- gear
+- engine_cc
+- turbo
+- price_range_nis
+- avg_fuel_consumption
+- annual_fee
+- reliability_score / reliability_index / reliability
+- maintenance_cost
+- safety_rating
+- insurance_cost
+- resale_value
+- performance_score
+- comfort_features
+- suitability
+- market_supply
+- annual_energy_cost
+- annual_fuel_cost
+- total_annual_cost
+- fuel_method
+- fee_method
+- reliability_method
+- maintenance_method
+- safety_method
+- insurance_method
+- resale_method
+- performance_method
+- comfort_method
+- suitability_method
+- supply_method
+- comparison_comment
+- not_recommended_reason
+
+If any of these are not present in the actual returned payload, the UI should handle them safely without inventing values.
+
+---
+
+## Target flow
+
+### Step 1 — Real questionnaire
+
+The current questionnaire remains the real input source.
+
+Do not replace it with a fake prototype form.
+
+The user fills the existing form.
+
+The submit action should not immediately call the backend. Instead:
+
+1. Validate/build the payload exactly as today.
+2. Store the payload in frontend state.
+3. Move to the preference summary screen.
+
+### Step 2 — Preference summary
+
+Show a premium summary screen before backend call.
+
+Cards should summarize real form values:
+
+- תקציב
+- שנתון
+- שימוש עיקרי
+- סוג רכב
+- דלק / גיר
+- מספר מושבים / משפחה
+- סגנון נהיגה
+- משקלי העדפות:
+  - אמינות
+  - דלק
+  - שמירת ערך
+  - ביצועים
+  - נוחות
+
+Buttons:
+
+- primary: `נתח את ההעדפות שלי`
+- secondary: `חזור לעריכה`
+
+Clicking primary starts the existing backend request with the saved payload.
+
+### Step 3 — AI analyzing screen
+
+While the existing backend request is running, show a premium analysis screen.
+
+Visual behavior:
+
+- centered glass/chrome panel
+- AI/spinner/pulse animation
+- clear status steps
+- optional ETA/timing banner integrated visually
+- no ugly raw technical loading state
+
+Status steps:
+
+- `סורק התאמה לתקציב ולשנתון`
+- `מצליב אמינות ועלויות תחזוקה`
+- `בודק צריכת דלק / חשמל`
+- `מחשב עלות בעלות שנתית`
+- `מדרג התאמה אישית`
+
+### Step 4 — Results
+
+Render the real backend results exactly as before, but inside the premium shell.
+
+Must include:
+
+- top recommendation hero card
+- circular score gauge
+- top car key facts:
+  - price
+  - annual cost
+  - monthly estimate if safely calculated
+  - fuel/energy
+  - reliability/maintenance indication
+  - safety
+- result cards for all cars
+- warnings/methodology preserved
+
+Do not remove data to make the UI shorter.
+
+### Step 5 — Internal compare and details
+
+These are same-page views, not full page reloads.
+
+The existing standalone `/compare` page must remain untouched and functional.
+
+#### Compare view
+
+Compare the top available cars from current results:
+
+- 1 car: hide or disable compare with explanation
+- 2 cars: compare 2
+- 3+ cars: compare top 3
+
+Compare rows:
+
+1. התאמת AI
+2. טווח מחיר
+3. עלות שנתית כוללת
+4. עלות חודשית משוערת
+5. צריכת דלק / חשמל
+6. סיכון תחזוקה / אמינות
+7. ביטוח שנתי
+8. אגרת רישוי שנתית
+9. בטיחות
+10. שמירת ערך
+11. ביצועים
+12. נוחות ואבזור
+13. היצע בשוק
+
+Winner highlighting:
+
+- Higher is better for fit, reliability, safety, resale, comfort, performance.
+- Lower is better for annual cost, monthly cost, fuel/energy cost, insurance, license fee, maintenance.
+- Do not mark a winner when the comparison is textual or unsafe.
+
+#### Details view
+
+For a selected car, show:
+
+- back to results
+- score gauge
+- car title
+- full cost breakdown
+- monthly estimated total
+- annual estimated total
+- 3-year estimated total
+- segmented cost bar
+- cost segment rows
+- risk notes
+- missing-data warnings
+- due diligence checklist
+- methodology/source explanation section
+
+---
+
+## Cost breakdown rules
+
+Use only fields already returned by the advisor result.
+
+Likely available fields include:
+
+- `total_annual_cost`
+- `maintenance_cost`
+- `annual_energy_cost`
+- `annual_fuel_cost`
+- `insurance_cost`
+- `annual_fee`
+- `price_range_nis`
+- `resale_value`
+
+Breakdown logic:
+
+1. Fuel/energy:
+   - prefer `annual_energy_cost`
+   - fallback to `annual_fuel_cost`
+
+2. Insurance:
+   - use `insurance_cost`
+
+3. Maintenance:
+   - use `maintenance_cost`
+
+4. Licensing:
+   - use `annual_fee`
+
+5. Depreciation / residual:
+   - calculate only if enough safe data exists.
+   - If `total_annual_cost` exists and known components exist, compute residual as `פחת / שונות משוערת` only if residual is positive and reasonable.
+   - If residual is negative or suspicious, label as `שונות / חוסר התאמה בנתונים`.
+   - Do not present residual as certain depreciation unless the backend provides a direct reliable depreciation field.
+
+6. Monthly total:
+   - if `total_annual_cost` exists, divide by 12.
+   - otherwise sum known annual components / 12 and label as partial.
+
+7. 3-year total:
+   - annual total * 3, or monthly total * 36.
+   - label as estimate.
+
+Important:
+
+- If the total is partial, show `חישוב חלקי לפי שדות זמינים`.
+- If data is missing, show `לא זמין` and list missing fields.
+- Do not invent values.
+
+---
+
+## Risk notes and due diligence
+
+Convert available text and missing data into typed note cards:
+
+- success/pro:
+  - why this car fits the user
+  - strong match reasons
+
+- warning:
+  - known risk
+  - maintenance risk
+  - expensive repair risk
+  - `not_recommended_reason`
+
+- info/neutral:
+  - missing fields
+  - partial calculations
+  - method/source limitations
+
+- due diligence:
+  - what to verify before purchase
+  - inspection notes
+  - ask seller for service history
+  - check ownership, accidents, battery/gearbox where relevant
+
+Use:
+
+- `comparison_comment`
+- `not_recommended_reason`
+- method/source fields
+- missing field detection
+
+Escape all text.
+
+---
+
+## Recommended frontend state helpers
+
+Add or verify helpers in `recommendations.js`:
+
+- `setAdvisorStep(stepName)`
+- `renderPreferenceSummary()`
+- `showPreferenceSummary()`
+- `showAnalyzingScreen()`
+- `showResultsScreen()`
+- `resetAdvisorFlow()`
+- `openCompareView()`
+- `renderCompareView(cars)`
+- `openDetailsView(carIndex)`
+- `renderDetailsView(car)`
+- `getCarTitle(car)`
+- `getFitScore(car)`
+- `getAnnualCost(car)`
+- `getMonthlyCost(car)`
+- `getReliabilityGrade(car)`
+- `formatCurrency(value)`
+- `formatMaybe(value, fallback)`
+
+Suggested state variables:
+
+- `pendingAdvisorPayload`
+- `latestAdvisorCars`
+- `latestAdvisorResponse`
+- `activeAdvisorView`
+
+Use stable indexes or data attributes for car selection.
+
+Avoid unsafe inline generated JS handlers with unescaped values.
+
+---
+
+## Suggested CSS classes
+
+Add reusable classes to `theme.css` rather than huge inline styles:
+
+- `.yr-app-shell`
+- `.yr-app-header`
+- `.yr-step-pill`
+- `.yr-progress`
+- `.yr-pref-summary`
+- `.yr-pref-card`
+- `.yr-analyzing-panel`
+- `.yr-analysis-step`
+- `.yr-flow-hidden`
+- `.yr-flow-view`
+- `.yr-compare-view`
+- `.yr-compare-table`
+- `.yr-compare-row`
+- `.yr-compare-cell`
+- `.yr-compare-winner`
+- `.yr-details-view`
+- `.yr-cost-panel`
+- `.yr-cost-total`
+- `.yr-cost-segment-bar`
+- `.yr-cost-segment-row`
+- `.yr-risk-stack`
+- `.yr-risk-note--success`
+- `.yr-risk-note--warning`
+- `.yr-risk-note--neutral`
+- `.yr-risk-note--info`
+
+Use existing variables where possible:
+
+- `--yr-bg`
+- `--yr-bg-2`
+- `--yr-surface`
+- `--yr-glass`
+- `--yr-chrome`
+- `--yr-ink`
+- `--yr-muted`
+- `--yr-accent`
+- `--yr-success`
+- `--yr-warning`
+- `--yr-risk`
+
+---
+
+## Analytics
+
+Do not remove existing events.
+
+If adding new events, keep them small and safe:
+
+- `advisor_summary_viewed`
+- `advisor_analysis_started`
+- `advisor_compare_opened`
+- `advisor_details_opened`
+
+---
+
+## Error and empty states
+
+The UI must handle:
+
+- API error
+- empty result list
+- only 1 recommendation
+- only 2 recommendations
+- missing cost fields
+- missing method fields
+- missing score fields
+
+Empty result state should be premium and useful, not raw JSON/error dump.
+
+---
+
+## Mobile requirements
+
+At 360–430px wide:
+
+- header remains usable
+- buttons remain tappable
+- preference cards become one column
+- score gauges scale down
+- cost breakdown rows remain readable
+- compare table may use horizontal scroll
+- no accidental page-wide overflow except compare table
+- RTL alignment remains correct
+
+---
+
+## Safe validation commands
+
+Safe commands:
+
+```bash
+python -m compileall my-flask-app/app
+python -m pytest
+```
+
+If adding a static QA helper:
+
+```bash
+python my-flask-app/scripts/dev/check_advisor_frontend_contract.py
+```
+
+Do not run commands that require real API keys.
+
+Do not call Gemini/OpenAI.
+
+Do not require network.
+
+---
+
+# Run 1 prompt
+
+Use this prompt in Codex console 1.
+
+```text
+You are working on the repository `reliabilityAIModelsR2`.
+
+First, read the temporary spec file:
+
+`YEDA_ADVISOR_PROTOTYPE_PARITY_SPEC_FOR_CODEX.md`
+
+Follow only the Run 1 scope from that spec.
+
+Goal:
+Implement the missing prototype flow foundation on the advisor page while preserving the existing backend, form fields, payload, legal flow, login/owner checks, analytics, research flow, and result quality.
+
+Run 1 scope:
+1. Add the premium sticky dark chrome advisor shell.
+2. Add step indicator and progress bar.
+3. Keep the existing questionnaire as the source of truth.
+4. Change submit flow so the form first shows a preference summary instead of immediately calling the backend.
+5. Add a prototype-style preference summary screen from real form values.
+6. Add a premium AI analyzing screen while the existing backend request is running.
+7. Return to the existing results renderer after the response arrives.
+8. Do not implement internal compare/details yet. Leave that for Run 2.
+
+Relevant files:
+- `my-flask-app/templates/recommendations.html`
+- `my-flask-app/static/recommendations.js`
+- `my-flask-app/static/theme.css`
+
+Hard rules:
+- Do not change Flask route names.
+- Do not change advisor API contracts.
+- Do not rename existing form field names/IDs used by `buildPayload()`.
+- Do not remove owner-only logic.
+- Do not remove Google login.
+- Do not remove legal disclaimers or consent.
+- Do not remove PostHog analytics.
+- Do not reduce the request payload.
+- Do not remove existing result fields.
+- Do not make real Gemini/OpenAI/API calls.
+- Do not require `GEMINI_API_KEY`.
+
+Implementation requirements:
+- Add/verify functions:
+  - `setAdvisorStep(stepName)`
+  - `renderPreferenceSummary()`
+  - `showPreferenceSummary()`
+  - `showAnalyzingScreen()`
+  - `showResultsScreen()`
+  - `resetAdvisorFlow()`
+- The submit handler should:
+  1. validate/build payload exactly as today
+  2. save it in memory
+  3. show the preference summary
+  4. call backend only after user clicks `נתח את ההעדפות שלי`
+  5. show analyzing state while waiting
+  6. render results as before
+- Add reusable CSS classes to `theme.css`, not large inline styles.
+- Preserve existing result rendering behavior for now.
+
+Acceptance criteria:
+1. Existing questionnaire still loads.
+2. Existing fields remain.
+3. Submit shows preference summary.
+4. Analyze button shows premium analyzing screen.
+5. Backend call still uses the existing payload and endpoint.
+6. Results still render with all existing information.
+7. Research prompt still works.
+8. Login-required and owner-only states still work.
+9. Mobile layout is usable.
+
+Safe validation:
+Run:
+- `python -m compileall my-flask-app/app`
+- If available and safe: `python -m pytest`
+
+Do not run real external model/API calls.
+
+Final report:
+- files changed
+- prototype features restored in Run 1
+- what is intentionally left for Run 2
+- validation commands and results
+- manual browser checks needed
+```
+
+---
+
+# Run 2 prompt
+
+Use this prompt in Codex console 2, after Run 1 is complete.
+
+```text
+You are working on the repository `reliabilityAIModelsR2`.
+
+First, read the temporary spec file:
+
+`YEDA_ADVISOR_PROTOTYPE_PARITY_SPEC_FOR_CODEX.md`
+
+Follow only the Run 2 scope from that spec.
+
+Goal:
+Implement the missing internal prototype features:
+1. Same-page compare view for the current recommendation results.
+2. Same-page details view per recommended car.
+3. Cost breakdown visualization.
+4. Typed risk notes and due diligence sections.
+
+Run 2 scope:
+- Do not change the backend API.
+- Do not remove the existing standalone `/compare` page.
+- Do not remove or hide existing recommendation fields.
+- Do not invent missing values.
+- Use only fields already returned by the advisor response.
+
+Relevant files:
+- `my-flask-app/templates/recommendations.html`
+- `my-flask-app/static/recommendations.js`
+- `my-flask-app/static/theme.css`
+
+Implementation requirements:
+1. Store latest recommendation results in frontend state:
+   - `latestAdvisorCars`
+   - `latestAdvisorResponse`
+   - keep original car objects intact
+
+2. Add CTAs:
+   - Results hero/list should have `השווה 3 מובילים`
+   - Each car card should have `פרטים מלאים`
+   - Include back navigation from compare/details to results
+
+3. Internal compare view:
+   - Same-page view, no full reload.
+   - Compare top 3 cars when available.
+   - If only 2 cars exist, compare 2.
+   - If only 1 car exists, hide/disable compare with explanation.
+   - Rows:
+     - התאמת AI
+     - טווח מחיר
+     - עלות שנתית כוללת
+     - עלות חודשית משוערת
+     - צריכת דלק / חשמל
+     - סיכון תחזוקה / אמינות
+     - ביטוח שנתי
+     - אגרת רישוי שנתית
+     - בטיחות
+     - שמירת ערך
+     - ביצועים
+     - נוחות ואבזור
+     - היצע בשוק
+   - Highlight winners only when comparison is safe.
+
+4. Internal details view:
+   - Score gauge
+   - car title
+   - monthly estimate
+   - annual estimate
+   - 3-year estimate
+   - segmented cost bar
+   - cost rows
+   - risk notes
+   - missing data warnings
+   - due diligence checklist
+   - methodology/source explanation section
+
+5. Cost breakdown:
+   - Use `total_annual_cost`, `maintenance_cost`, `annual_energy_cost`, `annual_fuel_cost`, `insurance_cost`, `annual_fee`, `price_range_nis`, `resale_value` only if available.
+   - Prefer `annual_energy_cost`; fallback to `annual_fuel_cost`.
+   - If total exists, monthly = total / 12.
+   - If total missing, sum known components and label as partial.
+   - Residual can be labeled `פחת / שונות משוערת` only if positive and reasonable.
+   - Do not invent depreciation.
+   - Missing fields must show `לא זמין` or `דורש בדיקה`.
+
+6. Risk notes:
+   - Split into success/warning/info/neutral cards.
+   - Use `comparison_comment`, `not_recommended_reason`, method fields, and missing field detection.
+   - Escape all text.
+
+7. Add/verify helpers:
+   - `openCompareView()`
+   - `renderCompareView(cars)`
+   - `openDetailsView(carIndex)`
+   - `renderDetailsView(car)`
+   - `getCarTitle(car)`
+   - `getFitScore(car)`
+   - `getAnnualCost(car)`
+   - `getMonthlyCost(car)`
+   - `getReliabilityGrade(car)`
+   - `formatCurrency(value)`
+   - `formatMaybe(value, fallback)`
+
+Acceptance criteria:
+1. Results page has `השווה 3 מובילים`.
+2. Each result card has `פרטים מלאים`.
+3. Compare opens without reload.
+4. Details opens without reload.
+5. Back navigation works.
+6. Cost breakdown never invents missing values.
+7. Existing fields remain available.
+8. Existing standalone `/compare` still works.
+9. Mobile layout remains usable.
+
+Safe validation:
+Run:
+- `python -m compileall my-flask-app/app`
+- If available and safe: `python -m pytest`
+
+Do not run real model/API calls.
+Do not require API keys.
+
+Final report:
+- files changed
+- compare implementation summary
+- details/cost implementation summary
+- fields preserved
+- validation commands and results
+- manual browser checks needed
+```
+
+---
+
+# Run 3 prompt
+
+Use this prompt in Codex console 3, after Run 2 is complete.
+
+```text
+You are working on the repository `reliabilityAIModelsR2`.
+
+First, read the temporary spec file:
+
+`YEDA_ADVISOR_PROTOTYPE_PARITY_SPEC_FOR_CODEX.md`
+
+Follow only the Run 3 scope from that spec.
+
+Goal:
+Perform strict QA/hardening so the prototype redesign does not reduce output quality, hide fields, break safety, break analytics, break login/legal/research flow, or leave temporary implementation files in the repo.
+
+Run 3 scope:
+1. Field completeness audit.
+2. Output confidence/missing-data hardening.
+3. Escaping/security review.
+4. Navigation/state robustness.
+5. Research/legal/analytics regression check.
+6. Mobile polish.
+7. Optional offline static QA helper.
+8. Remove the temporary spec file from the repository/worktree before final report.
+
+Temporary file that must be removed before final report:
+`YEDA_ADVISOR_PROTOTYPE_PARITY_SPEC_FOR_CODEX.md`
+
+Important:
+- Read the file first.
+- Use it during QA.
+- Then delete it from the repo/worktree before final commit/final answer.
+- Do not delete real docs or code.
+- Only remove this temporary spec file if it exists in the repo/worktree.
+
+Required field completeness audit:
+Confirm every important result field is still rendered somewhere:
+- brand
+- model
+- year
+- trim, if available
+- fuel
+- gear
+- engine_cc
+- turbo
+- price_range_nis
+- avg_fuel_consumption
+- annual_fee
+- reliability_score / reliability_index / reliability
+- maintenance_cost
+- safety_rating
+- insurance_cost
+- resale_value
+- performance_score
+- comfort_features
+- suitability
+- market_supply
+- annual_energy_cost
+- annual_fuel_cost
+- total_annual_cost
+- fuel_method
+- fee_method
+- reliability_method
+- maintenance_method
+- safety_method
+- insurance_method
+- resale_method
+- performance_method
+- comfort_method
+- suitability_method
+- supply_method
+- comparison_comment
+- not_recommended_reason
+
+If any field was dropped, restore it in:
+- recommendation card,
+- details view,
+- compare view,
+- or collapsible `נתוני מקור ומתודולוגיה` section.
+
+Hardening requirements:
+- Missing values show `לא זמין`.
+- Partial calculations show `חישוב חלקי`.
+- Do not present residual cost as certain depreciation.
+- Do not make the UI sound more confident than the data.
+- Preserve model warnings.
+- Preserve method/source explanation.
+- Escape all API/model/user text.
+- Avoid unsafe inline handlers with unescaped data.
+- Use indexes/data attributes for car selection.
+
+Navigation requirements:
+- Restart returns to form and clears latest result state.
+- Back from summary returns to form.
+- API errors show a useful error state and allow editing.
+- Empty result list shows a premium empty state.
+- Compare adapts correctly for 1/2/3+ cars.
+- Back from compare/details returns to results.
+
+Regression requirements:
+- Login-required state still works.
+- Owner-only questionnaire still works.
+- Legal consent still works.
+- Research card after result still works.
+- Analytics events are not removed.
+- New events, if present, are small and safe:
+  - `advisor_summary_viewed`
+  - `advisor_analysis_started`
+  - `advisor_compare_opened`
+  - `advisor_details_opened`
+
+Mobile:
+- Check 360–430px layout.
+- Header readable.
+- Buttons tappable.
+- Preference cards one column.
+- Gauge scales.
+- Compare horizontal scroll acceptable.
+- No accidental overflow.
+
+Optional:
+If practical, add a small offline helper:
+`my-flask-app/scripts/dev/check_advisor_frontend_contract.py`
+
+It should check that:
+- required frontend flow functions exist
+- key field names still appear in `recommendations.js`
+- the temporary spec file is not present in the repo after cleanup
+
+Safe validation:
+Run:
+- `python -m compileall my-flask-app/app`
+- `python my-flask-app/scripts/dev/check_advisor_frontend_contract.py` if added
+- If available and safe: `python -m pytest`
+
+Do not run real external model/API calls.
+Do not require API keys.
+
+Final report:
+1. Files changed.
+2. Exact list of result fields confirmed preserved.
+3. Flow states confirmed working.
+4. Whether any field had to be restored.
+5. Confirmation that `YEDA_ADVISOR_PROTOTYPE_PARITY_SPEC_FOR_CODEX.md` was deleted from the repo/worktree.
+6. Validation commands and results.
+7. Manual browser checks still needed.
+```
