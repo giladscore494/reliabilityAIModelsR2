@@ -9,39 +9,40 @@
     <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
     {% include "_posthog_snippet.html" %}
     <style>
-        :root { --bg-dark: #0B0F19; --text-light: #E2E8F0; --primary: #818CF8; --secondary:#6366F1; }
+        :root { --bg-dark:#eef1f6; --text-light:#E2E8F0; --primary:#2f6bff; --secondary:#1f57e6; }
         body {
-            font-family: 'Heebo', system-ui, -apple-system, sans-serif;
-            background-color: var(--bg-dark);
-            color: var(--text-light);
-            margin: 0;
-            overflow-x: hidden;
+            font-family:'Heebo', system-ui, -apple-system, sans-serif;
+            background-color:var(--bg-dark);
+            color:var(--text-light);
+            margin:0;
+            overflow-x:hidden;
         }
-        .fade-in { animation: fadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards; opacity: 0; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-        .delay-100 { animation-delay: 100ms; }
-        .delay-200 { animation-delay: 200ms; }
-        .delay-300 { animation-delay: 300ms; }
-        ::-webkit-scrollbar { width: 10px; }
-        ::-webkit-scrollbar-track { background: #161B26; }
-        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 5px; }
-        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+        .fade-in { animation:fadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards; opacity:0; }
+        @keyframes fadeIn { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+        .delay-100 { animation-delay:100ms; }
+        .delay-200 { animation-delay:200ms; }
+        .delay-300 { animation-delay:300ms; }
+        ::-webkit-scrollbar { width:10px; }
+        ::-webkit-scrollbar-track { background:#ffffff; }
+        ::-webkit-scrollbar-thumb { background:#c4ccd6; border-radius:5px; }
+        ::-webkit-scrollbar-thumb:hover { background:#64748b; }
     </style>
     <script nonce="{{ csp_nonce }}">
         tailwind.config = {
             darkMode: 'class',
             theme: {
                 extend: {
-                    colors: {
-                        primary: '#818CF8', secondary: '#6366F1',
-                        dark: '#0B0F19', 'dark-lighter': '#161B26',
-                        success: '#10B981', warning: '#F59E0B', danger: '#EF4444',
+                    colors: {slate:{50:'#0e1218',100:'#1c2530',200:'#2a313b',300:'#46505c',400:'#6b7480',500:'#9aa3af',600:'#c4ccd6',700:'#e3e8ef',800:'#eef1f6',900:'#ffffff',950:'#f7f9fc'},
+                        primary: '#2f6bff', secondary: '#1f57e6',
+                        dark: '#eef1f6', 'dark-lighter': '#ffffff',
+                        success: '#1f9d57', warning: '#d68a00', danger: '#e23b4e',
                     },
                     boxShadow: { 'neon': '0 4px 24px -10px rgba(129, 140, 248, 0.3)' }
                 }
             }
         }
     </script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
 </head>
 <body class="bg-dark text-slate-200 min-h-screen flex flex-col antialiased selection:bg-primary/30 selection:text-white">
     {% set active_page = 'landing' %}

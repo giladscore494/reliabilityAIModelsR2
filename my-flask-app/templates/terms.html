@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet"/>
 
   <style>
-    :root{ --bg-dark:#0B0F19; --text-light:#E2E8F0; --primary:#818CF8; --secondary:#6366F1; }
+    :root{ --bg-dark:#eef1f6; --text-light:#E2E8F0; --primary:#2f6bff; --secondary:#1f57e6; }
     body{ font-family:'Heebo',system-ui,-apple-system,sans-serif; background:var(--bg-dark); color:var(--text-light); }
     .fade-in{ animation:fadeIn .6s cubic-bezier(.4,0,.2,1) forwards; opacity:0 }
     @keyframes fadeIn{ from{opacity:0; transform:translateY(20px)} to{opacity:1; transform:none} }
@@ -19,19 +19,24 @@
   <script nonce="{{ csp_nonce }}">
     tailwind.config = {
       darkMode:'class',
-      theme:{ extend:{ colors:{ primary:'#818CF8', secondary:'#6366F1', dark:'#0B0F19', 'dark-lighter':'#161B26', success:'#10B981', warning:'#F59E0B', danger:'#EF4444' } } }
+      theme:{ extend:{ colors:{slate:{50:'#0e1218',100:'#1c2530',200:'#2a313b',300:'#46505c',400:'#6b7480',500:'#9aa3af',600:'#c4ccd6',700:'#e3e8ef',800:'#eef1f6',900:'#ffffff',950:'#f7f9fc'}, primary:'#2f6bff', secondary:'#1f57e6', dark:'#eef1f6', 'dark-lighter':'#ffffff', success:'#1f9d57', warning:'#d68a00', danger:'#e23b4e' } } }
     }
   </script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
 </head>
 <body class="min-h-screen flex flex-col">
 
   <!-- NAV -->
-  <header class="sticky top-0 z-50 bg-dark/80 backdrop-blur-lg border-b border-slate-800/80">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-      <a href="{{ url_for('public.index') }}" class="flex items-center space-x-2 space-x-reverse group">
-        <h1 class="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary">
-          yedaarechevAI
-        </h1>
+  <header class="yr-header">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
+      <a href="{{ url_for('public.index') }}" class="yr-brand group">
+        <span class="yr-brand__mark">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11l1.5-4.2A2 2 0 0 1 8.4 5.4h7.2a2 2 0 0 1 1.9 1.4L19 11 M5 11h14v5H5z M5 16v2 M19 16v2"></path></svg>
+        </span>
+        <span class="flex flex-col leading-none">
+          <span class="yr-brand__name yr-chrome-text">ידע רכב</span>
+          <span class="yr-brand__sub">AI&nbsp;CAR&nbsp;ADVISOR</span>
+        </span>
       </a>
       <div class="flex items-center gap-3 sm:gap-6 text-sm font-medium">
         {% if user and user.is_authenticated %}

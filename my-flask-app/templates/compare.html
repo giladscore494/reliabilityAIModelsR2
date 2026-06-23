@@ -15,14 +15,14 @@
             darkMode: 'class',
             theme: {
                 extend: {
-                    colors: {
-                        primary: '#818CF8',
-                        secondary: '#6366F1',
-                        dark: '#0B0F19',
-                        'dark-lighter': '#161B26',
-                        success: '#10B981',
-                        warning: '#F59E0B',
-                        danger: '#EF4444',
+                    colors: {slate:{50:'#0e1218',100:'#1c2530',200:'#2a313b',300:'#46505c',400:'#6b7480',500:'#9aa3af',600:'#c4ccd6',700:'#e3e8ef',800:'#eef1f6',900:'#ffffff',950:'#f7f9fc'},
+                        primary: '#2f6bff',
+                        secondary: '#1f57e6',
+                        dark: '#eef1f6',
+                        'dark-lighter': '#ffffff',
+                        success: '#1f9d57',
+                        warning: '#d68a00',
+                        danger: '#e23b4e',
                     }
                 }
             }
@@ -31,164 +31,165 @@
 
     <style>
         body {
-            font-family: 'Heebo', system-ui, -apple-system, sans-serif;
-            background-color: #0B0F19;
-            color: #E2E8F0;
-            margin: 0;
-            overflow-x: hidden;
+            font-family:'Heebo', system-ui, -apple-system, sans-serif;
+            background-color:#eef1f6;
+            color:#2a313b;
+            margin:0;
+            overflow-x:hidden;
         }
-        .fade-in { animation: fadeIn 0.4s ease-out forwards; opacity: 0; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .loader { border: 3px solid rgba(255,255,255,0.2); border-top-color: var(--primary, #818CF8); border-radius: 50%; width: 1.5rem; height: 1.5rem; animation: spin 1s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
+        .fade-in { animation:fadeIn 0.4s ease-out forwards; opacity:0; }
+        @keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+        .loader { border:3px solid rgba(255,255,255,0.2); border-top-color:var(--primary, #2f6bff); border-radius:50%; width:1.5rem; height:1.5rem; animation:spin 1s linear infinite; }
+        @keyframes spin { to { transform:rotate(360deg); } }
         
         /* LTR select for car dropdowns */
-        .ltr-select { direction: ltr; text-align: left; }
+        .ltr-select { direction:ltr; text-align:left; }
         
         /* Category rows */
         .category-row {
-            background: #161B26;
-            border: 1px solid #334155;
-            border-radius: 0.75rem;
-            overflow: hidden;
-            transition: all 0.2s ease;
+            background:#ffffff;
+            border:1px solid #cfd5dd;
+            border-radius:0.75rem;
+            overflow:hidden;
+            transition:all 0.2s ease;
         }
         .category-row:hover {
-            border-color: #475569;
+            border-color:#c4ccd6;
         }
         .category-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 1rem 1.25rem;
-            cursor: pointer;
-            background: #161B26;
-            flex-wrap: wrap;
-            gap: 0.75rem;
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            padding:1rem 1.25rem;
+            cursor:pointer;
+            background:#ffffff;
+            flex-wrap:wrap;
+            gap:0.75rem;
         }
         .category-header:hover {
-            background: #263449;
+            background:#eef1f6;
         }
         .category-content {
-            display: none;
-            padding: 0 1.25rem 1rem;
-            border-top: 1px solid #334155;
+            display:none;
+            padding:0 1.25rem 1rem;
+            border-top:1px solid #cfd5dd;
         }
         .category-content.open {
-            display: block;
-            animation: fadeIn 0.3s ease-out;
+            display:block;
+            animation:fadeIn 0.3s ease-out;
         }
         
         
         /* Winner badge */
         .winner-badge {
-            background: linear-gradient(135deg, #10B981, #059669);
-            color: white;
-            font-size: 0.7rem;
-            font-weight: 600;
-            padding: 0.2rem 0.5rem;
-            border-radius: 9999px;
-            white-space: nowrap;
+            background:linear-gradient(135deg, #1f9d57, #059669);
+            color:white;
+            font-size:0.7rem;
+            font-weight:600;
+            padding:0.2rem 0.5rem;
+            border-radius:9999px;
+            white-space:nowrap;
         }
         
         
 
         /* Per-car accent colors */
-        .car-accent-1 { --accent: #ef4444; }
-        .car-accent-2 { --accent: #3b82f6; }
-        .car-accent-3 { --accent: #22c55e; }
-        .car-card { border-color: var(--accent); }
-        .car-title { color: var(--accent); }
-        .car-score { color: var(--accent); }
+        .car-accent-1 { --accent:#e23b4e; }
+        .car-accent-2 { --accent:#3b82f6; }
+        .car-accent-3 { --accent:#22c55e; }
+        .car-card { border-color:var(--accent); }
+        .car-title { color:var(--accent); }
+        .car-score { color:var(--accent); }
 
         /* Car result chip styles */
         .car-result-chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.375rem;
-            padding: 0.25rem 0.75rem;
-            border-radius: 9999px;
-            font-size: 0.8rem;
-            font-weight: 700;
-            border: 1.5px solid var(--chip-color);
-            color: var(--chip-color);
-            background: color-mix(in srgb, var(--chip-color) 12%, transparent);
-            white-space: nowrap;
+            display:inline-flex;
+            align-items:center;
+            gap:0.375rem;
+            padding:0.25rem 0.75rem;
+            border-radius:9999px;
+            font-size:0.8rem;
+            font-weight:700;
+            border:1.5px solid var(--chip-color);
+            color:var(--chip-color);
+            background:color-mix(in srgb, var(--chip-color) 12%, transparent);
+            white-space:nowrap;
         }
-        .car-result-chip.car-chip-1 { --chip-color: #ef4444; }
-        .car-result-chip.car-chip-2 { --chip-color: #3b82f6; }
-        .car-result-chip.car-chip-3 { --chip-color: #22c55e; }
+        .car-result-chip.car-chip-1 { --chip-color:#e23b4e; }
+        .car-result-chip.car-chip-2 { --chip-color:#3b82f6; }
+        .car-result-chip.car-chip-3 { --chip-color:#22c55e; }
 
         /* Autocomplete styles */
-        .autocomplete-container { position: relative; }
+        .autocomplete-container { position:relative; }
         .autocomplete-input {
-            direction: ltr;
-            text-align: left;
-            transition: border-color 0.2s;
+            direction:ltr;
+            text-align:left;
+            transition:border-color 0.2s;
         }
         .autocomplete-input:-webkit-autofill,
         .autocomplete-input:-webkit-autofill:hover,
         .autocomplete-input:-webkit-autofill:focus {
-            -webkit-text-fill-color: #e2e8f0;
-            -webkit-box-shadow: 0 0 0px 1000px #0B0F19 inset;
-            box-shadow: 0 0 0px 1000px #0B0F19 inset;
+            -webkit-text-fill-color:#2a313b;
+            -webkit-box-shadow:0 0 0px 1000px #eef1f6 inset;
+            box-shadow:0 0 0px 1000px #eef1f6 inset;
         }
         .autocomplete-input::placeholder {
-            color: #64748b;
-            direction: rtl;
-            text-align: right;
+            color:#6b7480;
+            direction:rtl;
+            text-align:right;
         }
         .autocomplete-dropdown {
-            display: none;
-            position: absolute;
-            top: 100%;
-            left: 0;
-            right: 0;
-            z-index: 100;
-            max-height: 250px;
-            overflow-y: auto;
-            background: #161B26;
-            border: 1px solid #475569;
-            border-radius: 0.75rem;
-            margin-top: 4px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            display:none;
+            position:absolute;
+            top:100%;
+            left:0;
+            right:0;
+            z-index:100;
+            max-height:250px;
+            overflow-y:auto;
+            background:#ffffff;
+            border:1px solid #c4ccd6;
+            border-radius:0.75rem;
+            margin-top:4px;
+            box-shadow:0 10px 30px rgba(0,0,0,0.5);
         }
-        .autocomplete-dropdown.open { display: block; }
+        .autocomplete-dropdown.open { display:block; }
         .autocomplete-item {
-            padding: 0.75rem 1rem;
-            cursor: pointer;
-            color: #e2e8f0;
-            border-bottom: 1px solid #334155;
-            direction: ltr;
-            text-align: left;
+            padding:0.75rem 1rem;
+            cursor:pointer;
+            color:#2a313b;
+            border-bottom:1px solid #cfd5dd;
+            direction:ltr;
+            text-align:left;
         }
-        .autocomplete-item:last-child { border-bottom: none; }
-        .autocomplete-item:hover, .autocomplete-item.highlighted { background: #334155; color: white; }
-        .autocomplete-item .item-make { font-weight: 600; }
-        .autocomplete-item .item-years { color: #94A3B8; font-size: 0.8rem; margin-right: 0.5rem; }
+        .autocomplete-item:last-child { border-bottom:none; }
+        .autocomplete-item:hover, .autocomplete-item.highlighted { background:#cfd5dd; color:white; }
+        .autocomplete-item .item-make { font-weight:600; }
+        .autocomplete-item .item-years { color:#6b7480; font-size:0.8rem; margin-right:0.5rem; }
 
         /* Narrative section */
         .narrative-section {
-            background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(236,72,153,0.1));
-            border: 1px solid rgba(99,102,241,0.3);
-            border-radius: 1rem;
-            padding: 1.5rem;
+            background:linear-gradient(135deg, rgba(47,107,255,0.1), rgba(236,72,153,0.1));
+            border:1px solid rgba(47,107,255,0.3);
+            border-radius:1rem;
+            padding:1.5rem;
         }
         .tie-badge {
-            background: linear-gradient(135deg, #F59E0B, #D97706);
-            color: white;
-            font-size: 0.7rem;
-            font-weight: 600;
-            padding: 0.2rem 0.5rem;
-            border-radius: 9999px;
-            white-space: nowrap;
+            background:linear-gradient(135deg, #d68a00, #D97706);
+            color:white;
+            font-size:0.7rem;
+            font-weight:600;
+            padding:0.2rem 0.5rem;
+            border-radius:9999px;
+            white-space:nowrap;
         }
-        /* show-flex: allows hidden+show-flex coexistence - display:flex applies when .hidden is removed */
-        .show-flex:not(.hidden) { display: flex !important; }
-        /* ring-overtime: pulsing animation when elapsed time exceeds estimate */
-        @keyframes ring-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-        .ring-overtime { animation: ring-pulse 1s ease-in-out infinite; }
+        /* show-flex:allows hidden+show-flex coexistence - display:flex applies when .hidden is removed */
+        .show-flex:not(.hidden) { display:flex !important; }
+        /* ring-overtime:pulsing animation when elapsed time exceeds estimate */
+        @keyframes ring-pulse { 0%, 100% { opacity:1; } 50% { opacity:0.5; } }
+        .ring-overtime { animation:ring-pulse 1s ease-in-out infinite; }
     </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
 </head>
 <body class="bg-dark text-slate-200 min-h-screen flex flex-col antialiased">
 
@@ -532,7 +533,7 @@
                 <div class="relative w-24 h-24 sm:w-32 sm:h-32">
                     <!-- SVG Circular Progress Ring -->
                     <svg class="w-24 h-24 sm:w-32 sm:h-32 transform -rotate-90" viewBox="0 0 120 120">
-                        <circle cx="60" cy="60" r="54" fill="none" stroke="#161B26" stroke-width="8"></circle>
+                        <circle cx="60" cy="60" r="54" fill="none" stroke="#ffffff" stroke-width="8"></circle>
                         <circle id="compareProgressRing" cx="60" cy="60" r="54" fill="none" stroke="url(#compareRainbowGradient)" stroke-width="8" 
                                 stroke-linecap="round" stroke-dasharray="339.292" stroke-dashoffset="339.292"
                                 style="transition: stroke-dashoffset 0.3s ease, stroke 0.5s ease;"></circle>
@@ -1733,7 +1734,7 @@
     // ============================================================
     
     const ACCENT_COLORS = {
-        'car_1': { class: 'car-accent-1', color: '#ef4444', name: 'אדום' },
+        'car_1': { class: 'car-accent-1', color: '#e23b4e', name: 'אדום' },
         'car_2': { class: 'car-accent-2', color: '#3b82f6', name: 'כחול' },
         'car_3': { class: 'car-accent-3', color: '#22c55e', name: 'ירוק' }
     };
