@@ -65,7 +65,7 @@
         {% endif %}
       </nav>
 
-      <button id="navbar-toggle" type="button" class="md:hidden inline-flex items-center justify-center w-11 h-11 rounded-full border border-slate-700 text-slate-200 bg-white hover:bg-slate-800 transition"
+      <button id="navbar-toggle" type="button" class="yr-icon-btn md:hidden text-lg"
               aria-label="פתח תפריט">
         ☰
       </button>
@@ -75,7 +75,7 @@
 
 <div id="navbar-drawer" class="hidden fixed inset-0 z-50">
   <div class="drawer-overlay absolute inset-0 bg-black/40"></div>
-  <div class="drawer-panel absolute inset-y-0 right-0 w-72 max-w-full bg-white shadow-2xl border-s border-slate-700 p-6 flex flex-col gap-6 translate-x-full transition-transform duration-200">
+  <div class="drawer-panel yr-drawer-panel absolute inset-y-0 right-0 w-72 max-w-full p-6 flex flex-col gap-6 translate-x-full transition-transform duration-200">
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-2 text-slate-200 font-semibold">
         {% if is_authenticated %}

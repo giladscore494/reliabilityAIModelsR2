@@ -233,21 +233,80 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
   -webkit-background-clip:text; background-clip:text; color:transparent;
 }
 
+/* ---------- Chrome shell / page background ---------- */
+/* Optional wrapper to give any page the premium ambient chrome base. */
+.yr-shell{
+  min-height:100vh;
+  background-color:var(--yr-bg);
+  background-image:
+    radial-gradient(900px 560px at 88% -6%, rgba(47,107,255,.10), transparent 60%),
+    radial-gradient(760px 620px at -4% 104%, rgba(22,200,230,.08), transparent 62%),
+    linear-gradient(180deg,#f7f9fc,#eef1f6);
+}
+
+/* Subtle carbon-fibre sporty accent utility */
+.yr-carbon{ background-image:var(--carbon); }
+
+/* Best-match hero panel — premium spotlight card */
+.yr-hero{
+  position:relative; overflow:hidden;
+  padding:28px;
+  background:linear-gradient(180deg,#ffffff,#f4f7fb);
+  border:1px solid var(--yr-border-strong);
+  border-radius:var(--yr-radius-lg);
+  box-shadow:var(--yr-shadow-lg), inset 0 1px 0 #fff;
+}
+.yr-hero::before{ /* restrained blue AI glow */
+  content:""; position:absolute; right:-12%; bottom:-42%;
+  width:440px; height:440px; pointer-events:none;
+  background:radial-gradient(circle, rgba(47,107,255,.16), transparent 60%);
+}
+.yr-hero > *{ position:relative; z-index:1; }
+.yr-hero__badge{
+  display:inline-flex; align-items:center; gap:7px;
+  padding:6px 14px; border-radius:999px;
+  font:700 12px/1 'Heebo',sans-serif; letter-spacing:.3px;
+  color:#fff; background:linear-gradient(120deg,var(--yr-accent-2),var(--yr-accent-cyan));
+  box-shadow:0 8px 20px -10px rgba(31,87,230,.7), inset 0 1px 0 rgba(255,255,255,.4);
+}
+
+/* Metric tile — compact stat card */
+.yr-tile{
+  padding:16px;
+  background:linear-gradient(180deg,#ffffff,#f7f9fc);
+  border:1px solid var(--yr-border);
+  border-radius:var(--yr-radius);
+  box-shadow:var(--yr-shadow-sm), inset 0 1px 0 #fff;
+  transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+}
+.yr-tile:hover{ transform:translateY(-2px); border-color:var(--yr-border-strong); box-shadow:var(--yr-shadow); }
+.yr-tile__label{ font-size:12px; font-weight:600; color:var(--yr-muted); margin:0 0 4px; }
+.yr-tile__value{ font-family:'Rubik',sans-serif; font-weight:800; font-size:1.6rem; line-height:1; color:var(--yr-ink); letter-spacing:-.5px; }
+.yr-tile__sub{ font-size:11px; font-weight:600; color:var(--yr-muted-2); margin-top:4px; }
+
+/* Hairline chrome divider */
+.yr-divider{ height:1px; border:0; background:linear-gradient(90deg,transparent,var(--yr-border-strong),transparent); margin:18px 0; }
+
 /* ============================================================
-   Shared navbar / footer (white-chrome glass identity)
+   Shared navbar / footer / drawer / modal
+   Dark carbon-chrome cockpit shell over the white/chrome body.
+   Matches the uploaded prototype (dark header, light body) and
+   keeps the legacy slate-* utility text readable on the dark shell.
    ============================================================ */
 .yr-header{
   position:sticky; top:0; z-index:50;
-  background:rgba(255,255,255,.82);
-  -webkit-backdrop-filter:saturate(160%) blur(16px);
-  backdrop-filter:saturate(160%) blur(16px);
-  border-bottom:1px solid var(--yr-border);
-  box-shadow:0 10px 30px -22px rgba(20,40,80,.35);
+  background:
+    var(--carbon),
+    linear-gradient(180deg, rgba(22,27,34,.93), rgba(13,17,23,.92));
+  -webkit-backdrop-filter:saturate(150%) blur(16px);
+  backdrop-filter:saturate(150%) blur(16px);
+  border-bottom:1px solid rgba(196,204,214,.16);
+  box-shadow:0 16px 40px -26px rgba(0,0,0,.8);
 }
-.yr-header::after{ /* subtle carbon accent strip */
+.yr-header::after{ /* AI accent strip */
   content:""; display:block; height:2px;
   background:linear-gradient(90deg,var(--yr-accent-cyan),var(--yr-accent),var(--yr-accent-2));
-  opacity:.55;
+  opacity:.7;
 }
 .yr-brand{ display:flex; align-items:center; gap:12px; text-decoration:none; }
 .yr-brand__mark{
@@ -259,28 +318,87 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
 .yr-brand__name{
   font-family:'Rubik',sans-serif; font-weight:800; font-size:22px; line-height:1; letter-spacing:-.5px;
 }
-.yr-brand__sub{ font-size:10px; font-weight:600; letter-spacing:2.5px; color:var(--yr-chrome-dark); }
+.yr-brand__sub{ font-size:10px; font-weight:600; letter-spacing:2.5px; color:#9aa3af; }
+/* Light silver chrome brand text on the dark shell */
+.yr-header .yr-chrome-text, .yr-footer .yr-chrome-text, .yr-drawer-panel .yr-chrome-text{
+  background:linear-gradient(180deg,#f2f5f9 0%,#c4ccd6 30%,#9aa3af 52%,#e2e7ee 74%,#aab2bd 100%);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+
+/* Glass nav pills (live on the dark header + dark drawer) */
 .yr-nav-pill{
   padding:9px 18px; border-radius:999px;
-  border:1px solid var(--yr-border);
-  background:#fff; color:var(--yr-ink-2);
-  font-weight:600; font-size:14px; text-decoration:none;
-  transition:transform .18s, box-shadow .18s, border-color .18s, background .18s;
+  border:1px solid rgba(196,204,214,.18);
+  background:rgba(255,255,255,.06);
+  -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px);
+  color:#d7dde5; font-weight:600; font-size:14px; text-decoration:none;
+  transition:transform .18s, box-shadow .18s, border-color .18s, background .18s, color .18s;
 }
-.yr-nav-pill:hover{ transform:translateY(-1px); border-color:var(--yr-border-strong); box-shadow:0 6px 16px -10px rgba(20,40,80,.4); }
+.yr-nav-pill:hover{
+  transform:translateY(-1px); color:#fff;
+  background:rgba(255,255,255,.12); border-color:rgba(196,204,214,.32);
+  box-shadow:0 8px 18px -10px rgba(0,0,0,.6);
+}
 .yr-nav-pill--active{
-  background:linear-gradient(180deg,#eef4ff,#dfe9ff);
-  border-color:rgba(47,107,255,.30); color:var(--yr-accent-2); font-weight:700;
+  background:linear-gradient(180deg, rgba(47,107,255,.26), rgba(31,87,230,.32));
+  border-color:rgba(47,107,255,.5); color:#fff; font-weight:700;
+  box-shadow:0 0 0 1px rgba(47,107,255,.18), 0 8px 22px -10px rgba(47,107,255,.7);
 }
+
+/* Mobile drawer panel — dark chrome */
+.yr-drawer-panel{
+  background:
+    var(--carbon),
+    linear-gradient(180deg, #141922, #0d1117);
+  border-inline-start:1px solid rgba(196,204,214,.16);
+  box-shadow:-24px 0 60px -30px rgba(0,0,0,.8);
+}
+
+/* Chrome icon button (mobile toggle / close) */
+.yr-icon-btn{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:44px; height:44px; border-radius:999px;
+  border:1px solid rgba(196,204,214,.22);
+  background:rgba(255,255,255,.07); color:#e2e7ee;
+  -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px);
+  transition:background .18s, border-color .18s, color .18s;
+}
+.yr-icon-btn:hover{ background:rgba(255,255,255,.14); border-color:rgba(196,204,214,.38); color:#fff; }
+
 .yr-footer{
-  margin-top:64px; padding:34px 16px; text-align:center;
-  background:rgba(255,255,255,.6);
-  -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px);
-  border-top:1px solid var(--yr-border);
+  margin-top:64px; padding:34px 16px; text-align:center; color:#aab2bd;
+  background:
+    var(--carbon),
+    linear-gradient(180deg, rgba(13,17,23,.97), rgba(9,12,16,.99));
+  border-top:1px solid rgba(196,204,214,.14);
+}
+.yr-footer a{ transition:color .18s; }
+
+/* Login modal — dark chrome glass card */
+.yr-modal-card{
+  background:
+    var(--carbon),
+    linear-gradient(180deg, #161b22, #0e131a);
+  border:1px solid rgba(196,204,214,.18);
+  box-shadow:0 40px 90px -30px rgba(0,0,0,.85), inset 0 1px 0 rgba(255,255,255,.06);
+}
+.yr-modal-card::after{ /* chrome accent strip */
+  content:""; position:absolute; left:0; right:0; top:0; height:2px; border-radius:inherit;
+  background:linear-gradient(90deg,var(--yr-accent-cyan),var(--yr-accent),var(--yr-accent-2)); opacity:.6;
 }
 
 @media (max-width:640px){
   .yr-brand__name{ font-size:19px; }
+  .yr-hero{ padding:20px; }
+}
+
+/* ---------- Low-motion: respect reduced-motion preference ---------- */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    animation-duration:.001ms !important; animation-iteration-count:1 !important;
+    transition-duration:.001ms !important; scroll-behavior:auto !important;
+  }
+  .yr-chrome-card:hover,.yr-tile:hover,.yr-btn:hover,.yr-btn--chrome:hover,.yr-nav-pill:hover{ transform:none !important; }
 }
 </content>
 </invoke>
