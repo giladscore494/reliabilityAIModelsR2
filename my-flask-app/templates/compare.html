@@ -16,10 +16,10 @@
             theme: {
                 extend: {
                     colors: {
-                        primary: '#6366F1',
-                        secondary: '#EC4899',
-                        dark: '#0F172A',
-                        'dark-lighter': '#1E293B',
+                        primary: '#818CF8',
+                        secondary: '#6366F1',
+                        dark: '#0B0F19',
+                        'dark-lighter': '#161B26',
                         success: '#10B981',
                         warning: '#F59E0B',
                         danger: '#EF4444',
@@ -32,14 +32,14 @@
     <style>
         body {
             font-family: 'Heebo', system-ui, -apple-system, sans-serif;
-            background-color: #0F172A;
+            background-color: #0B0F19;
             color: #E2E8F0;
             margin: 0;
             overflow-x: hidden;
         }
         .fade-in { animation: fadeIn 0.4s ease-out forwards; opacity: 0; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .loader { border: 3px solid rgba(255,255,255,0.2); border-top-color: var(--primary, #6366F1); border-radius: 50%; width: 1.5rem; height: 1.5rem; animation: spin 1s linear infinite; }
+        .loader { border: 3px solid rgba(255,255,255,0.2); border-top-color: var(--primary, #818CF8); border-radius: 50%; width: 1.5rem; height: 1.5rem; animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
         
         /* LTR select for car dropdowns */
@@ -47,7 +47,7 @@
         
         /* Category rows */
         .category-row {
-            background: #1E293B;
+            background: #161B26;
             border: 1px solid #334155;
             border-radius: 0.75rem;
             overflow: hidden;
@@ -62,7 +62,7 @@
             justify-content: space-between;
             padding: 1rem 1.25rem;
             cursor: pointer;
-            background: #1E293B;
+            background: #161B26;
             flex-wrap: wrap;
             gap: 0.75rem;
         }
@@ -130,8 +130,8 @@
         .autocomplete-input:-webkit-autofill:hover,
         .autocomplete-input:-webkit-autofill:focus {
             -webkit-text-fill-color: #e2e8f0;
-            -webkit-box-shadow: 0 0 0px 1000px #0f172a inset;
-            box-shadow: 0 0 0px 1000px #0f172a inset;
+            -webkit-box-shadow: 0 0 0px 1000px #0B0F19 inset;
+            box-shadow: 0 0 0px 1000px #0B0F19 inset;
         }
         .autocomplete-input::placeholder {
             color: #64748b;
@@ -147,7 +147,7 @@
             z-index: 100;
             max-height: 250px;
             overflow-y: auto;
-            background: #1E293B;
+            background: #161B26;
             border: 1px solid #475569;
             border-radius: 0.75rem;
             margin-top: 4px;
@@ -532,7 +532,7 @@
                 <div class="relative w-24 h-24 sm:w-32 sm:h-32">
                     <!-- SVG Circular Progress Ring -->
                     <svg class="w-24 h-24 sm:w-32 sm:h-32 transform -rotate-90" viewBox="0 0 120 120">
-                        <circle cx="60" cy="60" r="54" fill="none" stroke="#1e293b" stroke-width="8"></circle>
+                        <circle cx="60" cy="60" r="54" fill="none" stroke="#161B26" stroke-width="8"></circle>
                         <circle id="compareProgressRing" cx="60" cy="60" r="54" fill="none" stroke="url(#compareRainbowGradient)" stroke-width="8" 
                                 stroke-linecap="round" stroke-dasharray="339.292" stroke-dashoffset="339.292"
                                 style="transition: stroke-dashoffset 0.3s ease, stroke 0.5s ease;"></circle>

@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet"/>
 
   <style>
-    :root{ --bg-dark:#0F172A; --text-light:#E2E8F0; --primary:#6366F1; --secondary:#EC4899; }
+    :root{ --bg-dark:#0B0F19; --text-light:#E2E8F0; --primary:#818CF8; --secondary:#6366F1; }
     body{ font-family:'Heebo',system-ui,-apple-system,sans-serif; background:var(--bg-dark); color:var(--text-light); }
     .fade-in{ animation:fadeIn .6s cubic-bezier(.4,0,.2,1) forwards; opacity:0 }
     @keyframes fadeIn{ from{opacity:0; transform:translateY(20px)} to{opacity:1; transform:none} }
@@ -19,7 +19,7 @@
   <script nonce="{{ csp_nonce }}">
     tailwind.config = {
       darkMode:'class',
-      theme:{ extend:{ colors:{ primary:'#6366F1', secondary:'#EC4899', dark:'#0F172A', 'dark-lighter':'#1E293B', success:'#10B981', warning:'#F59E0B', danger:'#EF4444' } } }
+      theme:{ extend:{ colors:{ primary:'#818CF8', secondary:'#6366F1', dark:'#0B0F19', 'dark-lighter':'#161B26', success:'#10B981', warning:'#F59E0B', danger:'#EF4444' } } }
     }
   </script>
 </head>
@@ -29,7 +29,7 @@
   <header class="sticky top-0 z-50 bg-dark/80 backdrop-blur-lg border-b border-slate-800/80">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
       <a href="{{ url_for('public.index') }}" class="flex items-center space-x-2 space-x-reverse group">
-        <h1 class="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-primary via-purple-500 to-secondary">
+        <h1 class="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary">
           yedaarechevAI
         </h1>
       </a>
