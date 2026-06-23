@@ -163,7 +163,7 @@
         </div>
 
         {% if history_error %}
-            <div class="mb-4 p-3 rounded-lg bg-amber-900/40 border border-amber-700 text-amber-200 text-sm">
+            <div class="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-300 text-amber-200 text-sm">
                 {{ history_error }}
             </div>
         {% endif %}
@@ -309,7 +309,7 @@
                                 {% endif %}
                             </div>
                             <a href="/recommendations/history/{{ item.id }}"
-                               class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg text-white transition-colors whitespace-nowrap">
+                               class="px-3 py-1.5 text-xs bg-primary hover:bg-secondary rounded-lg text-white transition-colors whitespace-nowrap">
                                 פתח שאלון
                             </a>
                         </div>
@@ -327,8 +327,8 @@
     </section>
 
     <!-- Delete Account Section -->
-    <div class="mt-12 pt-8 border-t border-slate-800">
-        <div class="bg-dark-lighter/50 border border-red-900/30 rounded-xl p-6">
+    <div class="mt-12 pt-8 border-t border-[#cfd5dd]">
+        <div class="bg-white/60 border border-red-300/50 rounded-xl p-6">
             <h3 class="text-lg font-bold text-white mb-2">מחיקת חשבון</h3>
             <p class="text-slate-400 text-sm mb-4">
                 מחיקת החשבון תסיר לצמיתות את כל הנתונים שלך, כולל היסטוריית חיפושים ושאלונים. פעולה זו אינה הפיכה.
@@ -344,8 +344,8 @@
 </main>
 
 <!-- Delete Account Modal -->
-<div id="deleteModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-dark-lighter border-2 border-red-600/50 rounded-2xl p-8 max-w-md w-full overlay-open">
+<div id="deleteModal" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white border-2 border-red-400/60 rounded-2xl p-8 max-w-md w-full overlay-open shadow-2xl">
         <h3 class="text-2xl font-bold text-white mb-4">אישור מחיקת חשבון</h3>
         <p class="text-slate-300 mb-6">
             פעולה זו תמחק לצמיתות את החשבון שלך וכל הנתונים הקשורים אליו.
@@ -354,11 +354,11 @@
         <p class="text-slate-300 mb-4">
             כדי לאשר, הקלד <strong class="text-red-400">DELETE</strong> בדיוק (באנגלית, באותיות גדולות):
         </p>
-        <input 
-            type="text" 
+        <input
+            type="text"
             id="deleteConfirmInput"
             placeholder="הקלד DELETE"
-            class="w-full px-4 py-3 bg-slate-900 border-2 border-slate-700 focus:border-red-500 rounded-lg text-white mb-2"
+            class="w-full px-4 py-3 bg-[#f7f9fc] border-2 border-[#cfd5dd] focus:border-red-500 rounded-lg text-white mb-2"
         />
         <p id="deleteError" class="text-red-400 text-sm mb-4 hidden"></p>
         
@@ -378,8 +378,8 @@
 </div>
 
 <div id="details-overlay"
-     class="fixed inset-0 bg-dark/95 z-50 hidden flex flex-col overlay-open">
-    <div class="flex items-center justify-between px-4 py-3 bg-dark-lighter border-b border-slate-700 shrink-0 shadow-md">
+     class="fixed inset-0 bg-[#eef1f6]/98 z-50 hidden flex flex-col overlay-open">
+    <div class="flex items-center justify-between px-4 py-3 bg-white border-b border-[#cfd5dd] shrink-0 shadow-md">
         <div>
             <h3 id="details-title"
                 class="text-lg md:text-xl font-bold text-white leading-tight">
@@ -389,7 +389,7 @@
                 </p>
         </div>
         <button id="details-close-btn"
-                class="w-9 h-9 flex items-center justify-center rounded-full bg-slate-800 text-white border border-slate-600 active:bg-slate-700"
+                class="w-9 h-9 flex items-center justify-center rounded-full bg-[#f0f2f6] text-white border border-[#cfd5dd] hover:bg-[#e3e8ef] active:bg-[#cfd5dd]"
                 type="button"
                 aria-label="סגירה">
             ✕
@@ -397,7 +397,7 @@
     </div>
 
     <div id="details-content"
-         class="flex-1 overflow-y-auto overflow-x-hidden bg-dark px-4 py-4 md:px-6 md:py-6 relative">
+         class="flex-1 overflow-y-auto overflow-x-hidden bg-[#eef1f6] px-4 py-4 md:px-6 md:py-6 relative">
         </div>
 </div>
 
@@ -571,7 +571,7 @@
                         </thead>
                         <tbody>
                             ${issuesWithCosts.map(it => `
-                                <tr class="border-b border-slate-800/80">
+                                <tr class="border-b border-[#cfd5dd]">
                                     <td class="px-2 py-1 text-slate-100">${it.issue || ''}</td>
                                     <td class="px-2 py-1 text-slate-100">${it.avg_cost_ILS || ''}</td>
                                     <td class="px-2 py-1 text-slate-100">${it.severity || ''}</td>
@@ -705,7 +705,7 @@
             : '';
 
         const sourceTagHtml = sourceTag
-            ? `<div class="mt-4 text-[11px] text-slate-500 border-t border-slate-800 pt-2">
+            ? `<div class="mt-4 text-[11px] text-slate-500 border-t border-[#cfd5dd] pt-2">
                    ${sourceTag}
                </div>`
             : '';
@@ -720,7 +720,7 @@
 
         // --- NEW BUTTONS NAVIGATION (MODIFIED SECTION) ---
         const navButtons = `
-          <div class="sticky top-0 z-30 bg-dark/95 backdrop-blur py-3 border-b border-slate-700/50 mb-6 flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4" id="detail-nav">
+          <div class="sticky top-0 z-30 bg-[#eef1f6]/95 backdrop-blur py-3 border-b border-[#cfd5dd] mb-6 flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4" id="detail-nav">
               <button data-scroll-to="sec-summary" class="detail-nav-btn shrink-0">סיכום</button>
               <button data-scroll-to="sec-costs" class="detail-nav-btn shrink-0">בדיקות ועלויות</button>
               <button data-scroll-to="sec-issues" class="detail-nav-btn shrink-0">תקלות</button>
@@ -749,7 +749,7 @@
             </section>
 
             <section class="detail-section mb-4">
-                <div class="rounded-2xl border border-slate-700/70 bg-slate-950/40 p-4 text-xs text-slate-200">
+                <div class="rounded-2xl border border-[#cfd5dd] bg-[#f7f9fc] p-4 text-xs text-slate-200">
                     <div class="font-semibold text-white mb-2">שקיפות מקורות</div>
                     <div>נמצאו ${escapeHtml(String(sourceCount))} מקורות · סוג מקורות מזוהה: ${escapeHtml(sourceScopeLabel)}</div>
                     ${weaklySourced ? '<div class="mt-2 text-amber-300">פחות משני מקורות נמצאו ולכן הניתוח מבוסס חלש.</div>' : ''}
@@ -992,7 +992,7 @@
                                 </div>
                             </div>
                             <a href="/compare?load=${item.id}" 
-                               class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg text-white transition-colors">
+                               class="px-3 py-1.5 text-xs bg-primary hover:bg-secondary rounded-lg text-white transition-colors">
                                 צפה בפרטים
                             </a>
                         </div>

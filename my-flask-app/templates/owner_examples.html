@@ -57,7 +57,7 @@
                 {% if public_rows %}
                 <div class="grid gap-3">
                     {% for r in public_rows %}
-                    <div class="flex items-center justify-between bg-dark-lighter/70 border border-emerald-500/30 rounded-xl px-4 py-3">
+                    <div class="flex items-center justify-between bg-white/70 border border-emerald-400/40 rounded-xl px-4 py-3">
                         <div>
                             <span class="text-emerald-300 font-semibold text-sm">✓ {{ r.make }} {{ r.model }} {{ r.year }}</span>
                             <span class="text-slate-500 text-xs mr-2">slug: {{ r.example_slug }}</span>
@@ -80,7 +80,7 @@
                 <div class="overflow-x-auto">
                     <table class="w-full text-sm">
                         <thead>
-                            <tr class="text-slate-400 border-b border-slate-700/50 text-xs uppercase tracking-wider">
+                            <tr class="text-slate-400 border-b border-[#cfd5dd] text-xs uppercase tracking-wider">
                                 <th class="py-2 px-2 w-10">בחר</th>
                                 <th class="py-2 px-3 text-right">רכב</th>
                                 <th class="py-2 px-3 text-right w-20">ציון</th>
@@ -91,10 +91,10 @@
                         </thead>
                         <tbody id="rowsBody">
                             {% for r in my_rows %}
-                            <tr class="border-b border-slate-800/40 hover:bg-slate-800/30 transition" data-row-id="{{ r.id }}">
+                            <tr class="border-b border-[#e3e8ef] hover:bg-[#f7f9fc] transition" data-row-id="{{ r.id }}">
                                 <td class="py-2.5 px-2 text-center">
                                     <input type="checkbox"
-                                           class="example-check rounded border-slate-600 text-primary focus:ring-primary bg-slate-900"
+                                           class="example-check rounded border-[#cfd5dd] text-primary focus:ring-primary bg-white"
                                            data-id="{{ r.id }}"
                                            aria-label="בחר {{ r.make }} {{ r.model }} {{ r.year }} כדוגמה ציבורית"
                                            {% if r.is_public_example %}checked{% endif %}>
@@ -118,7 +118,7 @@
                                 </td>
                                 <td class="py-2.5 px-3">
                                     <input type="text"
-                                           class="slug-input w-full bg-slate-900/60 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white focus:ring-primary focus:border-primary"
+                                           class="slug-input w-full bg-white border border-[#cfd5dd] rounded-lg px-2 py-1.5 text-xs text-white focus:ring-primary focus:border-primary"
                                            data-id="{{ r.id }}"
                                            value="{{ r.example_slug or '' }}"
                                            placeholder="e.g. toyota-corolla-2020"
