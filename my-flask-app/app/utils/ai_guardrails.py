@@ -1095,6 +1095,9 @@ def _repair_recommendations_result(result: Dict[str, Any], report: Mapping[str, 
     return patched
 
 
+_DASHBOARD_DEBUG_KEYS = frozenset({"prompt", "prompt_text", "debug", "debug_info", "internal_score"})
+
+
 def _repair_dashboard_history_result(result: Dict[str, Any]) -> Dict[str, Any]:
     """Recursively sanitise a dashboard-history payload.
 
@@ -1103,11 +1106,10 @@ def _repair_dashboard_history_result(result: Dict[str, Any]) -> Dict[str, Any]:
     * Repairs truncated text via ``repair_or_hide_truncated_text``.
     * Adds ``legacy_notice`` when guardrail metadata is missing/old.
     """
-    _DEBUG_KEYS = {"prompt", "prompt_text", "debug", "debug_info", "internal_score"}
 
     def _strip_debug(node: Any) -> Any:
         if isinstance(node, dict):
-            return {k: _strip_debug(v) for k, v in node.items() if k not in _DEBUG_KEYS}
+            return {k: _strip_debug(v) for k, v in node.items() if k not in _DASHBOARD_DEBUG_KEYS}
         if isinstance(node, list):
             return [_strip_debug(item) for item in node]
         return node
