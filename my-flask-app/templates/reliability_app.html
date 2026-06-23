@@ -11,7 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 
     <style>
-        :root { --bg-dark: #0F172A; --text-light: #E2E8F0; --primary: #6366F1; --secondary:#EC4899; }
+        :root { --bg-dark: #0B0F19; --text-light: #E2E8F0; --primary: #818CF8; --secondary:#6366F1; }
         body {
             font-family: 'Heebo', system-ui, -apple-system, sans-serif;
             background-color: var(--bg-dark);
@@ -34,12 +34,12 @@
             background: transparent; color: #cbd5e1; transition: all 0.2s ease; margin-inline-end: 0.5rem;
         }
         .tab-btn:hover { color: #818cf8; border-color: rgba(99,102,241,0.3); }
-        .tab-btn.active { color: #818cf8; border-color: #6366F1; background: rgba(99,102,241,0.10); }
+        .tab-btn.active { color: #818cf8; border-color: #818CF8; background: rgba(99,102,241,0.10); }
         .tab-content { display: none; }
         .tab-content.active { display: block; animation: fadeIn 0.3s ease-out; }
 
         ::-webkit-scrollbar { width: 10px; }
-        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-track { background: #161B26; }
         ::-webkit-scrollbar-thumb { background: #475569; border-radius: 5px; }
         ::-webkit-scrollbar-thumb:hover { background: #64748b; }
 
@@ -58,11 +58,11 @@
             theme: {
                 extend: {
                     colors: {
-                        primary: '#6366F1', secondary: '#EC4899',
-                        dark: '#0F172A', 'dark-lighter': '#1E293B',
+                        primary: '#818CF8', secondary: '#6366F1',
+                        dark: '#0B0F19', 'dark-lighter': '#161B26',
                         success: '#10B981', warning: '#F59E0B', danger: '#EF4444',
                     },
-                    boxShadow: { 'neon': '0 0 20px rgba(99, 102, 241, 0.4)' }
+                    boxShadow: { 'neon': '0 4px 24px -10px rgba(129, 140, 248, 0.3)' }
                 }
             }
         }
@@ -413,7 +413,7 @@
                 <div class="relative w-32 h-32">
                     <!-- SVG Circular Progress Ring -->
                     <svg class="w-32 h-32 transform -rotate-90" viewBox="0 0 120 120">
-                        <circle cx="60" cy="60" r="54" fill="none" stroke="#1e293b" stroke-width="8"></circle>
+                        <circle cx="60" cy="60" r="54" fill="none" stroke="#161B26" stroke-width="8"></circle>
                         <circle id="progressRing" cx="60" cy="60" r="54" fill="none" stroke="url(#rainbowGradient)" stroke-width="8" 
                                 stroke-linecap="round" stroke-dasharray="339.292" stroke-dashoffset="339.292"
                                 style="transition: stroke-dashoffset 0.3s ease, stroke 0.5s ease;"></circle>
