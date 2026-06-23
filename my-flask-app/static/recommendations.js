@@ -703,6 +703,58 @@
         return f.includes('חשמל') || f.includes('electric') || f.includes('ev');
     }
 
+    // --- רכיב מד-התאמה (Score Gauge) – טבעת SVG בהשראת אב-הטיפוס ---
+    // value: מספר 0–100 (fit_score). אם null → מציג "—". label הוא טקסט קבוע פנימי.
+    function renderScoreGauge(value, opts = {}) {
+        const size = opts.size || 132;
+        const numFont = opts.numFont || 40;
+        const hasValue = value != null && !Number.isNaN(Number(value));
+        const v = hasValue ? Math.max(0, Math.min(100, Math.round(Number(value)))) : 0;
+        const r = 60;
+        const circ = 2 * Math.PI * r;
+        const offset = (circ * (1 - v / 100)).toFixed(2);
+        const gid = 'yrGauge_' + Math.random().toString(36).slice(2, 9);
+        const display = hasValue ? `${v}` : '—';
+        const label = opts.label ? escapeHtml(opts.label) : '';
+        // Static SVG; all interpolated values are numeric or escaped constants.
+        return `
+            <svg width="${size}" height="${size}" viewBox="0 0 140 140" role="img"
+                 aria-label="מד התאמה ${display}" style="display:block; overflow:visible;">
+                <defs>
+                    <linearGradient id="${gid}" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#3b7bff"></stop>
+                        <stop offset="55%" stop-color="#2f6bff"></stop>
+                        <stop offset="100%" stop-color="#16c8e6"></stop>
+                    </linearGradient>
+                </defs>
+                <circle cx="70" cy="70" r="60" fill="none" stroke="#eaedf2" stroke-width="11"></circle>
+                <circle cx="70" cy="70" r="60" fill="none" stroke="url(#${gid})" stroke-width="11"
+                        stroke-linecap="round" stroke-dasharray="${circ.toFixed(2)}" stroke-dashoffset="${offset}"
+                        transform="rotate(-90 70 70)"
+                        style="filter:drop-shadow(0 2px 6px rgba(47,107,255,.28));"></circle>
+                <text x="70" y="66" text-anchor="middle" dominant-baseline="central"
+                      font-size="${numFont}" font-weight="800" fill="#0e1218"
+                      font-family="'Rubik',sans-serif" letter-spacing="-1">${display}</text>
+                ${label ? `<text x="70" y="98" text-anchor="middle" dominant-baseline="central"
+                      font-size="13" font-weight="600" fill="#9aa1ab"
+                      font-family="'Heebo',sans-serif" letter-spacing="0.5">${label}</text>` : ''}
+            </svg>
+        `;
+    }
+
+    // --- אריח מטריקה לדשבורד (label + value + sub אופציונלי) ---
+    // כל הערכים כבר עברו escape לפני הקריאה.
+    function metricTile(label, value, sub) {
+        const v = (value != null && value !== '' && value !== '-') ? value : 'לא זמין';
+        return `
+            <div class="yr-tile">
+                <p class="yr-tile__label">${label}</p>
+                <p class="yr-tile__value">${v}</p>
+                ${sub ? `<p class="yr-tile__sub">${sub}</p>` : ''}
+            </div>
+        `;
+    }
+
     // --- סיכום פרופיל משתמש אחרי קבלת התוצאות ---
     function renderProfileSummary() {
         if (!profileSummaryEl) return;
@@ -737,62 +789,37 @@
         const safe = (v) => escapeHtml(v);
 
         // Safe innerHTML: values are escaped before interpolation.
+        const chip = (text) => `<span class="yr-chip yr-chip--chrome" style="font-size:11px; padding:5px 11px;">${text}</span>`;
+        const accentChip = (text) => `<span class="yr-chip" style="font-size:11px; padding:5px 11px;">${text}</span>`;
         profileSummaryEl.innerHTML = `
+            <p class="yr-section-header" style="font-size:.92rem; margin-bottom:10px;">פרופיל הנהג שהוזן בשאלון</p>
             <div class="flex flex-wrap gap-2 mb-2">
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-800 text-[11px] text-slate-100 border border-slate-700">
-                    תקציב: ${safe(budgetMin)} – ${safe(budgetMax)}
-                </span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-800 text-[11px] text-slate-100 border border-slate-700">
-                    שנים: ${safe(yearMin)}–${safe(yearMax)}
-                </span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-800 text-[11px] text-slate-100 border border-slate-700">
-                    ק״מ שנתי: ${safe(annualKm)}
-                </span>
+                ${chip(`תקציב: ${safe(budgetMin)} – ${safe(budgetMax)}`)}
+                ${chip(`שנים: ${safe(yearMin)}–${safe(yearMax)}`)}
+                ${chip(`ק״מ שנתי: ${safe(annualKm)}`)}
             </div>
 
             <div class="flex flex-wrap gap-2 mb-2">
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-900 text-[11px] text-slate-100 border border-slate-700">
-                    גיל נהג: ${safe(driverAge)}
-                </span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-900 text-[11px] text-slate-100 border border-slate-700">
-                    ותק רישיון: ${safe(licenseYears)} שנים
-                </span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-900 text-[11px] text-slate-100 border border-slate-700">
-                    משפחה: ${safe(familySize)}, ${safe(seats)} מושבים
-                </span>
+                ${chip(`גיל נהג: ${safe(driverAge)}`)}
+                ${chip(`ותק רישיון: ${safe(licenseYears)} שנים`)}
+                ${chip(`משפחה: ${safe(familySize)}, ${safe(seats)} מושבים`)}
             </div>
 
             <div class="flex flex-wrap gap-2 mb-2">
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-900 text-[11px] text-slate-100 border border-slate-700">
-                    שימוש: ${safe(mainUse)}
-                </span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-900 text-[11px] text-slate-100 border border-slate-700">
-                    סגנון נהיגה: ${safe(drivingStyle)}
-                </span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-900 text-[11px] text-slate-100 border border-slate-700">
-                    מרכב מועדף: ${safe(bodyStyle)}
-                </span>
+                ${chip(`שימוש: ${safe(mainUse)}`)}
+                ${chip(`סגנון נהיגה: ${safe(drivingStyle)}`)}
+                ${chip(`מרכב מועדף: ${safe(bodyStyle)}`)}
             </div>
 
             <div class="flex flex-wrap gap-2 mt-1">
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/10 text-[11px] text-primary border border-primary/40">
-                    משקל תחזוקה: ${safe(wReliability)}/5
-                </span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/10 text-[11px] text-primary border border-primary/40">
-                    חיסכון בדלק: ${safe(wFuel)}/5
-                </span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/10 text-[11px] text-primary border border-primary/40">
-                    שמירת ערך: ${safe(wResale)}/5
-                </span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/10 text-[11px] text-primary border border-primary/40">
-                    ביצועים: ${safe(wPerf)}/5
-                </span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/10 text-[11px] text-primary border border-primary/40">
-                    נוחות: ${safe(wComfort)}/5
-                </span>
+                ${accentChip(`משקל תחזוקה: ${safe(wReliability)}/5`)}
+                ${accentChip(`חיסכון בדלק: ${safe(wFuel)}/5`)}
+                ${accentChip(`שמירת ערך: ${safe(wResale)}/5`)}
+                ${accentChip(`ביצועים: ${safe(wPerf)}/5`)}
+                ${accentChip(`נוחות: ${safe(wComfort)}/5`)}
             </div>
 
-            <div class="mt-2 text-[11px] text-slate-400">
+            <div class="mt-3 text-[11px]" style="color:var(--yr-muted);">
                 העדפות דלק: ${fuelsText} · גיר: ${gearsText}
             </div>
         `;
@@ -891,29 +918,29 @@
             const gradeLabel = grade ? escapeHtml(grade.label) : '';
             const gradeClass = grade ? grade.className : '';
             return `
-                <article class="bg-slate-900/60 border border-slate-800 rounded-xl p-3 md:p-4 flex flex-col justify-between">
+                <article class="yr-chrome-card p-3 md:p-4 flex flex-col justify-between">
                     <div class="flex items-center justify-between mb-2">
-                        <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-800 text-[10px] font-semibold text-slate-100 border border-slate-700">
+                        <span class="yr-chip" style="font-size:10px; padding:4px 10px;">
                             ${badge}
                         </span>
-                        <span class="text-[11px] text-slate-400">${label}</span>
+                        <span class="text-[11px]" style="color:var(--yr-muted);">${label}</span>
                     </div>
                     <div class="mb-2">
-                        <div class="text-sm md:text-base font-bold text-slate-100">
+                        <div class="text-sm md:text-base font-bold" style="color:var(--yr-ink);">
                             ${title} ${year ? '· ' + year : ''}
                         </div>
                         ${chipText ? `
-                            <div class="mt-1 inline-flex items-center px-2 py-0.5 rounded-full bg-primary/15 text-[11px] text-primary border border-primary/40">
+                            <div class="mt-2 yr-chip" style="font-size:11px; padding:5px 11px;">
                                 ${chipText}
                             </div>
                         ` : ''}
                         ${grade ? `
-                            <div class="mt-1 inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold ${gradeClass}">
+                            <div class="mt-2 inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold ${gradeClass}">
                                 סיכון אמינות: ${gradeLabel}
                             </div>
                         ` : ''}
                     </div>
-                    <p class="mt-1 text-[11px] md:text-xs text-slate-300 leading-relaxed">
+                    <p class="mt-1 text-[11px] md:text-xs leading-relaxed" style="color:var(--yr-muted);">
                         ${cardText}
                     </p>
                 </article>
@@ -954,6 +981,11 @@
         const comfortFeatures = car.comfort_features != null ? safeNum(car.comfort_features, 1) : '';
         const suitability = car.suitability != null ? safeNum(car.suitability, 1) : '';
         const marketSupply = car.market_supply || '';
+
+        // עלויות שנתיות (annual_energy_cost / annual_fuel_cost / total_annual_cost)
+        const totalAnnualCost = car.total_annual_cost != null ? `${safeNum(car.total_annual_cost)} ₪` : '';
+        const annualFuelCost = car.annual_fuel_cost != null ? `${safeNum(car.annual_fuel_cost)} ₪` : '';
+        const annualEnergyCost = car.annual_energy_cost != null ? `${safeNum(car.annual_energy_cost)} ₪` : '';
 
         const fit = car.fit_score != null ? Math.round(car.fit_score) : null;
         let fitClass = 'bg-slate-800 text-slate-100';
@@ -998,6 +1030,9 @@
         const safeComfortFeatures = h(comfortFeatures || '-');
         const safeSuitability = h(suitability || '-');
         const safeMarketSupply = h(marketSupply);
+        const safeTotalAnnualCost = h(totalAnnualCost || '-');
+        const safeAnnualFuelCost = h(annualFuelCost || '-');
+        const safeAnnualEnergyCost = h(annualEnergyCost || '-');
         const safeComparisonComment = h(comparisonComment);
         const safeNotRecommendedReason = h(notRecommendedReason);
         const safeFuelMethod = h(fuelMethod);
@@ -1012,36 +1047,66 @@
         const safeSuitabilityMethod = h(suitabilityMethod);
         const safeSupplyMethod = h(supplyMethod);
 
+        const isEvCard = isEVFuel(fuel);
+        const energyTile = isEvCard
+            ? metricTile('עלות חשמל שנתית', safeAnnualEnergyCost)
+            : metricTile('עלות דלק שנתית', safeAnnualFuelCost);
+
+        // Safe innerHTML: every interpolated value is escaped (h()/escapeHtml) or a numeric/constant.
         return `
-            <article class="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 md:p-5 space-y-3">
-                <div class="flex items-start justify-between gap-3">
-                    <div>
-                        <div class="text-sm md:text-base font-bold text-slate-100">
+            <article class="yr-chrome-card p-4 md:p-6 space-y-4 yr-rise">
+                <div class="flex items-start justify-between gap-4 flex-wrap">
+                    <div class="min-w-0">
+                        <div class="text-base md:text-lg font-extrabold" style="color:var(--yr-ink);">
                             ${safeTitle} ${safeYear ? '· ' + safeYear : ''}
                         </div>
-                        <div class="text-[11px] md:text-xs text-slate-400 mt-0.5">
-                            דלק: ${safeFuel} · גיר: ${safeGear}${safeTurbo}
+                        <div class="text-[11px] md:text-xs mt-1" style="color:var(--yr-muted);">
+                            דלק: ${safeFuel} · גיר: ${safeGear}${safeTurbo} · נפח מנוע: ${safeEngineCc} · טווח מחיר: ${safePriceRange}
+                        </div>
+                        <div class="flex flex-wrap items-center gap-1.5 mt-3">
+                            ${reliabilityValue != null ? `
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold ${reliabilityGrade.className}">
+                                    סיכון אמינות: ${escapeHtml(reliabilityGrade.label)}
+                                </span>
+                            ` : ''}
+                            ${marketSupply ? `
+                                <span class="yr-chip yr-chip--chrome" style="font-size:10px; padding:4px 10px;">
+                                    היצע בשוק: ${safeMarketSupply}
+                                </span>
+                            ` : ''}
                         </div>
                     </div>
-                    <div class="flex flex-col items-end gap-1">
-                        <span class="inline-flex items-center justify-center min-w-[52px] px-2 py-1 rounded-full text-[11px] font-bold ${fitClass}">
-                            ${fit !== null ? fit + '% התאמה' : '?'}
+                    <div class="flex flex-col items-center gap-1 shrink-0">
+                        ${renderScoreGauge(car.fit_score, { size: 104, numFont: 34, label: 'התאמה' })}
+                        <span class="inline-flex items-center justify-center px-3 py-1 rounded-full text-[11px] font-bold ${fitClass}">
+                            ${fit !== null ? fit + '% התאמה' : '—'}
                         </span>
-                        <span class="text-[11px] text-slate-400">התאמת העדפות בלבד</span>
-                        ${reliabilityValue != null ? `
-                            <span class="inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold ${reliabilityGrade.className}">
-                                סיכון אמינות: ${escapeHtml(reliabilityGrade.label)}
-                            </span>
-                        ` : ''}
-                        ${marketSupply ? `
-                            <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-800 text-[10px] text-slate-100 border border-slate-700">
-                                היצע בשוק: ${safeMarketSupply}
-                            </span>
-                        ` : ''}
+                        <span class="text-[10px]" style="color:var(--yr-muted-2);">התאמת העדפות בלבד</span>
                     </div>
                 </div>
 
-                <div class="overflow-x-auto mt-2">
+                <hr class="yr-divider" style="margin:6px 0;">
+
+                <div class="yr-grid-3">
+                    ${metricTile('צריכת דלק/חשמל', safeAvgFuel)}
+                    ${metricTile('עלות אחזקה שנתית', safeMaintenanceCost)}
+                    ${metricTile('ביטוח שנתי', safeInsuranceCost)}
+                    ${metricTile('אגרת רישוי שנתית', safeAnnualFee)}
+                    ${energyTile}
+                    ${metricTile('עלות שנתית כוללת', safeTotalAnnualCost)}
+                    ${metricTile('בטיחות', safeSafetyRating)}
+                    ${metricTile('אינדיקציית תחזוקה', safeReliabilityGrade)}
+                    ${metricTile('שמירת ערך', safeResaleValue)}
+                    ${metricTile('ביצועים', safePerformanceScore)}
+                    ${metricTile('נוחות ואבזור', safeComfortFeatures)}
+                    ${metricTile('התאמת העדפות לנהג', safeSuitability)}
+                </div>
+
+                <details class="rounded-xl border" style="border-color:var(--yr-border); background:#fff;">
+                    <summary class="cursor-pointer select-none px-3 py-2 text-[11px] md:text-xs font-semibold" style="color:var(--yr-accent-2);">
+                        פירוט מלא וכל שיטות החישוב
+                    </summary>
+                    <div class="overflow-x-auto px-3 pb-3">
                     <table class="min-w-full text-right text-[11px] md:text-xs border-separate border-spacing-y-1">
                         <tbody>
                             <tr>
@@ -1166,18 +1231,104 @@
                                 <th class="px-2 py-1 font-semibold text-slate-300">${methodLabelMap.supply_method}</th>
                                 <td class="px-2 py-1 text-slate-200">${safeSupplyMethod}</td>
                             </tr>` : ''}
+
+                            <tr>
+                                <th class="px-2 py-1 font-semibold text-slate-300">עלות דלק שנתית משוערת (₪)</th>
+                                <td class="px-2 py-1 text-slate-100">${safeAnnualFuelCost}</td>
+                            </tr>
+                            <tr>
+                                <th class="px-2 py-1 font-semibold text-slate-300">עלות חשמל שנתית משוערת (₪)</th>
+                                <td class="px-2 py-1 text-slate-100">${safeAnnualEnergyCost}</td>
+                            </tr>
+                            <tr>
+                                <th class="px-2 py-1 font-semibold text-slate-300">עלות החזקה שנתית כוללת (₪)</th>
+                                <td class="px-2 py-1 text-slate-100">${safeTotalAnnualCost}</td>
+                            </tr>
                         </tbody>
                     </table>
+                    </div>
+                </details>
+
+                <div class="yr-risk-note yr-risk-note--info">
+                    <div>
+                        <span class="font-semibold">למה זה מתאים למה שביקשת:</span>
+                        <br>${safeComparisonComment}
+                    </div>
                 </div>
 
-                <div class="mt-2 rounded-xl border border-primary/25 bg-primary/8 px-3 py-2 text-[11px] md:text-xs text-slate-200 leading-relaxed">
-                    <span class="font-semibold text-white">למה זה מתאים למה שביקשת:</span>
-                    <br>${safeComparisonComment}
+                <div class="yr-risk-note yr-risk-note--warn">
+                    <div>
+                        <span class="font-semibold">סיכונים / הסתייגויות שכדאי לבדוק:</span>
+                        <br>${safeNotRecommendedReason}
+                    </div>
                 </div>
+            </article>
+        `;
+    }
 
-                <div class="mt-2 text-[11px] md:text-xs text-amber-200 leading-relaxed border border-amber-500/30 bg-amber-950/20 rounded-xl px-3 py-2">
-                    <span class="font-semibold text-amber-100">סיכונים / הסתייגויות שכדאי לבדוק:</span>
-                    <br>${safeNotRecommendedReason}
+    // --- כרטיס ההתאמה הטובה ביותר (Hero) – הרכב המוביל לפי fit_score ---
+    function renderHeroCard(car) {
+        if (!car) return '';
+
+        const title = `${car.brand || ''} ${car.model || ''}`.trim();
+        const isEv = isEVFuel(car.fuel || '');
+        const reliabilityValue = car.reliability_score != null && !Number.isNaN(Number(car.reliability_score))
+            ? Number(car.reliability_score) : null;
+        const reliabilityGrade = getReliabilityGrade(reliabilityValue);
+
+        const priceRange = formatPriceRange(car.price_range_nis);
+        const avgFuel = car.avg_fuel_consumption != null
+            ? (isEv
+                ? `${safeNum(car.avg_fuel_consumption, 1)} קוט״ש ל-100 ק״מ`
+                : `${safeNum(car.avg_fuel_consumption, 1)} ק״מ לליטר`)
+            : '';
+        const totalAnnualCost = car.total_annual_cost != null ? `${safeNum(car.total_annual_cost)} ₪` : '';
+        const energyCost = isEv
+            ? (car.annual_energy_cost != null ? `${safeNum(car.annual_energy_cost)} ₪` : '')
+            : (car.annual_fuel_cost != null ? `${safeNum(car.annual_fuel_cost)} ₪` : '');
+        const safetyRating = car.safety_rating != null ? safeNum(car.safety_rating, 1) : '';
+
+        const comparisonComment = car.comparison_comment || advisorCopy.fitFallback;
+
+        const h = (v, fallback = 'לא זמין') => escapeHtml(v != null && v !== '' ? v : fallback);
+        const safeTitle = h(title || 'דגם לא ידוע');
+        const safeYear = escapeHtml(car.year || '');
+        const safeFuel = h(car.fuel, 'לא צוין');
+        const safeGear = h(car.gear, 'לא צוין');
+
+        // Safe innerHTML: all interpolations escaped via h()/escapeHtml; gauge is numeric.
+        return `
+            <article class="yr-hero yr-rise mb-5">
+                <div class="flex flex-col md:flex-row md:items-center gap-6">
+                    <div class="shrink-0 flex flex-col items-center gap-2">
+                        ${renderScoreGauge(car.fit_score, { size: 148, numFont: 46, label: 'התאמת העדפות' })}
+                    </div>
+                    <div class="flex-1 min-w-0 space-y-3">
+                        <span class="yr-hero__badge">★ ההתאמה הטובה ביותר</span>
+                        <h3 class="text-2xl md:text-3xl font-extrabold" style="color:var(--yr-ink);">
+                            ${safeTitle} ${safeYear ? '· ' + safeYear : ''}
+                        </h3>
+                        <div class="flex flex-wrap gap-2">
+                            ${priceRange ? `<span class="yr-chip yr-chip--chrome" style="font-size:11px; padding:5px 11px;">טווח מחיר: ${escapeHtml(priceRange)}</span>` : ''}
+                            <span class="yr-chip yr-chip--chrome" style="font-size:11px; padding:5px 11px;">דלק: ${safeFuel}</span>
+                            <span class="yr-chip yr-chip--chrome" style="font-size:11px; padding:5px 11px;">גיר: ${safeGear}</span>
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold ${reliabilityGrade.className}">
+                                סיכון אמינות: ${escapeHtml(reliabilityGrade.label)}
+                            </span>
+                        </div>
+                        <div class="yr-risk-note yr-risk-note--info" style="margin-top:6px;">
+                            <div>
+                                <span class="font-semibold">למה זה מתאים למה שביקשת:</span>
+                                <br>${h(comparisonComment)}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="yr-grid-3 mt-5">
+                    ${metricTile('צריכת דלק/חשמל', h(avgFuel))}
+                    ${metricTile(isEv ? 'עלות חשמל שנתית' : 'עלות דלק שנתית', h(energyCost))}
+                    ${metricTile('עלות שנתית כוללת', h(totalAnnualCost))}
+                    ${metricTile('בטיחות', h(safetyRating))}
                 </div>
             </article>
         `;
@@ -1192,12 +1343,14 @@
             if (queries.length) {
                 // Safe innerHTML: search queries come sanitized from backend and escaped here.
                 queriesEl.innerHTML = `
-                    <div class="text-[11px] text-slate-400">
-                        <span class="font-semibold text-slate-300">שאילתות חיפוש שבוצעו:</span>
-                        <ul class="mt-1 space-y-0.5">
+                    <details class="rounded-xl border" style="border-color:var(--yr-border); background:#fff;">
+                        <summary class="cursor-pointer select-none px-3 py-2 text-[11px] font-semibold" style="color:var(--yr-accent-2);">
+                            שאילתות חיפוש שבוצעו (${queries.length})
+                        </summary>
+                        <ul class="px-4 pb-3 pt-1 space-y-0.5 text-[11px]" style="color:var(--yr-muted);">
                             ${queries.map(q => `<li>• ${escapeHtml(q)}</li>`).join('')}
                         </ul>
-                    </div>
+                    </details>
                 `;
             } else {
                 queriesEl.textContent = '';
@@ -1237,14 +1390,17 @@
         // מיון לפי התאמת העדפות, גדול לקטן
         cars.sort((a, b) => (b.fit_score || 0) - (a.fit_score || 0));
 
+        // כרטיס ההתאמה הטובה ביותר = הרכב הראשון אחרי המיון
+        const heroHtml = renderHeroCard(cars[0]);
         const cardsHtml = cars.map((car, idx) => renderCarCard(car, idx)).join('');
 
-        // Safe innerHTML: renderCarCard escapes all dynamic values.
+        // Safe innerHTML: renderHeroCard/renderCarCard escape all dynamic values.
         tableWrapper.innerHTML = `
-            <div class="mb-2 text-[11px] text-slate-400">
+            ${heroHtml}
+            <div class="mb-3 text-[11px]" style="color:var(--yr-muted);">
                 לכל רכב מוצגת כרטיסייה נפרדת עם התאמת העדפות לצד סיכונים והסתייגויות נפרדים. התאמת העדפות אינה מדד לאמינות ואינה אישור קנייה.
             </div>
-            <div class="space-y-4">
+            <div class="space-y-5">
                 ${cardsHtml}
             </div>
         `;
