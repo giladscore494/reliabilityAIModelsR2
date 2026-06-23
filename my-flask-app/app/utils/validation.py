@@ -114,6 +114,14 @@ _FIELD_MAX_LENGTHS = {
     'research_purchase_delta_bucket': 40,
     'research_charging_cost': 20,
     'research_charging_location': 20,
+    'variant_id': 20,
+    'version_or_trim': 80,
+    'body_type': 50,
+    'catalog_fuel_type': 50,
+    'catalog_engine': 80,
+    'catalog_horsepower_hp': 10,
+    'catalog_transmission': 50,
+    'catalog_drivetrain': 20,
 }
 
 _CONTROL_CHARS = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]')
@@ -156,6 +164,12 @@ _TEXT_FIELDS_TO_NORMALIZE = {
     'research_purchase_reference_type',
     'research_purchase_delta_bucket',
     'research_charging_location',
+    'version_or_trim',
+    'body_type',
+    'catalog_fuel_type',
+    'catalog_engine',
+    'catalog_transmission',
+    'catalog_drivetrain',
 }
 
 

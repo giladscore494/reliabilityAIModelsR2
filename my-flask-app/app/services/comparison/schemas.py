@@ -213,11 +213,12 @@ def validate_comparison_request(data: Dict) -> Tuple[bool, Optional[str], List[D
 
         engine_type = car.get("engine_type", "").strip()
         gearbox = car.get("gearbox", "").strip()
+        variant_id = car.get("variant_id", "").strip()
 
-        # Check for duplicates (same make, model, year, engine, gearbox)
+        # Check for duplicates (same make, model, year, engine, gearbox, variant)
         # Use empty string for None year to ensure consistent comparison
         year_key = str(year) if year is not None else ""
-        car_key = f"{make}|{model}|{year_key}|{engine_type}|{gearbox}"
+        car_key = f"{make}|{model}|{year_key}|{engine_type}|{gearbox}|{variant_id}"
         if car_key in seen_keys:
             return False, "לא ניתן להשוות רכבים זהים. אנא בחר רכבים שונים.", []
         seen_keys.add(car_key)
@@ -232,6 +233,8 @@ def validate_comparison_request(data: Dict) -> Tuple[bool, Optional[str], List[D
             validated_car["engine_type"] = engine_type
         if gearbox:
             validated_car["gearbox"] = gearbox
+        if variant_id:
+            validated_car["variant_id"] = variant_id
         # Keep year_start/year_end for backward compatibility
         if car.get("year_start"):
             validated_car["year_start"] = car.get("year_start")

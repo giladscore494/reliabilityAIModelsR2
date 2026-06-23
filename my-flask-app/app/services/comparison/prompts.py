@@ -5,6 +5,7 @@ import json
 import os
 from typing import Any, Dict, List, Optional
 
+from app.services.vehicle_catalog_service import build_vehicle_catalog_context
 from app.services.comparison.normalization import (
     infer_compare_segment_details,
     normalize_compare_writer_winner,
@@ -267,6 +268,8 @@ def build_single_car_prompt(car: Dict, region: str = "IL") -> str:
     car_json = json.dumps(sanitized, ensure_ascii=False)
     bounded_car = wrap_user_input_in_boundary(car_json, boundary_tag="car_input")
     data_instruction = create_data_only_instruction()
+    catalog_ctx = build_vehicle_catalog_context(car)
+    catalog_block = catalog_ctx["prompt_block"]
     segment_key, segment_signals = infer_compare_segment_details(sanitized, {})
     segment_rule = COMPARE_SEGMENT_PROMPT_RULES.get(
         segment_key,
@@ -285,7 +288,9 @@ def build_single_car_prompt(car: Dict, region: str = "IL") -> str:
 
     return f"""{data_instruction}
 
-You are acting as an experienced automotive analyst giving a first-impression assessment. Estimates based on your general knowledge, market reputation, and segment norms are valid and encouraged. You do NOT need official verified sources for every metric — provide your best reasoned assessment. Include source URLs when available, but omit them if you don't have one.
+{catalog_block}
+
+You are acting as an experienced automotive analyst. For technical identity fields (make, model, engine, transmission, drivetrain, body_type), use the LOCAL_VEHICLE_CATALOG_CONTEXT above as the primary source when match_type is exact. Web grounding is MANDATORY for all analytical sections: reliability, costs, recalls, safety, pricing, reviews. Include source URLs when available, but omit them if you don't have one.
 
 You are a car research extractor for ONE car.
 Return ONLY compact evidence in JSON.
@@ -426,8 +431,16 @@ def build_comparison_prompt(cars: List[Dict[str, str]]) -> str:
 
     slot_mapping_text = "\n".join(f"  {k}: {v}" for k, v in slot_mapping.items())
 
+    catalog_blocks = []
+    for i, car in enumerate(sanitized_cars):
+        ctx = build_vehicle_catalog_context(cars[i])
+        catalog_blocks.append(f"[car_{i+1}] {ctx['prompt_block']}")
+    catalog_section = "\n\n".join(catalog_blocks)
+
     return f"""
 {data_instruction}
+
+{catalog_section}
 
 You are a car comparison data analyst.
 
@@ -595,9 +608,9 @@ Return a SINGLE JSON object with this EXACT structure:
 }}
 
 RULES:
-1. Use your best available knowledge to fill every metric. Official sources are preferred but NOT required — well-reasoned estimates based on general knowledge, segment norms, and known characteristics are acceptable and encouraged.
+1. For technical identity (make, model, engine, transmission, drivetrain, body_type), use LOCAL_VEHICLE_CATALOG_CONTEXT as the primary source when match_type is exact. Web grounding is MANDATORY for all analytical sections: reliability, costs, recalls, safety, pricing, reviews. If catalog match_type is ambiguous, verify identity via web search. If there is a conflict between catalog and web data for identity fields, report data_conflict=true.
 2. Only set value=null if you genuinely have no basis whatsoever to estimate. Prefer a low-confidence estimate over null.
-3. Sources are optional. If you have a URL, include it. If not, you may omit the sources array or leave it empty — do NOT set value=null just because you lack a URL.
+3. Sources are optional for identity fields when catalog provides them. For analytical sections, include source URLs when available.
 4. Segment-aware labels are required: judge each car against realistic expectations of its inferred mission, not one universal standard.
 5. Keep the 4 main categories unchanged; only the sub-priority logic is segment-aware.
 6. Do NOT compare cars or state winners - only provide raw data.

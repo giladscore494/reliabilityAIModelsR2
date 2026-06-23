@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Reliability prompt builders."""
 
+from app.services.vehicle_catalog_service import build_vehicle_catalog_context
 from app.utils.prompt_defense import (
     create_data_only_instruction,
     escape_prompt_input,
@@ -98,8 +99,13 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
     data_instruction = create_data_only_instruction()
     missing_block = ", ".join(missing_info) if missing_info else "אין"
 
+    catalog_ctx = build_vehicle_catalog_context(payload)
+    catalog_block = catalog_ctx["prompt_block"]
+
     return f"""
 {data_instruction}
+
+{catalog_block}
 
 אתה מומחה לאמינות רכבים בישראל עם גישה לכלי Google Search.
 
@@ -336,7 +342,7 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
 }}
 
 חוקי vehicle_profile (חובה):
-VP1) Google Search grounding חובה. חיפוש בעברית ובאנגלית לפי הצורך.
+VP1) Google Search grounding חובה לכל החלקים האנליטיים (אמינות, תקלות, עלויות, ריקולים, בטיחות, מחירים, ביקורות). חיפוש בעברית ובאנגלית לפי הצורך. אם נמצאה התאמה מדויקת ב-LOCAL_VEHICLE_CATALOG_CONTEXT, השתמש בנתוני הזהות הטכנית מהמאגר ואל תסתור אותם בחיפוש אינטרנטי.
 VP2) מקורות מועדפים: דף יבואן רשמי בישראל, משרד התחבורה, Euro NCAP/IIHS/NHTSA/ANCAP רשמיים, אתרי רכב ישראליים מבוססים.
 VP3) אסור להמציא טרימים, מחירים, אגרה, ציוני בטיחות, recalls. אם לא נמצא במקור רשמי – null + notes עם הסבר.
 VP4) license_fee_israel.method יכול להיות רק "official" או "unknown". אסור חישוב נגזר. אם היבואן/משרד התחבורה לא פרסם – "unknown" + הסבר.

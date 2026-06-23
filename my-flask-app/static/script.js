@@ -794,68 +794,70 @@
         });
     }
 
-    // בניית מבנה מודלים -> טווח שנים
-    const MODEL_MAP = {}; // { make: [ {name, years:[min,max]} ] }
+    // Fuel/transmission Hebrew label maps
+    const FUEL_LABEL_MAP = {
+        'petrol': 'בנזין',
+        'diesel': 'דיזל',
+        'hybrid': 'היברידי (רגיל/פלאג-אין)',
+        'plug_in_hybrid': 'היברידי (רגיל/פלאג-אין)',
+        'electric': 'חשמלי מלא (BEV)',
+    };
+    const TRANS_LABEL_MAP = {
+        'automatic': 'אוטומטית',
+        'manual': 'ידנית',
+        'robotic': 'רובוטית',
+        'cvt': 'רציפה',
+    };
+
+    const variantSelect = document.getElementById('variant');
+    const variantSection = document.getElementById('variant-section');
+    const variantIdInput = document.getElementById('variant_id');
+    const variantSummary = document.getElementById('variant-summary');
 
     function buildModelMap() {
-        Object.entries(CAR_DATA || {}).forEach(([make, models]) => {
-            if (!Array.isArray(models)) return;
-            MODEL_MAP[make] = models.map(str => {
-                let name = String(str || '').trim();
-                let years = null;
-                const m = name.match(/\((\d{4})\s*-\s*(\d{2,4})\)/);
-                if (m) {
-                    const start = parseInt(m[1], 10);
-                    let end = parseInt(m[2], 10);
-                    if (end < 100) end = 2000 + end;
-                    years = [start, end];
-                    name = name.replace(m[0], '').trim();
-                }
-                return { name, years };
-            });
-        });
+        // New catalog format: CAR_DATA = { make: { model: { year_start, year_end, variants } } }
     }
 
     function populateModelsForMake(make) {
         modelSelect.innerHTML = '';
         yearSelect.innerHTML = '';
         yearSelect.disabled = true;
+        resetVariantSection();
 
         const placeholder = document.createElement('option');
         placeholder.value = '';
         placeholder.textContent = '-- בחר דגם --';
         modelSelect.appendChild(placeholder);
 
-        const items = MODEL_MAP[make] || [];
-        items.forEach(m => {
+        const models = CAR_DATA[make];
+        if (!models || typeof models !== 'object') {
+            modelSelect.disabled = true;
+            return;
+        }
+
+        const modelNames = Object.keys(models).sort();
+        modelNames.forEach(name => {
             const opt = document.createElement('option');
-            opt.value = m.name;
-            opt.textContent = m.name;
+            opt.value = name;
+            opt.textContent = name;
             modelSelect.appendChild(opt);
         });
 
-        modelSelect.disabled = items.length === 0;
-        if (!items.length) {
-            modelSelect.innerHTML = '';
-            const opt = document.createElement('option');
-            opt.value = '';
-            opt.textContent = '-- בחר יצרן תחילה --';
-            modelSelect.appendChild(opt);
-            modelSelect.disabled = true;
-        }
+        modelSelect.disabled = modelNames.length === 0;
     }
 
     function populateYearsForModel(make, modelName) {
         yearSelect.innerHTML = '';
-        const items = MODEL_MAP[make] || [];
-        const found = items.find(m => m.name === modelName);
+        resetVariantSection();
+        const models = CAR_DATA[make];
+        const info = models && models[modelName];
         const nowYear = new Date().getFullYear();
         let from = nowYear - 20;
         let to = nowYear + 1;
 
-        if (found && Array.isArray(found.years)) {
-            from = found.years[0];
-            to = found.years[1];
+        if (info) {
+            if (info.year_start) from = info.year_start;
+            if (info.year_end) to = info.year_end;
         }
 
         for (let y = to; y >= from; y--) {
@@ -865,6 +867,87 @@
             yearSelect.appendChild(opt);
         }
         yearSelect.disabled = false;
+    }
+
+    function resetVariantSection() {
+        if (variantSection) variantSection.classList.add('hidden');
+        if (variantSelect) variantSelect.innerHTML = '<option value="">-- בחר גרסה --</option>';
+        if (variantIdInput) variantIdInput.value = '';
+        if (variantSummary) { variantSummary.classList.add('hidden'); variantSummary.innerHTML = ''; }
+    }
+
+    function populateVariantsForYear(make, modelName, year) {
+        resetVariantSection();
+        const models = CAR_DATA[make];
+        const info = models && models[modelName];
+        if (!info || !info.variants) return;
+
+        const y = parseInt(year, 10);
+        const filtered = info.variants.filter(v => {
+            const vs = v.year_start || 0;
+            const ve = v.year_end || 9999;
+            return y >= vs && y <= ve;
+        });
+
+        if (filtered.length === 0) return;
+
+        variantSection.classList.remove('hidden');
+        filtered.forEach(v => {
+            const opt = document.createElement('option');
+            opt.value = v.variant_id;
+            opt.textContent = v.label;
+            opt.dataset.fuel = v.fuel_type || '';
+            opt.dataset.trans = v.transmission || '';
+            opt.dataset.body = v.body_type || '';
+            opt.dataset.engine = v.engine || '';
+            opt.dataset.hp = v.horsepower_hp || '';
+            opt.dataset.drivetrain = v.drivetrain || '';
+            opt.dataset.trim = v.version_or_trim || '';
+            variantSelect.appendChild(opt);
+        });
+    }
+
+    function onVariantChange() {
+        const sel = variantSelect.options[variantSelect.selectedIndex];
+        if (!sel || !sel.value) {
+            if (variantIdInput) variantIdInput.value = '';
+            if (variantSummary) { variantSummary.classList.add('hidden'); variantSummary.innerHTML = ''; }
+            return;
+        }
+        variantIdInput.value = sel.value;
+
+        // Auto-fill fuel_type and transmission
+        const fuelSelect = document.getElementById('fuel_type');
+        const transSelect = document.getElementById('transmission');
+        if (fuelSelect && sel.dataset.fuel) {
+            const heLabel = FUEL_LABEL_MAP[sel.dataset.fuel.toLowerCase()] || '';
+            if (heLabel) setSelectByText(fuelSelect, heLabel);
+        }
+        if (transSelect && sel.dataset.trans) {
+            const heLabel = TRANS_LABEL_MAP[sel.dataset.trans.toLowerCase()] || '';
+            if (heLabel) setSelectByText(transSelect, heLabel);
+        }
+
+        // Show variant summary
+        const parts = [];
+        if (sel.dataset.engine) parts.push('מנוע: ' + sel.dataset.engine);
+        if (sel.dataset.hp) parts.push('כ"ס: ' + sel.dataset.hp);
+        if (sel.dataset.body) parts.push('מרכב: ' + sel.dataset.body);
+        if (sel.dataset.drivetrain) parts.push('הנעה: ' + sel.dataset.drivetrain);
+        if (sel.dataset.trim) parts.push('גרסה: ' + sel.dataset.trim);
+        if (parts.length && variantSummary) {
+            variantSummary.innerHTML = parts.map(p => '<div>' + escapeHtml(p) + '</div>').join('');
+            variantSummary.classList.remove('hidden');
+        }
+    }
+
+    function setSelectByText(selectEl, text) {
+        for (let i = 0; i < selectEl.options.length; i++) {
+            if (selectEl.options[i].textContent.trim() === text) {
+                selectEl.selectedIndex = i;
+                return;
+            }
+        }
     }
 
     function setSubmitting(isSubmitting) {
@@ -1366,6 +1449,20 @@
             driver_style: (document.getElementById('driver_style') || {}).value || 'normal',
             load: (document.getElementById('load') || {}).value || 'family',
         };
+        // Catalog variant fields
+        const vid = (document.getElementById('variant_id') || {}).value || '';
+        if (vid) payload.variant_id = vid;
+        const vSel = document.getElementById('variant');
+        if (vSel && vSel.selectedIndex > 0) {
+            const opt = vSel.options[vSel.selectedIndex];
+            if (opt.dataset.trim) payload.version_or_trim = opt.dataset.trim;
+            if (opt.dataset.body) payload.body_type = opt.dataset.body;
+            if (opt.dataset.fuel) payload.catalog_fuel_type = opt.dataset.fuel;
+            if (opt.dataset.engine) payload.catalog_engine = opt.dataset.engine;
+            if (opt.dataset.hp) payload.catalog_horsepower_hp = opt.dataset.hp;
+            if (opt.dataset.trans) payload.catalog_transmission = opt.dataset.trans;
+            if (opt.dataset.drivetrain) payload.catalog_drivetrain = opt.dataset.drivetrain;
+        }
         return payload;
     }
 
@@ -1607,8 +1704,26 @@
                 } else {
                     yearSelect.value = '';
                     yearSelect.disabled = true;
+                    resetVariantSection();
                 }
             });
+        }
+
+        if (yearSelect) {
+            yearSelect.addEventListener('change', () => {
+                const make = makeSelect ? makeSelect.value : '';
+                const model = modelSelect ? modelSelect.value : '';
+                const year = yearSelect.value;
+                if (make && model && year) {
+                    populateVariantsForYear(make, model, year);
+                } else {
+                    resetVariantSection();
+                }
+            });
+        }
+
+        if (variantSelect) {
+            variantSelect.addEventListener('change', onVariantChange);
         }
 
         if (form) {
