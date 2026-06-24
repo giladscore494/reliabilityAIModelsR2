@@ -14,6 +14,22 @@ from app.services.comparison.constants import (
     _SINGLE_CAR_REQUIRED_CATEGORIES,
     _STAGE_A_REQUIRED_KEYS,
 )
+
+# Rich Stage A keys that can appear at top-level or inside car_profile
+RICH_STAGE_A_KEYS = (
+    "catalog_identity",
+    "pricing",
+    "trim_equipment_summary",
+    "license_running_cost",
+    "fuel_energy",
+    "official_safety",
+    "powertrain_performance",
+    "reliability_risks",
+    "practicality",
+    "resale_market",
+    "research_status",
+    "uncertainties_conflicts",
+)
 from app.services.comparison.fallbacks import _empty_single_car_payload
 from app.services.comparison.normalization import (
     _normalize_checked_version_text,
@@ -166,12 +182,28 @@ def normalize_single_car_payload(
             break
     normalized["short_notes"] = normalized_notes
     normalized["sources"] = _normalize_sources(payload.get("sources"))
-    normalized["car_profile"] = _normalize_car_profile(payload.get("car_profile"))
+
+    # Collect rich Stage A keys from top-level into car_profile
+    rich_profile = {
+        key: payload.get(key)
+        for key in RICH_STAGE_A_KEYS
+        if key in payload
+    }
+
+    existing_car_profile = _normalize_car_profile(payload.get("car_profile"))
+    if rich_profile:
+        normalized["car_profile"] = {
+            **existing_car_profile,
+            **_normalize_car_profile(rich_profile),
+        }
+    else:
+        normalized["car_profile"] = existing_car_profile
 
     has_facts = any(value is not None for value in normalized["facts"].values())
     has_notes = bool(normalized["short_notes"])
     has_sources = bool(normalized["sources"])
-    if not (category_seen or has_facts or has_notes or has_sources):
+    has_car_profile = bool(normalized.get("car_profile"))
+    if not (category_seen or has_facts or has_notes or has_sources or has_car_profile):
         return None
     return normalized
 
@@ -288,10 +320,18 @@ def _safe_ai_response_snippet(exc: Exception, max_len: int = 280) -> str:
 def _is_valid_single_car_payload(payload: Any) -> bool:
     if not isinstance(payload, dict):
         return False
-    return bool(
-        _SINGLE_CAR_REQUIRED_CATEGORIES.intersection(set(payload.keys()))
-        or isinstance(payload.get("car_profile"), dict)
-    )
+    # Accept legacy categories
+    if _SINGLE_CAR_REQUIRED_CATEGORIES.intersection(set(payload.keys())):
+        return True
+    # Accept non-empty car_profile dict
+    car_profile = payload.get("car_profile")
+    if isinstance(car_profile, dict) and car_profile:
+        return True
+    # Accept any rich Stage A key at top-level
+    rich_keys_set = set(RICH_STAGE_A_KEYS)
+    if rich_keys_set.intersection(set(payload.keys())):
+        return True
+    return False
 
 
 def _is_valid_stage_a_payload(payload: Any) -> bool:

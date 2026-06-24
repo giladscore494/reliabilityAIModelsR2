@@ -48,11 +48,24 @@ def parse_single_car_json(raw_text: str) -> Tuple[Optional[Dict], Optional[str]]
         try:
             parsed = json.loads(current)
         except json.JSONDecodeError:
+            snippet = (current or "")[:500].replace("\n", " ")
+            logger.warning(
+                "[COMPARISON] stage_a_json_rejected reason=json_decode_error snippet=%.500s",
+                snippet,
+            )
             continue
         if _is_valid_single_car_payload(parsed):
             normalized = normalize_single_car_payload(parsed)
             if normalized is not None:
                 return normalized, None
+        else:
+            top_keys = list(parsed.keys())[:20] if isinstance(parsed, dict) else None
+            snippet = (current or "")[:500].replace("\n", " ")
+            logger.warning(
+                "[COMPARISON] stage_a_json_rejected reason=validation_failed top_keys=%s snippet=%.500s",
+                top_keys,
+                snippet,
+            )
     return None, "MODEL_JSON_INVALID"
 
 
@@ -64,9 +77,22 @@ def parse_stage_a_json(raw_text: str) -> Tuple[Optional[Dict[str, Any]], Optiona
         try:
             parsed = json.loads(current)
         except json.JSONDecodeError:
+            snippet = (current or "")[:500].replace("\n", " ")
+            logger.warning(
+                "[COMPARISON] stage_a_json_rejected reason=json_decode_error snippet=%.500s",
+                snippet,
+            )
             continue
         if _is_valid_stage_a_payload(parsed):
             return parsed, None
+        else:
+            top_keys = list(parsed.keys())[:20] if isinstance(parsed, dict) else None
+            snippet = (current or "")[:500].replace("\n", " ")
+            logger.warning(
+                "[COMPARISON] stage_a_json_rejected reason=validation_failed top_keys=%s snippet=%.500s",
+                top_keys,
+                snippet,
+            )
     return None, "MODEL_JSON_INVALID"
 
 
