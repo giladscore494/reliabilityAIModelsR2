@@ -90,6 +90,10 @@ html .text-cyan-100,html .text-cyan-200,html .text-cyan-300{ color:#0e7490 !impo
 html .text-violet-100,html .text-violet-200,html .text-violet-300{ color:#6d28d9 !important; }
 
 /* ---------- Form controls (light chrome) ---------- */
+.yr-form-control,
+.yr-select,
+.yr-input,
+.yr-textarea,
 input[type="text"],input[type="email"],input[type="number"],input[type="search"],
 select,textarea{
   background:#fff;
@@ -98,7 +102,37 @@ select,textarea{
   border-radius:12px;
   transition:border-color .18s, box-shadow .18s, background .18s;
 }
-input::placeholder,textarea::placeholder{ color:#aeb6c1; }
+.yr-form-control::placeholder,
+.yr-input::placeholder,
+.yr-textarea::placeholder,
+input::placeholder,textarea::placeholder{ color:#64748b; opacity:1; }
+
+.yr-form select,.yr-form input,.yr-form textarea,
+.yr-card select,.yr-card input,.yr-card textarea,
+main select,main input[type="text"],main input[type="email"],main input[type="number"],main input[type="search"],main textarea,
+select.bg-white,input.bg-white,textarea.bg-white,
+select[class*="bg-white"],input[class*="bg-white"],textarea[class*="bg-white"]{
+  background-color:#ffffff !important;
+  color:#0f172a !important;
+}
+
+select option,
+.yr-select option,
+main select option{
+  background:#ffffff !important;
+  color:#0f172a !important;
+}
+
+.yr-form-control:disabled,
+.yr-select:disabled,
+.yr-input:disabled,
+.yr-textarea:disabled,
+select:disabled,input:disabled,textarea:disabled{
+  background:#f1f5f9 !important;
+  color:#475569 !important;
+  opacity:1 !important;
+  cursor:not-allowed;
+}
 input:focus,select:focus,textarea:focus{
   outline:none;
   border-color:var(--yr-accent);
