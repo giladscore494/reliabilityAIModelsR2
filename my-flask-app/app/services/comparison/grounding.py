@@ -27,6 +27,8 @@ from app.services.comparison.model_calls import (
     _log_ai_client_error,
 )
 from app.services.comparison.model_config import (
+    DEFAULT_COMPARISON_MODEL_ID,
+    DEFAULT_COMPARISON_LOW_COST_MODEL_ID,
     comparison_safe_model_id,
     comparison_stage_a_model_id,
     comparison_stage_a_repair_model_id,
@@ -40,6 +42,8 @@ from app.services.comparison.parsing import (
     _repair_json_once,
     _strip_json_code_fences,
     _truncate_error_message,
+    conservative_local_json_repair,
+    _json_balance_state,
     normalize_single_car_payload,
 )
 from app.services.comparison.prompts import build_single_car_prompt
@@ -102,14 +106,37 @@ def _extract_stage_a_grounding(resp) -> Dict[str, Any]:
 
 def parse_single_car_json(raw_text: str) -> Tuple[Optional[Dict], Optional[str]]:
     """Parse and validate single-car JSON response."""
-    candidate = _extract_first_json_object(_strip_json_code_fences(raw_text))
+    stripped = _strip_json_code_fences(raw_text)
+    candidate = _extract_first_json_object(stripped)
+    starts_json = (stripped or "").lstrip().startswith("{")
+    if starts_json and candidate is None:
+        state = _json_balance_state(stripped)
+        logger.warning(
+            "[COMPARISON] stage_a_json_diagnostics starts_with_json=true unbalanced=%s json_decode_error=%s extract_first_json_object_none=%s first_500=%.500s last_300=%.300s",
+            state.get("unbalanced"),
+            "not_attempted_no_complete_object",
+            True,
+            (stripped or "")[:500].replace("\n", " "),
+            (stripped or "")[-300:].replace("\n", " "),
+        )
     for current in (candidate, _repair_json_once(candidate) if candidate else None):
         if not current:
             continue
         try:
             parsed = json.loads(current)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
             snippet = (current or "")[:500].replace("\n", " ")
+            if starts_json:
+                state = _json_balance_state(current)
+                logger.warning(
+                    "[COMPARISON] stage_a_json_diagnostics starts_with_json=true unbalanced=%s json_decode_error=%s:%s extract_first_json_object_none=%s first_500=%.500s last_300=%.300s",
+                    state.get("unbalanced"),
+                    type(exc).__name__,
+                    str(exc),
+                    candidate is None,
+                    (stripped or "")[:500].replace("\n", " "),
+                    (stripped or "")[-300:].replace("\n", " "),
+                )
             logger.warning(
                 "[COMPARISON] stage_a_json_rejected reason=json_decode_error snippet=%.500s",
                 snippet,
@@ -515,11 +542,17 @@ def _attempt_json_repair(
             f"MODEL RESPONSE:\n{truncated_text}"
         )
 
-        config = genai_types.GenerateContentConfig(
-            temperature=0.1,
-            max_output_tokens=COMPARE_STAGE_A_REPAIR_MAX_OUTPUT_TOKENS,
-            tools=[],  # No Google Search for repair
-        )
+        config_kwargs = {
+            "temperature": 0.0,
+            "max_output_tokens": COMPARE_STAGE_A_REPAIR_MAX_OUTPUT_TOKENS,
+            "tools": [],  # No Google Search/tools/AFC for repair
+            "response_mime_type": "application/json",
+        }
+        try:
+            config = genai_types.GenerateContentConfig(**config_kwargs)
+        except TypeError:
+            config_kwargs.pop("response_mime_type", None)
+            config = genai_types.GenerateContentConfig(**config_kwargs)
 
         resp, model_used, fallback_reason = _generate_content_with_404_fallback(
             feature="comparison_stage_a_repair",
@@ -541,7 +574,33 @@ def _attempt_json_repair(
             outcome_reason = "REPAIR_EMPTY_TEXT"
             return None, "REPAIR_EMPTY_TEXT"
 
+        if not text.lstrip().startswith("{"):
+            outcome = "error"
+            outcome_reason = "REPAIR_MODEL_NOT_JSON_OBJECT"
+            return None, "REPAIR_MODEL_JSON_INVALID"
+
         parsed, parse_error = parse_single_car_json(text)
+        if parse_error and model_used == DEFAULT_COMPARISON_LOW_COST_MODEL_ID and DEFAULT_COMPARISON_MODEL_ID != model_used:
+            worker_logger.info(
+                "[COMPARISON] stage_a_repair_retry_stronger_model request_id=%s car=%s original_model=%s stronger_model=%s reason=%s",
+                request_id or "unknown",
+                car_label,
+                model_used,
+                DEFAULT_COMPARISON_MODEL_ID,
+                f"REPAIR_{parse_error}",
+            )
+            resp = extensions.ai_client.models.generate_content(
+                model=DEFAULT_COMPARISON_MODEL_ID,
+                contents=repair_prompt,
+                config=config,
+            )
+            model_used = DEFAULT_COMPARISON_MODEL_ID
+            text = (getattr(resp, "text", "") or "").strip()
+            if not text.lstrip().startswith("{"):
+                outcome = "error"
+                outcome_reason = "REPAIR_MODEL_NOT_JSON_OBJECT"
+                return None, "REPAIR_MODEL_JSON_INVALID"
+            parsed, parse_error = parse_single_car_json(text)
         if parse_error:
             outcome = "error"
             outcome_reason = f"REPAIR_{parse_error}"
@@ -575,14 +634,45 @@ def _attempt_json_repair(
     finally:
         duration_ms = (pytime.perf_counter() - start_time) * 1000
         worker_logger.info(
-            "[AI] feature=comparison_stage_a_repair model=%s car=%s duration_ms=%.2f tools_enabled=%s outcome=%s reason=%s",
+            "[AI] feature=comparison_stage_a_repair model=%s car=%s duration_ms=%.2f tools_enabled=%s afc_enabled=%s response_mime_type=%s outcome=%s reason=%s",
             model_used,
             car_label,
             duration_ms,
             False,
+            False,
+            "application/json",
             outcome,
             fallback_reason or outcome_reason,
         )
+
+
+def _looks_like_prose_without_json(raw_text: str) -> bool:
+    stripped = (raw_text or "").lstrip()
+    if _extract_first_json_object(_strip_json_code_fences(stripped)):
+        return False
+    lower = stripped[:80].lower()
+    return lower.startswith(("wait", "let's", "i will", "- ", "* ", "• "))
+
+
+def _build_strict_json_retry_prompt(original_prompt: str) -> str:
+    return (
+        "Return a single valid JSON object only. The first character must be { and the last character must be }.\n"
+        "No markdown, bullets, explanation, reasoning, or prose. Use null/[] for unknowns.\n"
+        "Use the same selected car and catalog context below.\n\n"
+        f"{original_prompt[:6000]}"
+    )
+
+
+def _attempt_local_json_repair(raw_text: str, original_grounding_meta: Dict[str, Any]) -> Tuple[Optional[Dict], Optional[str]]:
+    repaired = conservative_local_json_repair(raw_text)
+    if not repaired:
+        return None, "LOCAL_REPAIR_NO_JSON"
+    parsed, error = parse_single_car_json(repaired)
+    if error:
+        return None, error
+    if isinstance(parsed, dict) and isinstance(original_grounding_meta, dict):
+        parsed["_grounding_meta"] = original_grounding_meta
+    return parsed, None
 
 
 def call_stage_a_parallel(
@@ -658,6 +748,27 @@ def call_stage_a_parallel(
             if raw_result.get("grounding_meta"):
                 raw_grounding_metas[slot_key] = raw_result["grounding_meta"]
             if error:
+                raw_for_retry = raw_result.get("raw_text") or ""
+                if error == "MODEL_JSON_INVALID" and _looks_like_prose_without_json(raw_for_retry):
+                    stage_a_logger.info(
+                        "[COMPARISON] stage_a_strict_json_retry request_id=%s slot_key=%s original_reason=PROSE_NOT_JSON",
+                        request_id,
+                        slot_key,
+                    )
+                    retry_result = _call_gemini_single_car_raw(
+                        _build_strict_json_retry_prompt(prompts[slot_key]),
+                        slot_key,
+                        COMPARE_STAGE_A_TIMEOUT_SEC,
+                        request_id,
+                        stage_a_logger,
+                    )
+                    if retry_result.get("raw_text"):
+                        raw_texts[slot_key] = retry_result["raw_text"]
+                    if retry_result.get("grounding_meta"):
+                        raw_grounding_metas[slot_key] = retry_result["grounding_meta"]
+                    if not retry_result.get("error") and _store_slot_result(slot_key, retry_result.get("parsed")):
+                        continue
+                    error = retry_result.get("error") or "MODEL_JSON_INVALID"
                 if error == "MODEL_JSON_INVALID":
                     repair_slots.append(slot_key)
                 else:
@@ -720,6 +831,20 @@ def call_stage_a_parallel(
                 continue
             original_gmeta = raw_grounding_metas.get(
                 slot_key, {"grounding_successful": False, "source_count": 0}
+            )
+            local_result, local_error = _attempt_local_json_repair(raw_model_text, original_gmeta)
+            if local_error is None and _store_slot_result(slot_key, local_result):
+                stage_a_logger.info(
+                    "[COMPARISON] stage_a_local_json_repair_succeeded request_id=%s slot_key=%s",
+                    request_id,
+                    slot_key,
+                )
+                continue
+            stage_a_logger.info(
+                "[COMPARISON] stage_a_local_json_repair_failed request_id=%s slot_key=%s reason=%s",
+                request_id,
+                slot_key,
+                local_error,
             )
             repair_futures[slot_key] = AI_EXECUTOR.submit(
                 _attempt_json_repair,
@@ -788,6 +913,12 @@ def call_stage_a_parallel(
         ),
         "source_count": sum(int(g.get("source_count") or 0) for g in grounding_flags.values()),
     }
+    if not any_grounded:
+        stage_a_logger.warning(
+            "[COMPARISON] stage_a_grounding_absent request_id=%s tools_enabled=true grounding_successful=false source_count=%s",
+            request_id,
+            merged["research_status"]["source_count"],
+        )
     stage_a_logger.info(
         "[COMPARISON] stage_a_grounding request_id=%s tools_enabled=true grounding_successful=%s grounded_cars=%s",
         request_id,

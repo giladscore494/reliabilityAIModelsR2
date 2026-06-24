@@ -18,7 +18,7 @@ COMPARISON_PROMPT_VERSION = "v4"
 COMPARISON_MODEL_ID = (
     os.environ.get("COMPARISON_STAGE_A_MODEL")
     or os.environ.get("GEMINI_COMPARE_MODEL_ID")
-    or "gemini-3.5-flash"
+    or "gemini-3.1-pro-preview"
 )
 AI_CALL_TIMEOUT_SEC = int(os.environ.get("AI_CALL_TIMEOUT_SEC", "170"))
 COMPARE_STAGE_A_TIMEOUT_SEC = max(1, int(os.environ.get("COMPARISON_STAGE_A_TIMEOUT_MS", "60000")) // 1000) if os.environ.get("COMPARISON_STAGE_A_TIMEOUT_MS") else int(os.environ.get("COMPARE_STAGE_A_TIMEOUT_SEC", "60"))
@@ -29,7 +29,7 @@ COMPARE_STAGE_A_MAX_OUTPUT_TOKENS = int(
     os.environ.get("COMPARE_STAGE_A_MAX_OUTPUT_TOKENS", "4096")
 )
 COMPARE_STAGE_A_TEMPERATURE = float(
-    os.environ.get("COMPARE_STAGE_A_TEMPERATURE", "0.25")
+    os.environ.get("COMPARISON_STAGE_A_TEMPERATURE", os.environ.get("COMPARE_STAGE_A_TEMPERATURE", "0.0"))
 )
 COMPARE_WRITER_TIMEOUT_SEC = max(1, int(os.environ.get("COMPARISON_STAGE_B_TIMEOUT_MS", "30000")) // 1000) if os.environ.get("COMPARISON_STAGE_B_TIMEOUT_MS") else int(os.environ.get("COMPARE_WRITER_TIMEOUT_SEC", "30"))
 COMPARE_WRITER_MAX_OUTPUT_TOKENS = int(
