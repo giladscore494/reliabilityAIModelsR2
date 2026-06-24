@@ -60,6 +60,35 @@
         {% if is_owner %}
             <!-- === גרסת בעלים – השאלון המלא === -->
             <section class="relative z-10 max-w-5xl mx-auto space-y-10">
+
+                <!-- Advisor flow shell: סרגל שלבים + פס התקדמות (Run 1 prototype parity) -->
+                <div id="advisorFlowHeader" class="yr-app-header">
+                    <div class="yr-app-header__inner">
+                        <div class="yr-app-header__brand">
+                            <span class="yr-app-header__mark">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11l1.5-4.2A2 2 0 0 1 8.4 5.4h7.2a2 2 0 0 1 1.9 1.4L19 11 M5 11h14v5H5z M5 16v2 M19 16v2 M7.5 13.5h.01 M16.5 13.5h.01"></path></svg>
+                            </span>
+                            <span class="yr-app-header__brand-text">
+                                <span class="yr-app-header__name">ידע רכב</span>
+                                <span class="yr-app-header__sub">AI&nbsp;CAR&nbsp;ADVISOR</span>
+                            </span>
+                        </div>
+                        <div class="yr-app-header__right">
+                            <div class="yr-step-pill">
+                                <span class="yr-step-pill__num" id="advisorStepNum">1</span>
+                                <span class="yr-step-pill__sep">/ 5</span>
+                                <span class="yr-step-pill__label" id="advisorStepLabel">פרופיל נהג</span>
+                            </div>
+                            <button type="button" id="advisorRestartBtn" class="yr-step-restart">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7 M3 4v4h4"></path></svg>
+                                <span>התחל מחדש</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="yr-progress"><div class="yr-progress__fill" id="advisorProgressFill"></div></div>
+                </div>
+
+                <div id="advisorFormScreen" class="space-y-10">
                 <header class="text-center space-y-4 max-w-3xl mx-auto">
                     <p class="text-xs font-semibold tracking-[0.18em] text-slate-400 uppercase">מנוע ההמלצות</p>
                     <h1 class="text-3xl md:text-[2.85rem] font-extrabold text-white">
@@ -444,6 +473,54 @@
                         <p id="advisor-error" class="mt-3 text-xs text-red-400 hidden"></p>
                     </div>
                 </form>
+                </div><!-- /#advisorFormScreen -->
+
+                <!-- שלב 2 – סיכום העדפות לפני קריאה לשרת -->
+                <section id="advisorPreferenceSummary" class="yr-flow-hidden yr-pref-summary yr-rise">
+                    <div class="yr-pref-summary__head">
+                        <h2 class="yr-pref-summary__title">סיכום ההעדפות שלך</h2>
+                        <p class="yr-pref-summary__subtitle">אלו הנתונים שייכנסו לניתוח. אפשר לאשר או לחזור לעריכה.</p>
+                    </div>
+                    <div id="advisorPreferenceCards" class="yr-pref-grid"></div>
+                    <p id="advisorSummaryError" class="yr-pref-error hidden"></p>
+                    <div class="yr-pref-summary__actions">
+                        <button type="button" id="advisorAnalyzeBtn" class="yr-btn">
+                            <span class="button-text">נתח את ההעדפות שלי</span>
+                            <span class="spinner hidden" aria-hidden="true"><span class="yr-spin"></span></span>
+                        </button>
+                        <button type="button" id="advisorBackToEditBtn" class="yr-btn yr-btn--chrome">חזור לעריכה</button>
+                    </div>
+                </section>
+
+                <!-- שלב 3 – מסך ניתוח AI בזמן שהבקשה לשרת רצה -->
+                <section id="advisorAnalyzingScreen" class="yr-flow-hidden yr-analyzing-panel yr-rise">
+                    <div class="yr-analyzing-ring">
+                        <div class="yr-analyzing-ring__halo"></div>
+                        <svg viewBox="0 0 200 200" class="yr-analyzing-ring__svg" aria-hidden="true">
+                            <circle cx="100" cy="100" r="80" class="yr-analyzing-ring__track"></circle>
+                            <circle cx="100" cy="100" r="80" id="advisorAnalyzeRing" class="yr-analyzing-ring__progress"></circle>
+                            <defs>
+                                <linearGradient id="yr-analyze-grad" x1="0" y1="0" x2="1" y2="1">
+                                    <stop offset="0%" stop-color="#3b7bff"></stop>
+                                    <stop offset="100%" stop-color="#16c8e6"></stop>
+                                </linearGradient>
+                            </defs>
+                        </svg>
+                        <div class="yr-analyzing-ring__center">
+                            <span class="yr-analyzing-ring__pct"><span id="advisorAnalyzePct">0</span><span class="yr-analyzing-ring__sign">%</span></span>
+                            <span class="yr-analyzing-ring__caption">מנתח</span>
+                        </div>
+                    </div>
+                    <h2 class="yr-analyzing-panel__title">מנוע ה-AI עובד עבורך</h2>
+                    <p id="advisorAnalyzeEta" class="yr-analyzing-panel__eta">מצליב נתוני שוק, אמינות ועלויות בעלות…</p>
+                    <ul class="yr-analysis-steps" id="advisorAnalysisSteps">
+                        <li class="yr-analysis-step" data-idx="0"><span class="yr-analysis-step__dot"></span><span>סורק התאמה לתקציב ולשנתון</span></li>
+                        <li class="yr-analysis-step" data-idx="1"><span class="yr-analysis-step__dot"></span><span>מצליב אמינות ועלויות תחזוקה</span></li>
+                        <li class="yr-analysis-step" data-idx="2"><span class="yr-analysis-step__dot"></span><span>בודק צריכת דלק / חשמל</span></li>
+                        <li class="yr-analysis-step" data-idx="3"><span class="yr-analysis-step__dot"></span><span>מחשב עלות בעלות שנתית</span></li>
+                        <li class="yr-analysis-step" data-idx="4"><span class="yr-analysis-step__dot"></span><span>מדרג התאמה אישית</span></li>
+                    </ul>
+                </section>
 
                 <!-- Timing Banner (hidden by default) -->
                 <div id="advisorTimingBanner" class="hidden fixed top-24 left-1/2 transform -translate-x-1/2 z-50 bg-dark-lighter/95 backdrop-blur-xl border-2 border-primary/50 rounded-2xl shadow-2xl p-6">

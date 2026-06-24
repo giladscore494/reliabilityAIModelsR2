@@ -60,6 +60,58 @@
     const profileSummaryEl = document.getElementById('advisor-profile-summary');
     const highlightCardsEl = document.getElementById('advisor-highlight-cards');
 
+    // === Advisor flow shell + state machine (Run 1 prototype parity) ===
+    const advisorFlowHeader = document.getElementById('advisorFlowHeader');
+    const advisorStepNumEl = document.getElementById('advisorStepNum');
+    const advisorStepLabelEl = document.getElementById('advisorStepLabel');
+    const advisorProgressFill = document.getElementById('advisorProgressFill');
+    const advisorFormScreen = document.getElementById('advisorFormScreen');
+    const advisorPreferenceSummary = document.getElementById('advisorPreferenceSummary');
+    const advisorPreferenceCards = document.getElementById('advisorPreferenceCards');
+    const advisorSummaryError = document.getElementById('advisorSummaryError');
+    const advisorAnalyzingScreen = document.getElementById('advisorAnalyzingScreen');
+    const advisorAnalyzeBtn = document.getElementById('advisorAnalyzeBtn');
+    const advisorBackToEditBtn = document.getElementById('advisorBackToEditBtn');
+    const advisorRestartBtn = document.getElementById('advisorRestartBtn');
+
+    // payload saved on summary, sent only after the user clicks "נתח את ההעדפות שלי"
+    let pendingAdvisorPayload = null;
+    let currentAdvisorStep = 'form';
+    let analyzeTimer = null;
+
+    const ADVISOR_STEP_META = {
+        form:      { num: 1, label: 'פרופיל נהג' },
+        summary:   { num: 2, label: 'סיכום העדפות' },
+        analyzing: { num: 3, label: 'ניתוח AI' },
+        results:   { num: 4, label: 'המלצות' },
+        compare:   { num: 5, label: 'פירוט / השוואה' },
+        details:   { num: 5, label: 'פירוט / השוואה' }
+    };
+
+    const advisorFlowScreens = {
+        form: advisorFormScreen,
+        summary: advisorPreferenceSummary,
+        analyzing: advisorAnalyzingScreen
+    };
+
+    function syncAdvisorFlowHeaderTop() {
+        if (!advisorFlowHeader) return;
+        const nav = document.querySelector('.yr-header');
+        advisorFlowHeader.style.top = (nav ? nav.offsetHeight : 0) + 'px';
+    }
+
+    function setAdvisorStep(stepName) {
+        const meta = ADVISOR_STEP_META[stepName] || ADVISOR_STEP_META.form;
+        currentAdvisorStep = stepName;
+        if (advisorStepNumEl) advisorStepNumEl.textContent = String(meta.num);
+        if (advisorStepLabelEl) advisorStepLabelEl.textContent = meta.label;
+        if (advisorProgressFill) advisorProgressFill.style.width = (meta.num / 5 * 100).toFixed(1) + '%';
+        Object.keys(advisorFlowScreens).forEach((key) => {
+            const el = advisorFlowScreens[key];
+            if (el) el.classList.toggle('yr-flow-hidden', key !== stepName);
+        });
+    }
+
     if (!form) return;
 
     function escapeHtml(value) {
@@ -1253,7 +1305,240 @@
         });
     }
 
-    // --- Submit ---
+    // --- שלב 2: סיכום העדפות ---
+    function renderPreferenceSummary() {
+        if (!advisorPreferenceCards) return;
+        const num = (v) => (v ? parseInt(v, 10).toLocaleString('he-IL') : '');
+        const budgetMin = form.budget_min.value ? num(form.budget_min.value) + ' ₪' : 'לא צוין';
+        const budgetMax = form.budget_max.value ? num(form.budget_max.value) + ' ₪' : 'לא צוין';
+        const yearMin = form.year_min.value || 'לא צוין';
+        const yearMax = form.year_max.value || 'לא צוין';
+        const bodyStyle = form.body_style.value || 'כללי';
+        const mainUse = form.main_use.value || 'לא צוין';
+        const fuels = getCheckedValues('fuels_he');
+        const gears = getCheckedValues('gears_he');
+        const seats = form.seats_choice.value || 'לא צוין';
+        const familySize = form.family_size.value || 'לא צוין';
+        const drivingStyle = form.driving_style.value || 'לא צוין';
+        const w = (id, d) => (document.getElementById(id) ? document.getElementById(id).value : d) || d;
+        const weights = [
+            { label: 'אמינות', val: w('w_reliability', '5') },
+            { label: 'דלק', val: w('w_fuel', '4') },
+            { label: 'שמירת ערך', val: w('w_resale', '3') },
+            { label: 'ביצועים', val: w('w_performance', '2') },
+            { label: 'נוחות', val: w('w_comfort', '3') }
+        ];
+        const safe = (v) => escapeHtml(v);
+        // Safe innerHTML: every interpolated value is escaped via escapeHtml().
+        const card = (icon, label, value) => `
+            <article class="yr-pref-card">
+                <div class="yr-pref-card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${icon}"></path></svg></div>
+                <div class="yr-pref-card__body">
+                    <div class="yr-pref-card__label">${safe(label)}</div>
+                    <div class="yr-pref-card__value">${safe(value)}</div>
+                </div>
+            </article>`;
+        const weightsCard = `
+            <article class="yr-pref-card yr-pref-card--weights">
+                <div class="yr-pref-card__label" style="margin-bottom:8px">משקלי העדפות</div>
+                <div class="yr-pref-weights">
+                    ${weights.map((wt) => {
+                        const pct = Math.max(0, Math.min(100, (parseInt(wt.val, 10) || 0) / 5 * 100));
+                        return `
+                        <div class="yr-pref-weight">
+                            <div class="yr-pref-weight__head"><span>${safe(wt.label)}</span><span>${safe(wt.val)}/5</span></div>
+                            <div class="yr-pref-weight__bar"><div class="yr-pref-weight__fill" style="width:${pct}%"></div></div>
+                        </div>`;
+                    }).join('')}
+                </div>
+            </article>`;
+        advisorPreferenceCards.innerHTML = [
+            card('M3 8.5A2.5 2.5 0 0 1 5.5 6H18a1 1 0 0 1 1 1H6 M3 8.5V18a2 2 0 0 0 2 2h13a1 1 0 0 0 1-1v-3 M20 11h-3a2 2 0 0 0 0 4h3z', 'תקציב', `${budgetMin} – ${budgetMax}`),
+            card('M8 2v4 M16 2v4 M3 9h18 M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z', 'שנתון', `${yearMin}–${yearMax}`),
+            card('M5 11l1.5-4.2A2 2 0 0 1 8.4 5.4h7.2a2 2 0 0 1 1.9 1.4L19 11 M5 11h14v5H5z M5 16v2 M19 16v2', 'סוג רכב', bodyStyle),
+            card('M4 21V8l6-3v16 M10 21V3l8 3v15 M3 21h18', 'שימוש עיקרי', mainUse),
+            card('M13 3 4 14h6l-1 7 9-11h-6z', 'דלק / גיר', `${fuels.length ? fuels.join(', ') : 'לא צוין'} · ${gears.length ? gears.join(', ') : 'לא צוין'}`),
+            card('M16 19a4 4 0 0 0-8 0 M12 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6 M20.5 19a3 3 0 0 0-3.5-3', 'מושבים / משפחה', `${seats} מושבים · ${familySize}`),
+            card('M5 19c0-7 5-12 14-13 1 9-4 15-13 14 M5 19c2-4 5-6 8-7', 'סגנון נהיגה', drivingStyle),
+            weightsCard
+        ].join('');
+    }
+
+    function showPreferenceSummary() {
+        renderPreferenceSummary();
+        if (advisorSummaryError) {
+            advisorSummaryError.textContent = '';
+            advisorSummaryError.classList.add('hidden');
+        }
+        setAdvisorStep('summary');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        trackAnalytics('advisor_summary_viewed', { flow_type: 'advisor' });
+    }
+
+    // --- שלב 3: מסך ניתוח AI ---
+    const ADVISOR_ANALYZE_R = 80;
+    const ADVISOR_ANALYZE_CIRC = 2 * Math.PI * ADVISOR_ANALYZE_R;
+
+    function setAnalyzeProgress(p) {
+        const ring = document.getElementById('advisorAnalyzeRing');
+        const pctEl = document.getElementById('advisorAnalyzePct');
+        const clamped = Math.max(0, Math.min(100, p));
+        if (ring) {
+            ring.style.strokeDasharray = ADVISOR_ANALYZE_CIRC.toFixed(2);
+            ring.style.strokeDashoffset = (ADVISOR_ANALYZE_CIRC * (1 - clamped / 100)).toFixed(2);
+        }
+        if (pctEl) pctEl.textContent = String(Math.round(clamped));
+        const steps = advisorAnalyzingScreen ? advisorAnalyzingScreen.querySelectorAll('.yr-analysis-step') : [];
+        const activeCount = Math.min(steps.length, Math.ceil(clamped / 100 * steps.length));
+        steps.forEach((el, i) => {
+            el.classList.toggle('is-active', i < activeCount);
+            el.classList.toggle('is-done', (clamped >= 100 && i < activeCount) || i < activeCount - 1);
+        });
+    }
+
+    function stopAnalyzeTimer() {
+        if (analyzeTimer) { clearInterval(analyzeTimer); analyzeTimer = null; }
+    }
+
+    function showAnalyzingScreen(estimatedMs) {
+        setAdvisorStep('analyzing');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        stopAnalyzeTimer();
+        setAnalyzeProgress(0);
+        // ease toward a soft cap; the response completion fills the rest
+        const dur = Math.max(2600, Math.min(estimatedMs || 12000, 30000));
+        const t0 = performance.now();
+        analyzeTimer = setInterval(() => {
+            const k = Math.min(1, (performance.now() - t0) / dur);
+            const eased = 1 - Math.pow(1 - k, 2);
+            setAnalyzeProgress(Math.min(92, eased * 100));
+        }, 60);
+    }
+
+    function finishAnalyzingScreen() {
+        stopAnalyzeTimer();
+        setAnalyzeProgress(100);
+        return new Promise((resolve) => setTimeout(resolve, 480));
+    }
+
+    function setAnalyzeButtonLoading(loading) {
+        if (!advisorAnalyzeBtn) return;
+        advisorAnalyzeBtn.disabled = loading;
+        const spinner = advisorAnalyzeBtn.querySelector('.spinner');
+        const text = advisorAnalyzeBtn.querySelector('.button-text');
+        if (spinner) spinner.classList.toggle('hidden', !loading);
+        if (text) text.classList.toggle('opacity-60', loading);
+    }
+
+    function showAnalyzeError(message, requestId) {
+        stopAnalyzeTimer();
+        setAdvisorStep('summary');
+        if (advisorSummaryError) {
+            const suffix = requestId ? ` (ID: ${requestId})` : '';
+            advisorSummaryError.textContent = (message || 'שגיאה כללית בחיבור לשרת.') + suffix;
+            advisorSummaryError.classList.remove('hidden');
+        } else {
+            showRequestAwareError(message, requestId);
+        }
+    }
+
+    function showResultsScreen() {
+        setAdvisorStep('results');
+        openAdvisorResult({ userInitiated: true });
+    }
+
+    function resetAdvisorFlow() {
+        stopAnalyzeTimer();
+        pendingAdvisorPayload = null;
+        resetAdvisorResultFlowState();
+        if (advisorSummaryError) {
+            advisorSummaryError.textContent = '';
+            advisorSummaryError.classList.add('hidden');
+        }
+        if (errorEl) {
+            errorEl.textContent = '';
+            errorEl.classList.add('hidden');
+        }
+        setAdvisorStep('form');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // --- שלב 3→4: קריאה לשרת + רינדור תוצאות (אחרי לחיצה על "נתח") ---
+    async function runAnalysis() {
+        if (!pendingAdvisorPayload) {
+            setAdvisorStep('form');
+            return;
+        }
+        if (advisorSummaryError) {
+            advisorSummaryError.textContent = '';
+            advisorSummaryError.classList.add('hidden');
+        }
+        isLoading = true;
+        setAnalyzeButtonLoading(true);
+
+        // Integrate the existing timing estimate visually into the analyzing screen
+        let etaMs = 12000;
+        try {
+            const eta = await safeFetchJson('/api/timing/estimate?kind=advisor', { method: 'GET', credentials: 'include' });
+            if (eta && eta.ok && eta.data && eta.data.p75_ms) {
+                etaMs = eta.data.p75_ms;
+                const secs = Math.ceil(etaMs / 1000);
+                const count = eta.data.sample_size || 0;
+                const etaEl = document.getElementById('advisorAnalyzeEta');
+                if (etaEl) {
+                    etaEl.textContent = count > 0
+                        ? `זמן משוער: ~${secs} שניות · מבוסס על ${count} ניתוחים`
+                        : `זמן משוער: ~${secs} שניות`;
+                }
+            }
+        } catch (e) { /* fall back to default ETA */ }
+
+        showAnalyzingScreen(etaMs);
+        trackAnalytics('advisor_analysis_started', { flow_type: 'advisor' });
+        trackAnalytics('result_requested', {
+            flow_type: 'advisor',
+            budget_min: pendingAdvisorPayload.budget_min,
+            budget_max: pendingAdvisorPayload.budget_max,
+            preferred_fuels_count: Array.isArray(pendingAdvisorPayload.fuels_he) ? pendingAdvisorPayload.fuels_he.length : 0
+        });
+
+        try {
+            const res = await safeFetchJson('/advisor_api', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',  // Send session cookies
+                body: JSON.stringify(pendingAdvisorPayload)
+            });
+
+            if (!res || res.ok === false) {
+                const code = res && res.error && res.error.code;
+                if (code === 'unauthenticated') {
+                    showAnalyzeError('אנא התחבר כדי להשתמש במנוע ההמלצות.', res && res.request_id);
+                    setTimeout(() => { window.location.href = '/login'; }, 1200);
+                    return;
+                }
+                const field = res && res.error && res.error.details && res.error.details.field;
+                const baseMsg = (res && res.error && res.error.message) || 'שגיאת שרת בעת הפעלת מנוע ההמלצות.';
+                const msg = field ? `${baseMsg} (שדה: ${field})` : baseMsg;
+                showAnalyzeError(msg, res && res.request_id);
+                return;
+            }
+
+            const payloadFromApi = res.data || {};
+            currentHistoryId = payloadFromApi.history_id || null;
+            await finishAnalyzingScreen();
+            setAdvisorStep('results');
+            renderResults(payloadFromApi, { openImmediately: true });
+        } catch (err) {
+            console.error(err);
+            showAnalyzeError(err.message || 'שגיאה כללית בחיבור לשרת. נסה שוב מאוחר יותר.', err.requestId || null);
+        } finally {
+            isLoading = false;
+            setAnalyzeButtonLoading(false);
+        }
+    }
+
+    // --- Submit (שלב 1 → שלב 2): מאמת ובונה payload, ואז מציג סיכום העדפות ---
     async function handleSubmit(e) {
         e.preventDefault();
 
@@ -1276,8 +1561,6 @@
             return;
         }
 
-        resetAdvisorResultFlowState();
-        isLoading = true;
         const payload = { ...buildPayload(), legal_confirm: true };
 
         if (!payload.budget_max || payload.budget_max <= 0 || payload.budget_min > payload.budget_max) {
@@ -1289,55 +1572,23 @@
             return;
         }
 
-        trackAnalytics('result_requested', {
-            flow_type: 'advisor',
-            budget_min: payload.budget_min,
-            budget_max: payload.budget_max,
-            preferred_fuels_count: Array.isArray(payload.fuels_he) ? payload.fuels_he.length : 0
-        });
-        setSubmitting(true);
-        showTimingBanner('advisor');
-        
-        try {
-            const res = await safeFetchJson('/advisor_api', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                credentials: 'include',  // Send session cookies
-                body: JSON.stringify(payload)
-            });
-
-            if (!res || res.ok === false) {
-                const code = res && res.error && res.error.code;
-                if (code === 'unauthenticated') {
-                    showRequestAwareError('אנא התחבר כדי להשתמש במנוע ההמלצות.', res && res.request_id);
-                    setTimeout(() => { window.location.href = '/login'; }, 1200);
-                    return;
-                }
-                const field = res && res.error && res.error.details && res.error.details.field;
-                const baseMsg = (res && res.error && res.error.message) || 'שגיאת שרת בעת הפעלת מנוע ההמלצות.';
-                const msg = field ? `${baseMsg} (שדה: ${field})` : baseMsg;
-                showRequestAwareError(msg, res && res.request_id);
-                return;
-            }
-
-            const payloadFromApi = res.data || {};
-            currentHistoryId = payloadFromApi.history_id || null;
-            renderResults(payloadFromApi);
-        } catch (err) {
-            console.error(err);
-            showRequestAwareError(err.message || 'שגיאה כללית בחיבור לשרת. נסה שוב מאוחר יותר.', err.requestId || null);
-        } finally {
-            if (!isResultReady) {
-                hideAdvisorResearchCard();
-                resultReadyPanel?.classList.add('hidden');
-            }
-            isLoading = false;
-            hideTimingBanner(true);
-            setSubmitting(false);
-        }
+        // Reset any previous result state, store the exact payload, then show the
+        // preference summary. The backend is called only on "נתח את ההעדפות שלי".
+        resetAdvisorResultFlowState();
+        pendingAdvisorPayload = payload;
+        showPreferenceSummary();
     }
 
     form.addEventListener('submit', handleSubmit);
+    advisorAnalyzeBtn?.addEventListener('click', runAnalysis);
+    advisorBackToEditBtn?.addEventListener('click', function () {
+        setAdvisorStep('form');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+    advisorRestartBtn?.addEventListener('click', resetAdvisorFlow);
+    syncAdvisorFlowHeaderTop();
+    window.addEventListener('resize', syncAdvisorFlowHeaderTop);
+    setAdvisorStep('form');
 
     (researchFormEl?.querySelectorAll('input[name="advisorResearchMajorFaults"]') || []).forEach((radio) => {
         radio.addEventListener('change', syncAdvisorResearchFaultTypeVisibility);
@@ -1427,5 +1678,6 @@
         applyHistoryProfile(window.advisorHistoryProfile);
         currentHistoryId = window.advisorHistoryId || null;
         renderResults(window.advisorHistoryResult, { openImmediately: true });
+        setAdvisorStep('results');
     }
 })();
