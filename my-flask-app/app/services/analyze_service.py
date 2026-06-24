@@ -45,6 +45,7 @@ from app.factory import (
     mileage_adjustment,
     normalize_text,
 )
+from app.utils.production_observability import log_slow_operation
 from app.services.vehicle_catalog_service import (
     CatalogUnavailableError,
     catalog_is_available,
@@ -278,6 +279,9 @@ def handle_analyze_request(
     quota_used_after = consumed_count
     display_quota_count = quota_used_after
     model_duration_ms = 0
+    grounding_duration_ms = 0
+    sanitization_duration_ms = 0
+    guardrail_duration_ms = 0
     history_id = None
 
     analyze_allowed_fields = {
@@ -515,6 +519,8 @@ def handle_analyze_request(
         model_start = pytime.perf_counter()
         model_output, ai_error = ai_call(prompt)
         model_duration_ms = int((pytime.perf_counter() - model_start) * 1000)
+        log_slow_operation(logger, feature="vehicle_review", stage="model_call", duration_ms=model_duration_ms, request_id=get_request_id())
+        logger.info("[ANALYZE_TIMING] request_id=%s stage=model_call duration_ms=%s", get_request_id(), model_duration_ms)
         if ai_error == "CALL_TIMEOUT":
             if not bypass_owner:
                 release_quota_reservation(reservation_id, user_id, day_key)
@@ -526,7 +532,10 @@ def handle_analyze_request(
         if not isinstance(model_output, dict):
             model_output = {}
         ai_output = model_output
+        grounding_meta_start = pytime.perf_counter()
         grounding_meta = ai_output.pop("_grounding_meta", {}) if isinstance(ai_output, dict) else {}
+        grounding_duration_ms = int((pytime.perf_counter() - grounding_meta_start) * 1000)
+        logger.info("[ANALYZE_TIMING] request_id=%s stage=grounding_metadata duration_ms=%s grounding_successful=%s source_count=%s", get_request_id(), grounding_duration_ms, grounding_meta.get("grounding_successful"), grounding_meta.get("source_count"))
         ai_output = _enforce_catalog_identity(ai_output, resolution, get_request_id())
         ai_output["research_status"] = _build_research_status(grounding_meta, ai_output)
         ai_output = _adapt_catalog_first_reliability_output(ai_output)
@@ -590,12 +599,18 @@ def handle_analyze_request(
             ai_output.pop("reliability_score", None)
             for deprecated_key in _DEPRECATED_SCORE_KEYS:
                 ai_output.pop(deprecated_key, None)
+            sanitization_start = pytime.perf_counter()
             sanitized_output = sanitize_analyze_response(ai_output)
+            sanitization_duration_ms = int((pytime.perf_counter() - sanitization_start) * 1000)
+            guardrail_start = pytime.perf_counter()
             sanitized_output, validation_report = apply_feature_guardrails(
                 "reliability_analysis",
                 validated,
                 sanitized_output,
             )
+            guardrail_duration_ms = int((pytime.perf_counter() - guardrail_start) * 1000)
+            logger.info("[ANALYZE_TIMING] request_id=%s stage=sanitization duration_ms=%s", get_request_id(), sanitization_duration_ms)
+            logger.info("[ANALYZE_TIMING] request_id=%s stage=guardrail duration_ms=%s critical_count=%s warning_count=%s", get_request_id(), guardrail_duration_ms, len(validation_report.get("critical_issues", [])), len(validation_report.get("warnings", [])))
             if validation_report.get("critical_issues"):
                 logger.warning(
                     "[GUARDRAIL] blocked original reliability result request_id=%s critical=%s",
@@ -661,8 +676,15 @@ def handle_analyze_request(
     else:
         quota_used_after = get_daily_quota_usage(user_id, day_key)
 
+    total_duration_ms = int(pytime.time() * 1000) - int(start_time_ms)
+    log_slow_operation(logger, feature="vehicle_review", stage="total", duration_ms=total_duration_ms, request_id=get_request_id())
     logger.info(
-        f"[QUOTA] method=POST path=/analyze uid={user_id} cache_hit={cache_hit} "
+        "[ANALYZE_TIMING] request_id=%s total_ms=%s model_ms=%s grounding_ms=%s sanitization_ms=%s guardrail_ms=%s",
+        get_request_id(), total_duration_ms, model_duration_ms, grounding_duration_ms, sanitization_duration_ms, guardrail_duration_ms,
+    )
+
+    logger.info(
+        f"[QUOTA] method=POST path=/analyze uid={user_id} cache_hit={cache_hit} quota_bypass_reason={'owner/admin' if bypass_owner else 'none'} "
         f"consumed={quota_used_after} reserved_active={reserved_count} "
         f"limit={limit_val} resets_at={resets_at.isoformat()} "
         f"request_id={get_request_id()}"

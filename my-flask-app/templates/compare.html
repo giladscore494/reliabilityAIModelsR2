@@ -610,6 +610,7 @@
     {% endif %}
 </main>
 
+<!-- TODO(production-hardening): car catalog JSON is currently embedded in HTML; move to a cacheable lazy catalog endpoint/static versioned JSON to reduce /app and /compare payload size. Runtime response_bytes logging measures impact. -->
 <!-- Car data JSON -->
 <script type="application/json" id="car-data">
     {{ car_models_data | tojson }}

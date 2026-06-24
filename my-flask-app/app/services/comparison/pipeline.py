@@ -44,6 +44,7 @@ from app.services.comparison.writer import (
 )
 from app.utils.ai_guardrails import apply_feature_guardrails
 from app.utils.http_helpers import _utcnow, api_error, api_ok, get_request_id
+from app.utils.production_observability import log_slow_operation
 from app.utils.sanitization import sanitize_comparison_narrative
 
 def enforce_authoritative_numbers(
@@ -288,6 +289,8 @@ def handle_comparison_request(
     )
     duration_ms = int((pytime.perf_counter() - stage_a_start) * 1000)
     ai_ms += duration_ms
+    logger.info("[COMPARE_TIMING] request_id=%s stage=stage_a duration_ms=%s", request_id, duration_ms)
+    log_slow_operation(logger, feature="vehicle_comparison", stage="stage_a", duration_ms=duration_ms, request_id=request_id)
     stage_a_error_code = None
     stage_a_partial = False
 
@@ -317,6 +320,7 @@ def handle_comparison_request(
             ai_ms,
             db_ms,
         )
+        log_slow_operation(logger, feature="vehicle_comparison", stage="total", duration_ms=total_ms, request_id=request_id)
         return api_error(
             "comparison_ai_unavailable",
             "לא הצלחנו להשלים את ההשוואה כרגע. אפשר לנסות שוב או לדייק שנתון, מנוע ורמת גימור.",
@@ -348,7 +352,10 @@ def handle_comparison_request(
     )
     stage_b_start = pytime.perf_counter()
     stage_b_output, stage_b_error = call_gemini_compare_writer(writer_prompt)
-    ai_ms += int((pytime.perf_counter() - stage_b_start) * 1000)
+    stage_b_ms = int((pytime.perf_counter() - stage_b_start) * 1000)
+    ai_ms += stage_b_ms
+    logger.info("[COMPARE_TIMING] request_id=%s stage=stage_b duration_ms=%s", request_id, stage_b_ms)
+    log_slow_operation(logger, feature="vehicle_comparison", stage="stage_b", duration_ms=stage_b_ms, request_id=request_id)
     logger.info(
         "[COMPARISON] stage_b payload request_id=%s partial_stage_a=%s payload_shape=%s",
         request_id,
@@ -632,6 +639,7 @@ def handle_comparison_request(
             ai_ms,
             db_ms,
         )
+        log_slow_operation(logger, feature="vehicle_comparison", stage="total", duration_ms=total_ms, request_id=request_id)
 
     return api_ok(
         {

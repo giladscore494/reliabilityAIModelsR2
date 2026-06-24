@@ -16,7 +16,7 @@ import concurrent.futures
 import os
 
 # --- AI / model timing ---
-AI_CALL_TIMEOUT_SEC = int(os.environ.get("AI_CALL_TIMEOUT_SEC", "170"))
+AI_CALL_TIMEOUT_SEC = max(1, int(os.environ.get("RELIABILITY_AI_TIMEOUT_MS", "170000")) // 1000) if os.environ.get("RELIABILITY_AI_TIMEOUT_MS") else int(os.environ.get("AI_CALL_TIMEOUT_SEC", "170"))
 AI_EXECUTOR_WORKERS = int(os.environ.get("AI_EXECUTOR_WORKERS", "8"))
 AI_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=AI_EXECUTOR_WORKERS)
 atexit.register(lambda: AI_EXECUTOR.shutdown(wait=True))
