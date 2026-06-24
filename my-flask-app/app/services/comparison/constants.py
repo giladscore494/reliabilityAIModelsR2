@@ -20,7 +20,10 @@ COMPARISON_MODEL_ID = os.environ.get(
     os.environ.get("GEMINI_RECOMMENDER_MODEL_ID", "gemini-3.5-flash"),
 )
 AI_CALL_TIMEOUT_SEC = int(os.environ.get("AI_CALL_TIMEOUT_SEC", "170"))
-COMPARE_STAGE_A_TIMEOUT_SEC = int(os.environ.get("COMPARE_STAGE_A_TIMEOUT_SEC", "30"))
+COMPARE_STAGE_A_TIMEOUT_SEC = int(os.environ.get("COMPARE_STAGE_A_TIMEOUT_SEC", "60"))
+COMPARE_STAGE_A_REPAIR_TIMEOUT_SEC = int(os.environ.get("COMPARE_STAGE_A_REPAIR_TIMEOUT_SEC", "15"))
+COMPARE_STAGE_A_REPAIR_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_STAGE_A_REPAIR_MAX_OUTPUT_TOKENS", "1200"))
+COMPARE_STAGE_A_REPAIR_MAX_INPUT_CHARS = int(os.environ.get("COMPARE_STAGE_A_REPAIR_MAX_INPUT_CHARS", "4000"))
 COMPARE_STAGE_A_MAX_OUTPUT_TOKENS = int(
     os.environ.get("COMPARE_STAGE_A_MAX_OUTPUT_TOKENS", "4096")
 )
@@ -156,3 +159,14 @@ _SINGLE_CAR_REQUIRED_CATEGORIES = {
     "comfort_practicality",
     "performance_driving",
 }
+
+# Patterns that indicate a schema echo or placeholder output rather than real data
+SCHEMA_ECHO_PATTERNS = [
+    r'"up to \d+ urls"',
+    r'"exact\|ambiguous\|unmatched"',
+    r'"complete\|partial"',
+    r'"unknown\|low\|medium\|high"',
+    r'"catalog_exact\|catalog_ambiguous\|web_resolved\|unmatched"',
+    r'"high\|medium\|low"',
+    r'"pricing\|fuel\|safety\|reliability\|ownership_cost\|market\|performance\|practicality\|warranty\|recall"',
+]

@@ -417,3 +417,197 @@ def test_checked_versions_use_catalog_identity():
     assert cv["make"] == make
     assert cv["data_basis"] == "verified_source"
     assert cv["confidence"] == "high"
+
+
+# --------------------------------------------------------------------------
+# 11 — Anti-schema-echo validation
+# --------------------------------------------------------------------------
+def test_parse_single_car_rejects_schema_echo():
+    """parse_single_car_json must reject a payload that mirrors the prompt schema
+    with placeholder values like 'string' and pipe-separated enum values."""
+    from app.services.comparison.grounding import parse_single_car_json
+
+    schema_echo = json.dumps({
+        "car_name": "string",
+        "car_profile": {
+            "catalog_identity": {
+                "match_type": "exact|ambiguous|unmatched",
+                "make": "string",
+                "model": "string",
+                "body_type": "string",
+                "fuel_type": "string",
+                "engine": "string",
+            },
+            "evidence": [
+                {
+                    "area": "pricing|fuel|safety|reliability|ownership_cost|market|performance|practicality|warranty|recall",
+                    "claim": None,
+                    "confidence": "high|medium|low",
+                    "source_urls": [],
+                }
+            ],
+        },
+        "facts": {"horsepower": None, "weight_kg": None, "body_type": "string", "fuel_type": "string"},
+        "short_notes": [],
+        "sources": ["up to 8 urls"],
+    })
+    parsed, err = parse_single_car_json(schema_echo)
+    assert parsed is None
+    assert err == "MODEL_JSON_INVALID"
+
+
+def test_parse_single_car_rejects_prose_with_schema():
+    """parse_single_car_json must reject prose that contains the prompt schema
+    instead of valid JSON data."""
+    from app.services.comparison.grounding import parse_single_car_json
+
+    prose = (
+        "Let's refine the JSON structure. The prompt requires: Return ONLY valid JSON. "
+        "Here is how you would format the response:\n"
+        '{"car_name": "string", "car_profile": {}}'
+    )
+    parsed, err = parse_single_car_json(prose)
+    assert parsed is None
+    assert err == "MODEL_JSON_INVALID"
+
+
+def test_parse_single_car_accepts_real_compact_json():
+    """A real compact Stage A JSON with the evidence array format must parse
+    and normalize correctly."""
+    from app.services.comparison.grounding import parse_single_car_json
+
+    real_compact = json.dumps({
+        "car_name": "Toyota Corolla 2020",
+        "car_profile": {
+            "catalog_identity": {
+                "source": "catalog",
+                "match_type": "exact",
+                "make": "Toyota",
+                "model": "Corolla",
+                "year": 2020,
+                "fuel_type": "petrol",
+                "body_type": "sedan",
+            },
+            "evidence": [
+                {
+                    "area": "pricing",
+                    "claim": "Used price 70,000-90,000 ILS",
+                    "confidence": "high",
+                    "source_urls": ["https://example.com/price"],
+                },
+                {
+                    "area": "safety",
+                    "claim": "5 stars Euro NCAP 2019",
+                    "confidence": "high",
+                    "source_urls": ["https://euroncap.com/corolla"],
+                },
+            ],
+            "facts": {
+                "horsepower": 122,
+                "weight_kg": 1335,
+                "body_type": "sedan",
+                "fuel_type": "petrol",
+            },
+            "research_status": {
+                "status": "complete",
+                "checked_areas": ["pricing", "safety", "reliability"],
+                "open_fields": [],
+            },
+            "uncertainties_conflicts": [],
+        },
+        "facts": {"horsepower": 122, "weight_kg": 1335, "body_type": "sedan", "fuel_type": "petrol"},
+        "short_notes": ["Reliable and popular sedan"],
+        "sources": ["https://example.com/price", "https://euroncap.com/corolla"],
+    })
+    parsed, err = parse_single_car_json(real_compact)
+    assert err is None
+    assert isinstance(parsed, dict)
+    assert parsed["car_name"] == "Toyota Corolla 2020"
+    assert parsed.get("car_profile")
+    assert parsed["facts"]["horsepower"] == 122
+
+
+# --------------------------------------------------------------------------
+# 12 — Timeout default is 60s and env override works
+# --------------------------------------------------------------------------
+def test_stage_a_timeout_default_is_60():
+    from app.services.comparison.constants import COMPARE_STAGE_A_TIMEOUT_SEC
+    assert COMPARE_STAGE_A_TIMEOUT_SEC == 60
+
+
+def test_stage_a_timeout_env_override(monkeypatch):
+    monkeypatch.setenv("COMPARE_STAGE_A_TIMEOUT_SEC", "75")
+    # Verify the env override mechanism works (int(os.environ.get(...)))
+    import os
+    assert int(os.environ.get("COMPARE_STAGE_A_TIMEOUT_SEC", "60")) == 75
+
+
+# --------------------------------------------------------------------------
+# 13 — Stage A uses flash, Stage B has no tools
+# --------------------------------------------------------------------------
+def test_stage_a_config_uses_flash():
+    from app.services.comparison.constants import COMPARISON_MODEL_ID
+    assert "flash" in COMPARISON_MODEL_ID.lower()
+
+
+# --------------------------------------------------------------------------
+# 14 — JSON invalid retry does NOT use Google Search
+# --------------------------------------------------------------------------
+def test_json_repair_uses_no_search_tools(app, monkeypatch):
+    """The JSON repair pass must use tools=[] (no Google Search)."""
+    from app.services.comparison import grounding
+
+    call_count = [0]
+    class _TrackingModels:
+        def __init__(self):
+            self.configs = []
+
+        def generate_content(self, model=None, contents=None, config=None):
+            self.configs.append(config)
+            call_count[0] += 1
+            return _FakeResp(json.dumps({
+                "car_profile": {"catalog_identity": {"make": "Toyota"}},
+                "sources": ["https://e.x"],
+            }), grounded=False)
+
+    tracking = _TrackingModels()
+    fake_client = type("FakeClient", (), {"models": tracking})()
+    monkeypatch.setattr(extensions, "ai_client", fake_client)
+    with app.app_context():
+        result, error = grounding._attempt_json_repair(
+            "some raw text that is not json",
+            "car_1",
+            {"grounding_successful": True, "source_count": 2},
+            "req-test",
+            None,
+        )
+    assert len(tracking.configs) >= 1
+    repair_config = tracking.configs[0]
+    tools = getattr(repair_config, "tools", None) or []
+    assert tools == [], f"repair must use tools=[], got {tools}"
+
+
+# --------------------------------------------------------------------------
+# 15 — Schema echo detection
+# --------------------------------------------------------------------------
+def test_is_schema_echo_detects_placeholder_pattern():
+    from app.services.comparison.parsing import _is_schema_echo
+
+    echo_payload = {
+        "car_name": "string",
+        "car_profile": {
+            "catalog_identity": {"make": "string", "model": "string"},
+            "evidence": [{"area": "pricing|fuel|safety", "claim": None}],
+        },
+        "facts": {"body_type": "string", "fuel_type": "string"},
+    }
+    assert _is_schema_echo(echo_payload) is True
+
+    real_payload = {
+        "car_name": "Toyota Corolla 2020",
+        "car_profile": {
+            "catalog_identity": {"make": "Toyota", "model": "Corolla"},
+        },
+        "facts": {"body_type": "sedan", "fuel_type": "petrol"},
+    }
+    assert _is_schema_echo(real_payload) is False

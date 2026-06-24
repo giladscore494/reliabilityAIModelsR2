@@ -1299,7 +1299,7 @@ def test_compare_stage_a_json_invalid_returns_503_without_persisting_success(
     assert body["error"]["code"] == "comparison_ai_unavailable"
     details = body["error"]["details"]
     assert details["stage"] == "stage_a"
-    assert details["error_code"] == "MODEL_JSON_INVALID"
+    assert details["error_code"] == "STAGE_A_ALL_FAILED_JSON_INVALID"
     assert details["retryable"] is True
     with app.app_context():
         assert ComparisonHistory.query.count() == 0
@@ -1626,13 +1626,22 @@ def test_call_stage_a_parallel_real_threads_do_not_require_worker_app_context(
     assert merged["cars"]["car_2"]["reliability"]["overall"] == "high"
 
 
-def test_call_stage_a_parallel_retries_json_invalid_once(app, monkeypatch):
-    calls = []
+def test_call_stage_a_parallel_repairs_json_invalid(app, monkeypatch):
+    """When MODEL_JSON_INVALID occurs, the parallel pipeline should attempt a
+    non-grounded JSON repair call (via _attempt_json_repair) instead of
+    rerunnning the full grounded Google Search call."""
+    from app.services.comparison import grounding as grounding_mod
+
+    single_car_calls = []
+    repair_calls = []
 
     def fake_single_car(prompt, car_label, timeout_sec, request_id, log):
-        calls.append((prompt, car_label))
-        if len(calls) == 1:
-            return None, "MODEL_JSON_INVALID"
+        single_car_calls.append((prompt, car_label))
+        # First call always returns MODEL_JSON_INVALID
+        return None, "MODEL_JSON_INVALID"
+
+    def fake_repair(raw_text, car_label, original_grounding_meta, request_id, log):
+        repair_calls.append((car_label, original_grounding_meta))
         return {
             "car_name": "Toyota Corolla 2020",
             "reliability": {"overall": "high"},
@@ -1644,7 +1653,8 @@ def test_call_stage_a_parallel_retries_json_invalid_once(app, monkeypatch):
             "sources": ["https://example.com/toyota"],
         }, None
 
-    monkeypatch.setattr(comparison_service, "call_gemini_single_car", fake_single_car)
+    monkeypatch.setattr(grounding_mod, "call_gemini_single_car", fake_single_car)
+    monkeypatch.setattr(grounding_mod, "_attempt_json_repair", fake_repair)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as real_executor:
         with app.app_context():
@@ -1653,13 +1663,15 @@ def test_call_stage_a_parallel_retries_json_invalid_once(app, monkeypatch):
             monkeypatch.setattr(factory, "AI_EXECUTOR", real_executor)
             validated_cars = [{"make": "Toyota", "model": "Corolla", "year": 2020}]
             slots = comparison_service.map_cars_to_slots(validated_cars)
-            merged, _sources_index, errors = comparison_service.call_stage_a_parallel(
+            merged, _sources_index, errors = grounding_mod.call_stage_a_parallel(
                 validated_cars, slots
             )
 
     assert errors == []
-    assert len(calls) == 2
-    assert "FINAL JSON REMINDER" in calls[1][0]
+    # Should have called single_car once (no re-run with grounded search)
+    assert len(single_car_calls) == 1
+    # Should have called repair once
+    assert len(repair_calls) == 1
     assert merged["cars"]["car_1"]["reliability"]["overall"] == "high"
 
 

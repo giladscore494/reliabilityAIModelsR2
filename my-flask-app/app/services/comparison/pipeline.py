@@ -288,6 +288,15 @@ def handle_comparison_request(
     if len(stage_a_errors) == len(validated_cars):
         stage_a_error_code = _extract_stage_a_error_code(stage_a_errors)
         sanitized_errors = _sanitize_stage_a_errors(stage_a_errors)
+        # Determine specific all-failed error code
+        timeout_count = sum(1 for e in stage_a_errors if "CALL_TIMEOUT" in e)
+        json_invalid_count = sum(1 for e in stage_a_errors if "MODEL_JSON_INVALID" in e or "REPAIR_" in e)
+        if timeout_count == len(stage_a_errors):
+            stage_a_error_code = "STAGE_A_ALL_FAILED_TIMEOUT"
+        elif json_invalid_count == len(stage_a_errors):
+            stage_a_error_code = "STAGE_A_ALL_FAILED_JSON_INVALID"
+        else:
+            stage_a_error_code = "STAGE_A_ALL_FAILED_MIXED"
         logger.warning(
             "[COMPARISON] stage_a_all_failed request_id=%s errors=%s",
             request_id,

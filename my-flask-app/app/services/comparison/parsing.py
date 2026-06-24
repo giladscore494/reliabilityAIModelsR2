@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from app.services.comparison.constants import (
     CAR_PROFILE_MAX_NESTING_DEPTH,
     ELLIPSIS_LEN,
+    SCHEMA_ECHO_PATTERNS,
     _LABEL_VALUES,
     _MAX_STAGE_A_NOTES,
     _MAX_STAGE_A_SOURCES,
@@ -320,6 +321,9 @@ def _safe_ai_response_snippet(exc: Exception, max_len: int = 280) -> str:
 def _is_valid_single_car_payload(payload: Any) -> bool:
     if not isinstance(payload, dict):
         return False
+    # Reject schema echoes before accepting the payload
+    if _is_schema_echo(payload):
+        return False
     # Accept legacy categories
     if _SINGLE_CAR_REQUIRED_CATEGORIES.intersection(set(payload.keys())):
         return True
@@ -332,6 +336,72 @@ def _is_valid_single_car_payload(payload: Any) -> bool:
     if rich_keys_set.intersection(set(payload.keys())):
         return True
     return False
+
+
+def _is_schema_echo(payload: Any) -> bool:
+    """Detect model outputs that are just the prompt schema or placeholders.
+
+    Returns True if the payload looks like the model echoed the schema
+    instead of providing real evidence data.
+    """
+    if not isinstance(payload, dict):
+        return False
+
+    raw = json.dumps(payload, ensure_ascii=False)
+
+    # Check for known schema placeholder patterns
+    import re as _re
+    placeholder_hits = 0
+    for pattern in SCHEMA_ECHO_PATTERNS:
+        if _re.search(pattern, raw):
+            placeholder_hits += 1
+    if placeholder_hits >= 2:
+        return True
+
+    # Check for "string" as a literal value in important fields
+    string_value_count = 0
+    for key in ("car_name", "body_type", "fuel_type"):
+        val = payload.get(key)
+        if val == "string":
+            string_value_count += 1
+    car_profile = payload.get("car_profile") or {}
+    if isinstance(car_profile, dict):
+        cat_id = car_profile.get("catalog_identity") or {}
+        if isinstance(cat_id, dict):
+            for key in ("make", "model", "body_type", "fuel_type", "engine"):
+                if cat_id.get(key) == "string":
+                    string_value_count += 1
+        # Check evidence array for placeholder area values
+        evidence = car_profile.get("evidence")
+        if isinstance(evidence, list):
+            for item in evidence:
+                if isinstance(item, dict):
+                    area = item.get("area")
+                    if isinstance(area, str) and "|" in area:
+                        return True
+    if string_value_count >= 2:
+        return True
+
+    return False
+
+
+def _is_schema_echo_text(raw_text: str) -> bool:
+    """Detect prose that contains the prompt schema instead of JSON data."""
+    if not raw_text:
+        return False
+    lower = raw_text[:1000].lower()
+    indicators = 0
+    if "let's refine" in lower:
+        indicators += 1
+    if "return only valid json" in lower:
+        indicators += 1
+    if "the prompt requires" in lower:
+        indicators += 1
+    if "do not repeat or describe the schema" in lower:
+        indicators += 1
+    if "the required json schema" in lower:
+        indicators += 1
+    return indicators >= 2
 
 
 def _is_valid_stage_a_payload(payload: Any) -> bool:
