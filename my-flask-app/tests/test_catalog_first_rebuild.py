@@ -547,8 +547,8 @@ def test_stage_a_timeout_env_override(monkeypatch):
 # --------------------------------------------------------------------------
 def test_stage_a_config_uses_gemini_31_pro():
     from app.services.comparison.constants import COMPARISON_MODEL_ID
-    assert COMPARISON_MODEL_ID == "gemini-3.1-pro", (
-        f"Expected default comparison model to be gemini-3.1-pro, got {COMPARISON_MODEL_ID}"
+    assert COMPARISON_MODEL_ID == "gemini-3.1-pro-preview", (
+        f"Expected default comparison model to be gemini-3.1-pro-preview, got {COMPARISON_MODEL_ID}"
     )
 
 

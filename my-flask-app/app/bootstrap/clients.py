@@ -15,6 +15,7 @@ from google import genai as genai3
 
 import app.extensions as extensions
 from app.extensions import oauth
+from app.services.comparison.model_config import validate_comparison_model_config
 
 if TYPE_CHECKING:
     from flask import Flask
@@ -30,6 +31,7 @@ def init_ai_clients(app: "Flask", logger: logging.Logger | None = None) -> None:
     initialization fails). Mirrors the legacy in-line behaviour.
     """
     log = logger or app.logger or _DEFAULT_LOGGER
+    validate_comparison_model_config(log)
     api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
         log.warning("[AI] GEMINI_API_KEY missing")

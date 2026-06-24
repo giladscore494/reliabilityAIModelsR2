@@ -36,6 +36,11 @@ from app.services.comparison.model_calls import (
     _is_output_too_long_error,
     _log_ai_client_error,
 )
+from app.services.comparison.model_config import (
+    comparison_safe_model_id,
+    comparison_stage_b_model_id,
+    is_model_not_found_error,
+)
 from app.services.comparison.parsing import (
     _extract_decision_slot_keys,
     _normalize_compare_writer_winner,
@@ -48,6 +53,31 @@ from app.utils.http_helpers import get_request_id
 from app.utils.sanitization import sanitize_comparison_narrative
 
 logger = logging.getLogger(__name__)
+
+
+def _generate_content_with_404_fallback(*, model, contents, config):
+    try:
+        resp = extensions.ai_client.models.generate_content(
+            model=model,
+            contents=contents,
+            config=config,
+        )
+        return resp, model, None
+    except Exception as exc:
+        safe_model = comparison_safe_model_id()
+        if is_model_not_found_error(exc) and model != safe_model:
+            logger.warning(
+                "[AI] feature=comparison_stage_b event=model_fallback_due_to_404 original_model=%s fallback_model=%s fallback_reason=model_404",
+                model,
+                safe_model,
+            )
+            resp = extensions.ai_client.models.generate_content(
+                model=safe_model,
+                contents=contents,
+                config=config,
+            )
+            return resp, safe_model, "model_fallback_due_to_404"
+        raise
 
 
 def _validate_decision_writer_response(
@@ -678,6 +708,8 @@ def call_gemini_compare_writer(
     )
     outcome = "error"
     outcome_reason = None
+    model_used = comparison_stage_b_model_id()
+    fallback_reason = None
     _inc_compare_metric("compare_ai_calls_total")
 
     try:
@@ -694,15 +726,15 @@ def call_gemini_compare_writer(
         )
 
         def _invoke():
-            return extensions.ai_client.models.generate_content(
-                model=COMPARISON_MODEL_ID,
+            return _generate_content_with_404_fallback(
+                model=comparison_stage_b_model_id(),
                 contents=prompt,
                 config=config,
             )
 
         try:
             future = AI_EXECUTOR.submit(_invoke)
-            resp = future.result(timeout=timeout_sec)
+            resp, model_used, fallback_reason = future.result(timeout=timeout_sec)
         except concurrent.futures.TimeoutError:
             future.cancel()
             _inc_compare_metric("compare_ai_failures_total", reason="timeout")
@@ -748,7 +780,7 @@ def call_gemini_compare_writer(
         duration_ms = (pytime.perf_counter() - start_time) * 1000
         current_app.logger.info(
             "[AI] feature=comparison_stage_b model=%s duration_ms=%.2f max_output_tokens=%s prompt_chars=%s prompt_tokens_est=%s timeout_ms=%s tools_enabled=%s retry_count=%s outcome=%s reason=%s",
-            COMPARISON_MODEL_ID,
+            model_used,
             duration_ms,
             max_output_tokens,
             prompt_chars,
@@ -757,7 +789,7 @@ def call_gemini_compare_writer(
             False,
             0,
             outcome,
-            outcome_reason,
+            fallback_reason or outcome_reason,
         )
 
 
