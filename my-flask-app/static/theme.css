@@ -1027,7 +1027,76 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
 /* Review/compare parity: reuse advisor chrome for tool-specific final dashboards */
 .yr-tool-analyzing-popover{max-width:min(92vw,420px);min-height:auto;padding:24px;border-radius:28px;background:linear-gradient(180deg,var(--yr-glass),var(--yr-glass-soft));border:1px solid rgba(255,255,255,.9);box-shadow:var(--yr-shadow-lg)}
 .yr-review-result-shell,.yr-compare-result-shell{border-radius:32px;background:linear-gradient(180deg,var(--yr-glass),var(--yr-glass-soft));border:1px solid rgba(255,255,255,.9);box-shadow:var(--yr-shadow-lg),inset 0 1px 0 rgba(255,255,255,.95)}
-.yr-review-result-grid,.yr-compare-dashboard-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.yr-result-section{border-radius:22px;background:linear-gradient(180deg,#fff,#f7f9fc);border:1px solid var(--yr-border);box-shadow:var(--yr-shadow-sm),inset 0 1px 0 #fff;padding:18px;color:var(--yr-ink-2);overflow:hidden}.yr-result-section--wide{grid-column:1/-1}.yr-result-section h3,.yr-result-section h4{color:var(--yr-ink)}.yr-result-section .text-white{color:var(--yr-ink)!important}.yr-result-section .text-slate-200,.yr-result-section .text-slate-300{color:var(--yr-ink-2)!important}.yr-result-section .text-slate-400{color:var(--yr-muted)!important}.yr-section-kicker{display:inline-flex;align-items:center;border:1px solid rgba(47,107,255,.22);background:rgba(47,107,255,.07);color:var(--yr-accent);border-radius:999px;padding:5px 11px;font-size:12px;font-weight:800;margin-bottom:12px}.yr-result-hero{border-radius:28px;background:linear-gradient(135deg,#101722,#172235 55%,#0d1320);border:1px solid rgba(255,255,255,.14);box-shadow:0 20px 50px -32px rgba(0,0,0,.8);padding:24px;color:#fff}.yr-competitor-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.yr-competitor-card{border-radius:18px;background:#fff;border:1px solid var(--yr-border);box-shadow:var(--yr-shadow-sm);padding:14px}.yr-competitor-card dt{font-size:11px;font-weight:800;color:var(--yr-muted);margin-bottom:2px}.yr-competitor-card dd{color:var(--yr-ink-2)}.yr-mini-badge{display:inline-flex;border-radius:999px;border:1px solid var(--yr-border);padding:3px 8px;font-size:11px;font-weight:700}.yr-mini-badge--warn{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.10);color:#b45309}.yr-partial-research{box-shadow:var(--yr-shadow-sm)}
+.yr-review-result-grid,.yr-compare-dashboard-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.yr-result-section{border-radius:22px;background:linear-gradient(180deg,#fff,#f7f9fc);border:1px solid var(--yr-border);box-shadow:var(--yr-shadow-sm),inset 0 1px 0 #fff;padding:18px;color:var(--yr-ink-2);overflow:hidden}.yr-result-section--wide{grid-column:1/-1}.yr-result-section h3,.yr-result-section h4{color:var(--yr-ink)}.yr-result-section .text-white{color:var(--yr-ink)!important}.yr-result-section .text-slate-200,.yr-result-section .text-slate-300{color:var(--yr-ink-2)!important}.yr-result-section .text-slate-400{color:var(--yr-muted)!important}.yr-section-kicker{display:inline-flex;align-items:center;border:1px solid rgba(47,107,255,.22);background:rgba(47,107,255,.07);color:var(--yr-accent);border-radius:999px;padding:5px 11px;font-size:12px;font-weight:800;margin-bottom:12px}.yr-result-hero{border-radius:28px;padding:24px}.yr-competitor-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.yr-competitor-card{border-radius:18px;background:#fff;border:1px solid var(--yr-border);box-shadow:var(--yr-shadow-sm);padding:14px}.yr-competitor-card dt{font-size:11px;font-weight:800;color:var(--yr-muted);margin-bottom:2px}.yr-competitor-card dd{color:var(--yr-ink-2)}.yr-mini-badge{display:inline-flex;border-radius:999px;border:1px solid var(--yr-border);padding:3px 8px;font-size:11px;font-weight:700}.yr-mini-badge--warn{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.10);color:#b45309}.yr-partial-research{box-shadow:var(--yr-shadow-sm)}
 @media(max-width:640px){.yr-review-result-shell,.yr-compare-result-shell{border-radius:24px;padding:14px!important}.yr-review-result-grid,.yr-compare-dashboard-grid{grid-template-columns:1fr;gap:12px}.yr-result-section{padding:15px;border-radius:18px}.yr-result-hero{padding:20px 16px;border-radius:22px}.yr-tool-analyzing-popover{width:calc(100vw - 28px);padding:18px}}
 
 .yr-result-section.hidden{display:none!important}
+
+/* ============================================================
+   Vehicle Review — Single Tabbed Card
+   ============================================================ */
+.yr-review-single-card{
+  border:1px solid var(--yr-border-strong);
+  border-radius:var(--yr-radius-lg);
+  background:linear-gradient(180deg,#ffffff,#f7f9fc);
+  box-shadow:var(--yr-shadow-lg), inset 0 1px 0 #fff;
+  overflow:hidden;
+}
+.yr-review-tabs{
+  display:flex; gap:0; overflow-x:auto; -webkit-overflow-scrolling:touch;
+  border-bottom:1px solid var(--yr-border);
+  background:linear-gradient(180deg,#fafbfd,#f4f6f9);
+  padding:0 16px;
+  scrollbar-width:none;
+}
+.yr-review-tabs::-webkit-scrollbar{display:none}
+.yr-review-tab{
+  flex:none; padding:12px 18px; border:none; background:none; cursor:pointer;
+  font:600 13px/1 'Heebo',sans-serif; color:var(--yr-muted);
+  border-bottom:2px solid transparent; white-space:nowrap;
+  transition:color .18s, border-color .18s;
+}
+.yr-review-tab:hover{color:var(--yr-ink-2)}
+.yr-review-tab.is-active{
+  color:var(--yr-accent-2); border-bottom-color:var(--yr-accent);
+  font-weight:700;
+}
+.yr-review-tab-panel{display:none; padding:24px; color:var(--yr-ink-2); direction:rtl; text-align:right}
+.yr-review-tab-panel.is-active{display:block; animation:yr-rise .3s ease both}
+.yr-review-param-grid{
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:10px;
+}
+.yr-review-param{
+  padding:10px 14px; border-radius:12px;
+  background:linear-gradient(180deg,#ffffff,#f7f9fc);
+  border:1px solid var(--yr-border);
+}
+.yr-review-param__label{display:block; font-size:11px; font-weight:600; color:var(--yr-muted); margin-bottom:2px}
+.yr-review-param__value{display:block; font-size:14px; font-weight:700; color:var(--yr-ink)}
+.yr-review-mini-card{
+  padding:12px 16px; border-radius:14px;
+  background:linear-gradient(180deg,#ffffff,#f7f9fc);
+  border:1px solid var(--yr-border);
+  box-shadow:var(--yr-shadow-sm);
+}
+.yr-review-list{list-style:disc; padding-inline-start:18px; margin:0; line-height:1.8}
+.yr-review-list li{margin-bottom:4px; color:var(--yr-ink-2); font-size:13.5px}
+.yr-review-competitor-grid{
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px;
+}
+
+/* Ensure .yr-result-hero stays light everywhere */
+.yr-review-single-card .yr-result-hero{
+  background:linear-gradient(180deg,#ffffff,#f4f7fb);
+  border-color:var(--yr-border-strong);
+  color:var(--yr-ink);
+}
+.yr-review-single-card .yr-result-hero .yr-chip{color:var(--yr-accent-2)}
+.yr-review-single-card .yr-result-hero h3{color:var(--yr-ink)}
+
+@media(max-width:640px){
+  .yr-review-tab-panel{padding:16px}
+  .yr-review-param-grid{grid-template-columns:1fr}
+  .yr-review-competitor-grid{grid-template-columns:1fr}
+  .yr-review-tab{padding:10px 14px; font-size:12px}
+}

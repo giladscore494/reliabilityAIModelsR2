@@ -218,31 +218,39 @@ def call_gemini_comparison(
         )
 
 
-def call_gemini_single_car(
+def _call_gemini_single_car_raw(
     prompt: str,
     car_label: str,
     timeout_sec: int = COMPARE_STAGE_A_TIMEOUT_SEC,
     request_id: Optional[str] = None,
     log: Optional[logging.Logger] = None,
-) -> Tuple[Optional[Dict], Optional[str]]:
-    """Call Gemini for a single car. Returns (parsed_dict, error_string).
+) -> Dict[str, Any]:
+    """Internal helper that returns raw model text alongside parsed result.
 
-    When called from within call_stage_a_parallel (already inside an
-    AI_EXECUTOR worker), this function performs the SDK call directly
-    instead of submitting a nested future to the same executor.
+    Returns a dict with keys:
+        parsed: dict | None
+        error: str | None
+        raw_text: str | None
+        grounding_meta: dict
+        finish_reason: str | None
     """
     start_time = pytime.perf_counter()
     prompt_chars = len(prompt or "")
     outcome = "ok"
     outcome_reason = None
-    grounding_meta = {"grounding_successful": False, "source_count": 0}
+    grounding_meta: Dict[str, Any] = {"grounding_successful": False, "source_count": 0}
     worker_logger = log or logger
     finish_reason = None
+    raw_text = None
     try:
         if extensions.ai_client is None:
             outcome = "error"
             outcome_reason = "CLIENT_NOT_INITIALIZED"
-            return None, "CLIENT_NOT_INITIALIZED"
+            return {
+                "parsed": None, "error": "CLIENT_NOT_INITIALIZED",
+                "raw_text": None, "grounding_meta": grounding_meta,
+                "finish_reason": None,
+            }
 
         # Google Search grounding is mandatory for Stage A evidence. The
         # grounding tool and a forced JSON mime type are mutually exclusive in
@@ -270,7 +278,11 @@ def call_gemini_single_car(
                 _inc_compare_metric("compare_stage_a_timeout_total")
                 outcome = "timeout"
                 outcome_reason = "CALL_TIMEOUT"
-                return None, "CALL_TIMEOUT"
+                return {
+                    "parsed": None, "error": "CALL_TIMEOUT",
+                    "raw_text": None, "grounding_meta": grounding_meta,
+                    "finish_reason": None,
+                }
             _log_ai_client_error(
                 "comparison_stage_a", e, request_id=request_id, log=worker_logger
             )
@@ -278,8 +290,16 @@ def call_gemini_single_car(
             outcome = "error"
             outcome_reason = type(e).__name__
             if _is_output_too_long_error(str(e)):
-                return None, "CALL_FAILED_OUTPUT_TOO_LONG"
-            return None, f"CALL_FAILED:{type(e).__name__}"
+                return {
+                    "parsed": None, "error": "CALL_FAILED_OUTPUT_TOO_LONG",
+                    "raw_text": None, "grounding_meta": grounding_meta,
+                    "finish_reason": None,
+                }
+            return {
+                "parsed": None, "error": f"CALL_FAILED:{type(e).__name__}",
+                "raw_text": None, "grounding_meta": grounding_meta,
+                "finish_reason": None,
+            }
 
         elapsed = pytime.perf_counter() - start_time
         if elapsed >= timeout_sec:
@@ -294,7 +314,11 @@ def call_gemini_single_car(
         if resp is None:
             outcome = "error"
             outcome_reason = "CALL_FAILED_EMPTY"
-            return None, "CALL_FAILED:EMPTY"
+            return {
+                "parsed": None, "error": "CALL_FAILED:EMPTY",
+                "raw_text": None, "grounding_meta": grounding_meta,
+                "finish_reason": None,
+            }
 
         # Extract finish_reason if available
         try:
@@ -305,51 +329,63 @@ def call_gemini_single_car(
             pass
 
         grounding_meta = _extract_stage_a_grounding(resp)
-        text = (getattr(resp, "text", "") or "").strip()
-        if not text:
+        raw_text = (getattr(resp, "text", "") or "").strip()
+        if not raw_text:
             outcome = "error"
             outcome_reason = "EMPTY_RESPONSE"
-            return None, "EMPTY_RESPONSE"
+            return {
+                "parsed": None, "error": "EMPTY_RESPONSE",
+                "raw_text": raw_text, "grounding_meta": grounding_meta,
+                "finish_reason": finish_reason,
+            }
 
         # Check for schema echo in raw text before parsing
-        if _is_schema_echo_text(text):
-            preview = " ".join((text or "").split())[:200]
+        if _is_schema_echo_text(raw_text):
+            preview = " ".join((raw_text or "").split())[:200]
             worker_logger.warning(
                 "[COMPARISON] stage_a_schema_echo_or_prompt_echo request_id=%s car=%s resp_len=%s preview=%.200s",
                 request_id or "unknown",
                 car_label,
-                len(text),
+                len(raw_text),
                 preview,
             )
 
-        parsed, parse_error = parse_single_car_json(text)
+        parsed, parse_error = parse_single_car_json(raw_text)
         if parse_error:
             outcome = "error"
             outcome_reason = parse_error
             _inc_compare_metric("compare_stage_a_json_invalid_total")
-            preview = " ".join((text or "").split())[:200]
+            preview = " ".join((raw_text or "").split())[:200]
             # Detect schema echo / prompt echo patterns
             is_echo = (
                 preview.startswith("Let's refine")
                 or "Return ONLY valid JSON" in preview
-                or _is_schema_echo_text(text)
+                or _is_schema_echo_text(raw_text)
             )
             worker_logger.warning(
                 "[COMPARISON] stage_a_model_json_invalid request_id=%s car=%s reason=%s resp_len=%s finish_reason=%s grounding_successful=%s source_count=%s schema_echo=%s preview=%.200s",
                 request_id or "unknown",
                 car_label,
                 parse_error,
-                len(text or ""),
+                len(raw_text or ""),
                 finish_reason,
                 grounding_meta.get("grounding_successful"),
                 grounding_meta.get("source_count"),
                 is_echo,
                 preview,
             )
-            return None, parse_error
+            return {
+                "parsed": None, "error": parse_error,
+                "raw_text": raw_text, "grounding_meta": grounding_meta,
+                "finish_reason": finish_reason,
+            }
         if isinstance(parsed, dict):
             parsed["_grounding_meta"] = grounding_meta
-        return parsed, None
+        return {
+            "parsed": parsed, "error": None,
+            "raw_text": raw_text, "grounding_meta": grounding_meta,
+            "finish_reason": finish_reason,
+        }
 
     finally:
         duration_ms = (pytime.perf_counter() - start_time) * 1000
@@ -368,6 +404,25 @@ def call_gemini_single_car(
             outcome,
             outcome_reason,
         )
+
+
+def call_gemini_single_car(
+    prompt: str,
+    car_label: str,
+    timeout_sec: int = COMPARE_STAGE_A_TIMEOUT_SEC,
+    request_id: Optional[str] = None,
+    log: Optional[logging.Logger] = None,
+) -> Tuple[Optional[Dict], Optional[str]]:
+    """Call Gemini for a single car. Returns (parsed_dict, error_string).
+
+    When called from within call_stage_a_parallel (already inside an
+    AI_EXECUTOR worker), this function performs the SDK call directly
+    instead of submitting a nested future to the same executor.
+    """
+    raw_result = _call_gemini_single_car_raw(
+        prompt, car_label, timeout_sec, request_id, log
+    )
+    return raw_result["parsed"], raw_result["error"]
 
 
 def _attempt_json_repair(
@@ -395,11 +450,13 @@ def _attempt_json_repair(
 
         truncated_text = (raw_text or "")[:COMPARE_STAGE_A_REPAIR_MAX_INPUT_CHARS]
         repair_prompt = (
-            "Convert the provided text into the required JSON schema using only facts "
-            "present in the text. Do not add new facts. Return JSON only.\n\n"
-            "The first character of the response must be '{'. "
-            "No markdown, no code fences, no explanation.\n\n"
-            f"TEXT:\n{truncated_text}"
+            "Convert the following model response into valid JSON for a single car analysis.\n"
+            "Use ONLY facts present in the text. Do not add new facts.\n"
+            "Do not copy schema placeholders. Do not output enum options like 'high|medium|low'.\n\n"
+            "The response must start with '{'. No markdown, no code fences, no explanation.\n\n"
+            "Required top-level keys: car_name, car_profile (dict with evidence), facts, short_notes, sources.\n"
+            "Use null for unknown values, [] for empty arrays.\n\n"
+            f"MODEL RESPONSE:\n{truncated_text}"
         )
 
         config = genai_types.GenerateContentConfig(
@@ -430,6 +487,14 @@ def _attempt_json_repair(
             outcome = "error"
             outcome_reason = f"REPAIR_{parse_error}"
             return None, f"REPAIR_{parse_error}"
+
+        # Reject repair results that are just research_status-only objects
+        if parsed and isinstance(parsed, dict):
+            top_keys = set(parsed.keys()) - {"_grounding_meta"}
+            if top_keys <= {"status", "checked_areas", "open_fields", "sources_found"}:
+                outcome = "error"
+                outcome_reason = "REPAIR_RESEARCH_STATUS_ONLY"
+                return None, "REPAIR_RESEARCH_STATUS_ONLY"
 
         # Preserve original grounding metadata if the original grounded call
         # had real grounding metadata; repair itself does not claim web_search.
@@ -510,7 +575,7 @@ def call_stage_a_parallel(
     stage_a_logger = current_app.logger
     for slot_key, prompt in prompts.items():
         futures[slot_key] = AI_EXECUTOR.submit(
-            call_gemini_single_car,
+            _call_gemini_single_car_raw,
             prompt,
             slot_key,
             COMPARE_STAGE_A_TIMEOUT_SEC,
@@ -523,9 +588,16 @@ def call_stage_a_parallel(
     repair_slots = []  # Slots that need JSON repair (not full retry)
     for slot_key, future in futures.items():
         try:
-            result, error = future.result(
+            raw_result = future.result(
                 timeout=COMPARE_STAGE_A_TIMEOUT_SEC + PARALLEL_GRACE_SEC
             )
+            result = raw_result["parsed"]
+            error = raw_result["error"]
+            # Always capture raw text and grounding meta for repair
+            if raw_result.get("raw_text"):
+                raw_texts[slot_key] = raw_result["raw_text"]
+            if raw_result.get("grounding_meta"):
+                raw_grounding_metas[slot_key] = raw_result["grounding_meta"]
             if error:
                 if error == "MODEL_JSON_INVALID":
                     repair_slots.append(slot_key)
@@ -577,14 +649,22 @@ def call_stage_a_parallel(
         )
         repair_futures = {}
         for slot_key in repair_slots:
-            # Re-run the original prompt as a repair source text
-            original_prompt = prompts.get(slot_key, "")
+            raw_model_text = raw_texts.get(slot_key, "")
+            if not raw_model_text:
+                # No raw text captured — cannot repair
+                errors.append(f"{slot_key}: REPAIR_NO_RAW_TEXT")
+                stage_a_logger.warning(
+                    "[COMPARISON] stage_a_repair_skipped request_id=%s slot_key=%s reason=REPAIR_NO_RAW_TEXT",
+                    request_id,
+                    slot_key,
+                )
+                continue
             original_gmeta = raw_grounding_metas.get(
                 slot_key, {"grounding_successful": False, "source_count": 0}
             )
             repair_futures[slot_key] = AI_EXECUTOR.submit(
                 _attempt_json_repair,
-                original_prompt,
+                raw_model_text,
                 slot_key,
                 original_gmeta,
                 request_id,
@@ -686,6 +766,7 @@ def build_sources_index_from_flat(merged_output: Dict) -> Dict:
 __all__ = [
     "call_gemini_comparison",
     "call_gemini_single_car",
+    "_call_gemini_single_car_raw",
     "call_stage_a_parallel",
     "_attempt_json_repair",
     "parse_single_car_json",

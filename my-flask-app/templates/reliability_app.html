@@ -488,46 +488,13 @@
         {% include '_research_reliability_panel.html' %}
 
         <div id="results-container" class="hidden w-full max-w-5xl mt-8 fade-in delay-300">
-                <div class="yr-disclaimer--warn text-sm md:text-base mb-4 leading-relaxed space-y-2" style="padding:16px 20px; border-radius:var(--yr-radius,18px);">
-                    <p><strong>דיסקליימר חשוב:</strong> התוצאה היא כלי תומך החלטה בלבד ואינה ייעוץ מקצועי, בדיקה מכנית, או חוות דעת שמאית.</p>
-                    <p>יש לבצע אימות עצמאי ובדיקה במוסך/גורם מקצועי מוסמך לפני קבלת החלטה. אין אחריות לטעויות, אי-דיוקים, מידע חסר או הסתמכות על התוצאה.</p>
-                </div>
-                <div class="yr-review-result-shell p-5 md:p-8 text-slate-200">
-                    <div id="reliability-score-container" class="w-full mb-8"></div>
-
-                    <div class="yr-result-hero mb-6">
-                        <div class="yr-chip mb-3">סקירת רכב</div>
-                        <h3 class="text-2xl md:text-4xl font-black text-white" style="font-family:'Rubik','Heebo',sans-serif;">תמונת מצב לפני החלטה</h3>
-                        <p class="mt-3 text-sm md:text-base text-slate-300 leading-7">המידע מאורגן לפי זהות טכנית, שימושיות, סיכונים, בדיקות קנייה, עלויות, חלופות ומקורות — בלי כפילויות מיותרות.</p>
-                    </div>
-
-                    <div class="yr-review-result-grid">
-                        <section id="vehicle-card" class="tab-content active yr-result-section yr-result-section--wide">
-                            <div class="yr-section-kicker">כרטיס זהות טכנית</div>
-                            <div id="vehicle-profile-container" class="space-y-4 text-right" dir="rtl"></div>
-                        </section>
-
-                        <section id="summary" class="tab-content active yr-result-section yr-result-section--wide">
-                            <div class="yr-section-kicker">סיכום שימושי</div>
-                            <p id="summary-simple-text" class="text-slate-200 leading-relaxed"></p>
-                            <button id="summary-toggle-btn" type="button" class="yr-btn--chrome yr-btn mt-4 px-4 py-2 rounded-full text-sm">להרחבה מקצועית</button>
-                            <div id="summary-detailed-block" class="mt-4 hidden space-y-2">
-                                <h4 class="text-sm font-bold text-slate-300">רמת ודאות ומוקדי אימות</h4>
-                                <p id="summary-detailed-text" class="text-slate-300 text-sm leading-relaxed whitespace-pre-line"></p>
-                            </div>
-                        </section>
-
-                        <section id="faults" class="tab-content active yr-result-section"></section>
-                        <section id="report" class="tab-content active yr-result-section"></section>
-                        <section id="costs" class="tab-content active yr-result-section"></section>
-                        <section id="competitors" class="tab-content active yr-result-section yr-result-section--wide"></section>
-                        <section id="sources-block" class="tab-content active yr-result-section yr-result-section--wide">
-                            <div class="yr-section-kicker">מקורות / רמת ודאות</div>
-                            <ul id="sources-list" class="list-disc list-inside text-sm text-slate-200 space-y-1"></ul>
-                        </section>
-                    </div>
-                </div>
-
+            <div class="yr-disclaimer--warn text-sm md:text-base mb-4 leading-relaxed space-y-2" style="padding:16px 20px; border-radius:var(--yr-radius,18px);">
+                <p><strong>דיסקליימר חשוב:</strong> התוצאה היא כלי תומך החלטה בלבד ואינה ייעוץ מקצועי, בדיקה מכנית, או חוות דעת שמאית.</p>
+                <p>יש לבצע אימות עצמאי ובדיקה במוסך/גורם מקצועי מוסמך לפני קבלת החלטה. אין אחריות לטעויות, אי-דיוקים, מידע חסר או הסתמכות על התוצאה.</p>
+            </div>
+            <div class="yr-review-result-shell p-5 md:p-8">
+                <!-- Single card will be rendered here by renderAnalyzeResult -->
+            </div>
         </div>
     </main>
 
