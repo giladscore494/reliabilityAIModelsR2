@@ -106,7 +106,7 @@
                         <label for="history-select-1" class="block text-sm text-slate-400 mb-2">בחר חיפוש ראשון</label>
                         <select 
                             id="history-select-1" 
-                            class="w-full bg-white border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all">
+                            class="yr-select w-full bg-white border-2 border-slate-700 rounded-xl px-4 py-3 text-slate-900 focus:ring-0 focus:border-primary transition-all">
                             <option value="">-- בחר חיפוש קודם --</option>
                         </select>
                     </div>
@@ -114,7 +114,7 @@
                         <label for="history-select-2" class="block text-sm text-slate-400 mb-2">בחר חיפוש שני</label>
                         <select 
                             id="history-select-2" 
-                            class="w-full bg-white border-2 border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-0 focus:border-primary transition-all">
+                            class="yr-select w-full bg-white border-2 border-slate-700 rounded-xl px-4 py-3 text-slate-900 focus:ring-0 focus:border-primary transition-all">
                             <option value="">-- בחר חיפוש קודם --</option>
                         </select>
                     </div>
@@ -154,7 +154,7 @@
                         </label>
                         <div class="relative ltr-select-wrapper">
                             <select id="make" name="make" required
-                                    class="ltr-select w-full appearance-none bg-white border-2 border-slate-700 rounded-xl px-5 py-4 text-white focus:ring-0 focus:border-primary transition-all hover:border-slate-600 cursor-pointer">
+                                    class="yr-select ltr-select w-full appearance-none bg-white border-2 border-slate-700 rounded-xl px-5 py-4 text-slate-900 focus:ring-0 focus:border-primary transition-all hover:border-slate-600 cursor-pointer">
                                 <option value="">-- בחר יצרן --</option>
                                 {% if car_models_data %}
                                     {% for make in car_models_data.keys()|sort %}
@@ -179,7 +179,7 @@
                         </label>
                         <div class="relative ltr-select-wrapper">
                             <select id="model" name="model" required disabled
-                                    class="ltr-select w-full appearance-none bg-white border-2 border-slate-700 rounded-xl px-5 py-4 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                    class="yr-select ltr-select w-full appearance-none bg-white border-2 border-slate-700 rounded-xl px-5 py-4 text-slate-900 focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                 <option value="">-- בחר יצרן תחילה --</option>
                             </select>
                             <div class="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
@@ -199,7 +199,7 @@
                         </label>
                         <div class="relative ltr-select-wrapper">
                             <select id="year" name="year" required disabled
-                                    class="ltr-select w-full appearance-none bg-white border-2 border-slate-700 rounded-xl px-5 py-4 text-white focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                    class="yr-select ltr-select w-full appearance-none bg-white border-2 border-slate-700 rounded-xl px-5 py-4 text-slate-900 focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                 <option value="">-- בחר דגם תחילה --</option>
                             </select>
                             <div class="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
@@ -222,7 +222,7 @@
                         </label>
                         <div class="relative ltr-select-wrapper">
                             <select id="variant" name="variant"
-                                    class="ltr-select w-full appearance-none bg-white border-2 border-slate-700 rounded-xl px-5 py-4 text-white focus:ring-0 focus:border-primary transition-all">
+                                    class="yr-select ltr-select w-full appearance-none bg-white border-2 border-slate-700 rounded-xl px-5 py-4 text-slate-900 focus:ring-0 focus:border-primary transition-all">
                                 <option value="">-- בחר גרסה --</option>
                             </select>
                             <div class="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
@@ -250,7 +250,7 @@
                         <div class="space-y-2">
                             <label class="text-xs font-bold uppercase tracking-wider text-slate-400">קילומטראז'</label>
                             <select id="mileage_range" name="mileage_range"
-                                    class="w-full bg-white border-slate-700 rounded-xl text-sm focus:ring-primary">
+                                    class="yr-select w-full bg-white border-slate-700 rounded-xl text-sm focus:ring-primary">
                                 <option>עד 50,000 ק"מ</option>
                                 <option>50,000 - 100,000 ק"מ</option>
                                 <option selected>100,000 - 150,000 ק"מ</option>
@@ -261,7 +261,7 @@
                         <div class="space-y-2">
                             <label class="text-xs font-bold uppercase tracking-wider text-slate-400">סוג מנוע</label>
                             <select id="fuel_type" name="fuel_type"
-                                    class="w-full bg-white border-slate-700 rounded-xl text-sm focus:ring-primary">
+                                    class="yr-select w-full bg-white border-slate-700 rounded-xl text-sm focus:ring-primary">
                                 <option value="" selected>-- לפי המאגר / לא נבחר --</option>
                                 <option>בנזין</option>
                                 <option>דיזל</option>
@@ -272,7 +272,7 @@
                         <div class="space-y-2">
                             <label class="text-xs font-bold uppercase tracking-wider text-slate-400">תיבת הילוכים</label>
                             <select id="transmission" name="transmission"
-                                    class="w-full bg-white border-slate-700 rounded-xl text-sm focus:ring-primary">
+                                    class="yr-select w-full bg-white border-slate-700 rounded-xl text-sm focus:ring-primary">
                                 <option value="" selected>-- לפי המאגר / לא נבחר --</option>
                                 <option>אוטומטית</option>
                                 <option>רובוטית</option>
@@ -289,7 +289,7 @@
                         </label>
                         <input type="text" id="sub_model" name="sub_model"
                                placeholder="לדוגמה: Premium, Sport, GLI, 1.5 Turbo..."
-                               class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary focus:border-primary placeholder-slate-600 text-right"
+                               class="yr-input w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary focus:border-primary placeholder-slate-600 text-right"
                                dir="rtl">
                     </div>
                 </div>
@@ -306,17 +306,17 @@
                         <div class="space-y-2">
                             <label class="text-xs font-bold uppercase tracking-wider text-slate-400">נסועה שנתית (ק״מ)</label>
                             <input id="annual_km" name="annual_km" type="number" min="0" max="60000" step="500" value="15000"
-                                   class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary focus:border-primary">
+                                   class="yr-input w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary focus:border-primary">
                         </div>
                         <div class="space-y-2">
                             <label class="text-xs font-bold uppercase tracking-wider text-slate-400">% נסיעה עירונית</label>
                             <input id="city_pct" name="city_pct" type="number" min="0" max="100" step="5" value="50"
-                                   class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary focus:border-primary">
+                                   class="yr-input w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary focus:border-primary">
                         </div>
                         <div class="space-y-2">
                             <label class="text-xs font-bold uppercase tracking-wider text-slate-400">נהג / עומס</label>
                             <select id="driver_style" name="driver_style"
-                                    class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
+                                    class="yr-select w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
                                 <option value="calm">רגוע</option>
                                 <option value="normal" selected>רגיל</option>
                                 <option value="aggressive">אגרסיבי</option>
@@ -327,7 +327,7 @@
                         <div class="space-y-2">
                             <label class="text-xs font-bold uppercase tracking-wider text-slate-400">טופוגרפיה</label>
                             <select id="terrain" name="terrain"
-                                    class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
+                                    class="yr-select w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
                                 <option value="flat">מישורית</option>
                                 <option value="mixed" selected>מעורבת</option>
                                 <option value="hilly">הררית</option>
@@ -336,7 +336,7 @@
                         <div class="space-y-2">
                             <label class="text-xs font-bold uppercase tracking-wider text-slate-400">אקלים</label>
                             <select id="climate" name="climate"
-                                    class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
+                                    class="yr-select w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
                                 <option value="center" selected>מרכז</option>
                                 <option value="coastal">חופי</option>
                                 <option value="north">צפון</option>
@@ -346,7 +346,7 @@
                         <div class="space-y-2">
                             <label class="text-xs font-bold uppercase tracking-wider text-slate-400">חניה קבועה</label>
                             <select id="parking" name="parking"
-                                    class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
+                                    class="yr-select w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
                                 <option value="outdoor" selected>חוץ</option>
                                 <option value="covered">מקורה</option>
                             </select>
@@ -356,7 +356,7 @@
                         <div class="space-y-2">
                             <label class="text-xs font-bold uppercase tracking-wider text-slate-400">עומס רכב</label>
                             <select id="load" name="load"
-                                    class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
+                                    class="yr-select w-full bg-white border-slate-700 rounded-xl px-4 py-3 focus:ring-primary">
                                 <option value="light">קל</option>
                                 <option value="family" selected>משפחתי</option>
                                 <option value="heavy">כבד</option>
