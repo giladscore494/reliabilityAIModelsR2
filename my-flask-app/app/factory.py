@@ -442,7 +442,12 @@ def create_app():
     # Helper functions (is_owner_user, api_ok, api_error, get_request_id, get_redirect_uri)
     # are now imported from app.utils.http_helpers and used throughout the code
 
-    # --- PostHog analytics (silent no-op if key missing) ---
+    # --- Production diagnostics and PostHog analytics (silent no-op if key missing) ---
+    from app.utils.production_observability import install_shutdown_logging, log_boot_metadata
+    log_boot_metadata(logger)
+    install_shutdown_logging(logger)
+    from app.legal import validate_legal_ip_hash_salt_config
+    validate_legal_ip_hash_salt_config(os.environ.get("APP_ENV"), logger)
     from app.utils.analytics import init_posthog
     init_posthog(app)
     posthog_api_key = os.environ.get("POSTHOG_API_KEY", "").strip()

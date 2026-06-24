@@ -522,6 +522,7 @@
     {% include "_footer.html" %}
     {% include '_research_consent_modal.html' %}
 
+<!-- TODO(production-hardening): car catalog JSON is currently embedded in HTML; move to a cacheable lazy catalog endpoint/static versioned JSON to reduce /app and /compare payload size. Runtime response_bytes logging measures impact. -->
     <!-- דגלים לסקריפט -->
     <script type="application/json" id="auth-data">
         {% if is_logged_in %}true{% else %}false{% endif %}

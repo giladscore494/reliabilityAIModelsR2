@@ -145,6 +145,8 @@ def compare_api():
     idempotent_retry = False
     reservation_request_id = request_id
 
+    if owner_bypass:
+        current_app.logger.info("[QUOTA] method=POST path=/api/compare uid=%s cache_hit=false quota_bypass_reason=owner/admin limit=%s request_id=%s", user_id, daily_limit, request_id)
     if not owner_bypass:
         if idempotency_key:
             idem_request_id = f"idem:{idempotency_key}"
@@ -190,6 +192,7 @@ def compare_api():
     # Process comparison
     try:
         resp = comparison_service.handle_comparison_request(data, user_id, session_id, owner_bypass=owner_bypass)
+        current_app.logger.info("[QUOTA] method=POST path=/api/compare uid=%s cache_hit=%s quota_bypass_reason=%s limit=%s request_id=%s status=%s", user_id, False, "owner/admin" if owner_bypass else "none", daily_limit, request_id, resp.status_code)
         if reservation_id and not idempotent_retry:
             if resp.status_code < 400:
                 finalize_quota_reservation(reservation_id, user_id, day_key)

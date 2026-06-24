@@ -78,6 +78,32 @@ def register_request_hooks(
             )
         return response
 
+    @app.after_request
+    def log_response_metadata(response):
+        path = request.path or ""
+        if path.startswith("/static/") or path == "/favicon.ico":
+            return response
+        duration_ms = None
+        if getattr(g, "start_time", None) is not None:
+            duration_ms = int((pytime.perf_counter() - g.start_time) * 1000)
+        response_size = response.calculate_content_length()
+        logger.info(
+            "[RESP] request_id=%s path=%s duration_ms=%s status=%s response_bytes=%s",
+            getattr(g, "request_id", "unknown"),
+            path,
+            duration_ms,
+            response.status_code,
+            response_size if response_size is not None else "unknown",
+        )
+        if path in ("/app", "/compare") and response_size and response_size > 1_000_000:
+            logger.warning(
+                "[LARGE_HTML] request_id=%s path=%s response_bytes=%s reason=possible_embedded_catalog TODO=move_catalog_to_cacheable_lazy_endpoint",
+                getattr(g, "request_id", "unknown"),
+                path,
+                response_size,
+            )
+        return response
+
     @app.before_request
     def assign_request_id_and_redirect():
         """

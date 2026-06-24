@@ -53,19 +53,34 @@ def init_posthog(app):
     )
 
 
+def _capture_compat(client, distinct_id, event_name, props):
+    """Call PostHog capture across SDK versions.
+
+    Newer SDKs require keyword arguments; older/global clients accepted
+    positional distinct_id/event. Keep both paths isolated so analytics can
+    never break an application request.
+    """
+    try:
+        return client.capture(distinct_id=distinct_id, event=event_name, properties=props)
+    except TypeError as first_error:
+        try:
+            return client.capture(distinct_id, event_name, properties=props)
+        except TypeError:
+            raise first_error
+
+
 def track_event(distinct_id, event_name, properties=None):
-    """
-    Fire a PostHog event.  Swallows ALL exceptions so analytics never
-    breaks a request.
-    """
+    """Fire a PostHog event; swallow all failures."""
     if not _posthog_enabled or not _posthog_client:
         return
     try:
         props = dict(properties) if properties else {}
-        _posthog_client.capture(distinct_id, event_name, properties=props)
-    except Exception:
-        logger.exception(
-            "[POSTHOG] capture failed distinct_id=%s event=%s",
-            distinct_id,
+        _capture_compat(_posthog_client, distinct_id, event_name, props)
+    except Exception as exc:
+        log_fn = logger.exception if os.environ.get("DEBUG_ANALYTICS", "").lower() in ("1", "true", "yes") else logger.warning
+        log_fn(
+            "[POSTHOG] capture failed event=%s error=%s distinct_id_present=%s",
             event_name,
+            type(exc).__name__,
+            bool(distinct_id),
         )

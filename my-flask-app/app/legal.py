@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import os
 from ipaddress import ip_address, ip_network
 
@@ -8,12 +9,24 @@ PRIVACY_VERSION = os.environ.get("PRIVACY_VERSION", "2026-04-25")
 CONTACT_EMAIL = os.environ.get("CONTACT_EMAIL", "support@yedaarechev.com")
 LEGAL_IP_HASH_SALT = os.environ.get("LEGAL_IP_HASH_SALT", "").strip()
 
-if not LEGAL_IP_HASH_SALT:
-    import logging as _legal_logging
-    _legal_logging.getLogger(__name__).warning(
-        "[LEGAL] LEGAL_IP_HASH_SALT is empty — IPs will be stored as /24 subnets. "
-        "Set LEGAL_IP_HASH_SALT env var for hashed storage."
+def validate_legal_ip_hash_salt_config(app_env: str | None = None, logger: logging.Logger | None = None) -> bool:
+    """Validate legal IP hash salt configuration without exposing raw IPs."""
+    env = (app_env or os.environ.get("APP_ENV") or os.environ.get("FLASK_ENV") or "development").lower()
+    log = logger or logging.getLogger(__name__)
+    if LEGAL_IP_HASH_SALT:
+        return True
+    message = (
+        "[LEGAL][CONFIG][HIGH] LEGAL_IP_HASH_SALT is missing; consent IP audit values "
+        "will be reduced to subnets. Set Render env var LEGAL_IP_HASH_SALT."
     )
+    if env == "production":
+        log.error(message)
+    else:
+        log.warning(message + " Local/dev remains non-blocking.")
+    return False
+
+
+validate_legal_ip_hash_salt_config()
 
 # Result acknowledgement consents (audit trail before showing sensitive results)
 RELIABILITY_RESULT_ACK_KEY = "reliability_results_acknowledgement"

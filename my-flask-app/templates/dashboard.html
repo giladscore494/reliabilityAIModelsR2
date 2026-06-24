@@ -531,9 +531,6 @@
         const competitors = Array.isArray(data.common_competitors_brief) ? data.common_competitors_brief : [];
         const sourceTag = data.source_tag || '';
         const reliabilityReport = data.reliability_report || {};
-        const sourceCount = Number.isFinite(Number(data.source_count)) ? Number(data.source_count) : sources.length;
-        const sourceScopeLabel = data.source_scope_label || 'לא זוהה';
-        const weaklySourced = Boolean(data.weakly_sourced);
         const informationQualityExplanation = data.information_quality_explanation || '';
         const fixedSystemUnknowns = Array.isArray(data.fixed_system_unknowns) && data.fixed_system_unknowns.length
             ? data.fixed_system_unknowns
@@ -750,8 +747,6 @@
             <section class="detail-section mb-4">
                 <div class="rounded-2xl border border-[#cfd5dd] bg-[#f7f9fc] p-4 text-xs text-slate-200">
                     <div class="font-semibold text-white mb-2">שקיפות מקורות</div>
-                    <div>נמצאו ${escapeHtml(String(sourceCount))} מקורות · סוג מקורות מזוהה: ${escapeHtml(sourceScopeLabel)}</div>
-                    ${weaklySourced ? '<div class="mt-2 text-amber-300">פחות משני מקורות נמצאו ולכן הניתוח מבוסס חלש.</div>' : ''}
                 </div>
             </section>
 
