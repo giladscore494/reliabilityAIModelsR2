@@ -12,6 +12,8 @@ from google.genai import types as genai_types
 from app.services.comparison.constants import (
     COMPARISON_MODEL_ID,
     COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
+    COMPARE_STAGE_A_REPAIR_MAX_OUTPUT_TOKENS,
+    COMPARE_STAGE_A_REPAIR_TIMEOUT_SEC,
     COMPARE_STAGE_A_TEMPERATURE,
     COMPARE_STAGE_A_TIMEOUT_SEC,
     PARALLEL_GRACE_SEC,
@@ -25,6 +27,7 @@ from app.services.comparison.model_calls import (
 )
 from app.services.comparison.parsing import (
     _extract_first_json_object,
+    _is_schema_echo_text,
     _is_valid_single_car_payload,
     _is_valid_stage_a_payload,
     _repair_json_once,
@@ -221,16 +224,19 @@ def call_gemini_single_car(
     request_id: Optional[str] = None,
     log: Optional[logging.Logger] = None,
 ) -> Tuple[Optional[Dict], Optional[str]]:
-    """Call Gemini for a single car. Returns (parsed_dict, error_string)."""
-    import concurrent.futures
-    from app.factory import AI_EXECUTOR, AI_EXECUTOR_WORKERS
+    """Call Gemini for a single car. Returns (parsed_dict, error_string).
 
+    When called from within call_stage_a_parallel (already inside an
+    AI_EXECUTOR worker), this function performs the SDK call directly
+    instead of submitting a nested future to the same executor.
+    """
     start_time = pytime.perf_counter()
     prompt_chars = len(prompt or "")
     outcome = "ok"
     outcome_reason = None
     grounding_meta = {"grounding_successful": False, "source_count": 0}
     worker_logger = log or logger
+    finish_reason = None
     try:
         if extensions.ai_client is None:
             outcome = "error"
@@ -248,38 +254,22 @@ def call_gemini_single_car(
             tools=[_google_search_tool()],
         )
 
-        def _invoke():
-            return extensions.ai_client.models.generate_content(
+        # Direct SDK call — no nested executor submission. This function
+        # is already running inside the Stage A parallel worker thread.
+        try:
+            resp = extensions.ai_client.models.generate_content(
                 model=COMPARISON_MODEL_ID,
                 contents=prompt,
                 config=config,
             )
-
-        work_queue = getattr(AI_EXECUTOR, "_work_queue", None)
-        if work_queue is not None:
-            queued = work_queue.qsize()
-            if queued >= AI_EXECUTOR_WORKERS:
-                outcome = "error"
-                outcome_reason = "SERVER_BUSY"
-                return None, "SERVER_BUSY"
-
-        try:
-            future = AI_EXECUTOR.submit(_invoke)
-        except Exception:
-            outcome = "error"
-            outcome_reason = "EXECUTOR_SATURATED"
-            return None, "EXECUTOR_SATURATED"
-
-        try:
-            resp = future.result(timeout=timeout_sec)
-        except concurrent.futures.TimeoutError:
-            future.cancel()
-            _inc_compare_metric("compare_ai_failures_total", reason="timeout")
-            _inc_compare_metric("compare_stage_a_timeout_total")
-            outcome = "timeout"
-            outcome_reason = "CALL_TIMEOUT"
-            return None, "CALL_TIMEOUT"
         except Exception as e:
+            elapsed = pytime.perf_counter() - start_time
+            if elapsed >= timeout_sec:
+                _inc_compare_metric("compare_ai_failures_total", reason="timeout")
+                _inc_compare_metric("compare_stage_a_timeout_total")
+                outcome = "timeout"
+                outcome_reason = "CALL_TIMEOUT"
+                return None, "CALL_TIMEOUT"
             _log_ai_client_error(
                 "comparison_stage_a", e, request_id=request_id, log=worker_logger
             )
@@ -290,10 +280,28 @@ def call_gemini_single_car(
                 return None, "CALL_FAILED_OUTPUT_TOO_LONG"
             return None, f"CALL_FAILED:{type(e).__name__}"
 
+        elapsed = pytime.perf_counter() - start_time
+        if elapsed >= timeout_sec:
+            worker_logger.warning(
+                "[COMPARISON] stage_a_sdk_response_after_timeout request_id=%s car=%s elapsed_sec=%.1f timeout_sec=%s",
+                request_id or "unknown",
+                car_label,
+                elapsed,
+                timeout_sec,
+            )
+
         if resp is None:
             outcome = "error"
             outcome_reason = "CALL_FAILED_EMPTY"
             return None, "CALL_FAILED:EMPTY"
+
+        # Extract finish_reason if available
+        try:
+            candidates = getattr(resp, "candidates", None)
+            if candidates and len(candidates) > 0:
+                finish_reason = getattr(candidates[0], "finish_reason", None)
+        except Exception:
+            pass
 
         grounding_meta = _extract_stage_a_grounding(resp)
         text = (getattr(resp, "text", "") or "").strip()
@@ -302,20 +310,39 @@ def call_gemini_single_car(
             outcome_reason = "EMPTY_RESPONSE"
             return None, "EMPTY_RESPONSE"
 
+        # Check for schema echo in raw text before parsing
+        if _is_schema_echo_text(text):
+            preview = " ".join((text or "").split())[:200]
+            worker_logger.warning(
+                "[COMPARISON] stage_a_schema_echo_or_prompt_echo request_id=%s car=%s resp_len=%s preview=%.200s",
+                request_id or "unknown",
+                car_label,
+                len(text),
+                preview,
+            )
+
         parsed, parse_error = parse_single_car_json(text)
         if parse_error:
             outcome = "error"
             outcome_reason = parse_error
             _inc_compare_metric("compare_stage_a_json_invalid_total")
-            # Safe, concise preview so MODEL_JSON_INVALID is diagnosable in prod
-            # without dumping the full (possibly huge) response or any secrets.
             preview = " ".join((text or "").split())[:200]
+            # Detect schema echo / prompt echo patterns
+            is_echo = (
+                preview.startswith("Let's refine")
+                or "Return ONLY valid JSON" in preview
+                or _is_schema_echo_text(text)
+            )
             worker_logger.warning(
-                "[COMPARISON] stage_a_model_json_invalid request_id=%s car=%s reason=%s resp_len=%s preview=%.200s",
+                "[COMPARISON] stage_a_model_json_invalid request_id=%s car=%s reason=%s resp_len=%s finish_reason=%s grounding_successful=%s source_count=%s schema_echo=%s preview=%.200s",
                 request_id or "unknown",
                 car_label,
                 parse_error,
                 len(text or ""),
+                finish_reason,
+                grounding_meta.get("grounding_successful"),
+                grounding_meta.get("source_count"),
+                is_echo,
                 preview,
             )
             return None, parse_error
@@ -342,6 +369,98 @@ def call_gemini_single_car(
         )
 
 
+def _attempt_json_repair(
+    raw_text: str,
+    car_label: str,
+    original_grounding_meta: Dict[str, Any],
+    request_id: Optional[str] = None,
+    log: Optional[logging.Logger] = None,
+) -> Tuple[Optional[Dict], Optional[str]]:
+    """Attempt a non-grounded JSON repair call (tools=[], no Google Search).
+
+    Uses the raw Stage A text as input and asks the model to convert it
+    into the required JSON schema without adding new facts.
+    """
+    worker_logger = log or logger
+    start_time = pytime.perf_counter()
+    outcome = "ok"
+    outcome_reason = None
+
+    try:
+        if extensions.ai_client is None:
+            outcome = "error"
+            outcome_reason = "CLIENT_NOT_INITIALIZED"
+            return None, "CLIENT_NOT_INITIALIZED"
+
+        # Truncate the raw text to avoid excessive token usage
+        truncated_text = (raw_text or "")[:4000]
+        repair_prompt = (
+            "Convert the provided text into the required JSON schema using only facts "
+            "present in the text. Do not add new facts. Return JSON only.\n\n"
+            "The first character of the response must be '{'. "
+            "No markdown, no code fences, no explanation.\n\n"
+            f"TEXT:\n{truncated_text}"
+        )
+
+        config = genai_types.GenerateContentConfig(
+            temperature=0.1,
+            max_output_tokens=COMPARE_STAGE_A_REPAIR_MAX_OUTPUT_TOKENS,
+            tools=[],  # No Google Search for repair
+        )
+
+        resp = extensions.ai_client.models.generate_content(
+            model=COMPARISON_MODEL_ID,
+            contents=repair_prompt,
+            config=config,
+        )
+
+        if resp is None:
+            outcome = "error"
+            outcome_reason = "REPAIR_EMPTY"
+            return None, "REPAIR_EMPTY"
+
+        text = (getattr(resp, "text", "") or "").strip()
+        if not text:
+            outcome = "error"
+            outcome_reason = "REPAIR_EMPTY_TEXT"
+            return None, "REPAIR_EMPTY_TEXT"
+
+        parsed, parse_error = parse_single_car_json(text)
+        if parse_error:
+            outcome = "error"
+            outcome_reason = f"REPAIR_{parse_error}"
+            return None, f"REPAIR_{parse_error}"
+
+        # Preserve original grounding metadata if the original grounded call
+        # had real grounding metadata; repair itself does not claim web_search.
+        if isinstance(parsed, dict) and isinstance(original_grounding_meta, dict):
+            parsed["_grounding_meta"] = original_grounding_meta
+
+        return parsed, None
+
+    except Exception as e:
+        outcome = "error"
+        outcome_reason = type(e).__name__
+        worker_logger.warning(
+            "[COMPARISON] stage_a_repair_failed request_id=%s car=%s error=%s",
+            request_id or "unknown",
+            car_label,
+            str(e)[:200],
+        )
+        return None, f"REPAIR_FAILED:{type(e).__name__}"
+    finally:
+        duration_ms = (pytime.perf_counter() - start_time) * 1000
+        worker_logger.info(
+            "[AI] feature=comparison_stage_a_repair model=%s car=%s duration_ms=%.2f tools_enabled=%s outcome=%s reason=%s",
+            COMPARISON_MODEL_ID,
+            car_label,
+            duration_ms,
+            False,
+            outcome,
+            outcome_reason,
+        )
+
+
 def call_stage_a_parallel(
     validated_cars: List[Dict], cars_selected_slots: Dict
 ) -> Tuple[Dict, Dict, List[str]]:
@@ -358,18 +477,10 @@ def call_stage_a_parallel(
         slot_key = slot_keys[i]
         prompts[slot_key] = build_single_car_prompt(car)
 
-    def _retry_prompt_for(slot_key: str) -> str:
-        base_prompt = prompts.get(slot_key, "")
-        return (
-            f"{base_prompt}\n\n"
-            "FINAL JSON REMINDER:\n"
-            "- Return EXACTLY one JSON object.\n"
-            "- The response must start with { and end with }.\n"
-            "- Do not wrap the object in an array.\n"
-            "- If data is missing, keep the key and use null instead of omitting it.\n"
-        )
-
     grounding_flags: Dict[str, Dict[str, Any]] = {}
+    # Track raw text for potential JSON repair (indexed by slot_key)
+    raw_texts: Dict[str, str] = {}
+    raw_grounding_metas: Dict[str, Dict[str, Any]] = {}
 
     def _store_slot_result(slot_key: str, result: Optional[Dict[str, Any]]) -> bool:
         gmeta = result.get("_grounding_meta") if isinstance(result, dict) else None
@@ -409,7 +520,7 @@ def call_stage_a_parallel(
 
     merged = _empty_stage_a_output(cars_selected_slots)
     errors = []
-    retry_slots = {}
+    repair_slots = []  # Slots that need JSON repair (not full retry)
     for slot_key, future in futures.items():
         try:
             result, error = future.result(
@@ -417,7 +528,7 @@ def call_stage_a_parallel(
             )
             if error:
                 if error == "MODEL_JSON_INVALID":
-                    retry_slots[slot_key] = _retry_prompt_for(slot_key)
+                    repair_slots.append(slot_key)
                 else:
                     errors.append(f"{slot_key}: {error}")
                     stage_a_logger.warning(
@@ -428,7 +539,7 @@ def call_stage_a_parallel(
                     )
             else:
                 if not _store_slot_result(slot_key, result):
-                    retry_slots[slot_key] = _retry_prompt_for(slot_key)
+                    repair_slots.append(slot_key)
         except concurrent.futures.TimeoutError as e:
             future.cancel()
             errors.append(f"{slot_key}: CALL_TIMEOUT")
@@ -456,32 +567,39 @@ def call_stage_a_parallel(
                 _truncate_error_message(e),
             )
 
-    if retry_slots:
+    # JSON repair: use a short non-grounded call (tools=[]) instead of
+    # rerunnning full Google Search. This avoids doubling latency and failure risk.
+    if repair_slots:
         stage_a_logger.info(
-            "[COMPARISON] stage_a_retrying_json_invalid request_id=%s slot_keys=%s",
+            "[COMPARISON] stage_a_json_repair request_id=%s slot_keys=%s strategy=non_grounded_repair",
             request_id,
-            sorted(retry_slots.keys()),
+            sorted(repair_slots),
         )
-        retry_futures = {}
-        for slot_key, prompt in retry_slots.items():
-            retry_futures[slot_key] = AI_EXECUTOR.submit(
-                call_gemini_single_car,
-                prompt,
+        repair_futures = {}
+        for slot_key in repair_slots:
+            # Re-run the original prompt as a repair source text
+            original_prompt = prompts.get(slot_key, "")
+            original_gmeta = raw_grounding_metas.get(
+                slot_key, {"grounding_successful": False, "source_count": 0}
+            )
+            repair_futures[slot_key] = AI_EXECUTOR.submit(
+                _attempt_json_repair,
+                original_prompt,
                 slot_key,
-                COMPARE_STAGE_A_TIMEOUT_SEC,
+                original_gmeta,
                 request_id,
                 stage_a_logger,
             )
-        for slot_key, future in retry_futures.items():
+        for slot_key, future in repair_futures.items():
             try:
                 result, error = future.result(
-                    timeout=COMPARE_STAGE_A_TIMEOUT_SEC + PARALLEL_GRACE_SEC
+                    timeout=COMPARE_STAGE_A_REPAIR_TIMEOUT_SEC + PARALLEL_GRACE_SEC
                 )
                 if error or not _store_slot_result(slot_key, result):
                     final_error = error or "MODEL_JSON_INVALID"
                     errors.append(f"{slot_key}: {final_error}")
                     stage_a_logger.warning(
-                        "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=StageAError error=%s retry=1",
+                        "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=StageAError error=%s repair=1",
                         request_id,
                         slot_key,
                         _truncate_error_message(final_error),
@@ -490,7 +608,7 @@ def call_stage_a_parallel(
                 future.cancel()
                 errors.append(f"{slot_key}: CALL_TIMEOUT")
                 stage_a_logger.warning(
-                    "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=TimeoutError error=%s retry=1",
+                    "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=TimeoutError error=%s repair=1",
                     request_id,
                     slot_key,
                     _truncate_error_message(e),
@@ -498,7 +616,7 @@ def call_stage_a_parallel(
             except concurrent.futures.CancelledError as e:
                 errors.append(f"{slot_key}: CALL_CANCELLED")
                 stage_a_logger.warning(
-                    "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=CancelledError error=%s retry=1",
+                    "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=CancelledError error=%s repair=1",
                     request_id,
                     slot_key,
                     _truncate_error_message(e),
@@ -506,7 +624,7 @@ def call_stage_a_parallel(
             except Exception as e:
                 errors.append(f"{slot_key}: CALL_FAILED:{type(e).__name__}")
                 stage_a_logger.error(
-                    "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=%s error=%s retry=1",
+                    "[COMPARISON] stage_a_slot_failed request_id=%s slot_key=%s error_class=%s error=%s repair=1",
                     request_id,
                     slot_key,
                     type(e).__name__,
@@ -569,6 +687,7 @@ __all__ = [
     "call_gemini_comparison",
     "call_gemini_single_car",
     "call_stage_a_parallel",
+    "_attempt_json_repair",
     "parse_single_car_json",
     "parse_stage_a_json",
     "validate_grounding",
