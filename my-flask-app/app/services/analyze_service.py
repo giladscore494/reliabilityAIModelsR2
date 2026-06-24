@@ -96,6 +96,68 @@ def _validate_vehicle_profile_buyer_summary(ai_output: dict, request_id: str) ->
     return ai_output
 
 
+
+def _adapt_catalog_first_reliability_output(ai_output: Dict[str, Any]) -> Dict[str, Any]:
+    """Backfill legacy keys from the compact catalog-first review schema."""
+    if not isinstance(ai_output, dict):
+        return ai_output
+    overview = ai_output.get("overview") if isinstance(ai_output.get("overview"), dict) else {}
+    risk = ai_output.get("risk_analysis") if isinstance(ai_output.get("risk_analysis"), dict) else {}
+    checklist = ai_output.get("buyer_checklist") if isinstance(ai_output.get("buyer_checklist"), dict) else {}
+    ownership = ai_output.get("ownership_cost") if isinstance(ai_output.get("ownership_cost"), dict) else {}
+    market = ai_output.get("market_context") if isinstance(ai_output.get("market_context"), dict) else {}
+    identity = ai_output.get("identity_snapshot") if isinstance(ai_output.get("identity_snapshot"), dict) else {}
+
+    ai_output.setdefault("reliability_summary", overview.get("based_on_available_information") or overview.get("plain_summary") or "")
+    ai_output.setdefault("reliability_summary_simple", overview.get("plain_summary") or overview.get("based_on_available_information") or "")
+    ai_output.setdefault("common_issues", [x.get("issue") for x in risk.get("systemic_issues", []) if isinstance(x, dict) and x.get("issue")])
+    ai_output.setdefault("recommended_checks", (checklist.get("mechanical_inspection_points") or [])[:10])
+    ai_output.setdefault("issues_with_costs", [
+        {"issue": x.get("issue"), "avg_cost_ILS": 0, "source": x.get("source"), "severity": x.get("severity")}
+        for x in (ownership.get("issue_cost_ranges") or []) if isinstance(x, dict)
+    ])
+    competitors = []
+    for row in (market.get("competitors") or [])[:5]:
+        if isinstance(row, dict):
+            competitors.append({
+                "model": row.get("model_name"),
+                "brief_summary": row.get("why_relevant") or row.get("advantage_vs_reviewed_vehicle"),
+            })
+    ai_output.setdefault("common_competitors_brief", competitors)
+    ai_output.setdefault("reliability_report", {
+        "based_on_available_information": overview.get("based_on_available_information") or "הניתוח מבוסס על מידע ציבורי זמין ועל נתוני הקטלוג המקומי.",
+        "key_risk_areas_to_examine": risk.get("top_risks") or [],
+        "what_must_be_checked_before_a_decision": checklist,
+        "known_uncertainties": risk.get("known_uncertainties") or [],
+        "estimated_cost_sensitivity": ownership.get("cost_sensitivity_notes") or [],
+        "final_line": ai_output.get("final_line") or "This information highlights areas to verify and is not a substitute for a professional inspection.",
+    })
+    ai_output.setdefault("risk_signals", {
+        "vehicle_resolution": {
+            "generation": None,
+            "engine_family": identity.get("engine"),
+            "transmission_type": identity.get("transmission") or "unknown",
+        },
+        "recalls": {"count": len(risk.get("recalls") or []), "items": risk.get("recalls") or [], "notes": ""},
+        "systemic_issue_signals": risk.get("systemic_issues") or [],
+        "maintenance_cost_pressure": {"level": ownership.get("maintenance_cost_pressure") or "unknown", "explanation": ""},
+        "analysis_confidence": (ai_output.get("catalog_resolution") or {}).get("confidence") or "low",
+        "missing_data_flags": risk.get("known_uncertainties") or [],
+    })
+    ai_output.setdefault("vehicle_profile", {
+        "vehicle_identity": {
+            "make": identity.get("make"), "model": identity.get("model"), "year": identity.get("selected_year"),
+            "generation": None, "body_type": identity.get("body_type"), "segment": None, "israel_market_status": "unclear",
+        },
+        "pricing_israel": market.get("pricing_israel") or {},
+        "trim_levels_israel": market.get("trims_israel") or [],
+        "official_safety": market.get("official_safety") or {},
+        "warranty_israel": market.get("warranty_israel") or {},
+        "competitors": market.get("competitors") or [],
+        "buyer_summary": overview.get("plain_summary") or overview.get("based_on_available_information"),
+    })
+    return ai_output
+
 def derive_information_quality_review(
     validated_input: Dict[str, Any],
     risk_signals: Any,
@@ -357,6 +419,7 @@ def handle_analyze_request(
         if not isinstance(model_output, dict):
             model_output = {}
         ai_output = model_output
+        ai_output = _adapt_catalog_first_reliability_output(ai_output)
         ai_output = _validate_vehicle_profile_buyer_summary(ai_output, get_request_id())
     except ModelOutputInvalidError:
         if not bypass_owner:

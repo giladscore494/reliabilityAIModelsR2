@@ -41,11 +41,10 @@ COMPARE_CATEGORY_NAMES = tuple(CATEGORY_LABELS_HE.keys())
 
 DECISION_CATEGORY_DEFINITIONS = [
     ("pricing_and_value", "מחיר ותמורה"),
-    ("trim_and_equipment", "רמות גימור ואבזור"),
-    ("license_fee_and_running_cost", "אגרה ועלויות שוטפות"),
+    ("ownership_cost", "עלות בעלות ואחזקה"),
+    ("powertrain_and_performance", "מכלולים וביצועים"),
     ("fuel_consumption", "צריכת דלק/חשמל"),
     ("official_safety", "בטיחות רשמית"),
-    ("powertrain_and_performance", "מכלולים וביצועים"),
     ("reliability_and_risk", "אמינות וסיכונים"),
     ("family_daily_use", "שימוש יומי ומשפחתי"),
     ("resale_and_market_confidence", "סחירות וירידת ערך"),
@@ -251,7 +250,7 @@ def build_compare_grounding_prompt(
 
 
 def build_single_car_prompt(car: Dict, region: str = "IL") -> str:
-    """Build Stage A prompt for a SINGLE car using a compact evidence schema."""
+    """Build Stage A prompt for a SINGLE car using catalog-first compact evidence."""
     sanitized = {
         "make": escape_prompt_input(car.get("make", ""), max_length=50),
         "model": escape_prompt_input(car.get("model", ""), max_length=100),
@@ -259,364 +258,95 @@ def build_single_car_prompt(car: Dict, region: str = "IL") -> str:
     if car.get("year"):
         sanitized["year"] = int(car["year"])
     if car.get("engine_type"):
-        sanitized["engine_type"] = escape_prompt_input(
-            car["engine_type"], max_length=50
-        )
+        sanitized["engine_type"] = escape_prompt_input(car["engine_type"], max_length=50)
     if car.get("gearbox"):
         sanitized["gearbox"] = escape_prompt_input(car["gearbox"], max_length=50)
-
-    car_json = json.dumps(sanitized, ensure_ascii=False)
-    bounded_car = wrap_user_input_in_boundary(car_json, boundary_tag="car_input")
+    bounded_car = wrap_user_input_in_boundary(json.dumps(sanitized, ensure_ascii=False), boundary_tag="car_input")
     data_instruction = create_data_only_instruction()
-    catalog_ctx = build_vehicle_catalog_context(car)
-    catalog_block = catalog_ctx["prompt_block"]
-    segment_key, segment_signals = infer_compare_segment_details(sanitized, {})
-    segment_rule = COMPARE_SEGMENT_PROMPT_RULES.get(
-        segment_key,
-        COMPARE_SEGMENT_PROMPT_RULES["general_private_car"],
-    )
-    segment_context = {
-        "segment_key": segment_key,
-        "inference_signals": segment_signals,
-        "focus_more": segment_rule.get("focus_more", []),
-        "focus_less": segment_rule.get("focus_less", []),
-        "special_note": segment_rule.get("special_note"),
-    }
-    category_behavior = {
-        key: COMPARE_CATEGORY_BEHAVIOR_RULES[key] for key in COMPARE_CATEGORY_NAMES
-    }
-
+    catalog_block = build_vehicle_catalog_context(car)["prompt_block"]
     return f"""{data_instruction}
 
 {catalog_block}
 
-You are acting as an experienced automotive analyst. For technical identity fields (make, model, engine, transmission, drivetrain, body_type), use the LOCAL_VEHICLE_CATALOG_CONTEXT above as the primary source when match_type is exact. Web grounding is MANDATORY for all analytical sections: reliability, costs, recalls, safety, pricing, reviews. Include source URLs when available, but omit them if you don't have one.
-
-You are a car research extractor for ONE car.
-Return ONLY compact evidence in JSON.
-Return ONLY valid JSON. No markdown. No code fences. No prose outside JSON.
+You are a Stage A evidence collector for ONE Israeli-market car. Return compact grounded evidence only.
+Catalog-first rule: when match_type is exact, catalog_identity fields must come from LOCAL_VEHICLE_CATALOG_CONTEXT and web is used only for analytical claims. If web conflicts with catalog identity, report it in uncertainties/conflicts; do not rewrite identity.
+Google Search is mandatory for analytical sections.
 
 {bounded_car}
-
 Region: {region}
 
-SEGMENT_CONTEXT (deterministic; use this mission when assigning labels):
-{json.dumps(segment_context, ensure_ascii=False)}
-
-CATEGORY_BEHAVIOR_RULES:
-{json.dumps(category_behavior, ensure_ascii=False)}
-
-Return this exact JSON structure:
+Return ONLY valid JSON:
 {{
-  "car_name": "string",
-  "reliability": {{
-    "overall": "high"|"medium"|"low"|null,
-    "issue_frequency": "low"|"medium"|"high"|null,
-    "issue_severity": "low"|"medium"|"high"|null,
-    "repair_cost_risk": "low"|"medium"|"high"|null,
-    "recall_risk": "low"|"medium"|"high"|null,
-    "parts_complexity": "low"|"medium"|"high"|null
-  }},
-  "ownership_cost": {{
-    "fuel_cost": "low"|"medium"|"high"|null,
-    "routine_maintenance": "low"|"medium"|"high"|null,
-    "repair_burden": "low"|"medium"|"high"|null,
-    "insurance_burden": "low"|"medium"|"high"|null,
-    "depreciation_risk": "low"|"medium"|"high"|null
-  }},
-  "comfort_practicality": {{
-    "space": "low"|"medium"|"high"|null,
-    "ride_comfort": "low"|"medium"|"high"|null,
-    "trunk_usefulness": "low"|"medium"|"high"|null,
-    "daily_usability": "low"|"medium"|"high"|null
-  }},
-  "performance_driving": {{
-    "power_feel": "low"|"medium"|"high"|null,
-    "power_to_weight": "low"|"medium"|"high"|null,
-    "braking_confidence": "low"|"medium"|"high"|null,
-    "handling_agility": "low"|"medium"|"high"|null,
-    "fun_to_drive": "low"|"medium"|"high"|null
-  }},
-  "facts": {{
-    "horsepower": <number or null>,
-    "weight_kg": <number or null>,
-    "body_type": "string or null",
-    "fuel_type": "string or null"
-  }},
-  "car_profile": {{
-    "vehicle_identity": {{"make":"string","model":"string","year":"string|null","generation":"string|null","body_type":"string|null","segment":"string|null","israel_market_status":"sold_new|sold_used_only|parallel_import|discontinued_in_israel|unclear|null"}},
-    "pricing_israel": {{"new_price_range_ils":"string|null","used_price_range_ils":"string|null","notes":["string"],"sources":["url"]}},
-    "license_fee_israel": {{"annual_fee_ils": <number or null>, "method": "official|unknown", "notes": ["string"], "sources": ["url"]}},
-    "trim_levels_israel": [{{"trim_name":"string","price_ils": <number or null>, "main_equipment":["string"],"powertrain":"string|null","safety_equipment":["string"],"source":"url|null"}}],
-    "powertrain_specs": {{"engine":"string|null","gearbox":"string|null","drivetrain":"string|null","horsepower": <number or null>,"torque_nm": <number or null>,"battery_kwh": <number or null>,"ev_range_km": <number or null>,"zero_to_100_sec": <number or null>,"trunk_liters": <number or null>,"seats": <number or null>,"sources":["url"]}},
-    "fuel_consumption": {{"official_value":"string|null","real_world_value":"string|null","method":"official|review_based|owner_reported|unknown","notes":["string"],"sources":["url"]}},
-    "official_safety": {{"rating":"string|null","organization":"Euro NCAP|IIHS|NHTSA|ANCAP|Israeli Ministry/Importer|unknown|null","test_year": <number or null>,"notes":["string"],"sources":["url"]}},
-    "warranty_israel": {{"vehicle_warranty":"string|null","battery_warranty":"string|null","sources":["url"]}},
-    "recalls": {{"known_recalls":[{{"year": <number or null>, "issue":"string", "source":"url|null"}}],"checked_against_official_source": <boolean>,"sources":["url"]}},
-    "reliability_risks": ["string"],
-    "ownership_cost_notes": {{"maintenance_cost_pressure":"low|medium|high|unknown","insurance_cost_pressure":"low|medium|high|unknown","depreciation_risk":"low|medium|high|unknown","parts_availability":"low|medium|high|unknown","notes":["string"]}},
-    "best_for": ["string"],
-    "not_ideal_for": ["string"],
-    "sources": ["url"]
-  }},
-  "short_notes": ["up to 4 short bullets"],
-  "sources": ["up to 5 source URLs"]
+  "car_name":"string",
+  "catalog_identity":{{"match_type":"exact|ambiguous|unmatched","identity_basis":"catalog_exact|catalog_ambiguous|web_resolved|unmatched","make":"","model":"","canonical_model":null,"year":null,"version_or_trim":null,"body_type":null,"fuel_type":null,"engine":null,"engine_displacement_l":null,"horsepower_hp":null,"transmission":null,"drivetrain":null,"year_start":null,"year_end":null,"support_level":null}},
+  "pricing":{{"new_price_range_ils":null,"used_price_range_ils":null,"notes":[],"sources":[]}},
+  "trim_equipment_summary":{{"trims":[],"summary":"לא ידוע / לבדיקה","sources":[]}},
+  "license_running_cost":{{"license_fee":"לא ידוע / לבדיקה","maintenance_cost_pressure":"unknown|low|medium|high","notes":[],"sources":[]}},
+  "fuel_energy":{{"official":"לא ידוע / לבדיקה","real_world":"לא ידוע / לבדיקה","notes":[],"sources":[]}},
+  "official_safety":{{"rating":null,"organization":null,"test_year":null,"notes":[],"sources":[]}},
+  "powertrain_performance":{{"engine":null,"gearbox":null,"drivetrain":null,"horsepower":null,"torque_nm":null,"zero_to_100_sec":null,"notes":[],"sources":[]}},
+  "reliability_risks":{{"top_risks":[],"recalls":[],"maintenance_complexity":"unknown|low|medium|high","sources":[]}},
+  "practicality":{{"body_type":null,"space":"לא ידוע / לבדיקה","trunk_liters":null,"seats":null,"notes":[],"sources":[]}},
+  "resale_market":{{"supply":"לא ידוע / לבדיקה","depreciation_risk":"unknown|low|medium|high","notes":[],"sources":[]}},
+  "sources":["up to 5 urls"],
+  "uncertainties_conflicts":[]
 }}
-
-RULES:
-1. Google Search grounding is mandatory. Search Hebrew and English when useful.
-2. Prefer official importer pages, Israeli Ministry of Transport, official safety organizations, official recall data, and reputable Israeli car sites.
-3. Keep the legacy labels compact and stable, but also fill car_profile with sourced factual facts where available.
-4. Do NOT compare against another car. Do NOT score numerically. Do NOT write long explanations.
-5. Do not invent official safety ratings, Israeli trim levels, prices, license fees, recalls, specs, consumption, or warranty terms. Use null/unknown plus notes when unavailable.
-6. license_fee_israel.method can only be official or unknown.
-7. If exact official safety rating is not found, set rating=null, organization="unknown", and add an explanatory note.
-8. Keep source URLs for factual claims about price, trims, license fee, safety, recalls, specs, fuel/energy consumption, and warranty.
-9. Do not return visible numeric quality scores or score-like quality fields. Percentages are allowed only for factual specs or official safety sub-scores from official sources.
-10. short_notes must contain at most 4 short items; sources must contain direct http/https URLs.
-11. Segment-aware labels are required: judge the car against realistic expectations of its inferred mission, not one universal standard.
-12. Return ONLY valid JSON.
+Rules: no comparison, no scores, no winner, no invented facts. Use "לא ידוע / לבדיקה" for unknown visible text. Return source URLs for analytical facts.
 """.strip()
 
 
 def build_comparison_prompt(cars: List[Dict[str, str]]) -> str:
-    """Build the comparison prompt for Gemini with strict JSON output."""
-
-    # Sanitize car inputs including year, engine_type, and gearbox
+    """Build compact Stage A prompt for multiple cars."""
     sanitized_cars = []
-    for car in cars:
-        sanitized_car = {
-            "make": escape_prompt_input(car.get("make", ""), max_length=50),
-            "model": escape_prompt_input(car.get("model", ""), max_length=100),
-        }
-        # Include explicit year if provided (single year, not a range)
+    catalog_blocks = []
+    for i, car in enumerate(cars):
+        sanitized_car = {"make": escape_prompt_input(car.get("make", ""), max_length=50), "model": escape_prompt_input(car.get("model", ""), max_length=100)}
         if car.get("year"):
             sanitized_car["year"] = int(car.get("year"))
-        elif car.get("year_start"):
-            sanitized_car["year_start"] = car.get("year_start")
-            sanitized_car["year_end"] = car.get("year_end")
-        # Include engine type and gearbox as explicit assumptions
         if car.get("engine_type"):
-            sanitized_car["engine_type"] = escape_prompt_input(
-                car.get("engine_type", ""), max_length=50
-            )
+            sanitized_car["engine_type"] = escape_prompt_input(car.get("engine_type", ""), max_length=50)
         if car.get("gearbox"):
-            sanitized_car["gearbox"] = escape_prompt_input(
-                car.get("gearbox", ""), max_length=50
-            )
+            sanitized_car["gearbox"] = escape_prompt_input(car.get("gearbox", ""), max_length=50)
         sanitized_cars.append(sanitized_car)
-
-    cars_json = json.dumps(sanitized_cars, ensure_ascii=False, indent=2)
-    bounded_cars = wrap_user_input_in_boundary(cars_json, boundary_tag="cars_input")
+        catalog_blocks.append(f"[car_{i+1}] {build_vehicle_catalog_context(car)['prompt_block']}")
+    bounded_cars = wrap_user_input_in_boundary(json.dumps(sanitized_cars, ensure_ascii=False), boundary_tag="cars_input")
     data_instruction = create_data_only_instruction()
-
-    # Build slot mapping for stable keys
-    slot_mapping = {}
-    segment_context = {}
-    for i, car in enumerate(sanitized_cars):
-        slot_key = f"car_{i + 1}"
-        slot_mapping[slot_key] = build_display_name(car)
-        segment_key, segment_signals = infer_compare_segment_details(car, {})
-        segment_rule = COMPARE_SEGMENT_PROMPT_RULES.get(
-            segment_key,
-            COMPARE_SEGMENT_PROMPT_RULES["general_private_car"],
-        )
-        segment_context[slot_key] = {
-            "segment_key": segment_key,
-            "inference_signals": segment_signals,
-            "focus_more": segment_rule.get("focus_more", []),
-            "focus_less": segment_rule.get("focus_less", []),
-            "special_note": segment_rule.get("special_note"),
-        }
-
-    slot_mapping_text = "\n".join(f"  {k}: {v}" for k, v in slot_mapping.items())
-
-    catalog_blocks = []
-    for i, car in enumerate(sanitized_cars):
-        ctx = build_vehicle_catalog_context(cars[i])
-        catalog_blocks.append(f"[car_{i+1}] {ctx['prompt_block']}")
-    catalog_section = "\n\n".join(catalog_blocks)
-
+    slot_mapping_text = "\n".join(f"  car_{i+1}: {build_display_name(car)}" for i, car in enumerate(sanitized_cars))
     return f"""
 {data_instruction}
 
-{catalog_section}
+{chr(10).join(catalog_blocks)}
 
-You are a car comparison data analyst.
-
-🔴 CRITICAL: You are a data retrieval agent ONLY. You MUST NOT:
-- Decide winners or compare scores between cars
-- Compute any scores or rankings
-- Make recommendations or judgments
-- State which car is "better" in any way
-
-Your ONLY job is to retrieve factual data for each metric for each car.
-Return ONLY JSON. No markdown. No code fences. No commentary.
-Use double quotes only. Do not include trailing commas.
-Do not output tables, repetition, or long paragraphs.
+You are Stage A for comparison: per-car grounded evidence only. Do not compare, rank, score, or recommend.
+For exact catalog matches, identity fields come from the local catalog. Web search is mandatory for non-identity analysis. Report identity conflicts instead of changing catalog identity.
 
 {bounded_cars}
-
-IMPORTANT: Use these EXACT keys in the "cars" object:
+Use exact slot keys:
 {slot_mapping_text}
 
-Return data for each car using the slot key (car_1, car_2, etc.) NOT the car name.
-
-SEGMENT_CONTEXT_BY_SLOT (deterministic; use this mission when assigning labels):
-{json.dumps(segment_context, ensure_ascii=False, indent=2)}
-
-CATEGORY_BEHAVIOR_RULES:
-{json.dumps(COMPARE_CATEGORY_BEHAVIOR_RULES, ensure_ascii=False, indent=2)}
-
-Return a SINGLE JSON object with this EXACT structure:
-
+Return ONLY JSON:
 {{
   "grounding_successful": true,
-  "search_queries_used": ["list of actual search queries you ran"],
-  "assumptions": {{
-    "year_assumption": "If year range wasn't clear, state what years you assumed",
-    "engine_assumption": "If specific engine wasn't given, state what you assumed",
-    "trim_assumption": "If specific trim wasn't given, state what you assumed"
-  }},
+  "search_queries_used": [],
   "cars": {{
     "car_1": {{
-      "reliability_risk": {{
-        "reliability_rating": {{
-          "value": 0-100 or null,
-          "missing_reason": "reason if null",
-          "sources": [
-            {{"url": "https://...", "title": "Source title", "snippet": "Brief quote (max 25 words)"}}
-          ]
-        }},
-        "major_failure_risk": {{
-          "value": "low" | "medium" | "high" | null,
-          "missing_reason": "reason if null",
-          "sources": [...]
-        }},
-        "common_failure_patterns": {{
-          "value": [
-            {{"issue": "Issue name", "frequency": "common/rare/occasional"}}
-          ] or null,
-          "missing_reason": "reason if null",
-          "sources": [...]
-        }},
-        "mileage_sensitivity": {{
-          "value": "low" | "medium" | "high" | null,
-          "missing_reason": "reason if null",
-          "sources": [...]
-        }},
-        "maintenance_complexity": {{
-          "value": "low" | "medium" | "high" | null,
-          "missing_reason": "reason if null",
-          "sources": [...]
-        }},
-        "expected_maintenance_cost_level": {{
-          "value": "low" | "medium" | "high" | null,
-          "missing_reason": "reason if null",
-          "sources": [...]
-        }}
-      }},
-      "ownership_cost": {{
-        "fuel_economy_real_world": {{
-          "value": <number in L/100km> or null,
-          "missing_reason": "reason if null",
-          "sources": [...]
-        }},
-        "insurance_cost_level": {{
-          "value": "low" | "medium" | "high" | null,
-          "missing_reason": "reason if null",
-          "sources": [...]
-        }},
-        "depreciation_value_retention": {{
-          "value": "low" | "medium" | "high" | null,
-          "missing_reason": "reason if null",
-          "sources": [...]
-        }},
-        "parts_availability": {{
-          "value": "low" | "medium" | "high" | null,
-          "missing_reason": "reason if null",
-          "sources": [...]
-        }},
-        "service_network_ease": {{
-          "value": "low" | "medium" | "high" | null,
-          "missing_reason": "reason if null",
-          "sources": [...]
-        }}
-      }},
-      "practicality_comfort": {{
-        "cabin_space": {{
-          "value": "small" | "medium" | "large" | null,
-          "missing_reason": "reason if null",
-          "sources": [...]
-        }},
-        "trunk_space_liters": {{
-          "value": <number in liters> or null,
-          "missing_reason": "reason if null",
-          "sources": [...]
-        }},
-        "ride_comfort": {{
-          "value": "low" | "medium" | "high" | null,
-          "missing_reason": "reason if null",
-          "sources": [...]
-        }},
-        "noise_insulation": {{
-          "value": "low" | "medium" | "high" | null,
-          "missing_reason": "reason if null",
-          "sources": [...]
-        }},
-        "city_driveability": {{
-          "value": "low" | "medium" | "high" | null,
-          "missing_reason": "reason if null",
-          "sources": [...]
-        }},
-        "features_value": {{
-          "value": "low" | "medium" | "high" | null,
-          "missing_reason": "reason if null",
-          "sources": [...]
-        }}
-      }},
-      "driving_performance": {{
-        "acceleration_0_100": {{
-          "value": <number in seconds> or null,
-          "missing_reason": "reason if null",
-          "sources": [...]
-        }},
-        "engine_power_hp": {{
-          "value": <number in hp> or null,
-          "missing_reason": "reason if null",
-          "sources": [...]
-        }},
-        "handling_stability": {{
-          "value": "low" | "medium" | "high" | null,
-          "missing_reason": "reason if null",
-          "sources": [...]
-        }},
-        "braking_performance": {{
-          "value": "low" | "medium" | "high" | null,
-          "missing_reason": "reason if null",
-          "sources": [...]
-        }},
-        "highway_stability": {{
-          "value": "low" | "medium" | "high" | null,
-          "missing_reason": "reason if null",
-          "sources": [...]
-        }}
-      }}
+      "catalog_identity": {{"match_type":"exact|ambiguous|unmatched","identity_basis":"catalog_exact|catalog_ambiguous|web_resolved|unmatched","make":"","model":"","canonical_model":null,"year":null,"version_or_trim":null,"body_type":null,"fuel_type":null,"engine":null,"engine_displacement_l":null,"horsepower_hp":null,"transmission":null,"drivetrain":null,"year_start":null,"year_end":null,"support_level":null}},
+      "pricing": {{"new_price_range_ils":null,"used_price_range_ils":null,"notes":[],"sources":[]}},
+      "trim_equipment_summary": {{"trims":[],"summary":"לא ידוע / לבדיקה","sources":[]}},
+      "license_running_cost": {{"license_fee":"לא ידוע / לבדיקה","maintenance_cost_pressure":"unknown|low|medium|high","notes":[],"sources":[]}},
+      "fuel_energy": {{"official":"לא ידוע / לבדיקה","real_world":"לא ידוע / לבדיקה","notes":[],"sources":[]}},
+      "official_safety": {{"rating":null,"organization":null,"test_year":null,"notes":[],"sources":[]}},
+      "powertrain_performance": {{"engine":null,"gearbox":null,"drivetrain":null,"horsepower":null,"torque_nm":null,"zero_to_100_sec":null,"notes":[],"sources":[]}},
+      "reliability_risks": {{"top_risks":[],"recalls":[],"maintenance_complexity":"unknown|low|medium|high","sources":[]}},
+      "practicality": {{"body_type":null,"space":"לא ידוע / לבדיקה","trunk_liters":null,"seats":null,"notes":[],"sources":[]}},
+      "resale_market": {{"supply":"לא ידוע / לבדיקה","depreciation_risk":"unknown|low|medium|high","notes":[],"sources":[]}},
+      "sources": [],
+      "uncertainties_conflicts": []
     }}
-    "car_2": {{ ... }}
-  }}
+  }},
+  "sources": []
 }}
-
-RULES:
-1. For technical identity (make, model, engine, transmission, drivetrain, body_type), use LOCAL_VEHICLE_CATALOG_CONTEXT as the primary source when match_type is exact. Web grounding is MANDATORY for all analytical sections: reliability, costs, recalls, safety, pricing, reviews. If catalog match_type is ambiguous, verify identity via web search. If there is a conflict between catalog and web data for identity fields, report data_conflict=true.
-2. Only set value=null if you genuinely have no basis whatsoever to estimate. Prefer a low-confidence estimate over null.
-3. Sources are optional for identity fields when catalog provides them. For analytical sections, include source URLs when available.
-4. Segment-aware labels are required: judge each car against realistic expectations of its inferred mission, not one universal standard.
-5. Keep the 4 main categories unchanged; only the sub-priority logic is segment-aware.
-6. Do NOT compare cars or state winners - only provide raw data.
-7. Return ONLY valid JSON. No markdown, no explanations.
-8. Do not wrap the response in an array; return one object that starts with {{ and ends with }}.
-9. If a required field is truly unknown, keep the key and use null instead of omitting it — but always try to estimate first.
+Rules: Include all selected car_N slots. Unknown visible fields: "לא ידוע / לבדיקה". No empty strings. Return source URLs for analytical claims.
 """.strip()
 
 
@@ -764,7 +494,7 @@ Return ONLY valid JSON with EXACTLY this top-level schema:
     "key_differences": [{{"title":"string",{
         key_difference_fields
     },"meaning_for_buyer":"string"}}],
-    "competitors_to_consider": [{{"model":"string","why_consider":"string"}}],
+    "competitors_to_consider": [{{"model":"string","why_consider":"string","confidence":"high|medium|low"}}],
     "practical_summary":"Hebrew practical paragraph. Neutral. No first person. No direct buy/don't-buy command."
   }},
   "checked_versions": {{
@@ -780,7 +510,7 @@ Return ONLY valid JSON with EXACTLY this top-level schema:
 
 HARD RULES:
 1. Do not output /100, /10, winnerScore, overall_score, category_score, category weights, "ציון", or "ניקוד".
-2. Do not say "המנצח". Prefer "הבחירה הסבירה יותר", "תלוי שימוש", "אין הכרעה חד משמעית", "עדיפות קלה", "דורש בדיקה נוספת".
+2. Do not say "המנצח", winner, or best. Use only soft decision language: "עדיפות קלה", "תלוי שימוש", "אין הכרעה חד משמעית", "דורש בדיקה נוספת".
 3. Do not use first person. Do not say "אני ממליץ", "הייתי קונה", "תקנה", or "אל תקנה".
 4. No direct purchase advice and no "הרכב הטוב ביותר".
 5. Google-grounded factual claims must keep source URLs. If official safety/prices/trims/fees/recalls/warranty are unavailable, use null/unknown or an explicit caveat.

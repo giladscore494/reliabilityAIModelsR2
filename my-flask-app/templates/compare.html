@@ -266,6 +266,7 @@
                                             class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
                                         <option value="אוטומטית" selected>אוטומטית</option>
                                         <option value="רובוטית">רובוטית</option>
+                                        <option value="רובוטית כפולת מצמדים">רובוטית כפולת מצמדים</option>
                                         <option value="רציפה">רציפה</option>
                                         <option value="ידנית">ידנית</option>
                                         <option value="לא ידוע / לבדיקה">לא ידוע / לבדיקה</option>
@@ -278,6 +279,7 @@
                                     <option value="">-- בחר גרסה --</option>
                                 </select>
                                 <input type="hidden" id="variant_id_1">
+                                <div id="variant_summary_1" class="hidden mt-2 rounded-lg border border-slate-700/40 bg-white/40 p-2 text-xs text-slate-300"></div>
                             </div>
                         </div>
                     </div>
@@ -325,6 +327,7 @@
                                             class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
                                         <option value="אוטומטית" selected>אוטומטית</option>
                                         <option value="רובוטית">רובוטית</option>
+                                        <option value="רובוטית כפולת מצמדים">רובוטית כפולת מצמדים</option>
                                         <option value="רציפה">רציפה</option>
                                         <option value="ידנית">ידנית</option>
                                         <option value="לא ידוע / לבדיקה">לא ידוע / לבדיקה</option>
@@ -337,6 +340,7 @@
                                     <option value="">-- בחר גרסה --</option>
                                 </select>
                                 <input type="hidden" id="variant_id_2">
+                                <div id="variant_summary_2" class="hidden mt-2 rounded-lg border border-slate-700/40 bg-white/40 p-2 text-xs text-slate-300"></div>
                             </div>
                         </div>
                     </div>
@@ -384,6 +388,7 @@
                                             class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
                                         <option value="אוטומטית" selected>אוטומטית</option>
                                         <option value="רובוטית">רובוטית</option>
+                                        <option value="רובוטית כפולת מצמדים">רובוטית כפולת מצמדים</option>
                                         <option value="רציפה">רציפה</option>
                                         <option value="ידנית">ידנית</option>
                                         <option value="לא ידוע / לבדיקה">לא ידוע / לבדיקה</option>
@@ -396,6 +401,7 @@
                                     <option value="">-- בחר גרסה --</option>
                                 </select>
                                 <input type="hidden" id="variant_id_3">
+                                <div id="variant_summary_3" class="hidden mt-2 rounded-lg border border-slate-700/40 bg-white/40 p-2 text-xs text-slate-300"></div>
                             </div>
                         </div>
                     </div>
@@ -640,12 +646,12 @@
     // Fuel/transmission Hebrew label maps for variant auto-fill
     const FUEL_LABEL_MAP = {
         'petrol': 'בנזין', 'diesel': 'דיזל',
-        'hybrid': 'היברידי', 'plug_in_hybrid': 'היברידי',
+        'hybrid': 'היברידי', 'mild_hybrid': 'מיקרו-היברידי / mild hybrid', 'plug_in_hybrid': 'פלאג-אין',
         'electric': 'חשמלי',
     };
     const TRANS_LABEL_MAP = {
         'automatic': 'אוטומטית', 'manual': 'ידנית',
-        'robotic': 'רובוטית', 'cvt': 'רציפה',
+        'robotic': 'רובוטית כפולת מצמדים', 'dual_clutch': 'רובוטית כפולת מצמדים', 'dct': 'רובוטית כפולת מצמדים', 'cvt': 'רציפה', 'single_speed': 'הילוך יחיד',
     };
 
     // New catalog format: CAR_DATA = { make: { model: { year_start, year_end, variants } } }
@@ -671,10 +677,12 @@
         const container = document.getElementById(`variant_container_${slotSuffix}`);
         const variantSel = document.getElementById(`variant_${slotSuffix}`);
         const variantIdHidden = document.getElementById(`variant_id_${slotSuffix}`);
+        const summary = document.getElementById(`variant_summary_${slotSuffix}`);
         if (!container || !variantSel) return;
         container.classList.add('hidden');
         variantSel.innerHTML = '<option value="">-- בחר גרסה --</option>';
         if (variantIdHidden) variantIdHidden.value = '';
+        if (summary) { summary.classList.add('hidden'); summary.innerHTML = ''; }
 
         const make = document.getElementById(`car_make_${slotSuffix}`)?.value || '';
         const model = document.getElementById(`car_model_${slotSuffix}`)?.value || '';
@@ -699,27 +707,64 @@
             opt.textContent = v.label;
             opt.dataset.fuel = v.fuel_type || '';
             opt.dataset.trans = v.transmission || '';
+            opt.dataset.engine = v.engine || '';
+            opt.dataset.hp = v.horsepower_hp || '';
+            opt.dataset.drivetrain = v.drivetrain || '';
+            opt.dataset.trim = v.version_or_trim || '';
             variantSel.appendChild(opt);
         });
+    }
+
+    function normalizeCompareTransmissionForSelect(value) {
+        const raw = String(value || '').toLowerCase().replace(/-/g, '_').trim();
+        if (!raw) return '';
+        if (raw.includes('dual_clutch') || raw.includes('dct')) return 'רובוטית כפולת מצמדים';
+        if (raw.includes('cvt')) return 'רציפה';
+        if (raw.includes('manual')) return 'ידנית';
+        if (raw.includes('single_speed')) return 'הילוך יחיד';
+        if (raw.includes('automatic')) return 'אוטומטית';
+        return TRANS_LABEL_MAP[raw] || '';
+    }
+
+    function setSelectByVisibleValue(selectEl, label) {
+        if (!selectEl || !label) return;
+        for (let i = 0; i < selectEl.options.length; i++) {
+            if (selectEl.options[i].value === label || selectEl.options[i].textContent.trim() === label) {
+                selectEl.selectedIndex = i;
+                return;
+            }
+        }
     }
 
     function onCompareVariantChange(slotSuffix) {
         const variantSel = document.getElementById(`variant_${slotSuffix}`);
         const variantIdHidden = document.getElementById(`variant_id_${slotSuffix}`);
+        const summary = document.getElementById(`variant_summary_${slotSuffix}`);
         if (!variantSel) return;
         const sel = variantSel.options[variantSel.selectedIndex];
-        if (variantIdHidden) variantIdHidden.value = sel ? sel.value : '';
-        if (!sel || !sel.value) return;
+        if (variantIdHidden) variantIdHidden.value = sel && sel.value ? sel.value : '';
+        if (!sel || !sel.value) { if (summary) { summary.classList.add('hidden'); summary.innerHTML = ''; } return; }
         // Auto-fill engine and gear
         const engineSel = document.getElementById(`engine_${slotSuffix}`);
         const gearSel = document.getElementById(`gear_${slotSuffix}`);
         if (engineSel && sel.dataset.fuel) {
             const label = FUEL_LABEL_MAP[sel.dataset.fuel.toLowerCase()] || '';
-            if (label) { for (let i = 0; i < engineSel.options.length; i++) { if (engineSel.options[i].value === label) { engineSel.selectedIndex = i; break; } } }
+            setSelectByVisibleValue(engineSel, label);
         }
         if (gearSel && sel.dataset.trans) {
-            const label = TRANS_LABEL_MAP[sel.dataset.trans.toLowerCase()] || '';
-            if (label) { for (let i = 0; i < gearSel.options.length; i++) { if (gearSel.options[i].value === label) { gearSel.selectedIndex = i; break; } } }
+            const label = normalizeCompareTransmissionForSelect(sel.dataset.trans);
+            setSelectByVisibleValue(gearSel, label);
+        }
+        if (summary) {
+            const parts = ['גרסה שנבחרה'];
+            if (sel.dataset.fuel) parts.push(FUEL_LABEL_MAP[sel.dataset.fuel.toLowerCase()] || sel.dataset.fuel);
+            if (sel.dataset.engine) parts.push(sel.dataset.engine);
+            if (sel.dataset.hp) parts.push(`${sel.dataset.hp} כ״ס`);
+            if (sel.dataset.trans) parts.push(normalizeCompareTransmissionForSelect(sel.dataset.trans) || sel.dataset.trans);
+            if (sel.dataset.drivetrain) parts.push(sel.dataset.drivetrain);
+            if (sel.dataset.trim) parts.push(sel.dataset.trim);
+            summary.textContent = parts.filter(Boolean).join(' · ');
+            summary.classList.remove('hidden');
         }
         updateCompareButton();
     }
