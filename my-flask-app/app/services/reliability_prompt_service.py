@@ -43,6 +43,74 @@ def _build_locked_identity_block(resolution: dict) -> str:
     return json.dumps(locked, ensure_ascii=False, separators=(",", ":"))
 
 
+# The expected response shape is defined as a Python object and serialized with
+# json.dumps so the prompt never embeds raw JSON braces inside an f-string
+# (the previous f-string version crashed /analyze with a ValueError). Keep this
+# as data, not string interpolation, to prevent that class of bug from
+# reappearing.
+REVIEW_RESPONSE_SCHEMA = {
+    "ok": True,
+    "search_queries": ["שאילתות שבוצעו בפועל"],
+    "sources": [
+        {"title": "", "url": "", "publisher": "", "used_for": "recall|fault|market|safety|warranty|fuel|other"}
+    ],
+    "research_status": {
+        "limitations": [],
+        "open_fields": [{"field": "", "missing_source_type": "", "why_open": ""}],
+    },
+    "overview": {
+        "based_on_available_information": "",
+        "plain_summary": "",
+        "best_for": [],
+        "less_suitable_for": [],
+        "confidence": "high|medium|low",
+    },
+    "risk_analysis": {
+        "overall_risk_level": "low|medium|high|unknown",
+        "top_risks": [{"risk_area": "", "why_to_check": "", "sources": [""]}],
+        "systemic_issues": [
+            {
+                "issue": "",
+                "severity": "low|medium|high|unknown",
+                "frequency_signal": "low|medium|high|unknown",
+                "what_to_check": "",
+                "source_refs": [""],
+            }
+        ],
+        "recalls_or_service_campaigns": [
+            {"description": "", "severity": "low|medium|high|unknown", "source": ""}
+        ],
+        "known_uncertainties": [],
+    },
+    "ownership_cost": {
+        "maintenance_cost_pressure": "low|medium|high|unknown",
+        "expensive_items_to_check": [],
+        "fuel_or_energy_notes": [],
+        "insurance_or_tax_notes_if_found": [],
+        "cost_confidence": "high|medium|low",
+    },
+    "market_context": {
+        "israel_used_market_notes": [],
+        "price_supply_signal": "strong|average|weak|unknown",
+        "resale_notes": [],
+        "warranty_israel": {"vehicle_warranty": None, "battery_warranty": None, "notes": [], "sources": []},
+        "official_safety": {"rating": None, "organization": None, "test_year": None, "notes": [], "sources": []},
+        "pricing_israel": {"used_price_range_ils": None, "new_price_range_ils": None, "notes": [], "sources": []},
+        "trims_israel": [],
+        "competitors": [
+            {"model_name": "", "why_relevant": "", "better_for": "", "confidence": "high|medium|low", "sources": []}
+        ],
+    },
+    "buyer_checklist": {
+        "mechanical_inspection_points": [],
+        "paperwork_checks": [],
+        "test_drive_checks": [],
+        "questions_to_ask_seller": [],
+    },
+    "final_line": "This information highlights areas to verify and is not a substitute for a professional inspection.",
+}
+
+
 def build_reliability_report_prompt(payload: dict, missing_info: list[str]) -> str:
     """Prompt for the strict reliability report JSON schema."""
     safe_make = escape_prompt_input(payload.get("make"), max_length=120)
@@ -138,6 +206,7 @@ def build_combined_prompt(payload: dict, missing_info: list[str], resolution: di
     )
     data_instruction = create_data_only_instruction()
     locked_identity = _build_locked_identity_block(resolution)
+    schema_json = json.dumps(REVIEW_RESPONSE_SCHEMA, ensure_ascii=False, indent=2)
     status = resolution.get("resolution_status") or "unmatched"
     if status in ("exact", "inferred"):
         identity_rule = (
@@ -185,48 +254,5 @@ STRICT RULES:
 - final_line חייב להיות בדיוק המשפט האנגלי שבסכימה.
 
 החזר אובייקט JSON יחיד במבנה זה (ערכי הזהות יוחלפו בשרת מהקטלוג — אל תסתמך עליהם להחלטה):
-{{
-  "ok": true,
-  "search_queries": ["שאילתות שבוצעו בפועל"],
-  "sources": [{{"title":"","url":"","publisher":"","used_for":"recall|fault|market|safety|warranty|fuel|other"}}],
-  "research_status": {{"limitations": [], "open_fields": [{{"field":"","missing_source_type":"","why_open":""}}]}},
-  "overview": {{
-    "based_on_available_information": "",
-    "plain_summary": "",
-    "best_for": [],
-    "less_suitable_for": [],
-    "confidence": "high|medium|low"
-  }},
-  "risk_analysis": {{
-    "overall_risk_level": "low|medium|high|unknown",
-    "top_risks": [{{"risk_area":"","why_to_check":"","sources":[""]}}],
-    "systemic_issues": [{{"issue":"","severity":"low|medium|high|unknown","frequency_signal":"low|medium|high|unknown","what_to_check":"","source_refs":[""]}}],
-    "recalls_or_service_campaigns": [{{"description":"","severity":"low|medium|high|unknown","source":""}}],
-    "known_uncertainties": []
-  }},
-  "ownership_cost": {{
-    "maintenance_cost_pressure": "low|medium|high|unknown",
-    "expensive_items_to_check": [],
-    "fuel_or_energy_notes": [],
-    "insurance_or_tax_notes_if_found": [],
-    "cost_confidence": "high|medium|low"
-  }},
-  "market_context": {{
-    "israel_used_market_notes": [],
-    "price_supply_signal": "strong|average|weak|unknown",
-    "resale_notes": [],
-    "warranty_israel": {{"vehicle_warranty": null, "battery_warranty": null, "notes": [], "sources": []}},
-    "official_safety": {{"rating": null, "organization": null, "test_year": null, "notes": [], "sources": []}},
-    "pricing_israel": {{"used_price_range_ils": null, "new_price_range_ils": null, "notes": [], "sources": []}},
-    "trims_israel": [],
-    "competitors": [{{"model_name":"","why_relevant":"","better_for":"","confidence":"high|medium|low","sources":[]}}]
-  }},
-  "buyer_checklist": {{
-    "mechanical_inspection_points": [],
-    "paperwork_checks": [],
-    "test_drive_checks": [],
-    "questions_to_ask_seller": []
-  }},
-  "final_line": "This information highlights areas to verify and is not a substitute for a professional inspection."
-}}
+{schema_json}
 """.strip()

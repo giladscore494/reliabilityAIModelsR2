@@ -555,7 +555,10 @@ def test_compare_writer_prompt_requires_checked_versions():
 
     assert '"checked_versions"' in prompt
     assert "Do not use DSG" in prompt
-    assert "לא ידוע / לבדיקה" in prompt
+    # General transmission labels must be offered, and unverified fields must
+    # use null + verification notes (catalog-first prompt rewrite).
+    assert "רובוטית" in prompt and "ידנית" in prompt
+    assert "null" in prompt
 
 
 def test_compare_stage_b_empty_decision_arrays_are_backfilled(
@@ -898,7 +901,8 @@ def test_compare_writer_prompt_hard_rules_contain_critical_transmission_rule():
     assert "ידנית" in prompt or "manual" in prompt.lower(), (
         "Prompt must mention manual/ידנית in the context of critical rules"
     )
-    assert "לא ידוע / לבדיקה" in prompt
+    # Unverified fields must be expressed as null + verification notes.
+    assert "null" in prompt
     assert "14." in prompt, "Prompt must include rule 14 (transmission critical rule)"
     assert "15." in prompt, "Prompt must include rule 15 (required fields rule)"
     assert "16." in prompt, "Prompt must include rule 16 (decision text rule)"

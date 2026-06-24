@@ -152,6 +152,95 @@ def test_review_prompt_is_catalog_first():
     assert variants[0]["fuel_type"] in prompt
 
 
+def test_build_combined_prompt_does_not_raise_and_has_research_status():
+    """Regression for the production crash: build_combined_prompt raised
+    `ValueError: Invalid format specifier` from unescaped JSON braces in an
+    f-string. It must now build cleanly for a normal payload and include the
+    research_status schema. Also covers the factory delegation path used by
+    /analyze (analyze_service -> app.factory.build_combined_prompt)."""
+    import json as _json
+
+    from app.factory import build_combined_prompt as factory_build
+    from app.services.reliability_prompt_service import (
+        REVIEW_RESPONSE_SCHEMA,
+        build_combined_prompt,
+    )
+
+    payload = {"make": "Toyota", "model": "Corolla", "year": 2020}
+    # Must not raise (previously raised ValueError before the AI call).
+    prompt = build_combined_prompt(payload, [])
+    assert "research_status" in prompt
+    assert "LOCKED_CATALOG_IDENTITY" in prompt
+    assert "Google Search" in prompt
+    # Same via the factory delegation path that /analyze actually uses.
+    assert factory_build(payload, []) == prompt
+    # The schema is generated from a Python dict via json.dumps (robust).
+    assert _json.loads(_json.dumps(REVIEW_RESPONSE_SCHEMA))["research_status"]
+
+
+def test_review_response_schema_serializes_to_valid_json():
+    import json as _json
+
+    from app.services.reliability_prompt_service import REVIEW_RESPONSE_SCHEMA
+
+    rendered = _json.dumps(REVIEW_RESPONSE_SCHEMA, ensure_ascii=False, indent=2)
+    parsed = _json.loads(rendered)
+    assert set(parsed.keys()) >= {
+        "overview",
+        "risk_analysis",
+        "ownership_cost",
+        "market_context",
+        "buyer_checklist",
+        "research_status",
+        "sources",
+        "final_line",
+    }
+
+
+def test_stage_a_valid_current_schema_json_parses():
+    """A valid Stage A response matching the current car_profile schema must
+    parse successfully (guards against the parser over-rejecting valid JSON)."""
+    from app.services.comparison.grounding import parse_single_car_json
+
+    raw = json.dumps(
+        {
+            "car_name": "Toyota Corolla 2020",
+            "car_profile": {
+                "catalog_identity": {"make": "Toyota", "model": "Corolla"},
+                "pricing": {"used_price_range_ils": "70,000-90,000", "sources": ["https://e.x"]},
+                "reliability_risks": {"top_risks": ["x"], "maintenance_complexity": "low"},
+            },
+            "facts": {"horsepower": 122, "fuel_type": "petrol"},
+            "short_notes": ["note"],
+            "sources": ["https://example.com/a"],
+        }
+    )
+    parsed, err = parse_single_car_json(raw)
+    assert err is None
+    assert isinstance(parsed, dict)
+    assert parsed.get("car_profile")
+
+
+def test_stage_a_invalid_json_logs_safe_preview(app, monkeypatch, caplog):
+    """MODEL_JSON_INVALID must be logged with a short sanitized preview so prod
+    failures are diagnosable, without dumping the full response."""
+    import logging as _logging
+
+    from app.services.comparison import grounding
+
+    fake = _FakeClient("this is not json at all, just prose " * 50, grounded=True)
+    monkeypatch.setattr(extensions, "ai_client", fake)
+    with app.app_context():
+        with caplog.at_level(_logging.WARNING):
+            parsed, err = grounding.call_gemini_single_car("prompt", "car_1", 30, "req-xyz", None)
+    assert parsed is None
+    assert err == "MODEL_JSON_INVALID"
+    preview_logs = [r for r in caplog.records if "stage_a_model_json_invalid" in r.getMessage()]
+    assert preview_logs, "expected a sanitized MODEL_JSON_INVALID preview log"
+    # Preview must be bounded (not the full response).
+    assert "preview=" in preview_logs[-1].getMessage()
+
+
 # --------------------------------------------------------------------------
 # 4 — Review model call: 3.5 fast + Google Search
 # --------------------------------------------------------------------------

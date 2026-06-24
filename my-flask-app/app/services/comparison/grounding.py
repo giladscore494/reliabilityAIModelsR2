@@ -307,6 +307,17 @@ def call_gemini_single_car(
             outcome = "error"
             outcome_reason = parse_error
             _inc_compare_metric("compare_stage_a_json_invalid_total")
+            # Safe, concise preview so MODEL_JSON_INVALID is diagnosable in prod
+            # without dumping the full (possibly huge) response or any secrets.
+            preview = " ".join((text or "").split())[:200]
+            worker_logger.warning(
+                "[COMPARISON] stage_a_model_json_invalid request_id=%s car=%s reason=%s resp_len=%s preview=%.200s",
+                request_id or "unknown",
+                car_label,
+                parse_error,
+                len(text or ""),
+                preview,
+            )
             return None, parse_error
         if isinstance(parsed, dict):
             parsed["_grounding_meta"] = grounding_meta

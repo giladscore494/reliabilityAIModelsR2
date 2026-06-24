@@ -223,18 +223,11 @@ def _adapt_catalog_first_reliability_output(ai_output: Dict[str, Any]) -> Dict[s
         "analysis_confidence": (ai_output.get("catalog_resolution") or {}).get("confidence") or "low",
         "missing_data_flags": risk.get("known_uncertainties") or [],
     })
-    ai_output.setdefault("vehicle_profile", {
-        "vehicle_identity": {
-            "make": identity.get("make"), "model": identity.get("model"), "year": identity.get("selected_year"),
-            "generation": None, "body_type": identity.get("body_type"), "segment": None, "israel_market_status": "unclear",
-        },
-        "pricing_israel": market.get("pricing_israel") or {},
-        "trim_levels_israel": market.get("trims_israel") or [],
-        "official_safety": market.get("official_safety") or {},
-        "warranty_israel": market.get("warranty_israel") or {},
-        "competitors": market.get("competitors") or [],
-        "buyer_summary": overview.get("plain_summary") or overview.get("based_on_available_information"),
-    })
+    # NOTE: We intentionally do NOT synthesize a legacy ``vehicle_profile`` when
+    # the model omits one. The canonical identity is ``identity_snapshot`` (built
+    # server-side from the catalog); ``vehicle_profile`` only passes through when
+    # the model actually returned it, preserving the "absent when not provided"
+    # contract the UI relies on.
     return ai_output
 
 def derive_information_quality_review(
