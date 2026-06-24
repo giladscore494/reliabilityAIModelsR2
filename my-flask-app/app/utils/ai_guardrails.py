@@ -1236,6 +1236,7 @@ def apply_feature_guardrails(
         ):
             result.setdefault("legacy_notice", LEGACY_DISPLAY_NOTE)
     if log_validation:
+        warning_fields = report.get("affected_sections") or []
         _log_event(
             "ai_guardrail_validation",
             feature_key,
@@ -1244,5 +1245,6 @@ def apply_feature_guardrails(
             warning_count=len(report.get("warnings") or []),
             repaired=repaired,
             request_id=request_id,
+            warning_fields=warning_fields if report.get("warnings") else [],
         )
     return result, report
