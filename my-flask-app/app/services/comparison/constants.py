@@ -15,9 +15,10 @@ CHECKED_VERSION_DATA_BASIS_ALLOWED = {
 CHECKED_VERSION_CONFIDENCE_ALLOWED = {"high", "medium", "low", "unverified"}
 
 COMPARISON_PROMPT_VERSION = "v4"
-COMPARISON_MODEL_ID = os.environ.get(
-    "COMPARISON_STAGE_A_MODEL",
-    os.environ.get("GEMINI_COMPARE_MODEL_ID", "gemini-3.1-pro-preview"),
+COMPARISON_MODEL_ID = (
+    os.environ.get("COMPARISON_STAGE_A_MODEL")
+    or os.environ.get("GEMINI_COMPARE_MODEL_ID")
+    or "gemini-3.5-flash"
 )
 AI_CALL_TIMEOUT_SEC = int(os.environ.get("AI_CALL_TIMEOUT_SEC", "170"))
 COMPARE_STAGE_A_TIMEOUT_SEC = int(os.environ.get("COMPARE_STAGE_A_TIMEOUT_SEC", "60"))

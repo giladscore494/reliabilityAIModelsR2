@@ -72,8 +72,9 @@ def _generate_content_with_404_fallback(
         safe_model = comparison_safe_model_id()
         if is_model_not_found_error(exc) and model != safe_model:
             call_log.warning(
-                "[AI] request_id=%s feature=%s event=model_fallback_due_to_404 original_model=%s fallback_model=%s fallback_reason=model_404",
+                "[AI] request_id=%s feature=%s stage=%s event=model_fallback_due_to_404 original_model=%s fallback_model=%s fallback_reason=model_404",
                 request_id or "unknown",
+                feature,
                 feature,
                 model,
                 safe_model,
@@ -507,8 +508,10 @@ def _attempt_json_repair(
             "Use ONLY facts present in the text. Do not add new facts.\n"
             "Do not copy schema placeholders. Do not output enum options like 'high|medium|low'.\n\n"
             "The response must start with '{'. No markdown, no code fences, no explanation.\n\n"
-            "Required top-level keys: car_name, car_profile (dict with evidence), facts, short_notes, sources.\n"
-            "Use null for unknown values, [] for empty arrays.\n\n"
+            "Required top-level keys for ONE car only: car_name, reliability, ownership_cost, "
+            "comfort_practicality, performance_driving, facts, short_notes, sources, car_profile.\n"
+            "Scoring sections must use only real low/medium/high labels supported by the text, otherwise null.\n"
+            "Reject/avoid research-status-only objects and schema echoes. Use null for unknown values, [] for empty arrays.\n\n"
             f"MODEL RESPONSE:\n{truncated_text}"
         )
 

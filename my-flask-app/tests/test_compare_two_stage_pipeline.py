@@ -950,8 +950,8 @@ def test_compare_stage_a_timeout_returns_503_with_retryable_error(
     body = resp.get_json()
     assert body["ok"] is False
     assert body["error"]["code"] == "comparison_ai_unavailable"
-    assert body["error"]["details"]["stage"] == "stage_a"
-    assert body["error"]["details"]["retryable"] is True
+    assert body["error"]["message"] == "לא הצלחנו להשלים את ההשוואה כרגע. אפשר לנסות שוב או לדייק שנתון, מנוע ורמת גימור."
+    assert "details" not in body["error"]
 
 
 def test_parse_stage_a_json_handles_fences_and_text():
@@ -976,6 +976,47 @@ def test_parse_stage_a_json_invalid_returns_model_json_invalid():
     parsed, err = comparison_service.parse_stage_a_json("not-json")
     assert parsed is None
     assert err == "MODEL_JSON_INVALID"
+
+
+
+def test_parse_single_car_rejects_research_status_only_repair_response():
+    parsed, err = comparison_service.parse_single_car_json(
+        '{"status":"partial","checked_areas":[],"open_fields":[]}'
+    )
+    assert parsed is None
+    assert err == "MODEL_JSON_INVALID"
+
+
+def test_parse_single_car_rejects_schema_placeholder_values():
+    parsed, err = comparison_service.parse_single_car_json(
+        '{"car_name":"string","reliability":{"overall":"high|medium|low"}}'
+    )
+    assert parsed is None
+    assert err == "MODEL_JSON_INVALID"
+
+
+def test_car_profile_only_payload_keeps_scores_empty():
+    output = {
+        "cars": {
+            "car_1": {
+                "car_name": "Profile only",
+                "car_profile": {"evidence": [{"claim": "has some evidence"}]},
+                "facts": {},
+                "short_notes": ["evidence exists"],
+                "sources": ["https://example.com"],
+            },
+            "car_2": {
+                "car_name": "No labels",
+                "car_profile": {"evidence": [{"claim": "has some evidence"}]},
+                "facts": {},
+                "short_notes": ["evidence exists"],
+                "sources": ["https://example.org"],
+            },
+        }
+    }
+    computed = comparison_service.compute_comparison_results(output)
+    assert computed["overall_winner"] is None
+    assert all(car["overall_score"] is None for car in computed["cars"].values())
 
 
 def test_stage_a_config_is_bounded_and_grounding_enabled(app, monkeypatch):
@@ -1649,7 +1690,9 @@ def test_call_stage_a_parallel_repairs_json_invalid(app, monkeypatch):
         }
 
     def fake_repair(raw_text, car_label, original_grounding_meta, request_id, log):
-        repair_calls.append((car_label, original_grounding_meta))
+        repair_calls.append((raw_text, car_label, original_grounding_meta))
+        assert raw_text == "some raw model output about Toyota Corolla"
+        assert "Return ONLY valid JSON" not in raw_text
         return {
             "car_name": "Toyota Corolla 2020",
             "reliability": {"overall": "high"},

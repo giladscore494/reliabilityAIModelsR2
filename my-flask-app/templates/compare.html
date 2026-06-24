@@ -1664,7 +1664,7 @@
     }
 
     function hasDuplicates(cars) {
-        const keys = cars.map(c => `${c.make}|${c.model}|${c.year}|${c.engine_type}|${c.gearbox}`);
+        const keys = cars.map(c => `${c.make || ''}|${c.model || ''}|${c.year || ''}|${c.engine_type || ''}|${c.gearbox || ''}|${c.variant_id || ''}`);
         return new Set(keys).size !== keys.length;
     }
     
@@ -1759,20 +1759,16 @@
             const data = await resp.json();
             
             if (!resp.ok || !data.ok) {
-                // Extract error message and request_id
-                // Handle both standard API format: { ok:false, error:{code,message}, request_id }
+                // Extract user-facing error message
+                // Handle both standard API format: { ok:false, error:{code,message} }
                 // and legal enforcement format: { error:"TERMS_NOT_ACCEPTED", message:"..." }
                 let errorMsg = 'השוואה נכשלה';
                 let errorCode = '';
-                let requestId = data.request_id || '';
                 
                 if (data.ok === false && data.error && typeof data.error === 'object') {
                     // Standard API error format
                     errorMsg = data.error.message || 'שגיאה';
                     errorCode = data.error.code || '';
-                    if (data.error.details?.request_id) {
-                        requestId = data.error.details.request_id;
-                    }
                 } else if (typeof data.error === 'string') {
                     // Legacy/legal enforcement format
                     errorCode = data.error;
@@ -1781,26 +1777,22 @@
                 
                 // Handle specific error codes
                 // Use a custom error object that extends Error-like behavior
-                const createCompareError = (msg, reqId) => {
-                    const error = new Error(msg);
-                    error.requestId = reqId;
-                    return error;
-                };
+                const createCompareError = (msg) => new Error(msg);
                 
                 if (errorCode === 'TERMS_NOT_ACCEPTED' || data.error === 'TERMS_NOT_ACCEPTED') {
                     showCompareLegalError('יש לאשר תנאי שימוש ומדיניות פרטיות.');
-                    throw createCompareError('נדרש לאשר תנאי שימוש ומדיניות פרטיות', requestId);
+                    throw createCompareError('נדרש לאשר תנאי שימוש ומדיניות פרטיות');
                 }
                 if (errorCode === 'limit_reached' || data.error === 'limit_reached') {
-                    throw createCompareError('הגעת למקסימום 3 השוואות היום. נסה מחר.', requestId);
+                    throw createCompareError('הגעת למקסימום 3 השוואות היום. נסה מחר.');
                 }
                 if (errorCode === 'daily_limit_reached') {
                     const resetAt = data.error?.details?.reset_at ? new Date(data.error.details.reset_at).toLocaleString('he-IL') : '';
                     retryBtn?.classList.add('hidden');
-                    throw createCompareError(`הגעת למגבלת השימוש היומית. ניתן לנסות שוב אחרי ${resetAt}`, requestId);
+                    throw createCompareError(`הגעת למגבלת השימוש היומית. ניתן לנסות שוב אחרי ${resetAt}`);
                 }
                 
-                throw createCompareError(errorMsg, requestId);
+                throw createCompareError(errorMsg);
             }
             
             comparisonResult = data.data;
@@ -1815,18 +1807,10 @@
             
         } catch (err) {
             console.error('[COMPARE] Error:', err);
-            // Handle both standard Error objects and errors with requestId
             const errorMessage = err.message || 'שגיאה בביצוע ההשוואה';
-            const requestId = err.requestId || '';
-            
             document.getElementById('errorMessage').textContent = errorMessage;
-            
-            // Show request_id if available
             const errorRequestIdEl = document.getElementById('errorRequestId');
-            if (requestId && errorRequestIdEl) {
-                errorRequestIdEl.textContent = `מזהה בקשה: ${requestId}`;
-                errorRequestIdEl.classList.remove('hidden');
-            }
+            errorRequestIdEl?.classList.add('hidden');
             
             errorSection.classList.remove('hidden');
         } finally {
@@ -2070,10 +2054,11 @@
             <section class="yr-compare-category-grid">
                 ${[
                     ['pricing_and_value', 'מחיר ותמורה'],
-                    ['ownership_cost', 'עלות בעלות ואחזקה'],
-                    ['powertrain_and_performance', 'מנוע/גיר/ביצועים'],
+                    ['trim_and_equipment', 'רמות גימור ואבזור'],
+                    ['license_fee_and_running_cost', 'אגרה ועלויות שוטפות'],
                     ['fuel_consumption', 'צריכת דלק/חשמל'],
                     ['official_safety', 'בטיחות'],
+                    ['powertrain_and_performance', 'מנוע/גיר/ביצועים'],
                     ['reliability_and_risk', 'אמינות וסיכונים'],
                     ['family_daily_use', 'שימוש יומי/משפחתי'],
                     ['resale_and_market_confidence', 'סחירות ושוק'],
@@ -2089,8 +2074,6 @@
 
     function renderComparePartialResearch(result) {
         const ai = result?.ai || result?.computed_result?.ai || {};
-        const requestId = result?.request_id || ai.request_id || '';
-        const reason = ai.reason || ai.error || 'partial_research';
         return `
             <section class="rounded-3xl border border-amber-400/35 bg-amber-400/10 p-5 md:p-6 text-right">
                 <div class="inline-flex items-center rounded-full border border-amber-300/40 bg-amber-300/10 px-3 py-1 text-xs font-bold text-amber-200 mb-3">מחקר חלקי</div>
@@ -2101,10 +2084,7 @@
                     <li>• שדות פתוחים נשארים לא מוצגים במקום להופיע כטקסט מילוי.</li>
                     <li>• מומלץ לנסות שוב או לצמצם גרסה/שנתון/מנוע.</li>
                 </ul>
-                <div class="mt-4 flex flex-wrap gap-2 text-xs text-slate-400">
-                    <span class="rounded-full border border-slate-600 px-3 py-1">reason: ${escapeHtml(reason)}</span>
-                    ${requestId ? `<span class="rounded-full border border-slate-600 px-3 py-1">request_id: ${escapeHtml(requestId)}</span>` : ''}
-                </div>
+                <div class="mt-4 text-xs text-slate-400">פרטי התקלה נשמרו בלוגים הפנימיים בלבד.</div>
             </section>`;
     }
 

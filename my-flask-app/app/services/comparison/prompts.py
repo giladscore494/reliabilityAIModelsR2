@@ -6,6 +6,7 @@ import os
 from typing import Any, Dict, List, Optional
 
 from app.services.vehicle_catalog_service import build_vehicle_catalog_context
+from app.services.comparison.constants import CATEGORY_LABELS_HE, COMPARE_CATEGORY_NAMES, DECISION_CATEGORY_DEFINITIONS, _MAX_STAGE_A_SOURCES
 from app.services.comparison.normalization import (
     infer_compare_segment_details,
     normalize_compare_writer_winner,
@@ -24,31 +25,6 @@ COMPARE_WRITER_PROMPT_CHAR_CAP = int(
     os.environ.get("COMPARE_WRITER_PROMPT_CHAR_CAP", "16000")
 )
 
-
-CATEGORY_LABELS_HE = {
-    "reliability_risk": "אמינות וסיכונים",
-    "ownership_cost": "עלות אחזקה",
-    "practicality_comfort": "נוחות ופרקטיות",
-    "driving_performance": "ביצועים ונהיגה",
-}
-
-
-_MAX_STAGE_A_SOURCES = 5
-
-
-COMPARE_CATEGORY_NAMES = tuple(CATEGORY_LABELS_HE.keys())
-
-
-DECISION_CATEGORY_DEFINITIONS = [
-    ("pricing_and_value", "מחיר ותמורה"),
-    ("ownership_cost", "עלות בעלות ואחזקה"),
-    ("powertrain_and_performance", "מכלולים וביצועים"),
-    ("fuel_consumption", "צריכת דלק/חשמל"),
-    ("official_safety", "בטיחות רשמית"),
-    ("reliability_and_risk", "אמינות וסיכונים"),
-    ("family_daily_use", "שימוש יומי ומשפחתי"),
-    ("resale_and_market_confidence", "סחירות וירידת ערך"),
-]
 
 
 COMPARE_SEGMENT_PROMPT_RULES = {
@@ -308,6 +284,34 @@ def build_single_car_prompt(car: Dict, region: str = "IL") -> str:
             },
             "uncertainties_conflicts": [],
         },
+        "reliability": {
+            "overall": None,
+            "issue_frequency": None,
+            "issue_severity": None,
+            "repair_cost_risk": None,
+            "recall_risk": None,
+            "parts_complexity": None,
+        },
+        "ownership_cost": {
+            "fuel_cost": None,
+            "routine_maintenance": None,
+            "repair_burden": None,
+            "insurance_burden": None,
+            "depreciation_risk": None,
+        },
+        "comfort_practicality": {
+            "space": None,
+            "ride_comfort": None,
+            "trunk_usefulness": None,
+            "daily_usability": None,
+        },
+        "performance_driving": {
+            "power_feel": None,
+            "power_to_weight": None,
+            "braking_confidence": None,
+            "handling_agility": None,
+            "fun_to_drive": None,
+        },
         "facts": {
             "horsepower": None,
             "weight_kg": None,
@@ -340,7 +344,7 @@ def build_single_car_prompt(car: Dict, region: str = "IL") -> str:
         f"Return ONLY valid JSON matching this schema:\n{schema_json}\n\n"
         "Do not output enum placeholder strings like 'high|medium|low'. "
         "If unknown, use null. "
-        "Rules: All rich evidence goes inside car_profile.evidence array. "
+        "Rules: All rich evidence goes inside car_profile.evidence array. Also fill compact scoring sections reliability, ownership_cost, comfort_practicality, performance_driving only when evidence supports low/medium/high labels; otherwise use null. "
         "facts must be top-level and populated from evidence when available. "
         "sources must be a top-level array of URL strings. "
         "No comparison, no scores, no winner, no invented facts. "
@@ -569,7 +573,7 @@ HARD RULES:
 3. Do not use first person. Do not say "אני ממליץ", "הייתי קונה", "תקנה", or "אל תקנה".
 4. No direct purchase advice and no "הרכב הטוב ביותר".
 5. Google-grounded factual claims must keep source URLs. If official safety/prices/trims/fees/recalls/warranty are unavailable, use null plus an explicit missing source type; do not turn it into successful-card filler.
-6. Fill exactly the 8 decision_categories from MODEL_PAYLOAD: pricing_and_value, ownership_cost, powertrain_and_performance, fuel_consumption, official_safety, reliability_and_risk, family_daily_use, resale_and_market_confidence. Use preferred="unknown" or "depends" when evidence is insufficient.
+6. Fill exactly the 9 decision_categories from MODEL_PAYLOAD: pricing_and_value, trim_and_equipment, license_fee_and_running_cost, fuel_consumption, official_safety, powertrain_and_performance, reliability_and_risk, family_daily_use, resale_and_market_confidence. Use preferred="unknown" or "depends" when evidence is insufficient.
 7. buyer_profile is preference context only; it may affect fit explanation only and never overrides car facts.
 8. For EVERY selected car, `choose_car_X_if` and `avoid_or_check_car_X_if` must contain 1-3 non-empty Hebrew strings whenever MODEL_PAYLOAD includes any usable evidence for that car.
 9. Never return [] for per-car arrays if `overall_decision`, `category_decisions`, `key_differences`, or the evidence snapshot can support cautious partial-research wording.

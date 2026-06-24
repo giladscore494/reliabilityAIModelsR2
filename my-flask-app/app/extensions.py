@@ -17,5 +17,5 @@ GEMINI_RELIABILITY_MODEL_ID = os.environ.get("GEMINI_RELIABILITY_MODEL_ID", "gem
 GEMINI_RECOMMENDER_MODEL_ID = os.environ.get("GEMINI_RECOMMENDER_MODEL_ID", "gemini-3.5-flash")
 GEMINI_COMPARE_MODEL_ID = os.environ.get(
     "GEMINI_COMPARE_MODEL_ID",
-    "gemini-3.1-pro-preview",
+    "gemini-3.5-flash",
 )

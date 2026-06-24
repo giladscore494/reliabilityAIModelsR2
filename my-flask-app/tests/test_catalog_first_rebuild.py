@@ -543,12 +543,12 @@ def test_stage_a_timeout_env_override(monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# 13 — Stage A uses Gemini 3.1 Pro (structured-output quality), Stage B has no tools
+# 13 — Stage A uses a supported Gemini comparison default, Stage B has no tools
 # --------------------------------------------------------------------------
-def test_stage_a_config_uses_gemini_31_pro():
+def test_stage_a_config_uses_supported_default_model():
     from app.services.comparison.constants import COMPARISON_MODEL_ID
-    assert COMPARISON_MODEL_ID == "gemini-3.1-pro-preview", (
-        f"Expected default comparison model to be gemini-3.1-pro-preview, got {COMPARISON_MODEL_ID}"
+    assert COMPARISON_MODEL_ID == "gemini-3.5-flash", (
+        f"Expected default comparison model to be gemini-3.5-flash, got {COMPARISON_MODEL_ID}"
     )
 
 
