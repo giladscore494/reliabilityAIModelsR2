@@ -519,35 +519,52 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
     if "sources" in src:
         out["sources"] = _sanitize_sources(src.get("sources"))
 
-    # issues_with_costs: list[dict]
+    # issues_with_costs: list[dict] - active Vehicle Review accepts several cost shapes.
     issues_with_costs_out = []
     for row in _coerce_list(src.get("issues_with_costs"))[:25]:
         if not isinstance(row, dict):
             continue
-        issues_with_costs_out.append(
-            {
-                "issue": _escape(row.get("issue")),
-                "avg_cost_ILS": _clamp_int(
-                    row.get("avg_cost_ILS"), lo=0, hi=1_000_000, default=0
-                ),
-                "source": _escape(row.get("source")),
-                "severity": _escape(row.get("severity")),
-            }
-        )
+        issue = _escape(row.get("issue") or row.get("name") or row.get("item") or row.get("component"))
+        sanitized_issue = {
+            "issue": issue,
+            "source": _escape(row.get("source")),
+            "severity": _escape(row.get("severity")),
+            "note": _escape(row.get("note") or row.get("description") or row.get("why_to_check")),
+        }
+        for cost_key in ("avg_cost_ILS", "cost_ILS", "min_cost_ILS", "max_cost_ILS"):
+            if row.get(cost_key) is not None:
+                sanitized_issue[cost_key] = _clamp_int(row.get(cost_key), lo=0, hi=1_000_000, default=0)
+        if row.get("cost") is not None:
+            sanitized_issue["cost"] = _escape(row.get("cost"))
+        if row.get("cost_range_ILS") is not None:
+            sanitized_issue["cost_range_ILS"] = _escape(row.get("cost_range_ILS"))
+        if issue or any(sanitized_issue.get(k) for k in ("avg_cost_ILS", "cost_ILS", "cost", "min_cost_ILS", "max_cost_ILS", "cost_range_ILS")):
+            issues_with_costs_out.append(sanitized_issue)
     if issues_with_costs_out:
         out["issues_with_costs"] = issues_with_costs_out
 
-    # competitors: list[dict]
+    # competitors: list[dict] - normalize model_name/reason variants while preserving useful source fields.
     competitors_out = []
     for row in _coerce_list(src.get("common_competitors_brief"))[:20]:
         if not isinstance(row, dict):
             continue
-        competitors_out.append(
-            {
-                "model": _escape(row.get("model")),
-                "brief_summary": _escape(row.get("brief_summary")),
-            }
-        )
+        model = _escape(row.get("model") or row.get("model_name") or row.get("name"))
+        brief = _escape(row.get("brief_summary") or row.get("why_relevant") or row.get("reason") or row.get("why_consider"))
+        comp = {
+            "model": model,
+            "model_name": _escape(row.get("model_name")),
+            "name": _escape(row.get("name")),
+            "brief_summary": brief,
+            "why_relevant": _escape(row.get("why_relevant")),
+            "why_consider": _escape(row.get("why_consider")),
+            "reason": _escape(row.get("reason")),
+            "advantage": _escape(row.get("advantage")),
+            "advantage_vs_reviewed_vehicle": _escape(row.get("advantage_vs_reviewed_vehicle")),
+            "disadvantage_or_risk_vs_reviewed_vehicle": _escape(row.get("disadvantage_or_risk_vs_reviewed_vehicle")),
+            "better_for": _escape(row.get("better_for")),
+        }
+        if model and brief:
+            competitors_out.append(comp)
     if competitors_out:
         out["common_competitors_brief"] = competitors_out
 
@@ -611,32 +628,46 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
         if sanitized_vp is not None:
             out["vehicle_profile"] = sanitized_vp
 
-    # Catalog-first server-owned blocks (identity is server-controlled, not AI).
-    # Pass through with bounded recursive escaping so the UI can show the exact
-    # locked variant and honest research status.
-    for key in ("identity_snapshot", "catalog_resolution", "research_status"):
+    # Active Vehicle Review product blocks used by the normalized frontend view model.
+    for key in (
+        "identity_snapshot",
+        "catalog_resolution",
+        "research_status",
+        "overview",
+        "risk_analysis",
+        "ownership_cost",
+        "market_context",
+        "buyer_checklist",
+        "final_line",
+        "decision_checklist",
+    ):
         if key in src:
             out[key] = _safe_escape_tree(src.get(key))
 
-    # Log dropped keys (only key names, no PII)
+    # Log dropped keys by reason (only key names, no PII).
     dropped_keys = set(src.keys()) - set(out.keys())
     if dropped_keys:
         import logging
 
         logger = logging.getLogger(__name__)
-        # Get request_id from context if available
         try:
             from flask import has_request_context, g
-
-            if has_request_context() and hasattr(g, "request_id"):
-                request_id = g.request_id
-            else:
-                request_id = "unknown"
+            request_id = g.request_id if has_request_context() and hasattr(g, "request_id") else "unknown"
         except Exception:
             request_id = "unknown"
-        logger.info(
-            f"[SANITIZATION] Dropped keys in analyze response: {sorted(dropped_keys)} (request_id: {request_id})"
-        )
+        internal_only = {"guardrail_meta", "request_id", "source_count", "grounding_successful", "web_search_performed"}
+        empty = sorted(k for k in dropped_keys if src.get(k) in (None, "", [], {}))
+        internal = sorted(k for k in dropped_keys if k in internal_only)
+        invalid_shape = sorted(k for k in dropped_keys if k in {"common_competitors_brief", "issues_with_costs", "vehicle_profile"} and k not in empty)
+        unknown = sorted(dropped_keys - set(empty) - set(internal) - set(invalid_shape))
+        if unknown:
+            logger.info("[SANITIZATION] dropped_unknown_key=%s request_id=%s", unknown, request_id)
+        if invalid_shape:
+            logger.info("[SANITIZATION] dropped_invalid_shape=%s request_id=%s", invalid_shape, request_id)
+        if empty:
+            logger.info("[SANITIZATION] dropped_empty=%s request_id=%s", empty, request_id)
+        if internal:
+            logger.info("[SANITIZATION] dropped_internal_only=%s request_id=%s", internal, request_id)
 
     return out
 

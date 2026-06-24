@@ -53,7 +53,13 @@
         'אין סיכום זמין.',
         'אין סיכום מקצועי זמין.',
         'דורש בדיקה',
-        'מידע חלקי'
+        'מידע חלקי',
+        'unknown',
+        'not found',
+        'no data',
+        'לא נמצא',
+        'אין מידע',
+        'לא זמין'
     ]);
 
     const INTERNAL_PATTERNS = [
@@ -95,6 +101,101 @@
         const lower = text.toLowerCase();
         return !INTERNAL_PATTERNS.some(p => lower.includes(p.toLowerCase()));
     }
+
+
+
+    function asObject(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
+    function asList(value) { return Array.isArray(value) ? value : []; }
+    function firstMeaningful(...values) { for (const v of values) { const t = meaningfulText(v); if (t) return t; } return ''; }
+    function hasMeaningfulObjectValue(obj) { return Object.values(asObject(obj)).some(v => Array.isArray(v) ? meaningfulList(v).length : (v && typeof v === 'object') || meaningfulText(v)); }
+    function mergeObjectsByPriority(...objects) { return Object.assign({}, ...objects.reverse().map(asObject)); }
+
+    function normalizeTrimItem(trim) {
+        const t = asObject(trim);
+        return {
+            trim_name: firstMeaningful(t.trim_name, t.name, t.level, t.version),
+            price_ils: firstMeaningful(t.price_ils, t.price_ILS, t.price, t.new_price_ils),
+            powertrain: firstMeaningful(t.powertrain, t.engine, t.engine_and_transmission),
+            main_equipment: meaningfulList(t.main_equipment || t.equipment || t.key_equipment),
+            safety_equipment: meaningfulList(t.safety_equipment),
+            what_changes_vs_lower_trim: meaningfulList(t.what_changes_vs_lower_trim || t.changes),
+        };
+    }
+
+    function normalizeCompetitorItem(comp) {
+        const c = asObject(comp);
+        return {
+            model: firstMeaningful(c.model, c.model_name, c.name),
+            brief_summary: firstMeaningful(c.brief_summary, c.why_relevant, c.reason, c.why_consider),
+            advantage: firstMeaningful(c.advantage, c.advantage_vs_reviewed_vehicle, c.advantage_vs_current, c.key_advantage),
+            disadvantage_or_risk_vs_reviewed_vehicle: firstMeaningful(c.disadvantage_or_risk_vs_reviewed_vehicle, c.disadvantage_vs_current, c.key_risk),
+            better_for: firstMeaningful(c.better_for, c.best_for, c.who_should_choose),
+        };
+    }
+
+    function normalizeIssueCostItem(item) {
+        const i = asObject(item);
+        const parts = [];
+        ['avg_cost_ILS', 'cost_ILS', 'cost', 'min_cost_ILS', 'max_cost_ILS', 'cost_range_ILS'].forEach(k => {
+            const val = firstMeaningful(i[k]);
+            if (val) parts.push(val);
+        });
+        return {
+            issue: firstMeaningful(i.issue, i.name, i.item, i.component),
+            note: firstMeaningful(i.note, i.description, i.why_to_check, i.reason),
+            severity: firstMeaningful(i.severity),
+            costText: [...new Set(parts)].join(' – '),
+        };
+    }
+
+    function normalizeRecallItem(item) {
+        if (typeof item === 'string') return { issue: meaningfulText(item) };
+        const r = asObject(item);
+        return {
+            year: firstMeaningful(r.year, r.model_year),
+            issue: firstMeaningful(r.issue, r.description, r.campaign, r.title, r.summary),
+            source: firstMeaningful(r.source, r.url),
+        };
+    }
+
+    function buildReviewViewModel(data) {
+        const d = asObject(data);
+        const vp = asObject(d.vehicle_profile);
+        const overview = asObject(d.overview);
+        const risk = asObject(d.risk_analysis);
+        const ownership = asObject(d.ownership_cost);
+        const market = asObject(d.market_context);
+        const buyer = asObject(d.buyer_checklist);
+        const report = asObject(d.reliability_report);
+        const identity = mergeObjectsByPriority(
+            d.identity_snapshot,
+            vp.vehicle_identity,
+            vp.catalog_identity,
+            d.catalog_resolution
+        );
+        const summary = {
+            text: firstMeaningful(overview.summary, d.reliability_summary, d.reliability_summary_simple, vp.buyer_summary),
+            best_for: meaningfulList(overview.best_for || vp.best_for),
+            not_ideal_for: meaningfulList(overview.less_suitable_for || overview.not_ideal_for || vp.not_ideal_for),
+            final_line: firstMeaningful(d.final_line, vp.final_line),
+        };
+        const pricing = mergeObjectsByPriority(market.pricing_israel, vp.pricing_israel, vp.pricing);
+        const license = mergeObjectsByPriority(market.license_fee_israel, vp.license_fee_israel);
+        const trims = meaningfulList(asList(market.trims_israel).concat(asList(vp.trim_levels_israel))).map(normalizeTrimItem).filter(t => t.trim_name);
+        const competitors = meaningfulList(asList(d.common_competitors_brief).concat(asList(market.competitors), asList(vp.competitors), asList(d.competitors))).map(normalizeCompetitorItem).filter(c => c.model && c.brief_summary).slice(0, 5);
+        const issueCosts = meaningfulList(asList(d.issues_with_costs).concat(asList(ownership.issue_cost_ranges), asList(ownership.expensive_items_to_check))).map(normalizeIssueCostItem).filter(i => i.issue || i.note || i.costText);
+        const recalls = meaningfulList(asList(risk.recalls_or_service_campaigns).concat(asList(risk.recalls), asList(asObject(vp.recalls_israel).known_recalls), asList(asObject(asObject(d.risk_signals).recalls).items))).map(normalizeRecallItem).filter(r => r.issue && !/no known|אין ריקול|לא ידוע|לא נמצא/i.test(r.issue));
+        const checklist = {
+            documents_to_verify: meaningfulList(buyer.paperwork_checks || asObject(d.decision_checklist).documents_to_verify),
+            mechanical_inspection_points: meaningfulList(buyer.test_drive_checks || buyer.mechanical_inspection_points),
+            test_drive_checks: meaningfulList(buyer.test_drive_checks),
+            questions_to_ask_seller: meaningfulList(buyer.questions_to_ask_seller),
+            red_flags_to_look_for: meaningfulList(asObject(d.decision_checklist).red_flags_to_look_for || buyer.red_flags_to_look_for),
+        };
+        return { data: d, vehicle_profile: vp, overview, risk, ownership, market, buyer, report, identity, summary, pricing, license, trims, competitors, issueCosts, recalls, checklist };
+    }
+
+    const normalizeReviewViewModel = buildReviewViewModel;
 
     function renderPartialResearchState(researchStatus, requestId) {
         const checked = meaningfulList(researchStatus?.checked_areas || []);
@@ -1058,8 +1159,9 @@
         if (!resultsContainer) return;
         const safe = (v) => escapeHtml(v);
         const infoReview = normalizeInfoReview(data);
-        const checklist = infoReview.checklist || {};
-        const vp = (data.vehicle_profile && typeof data.vehicle_profile === 'object') ? data.vehicle_profile : null;
+        const normalizedReview = normalizeReviewViewModel(data);
+        const checklist = normalizedReview.checklist || infoReview.checklist || {};
+        const vp = normalizedReview.vehicle_profile || {};
 
         clearAnalyzeError();
 
@@ -1068,11 +1170,11 @@
 
         // Tab 1: Summary
         const summaryParts = [];
-        const buyerSummary = meaningfulText(vp?.buyer_summary || '');
+        const buyerSummary = normalizedReview.summary.text;
         const basedOn = meaningfulText(infoReview.basedOnAvailableInformation || '');
-        const bestFor = (vp?.best_for || []).filter(x => meaningfulText(x));
-        const notIdeal = (vp?.not_ideal_for || []).filter(x => meaningfulText(x));
-        const finalLine = meaningfulText(vp?.final_line || data?.final_line || '');
+        const bestFor = normalizedReview.summary.best_for;
+        const notIdeal = normalizedReview.summary.not_ideal_for;
+        const finalLine = normalizedReview.summary.final_line;
         if (buyerSummary) summaryParts.push(`<p class="text-base leading-relaxed mb-3">${safe(buyerSummary)}</p>`);
         if (basedOn) summaryParts.push(`<p class="text-sm leading-relaxed mb-3">${safe(basedOn)}</p>`);
         if (bestFor.length) summaryParts.push(`<div class="mb-3"><h4 class="text-sm font-bold mb-1" style="color:#047857">מתאים ל:</h4><ul class="list-disc list-inside text-sm space-y-1">${bestFor.map(x=>`<li>${safe(x)}</li>`).join('')}</ul></div>`);
@@ -1081,8 +1183,8 @@
         if (summaryParts.length) tabs.push({ key: 'summary', label: 'סיכום', html: summaryParts.join('') });
 
         // Tab 2: Technical Identity
-        const vi = vp?.vehicle_identity || {};
-        const ci = vp?.catalog_identity || data?.catalog_identity || {};
+        const vi = normalizedReview.identity || {};
+        const ci = {};
         const idFields = [
             ['יצרן', vi.make || ci.make],
             ['דגם', vi.model || ci.model],
@@ -1092,9 +1194,12 @@
             ['סגמנט', vi.segment || ci.segment],
             ['מנוע', vi.engine || ci.engine],
             ['דלק', vi.fuel_type || ci.fuel_type],
-            ['תיבת הילוכים', vi.transmission || ci.transmission],
+            ['תיבת הילוכים', vi.transmission || vi.gearbox || ci.transmission],
             ['הנעה', vi.drivetrain || ci.drivetrain],
             ['מושבים', vi.seats || ci.seats],
+            ['רמת גימור', vi.trim],
+            ['תת דגם', vi.sub_model],
+            ['גרסה', vi.version],
         ].filter(([, v]) => meaningfulText(v));
         if (idFields.length) {
             const idHtml = `<div class="yr-review-param-grid">${idFields.map(([label, val]) => `<div class="yr-review-param"><span class="yr-review-param__label">${safe(label)}</span><span class="yr-review-param__value">${safe(val)}</span></div>`).join('')}</div>`;
@@ -1102,24 +1207,27 @@
         }
 
         // Tab 3: Prices and license fee
-        const pricing = vp?.pricing_israel || vp?.pricing || {};
-        const lf = vp?.license_fee_israel || {};
-        const lrc = vp?.license_running_cost || {};
+        const pricing = normalizedReview.pricing || {};
+        const lf = normalizedReview.license || {};
+        const lrc = normalizedReview.ownership || {};
         const priceParts = [];
         if (meaningfulText(pricing.new_price_range_ils)) priceParts.push(`<div class="yr-review-param"><span class="yr-review-param__label">מחיר חדש</span><span class="yr-review-param__value">${safe(pricing.new_price_range_ils)}</span></div>`);
         if (meaningfulText(pricing.used_price_range_ils)) priceParts.push(`<div class="yr-review-param"><span class="yr-review-param__label">מחיר יד-2</span><span class="yr-review-param__value">${safe(pricing.used_price_range_ils)}</span></div>`);
-        if (lf.annual_fee_ils && lf.method !== 'unknown') priceParts.push(`<div class="yr-review-param"><span class="yr-review-param__label">אגרת רישוי שנתית</span><span class="yr-review-param__value">${safe(String(lf.annual_fee_ils))} ₪</span></div>`);
-        if (meaningfulText(lrc.license_fee)) priceParts.push(`<div class="yr-review-param"><span class="yr-review-param__label">אגרה</span><span class="yr-review-param__value">${safe(lrc.license_fee)}</span></div>`);
+        if (meaningfulText(lf.annual_fee_ils) && meaningfulText(lf.method) !== 'unknown') priceParts.push(`<div class="yr-review-param"><span class="yr-review-param__label">אגרת רישוי שנתית</span><span class="yr-review-param__value">${safe(String(lf.annual_fee_ils))} ₪</span></div>`);
+        if (meaningfulText(lrc.insurance_or_tax_notes_if_found || lrc.license_fee)) priceParts.push(`<div class="yr-review-param"><span class="yr-review-param__label">אגרה</span><span class="yr-review-param__value">${safe(lrc.insurance_or_tax_notes_if_found || lrc.license_fee)}</span></div>`);
         if (priceParts.length) tabs.push({ key: 'prices', label: 'מחירים ואגרה', html: `<div class="yr-review-param-grid">${priceParts.join('')}</div>` });
 
         // Tab 4: Trim levels
-        const trims = vp?.trim_levels_israel || [];
+        const trims = normalizedReview.trims || [];
         const trimEquip = vp?.trim_equipment_summary || {};
         const recTrim = vp?.recommended_trim || {};
         const trimParts = [];
         const validTrims = trims.filter(t => meaningfulText(t.trim_name));
         if (validTrims.length) {
             trimParts.push(`<div class="space-y-2">${validTrims.map(t => `<div class="yr-review-mini-card"><div class="font-semibold">${safe(t.trim_name)}${t.price_ils ? ` – <span style="color:var(--yr-accent)">${safe(String(t.price_ils))} ₪</span>` : ''}</div>${t.powertrain ? `<div class="text-xs" style="color:var(--yr-muted)">${safe(t.powertrain)}</div>` : ''}</div>`).join('')}</div>`);
+        }
+        if (hasMeaningfulObjectValue(trimEquip)) {
+            trimParts.push(`<div class="mt-3"><h4 class="text-sm font-bold mb-1">סיכום אבזור</h4><ul class="yr-review-list">${Object.entries(trimEquip).filter(([,v]) => meaningfulText(v) || meaningfulList(v).length).map(([k,v]) => `<li><span class="font-semibold">${safe(k)}</span>: ${safe(Array.isArray(v) ? meaningfulList(v).join(', ') : v)}</li>`).join('')}</ul></div>`);
         }
         if (meaningfulText(recTrim.trim_name) || meaningfulText(recTrim.reason)) {
             trimParts.push(`<div class="mt-3"><h4 class="text-sm font-bold mb-1">גימור מומלץ</h4>${meaningfulText(recTrim.trim_name) ? `<div class="font-semibold">${safe(recTrim.trim_name)}</div>` : ''}${meaningfulText(recTrim.reason) ? `<div class="text-sm" style="color:var(--yr-muted)">${safe(recTrim.reason)}</div>` : ''}</div>`);
@@ -1128,16 +1236,16 @@
 
         // Tab 5: Reliability and risks
         const riskParts = [];
-        const riskAreas = infoReview.riskAreas.filter(x => typeof x === 'string' ? meaningfulText(x) : meaningfulText(x?.risk_area));
+        const riskAreas = meaningfulList(asList(normalizedReview.risk.key_risk_areas_to_examine).concat(infoReview.riskAreas)).filter(x => typeof x === 'string' ? meaningfulText(x) : meaningfulText(x?.risk_area || x?.area || x?.description));
         if (riskAreas.length) {
             riskParts.push(`<h4 class="text-sm font-bold mb-2">תחומי סיכון עיקריים</h4><ul class="yr-review-list">${riskAreas.map(item => {
-                if (item && typeof item === 'object') return `<li><span class="font-semibold">${safe(item.risk_area || '')}</span>${item.why_to_check ? ` – ${safe(item.why_to_check)}` : ''}</li>`;
+                if (item && typeof item === 'object') { const riskText = item.risk_area || item.area || item.description || item.risk || item.issue || ''; return `<li><span class="font-semibold">${safe(riskText)}</span>${item.why_to_check ? ` – ${safe(item.why_to_check)}` : ''}</li>`; }
                 return `<li>${safe(item)}</li>`;
             }).join('')}</ul>`);
         }
-        const commonIssues = (data.common_issues || []).filter(x => meaningfulText(x));
+        const commonIssues = meaningfulList(asList(normalizedReview.risk.common_issues).concat(asList(data.common_issues)));
         if (commonIssues.length) riskParts.push(`<h4 class="text-sm font-bold mt-3 mb-1">תקלות מתועדות</h4><ul class="yr-review-list">${commonIssues.map(i => `<li>${safe(i)}</li>`).join('')}</ul>`);
-        const reliabilityRisks = ((vp?.reliability_risks || data?.reliability_risks || {}).top_risks || []).filter(x => meaningfulText(typeof x === 'string' ? x : x?.description || x?.risk));
+        const reliabilityRisks = meaningfulList(asList(asObject(data.risk_signals).top_risks).concat(asList(asObject(vp.reliability_risks).top_risks), asList(asObject(data.reliability_risks).top_risks), asList(normalizedReview.risk.red_flags), asList(normalizedReview.report.known_risks)));
         if (reliabilityRisks.length) riskParts.push(`<h4 class="text-sm font-bold mt-3 mb-1">סיכוני אמינות</h4><ul class="yr-review-list">${reliabilityRisks.map(r => `<li>${safe(typeof r === 'string' ? r : r.description || r.risk || '')}</li>`).join('')}</ul>`);
         const recChecks = (data.recommended_checks || []).filter(x => meaningfulText(x));
         if (recChecks.length) riskParts.push(`<h4 class="text-sm font-bold mt-3 mb-1">בדיקות מומלצות</h4><ul class="yr-review-list">${recChecks.map(i => `<li>${safe(i)}</li>`).join('')}</ul>`);
@@ -1148,7 +1256,7 @@
         // Tab 6: Pre-purchase checks
         const checkParts = [];
         const groups = [
-            ['נקודות בדיקה מכניות', checklist.mechanical_inspection_points || []],
+            ['נקודות בדיקה מכניות', checklist.mechanical_inspection_points || checklist.test_drive_checks || []],
             ['מסמכים לאימות', checklist.documents_to_verify || []],
             ['שאלות למוכר', checklist.questions_to_ask_seller || []],
             ['דגלים אדומים', checklist.red_flags_to_look_for || []],
@@ -1164,8 +1272,8 @@
         if (costSensitivity.length) costParts.push(`<h4 class="text-sm font-bold mb-2">רגישות עלויות</h4><ul class="yr-review-list">${costSensitivity.map(i => `<li>${safe(i)}</li>`).join('')}</ul>`);
         const avgCost = data.avg_repair_cost_ILS;
         if (avgCost) costParts.push(`<div class="yr-review-param-grid"><div class="yr-review-param"><span class="yr-review-param__label">עלות תיקון ממוצעת</span><span class="yr-review-param__value">${safe(String(avgCost))} ₪</span></div></div>`);
-        const issuesWithCosts = (data.issues_with_costs || []).filter(Boolean);
-        if (issuesWithCosts.length) costParts.push(`<h4 class="text-sm font-bold mt-3 mb-1">עלויות לפי תקלה</h4><ul class="yr-review-list">${issuesWithCosts.map(item => { if (item && typeof item === 'object') { return `<li>${safe(item.issue || item.name || '')}${item.cost_ILS || item.cost ? ` – ${safe(String(item.cost_ILS || item.cost))} ₪` : ''}</li>`; } return `<li>${safe(item)}</li>`; }).join('')}</ul>`);
+        const issuesWithCosts = normalizedReview.issueCosts;
+        if (issuesWithCosts.length) costParts.push(`<h4 class="text-sm font-bold mt-3 mb-1">עלויות לפי תקלה</h4><ul class="yr-review-list">${issuesWithCosts.map(item => `<li>${safe(item.issue || item.note || '')}${item.costText ? ` – ${safe(String(item.costText))} ₪` : ''}</li>`).join('')}</ul>`);
         const oc = vp?.ownership_cost_notes || {};
         const costLevelMap = { 'low': 'נמוך', 'medium': 'בינוני', 'high': 'גבוה' };
         const ownerCostFields = [['תחזוקה', oc.maintenance_cost_pressure], ['ביטוח', oc.insurance_cost_pressure], ['פחת', oc.depreciation_risk], ['חלפים', oc.parts_availability]].filter(([,v]) => costLevelMap[v]);
@@ -1174,12 +1282,12 @@
 
         // Tab 8: Safety and warranty
         const safetyParts = [];
-        const safety = vp?.official_safety || {};
+        const safety = mergeObjectsByPriority(normalizedReview.market.official_safety, vp.official_safety);
         if (safety.rating && safety.organization && safety.organization !== 'unknown') {
             const safetyFields = [['דירוג', safety.rating], ['ארגון', safety.organization], ['שנת בדיקה', safety.test_year], ['מבוגרים', safety.adult_score], ['ילדים', safety.child_score]].filter(([,v]) => meaningfulText(v));
             if (safetyFields.length) safetyParts.push(`<h4 class="text-sm font-bold mb-2">בטיחות רשמית</h4><div class="yr-review-param-grid">${safetyFields.map(([label, val]) => `<div class="yr-review-param"><span class="yr-review-param__label">${safe(label)}</span><span class="yr-review-param__value">${safe(String(val))}</span></div>`).join('')}</div>`);
         }
-        const warranty = vp?.warranty_israel || {};
+        const warranty = mergeObjectsByPriority(normalizedReview.market.warranty_israel, vp.warranty_israel);
         if (meaningfulText(warranty.vehicle_warranty) || meaningfulText(warranty.battery_warranty)) {
             const wFields = [['אחריות רכב', warranty.vehicle_warranty], ['אחריות סוללה', warranty.battery_warranty]].filter(([,v]) => meaningfulText(v));
             safetyParts.push(`<h4 class="text-sm font-bold mt-3 mb-2">אחריות</h4><div class="yr-review-param-grid">${wFields.map(([label, val]) => `<div class="yr-review-param"><span class="yr-review-param__label">${safe(label)}</span><span class="yr-review-param__value">${safe(val)}</span></div>`).join('')}</div>`);
@@ -1187,21 +1295,19 @@
         if (safetyParts.length) tabs.push({ key: 'safety', label: 'בטיחות ואחריות', html: safetyParts.join('') });
 
         // Tab 9: Recalls
-        const recalls = vp?.recalls_israel || {};
-        const recallList = recalls.known_recalls || [];
+        const recallList = normalizedReview.recalls;
         if (recallList.length > 0) {
             const recallHtml = `<ul class="space-y-2">${recallList.map(r => `<li class="yr-review-mini-card text-sm">${r.year ? `<span style="color:var(--yr-muted)">${safe(String(r.year))}: </span>` : ''}<span>${safe(r.issue || '')}</span>${r.source ? ` <a href="${sanitizeUrl(safe(r.source))}" target="_blank" rel="noopener noreferrer" class="text-sm" style="color:var(--yr-accent)">מקור</a>` : ''}</li>`).join('')}</ul>`;
             tabs.push({ key: 'recalls', label: 'ריקולים', html: recallHtml });
         }
 
         // Tab 10: Competitors
-        const vpCompetitors = vp?.competitors || data?.competitors || [];
-        const validCompetitors = (Array.isArray(vpCompetitors) ? vpCompetitors : []).filter(c => meaningfulText(c?.model_name || c?.model || c?.name)).slice(0, 5);
+        const validCompetitors = normalizedReview.competitors;
         if (validCompetitors.length) {
             const compHtml = `<div class="yr-review-competitor-grid">${validCompetitors.map(comp => {
                 const model = safe(meaningfulText(comp.model_name || comp.model || comp.name));
-                const why = safe(meaningfulText(comp.why_relevant || comp.why_consider || comp.reason));
-                const adv = safe(meaningfulText(comp.advantage_vs_reviewed_vehicle || comp.advantage_vs_current || comp.key_advantage));
+                const why = safe(meaningfulText(comp.brief_summary || comp.why_relevant || comp.why_consider || comp.reason));
+                const adv = safe(meaningfulText(comp.advantage || comp.advantage_vs_reviewed_vehicle || comp.advantage_vs_current || comp.key_advantage));
                 const dis = safe(meaningfulText(comp.disadvantage_or_risk_vs_reviewed_vehicle || comp.disadvantage_vs_current || comp.key_risk));
                 const bestForComp = safe(meaningfulText(comp.better_for || comp.best_for || comp.who_should_choose));
                 if (!model || !why) return '';
@@ -1231,7 +1337,7 @@
 
         // No tabs? Show a message
         if (!tabs.length) {
-            resultsContainer.querySelector('.yr-review-result-shell').innerHTML = '<div class="p-8 text-center" style="color:var(--yr-muted)">לא נמצא מידע מספיק להצגה.</div>';
+            resultsContainer.querySelector('.yr-review-result-shell').innerHTML = '<div class="p-8 text-center" style="color:var(--yr-muted)">לא הצלחנו לבנות סקירה מלאה לרכב הזה. כדאי לדייק שנתון, מנוע או רמת גימור ולנסות שוב.</div>';
             currentHistoryId = data.history_id || null;
             isLoading = false;
             isResultReady = true;
