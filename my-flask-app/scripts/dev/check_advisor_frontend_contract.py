@@ -21,6 +21,7 @@ from pathlib import Path
 
 # my-flask-app/  (two levels up from scripts/dev/)
 APP_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = APP_ROOT.parent
 RECOMMENDATIONS_JS = APP_ROOT / "static" / "recommendations.js"
 THEME_CSS = APP_ROOT / "static" / "theme.css"
 RECOMMENDATIONS_HTML = APP_ROOT / "templates" / "recommendations.html"
@@ -107,14 +108,19 @@ REQUIRED_ANALYTICS = [
     "result_opened",
 ]
 
-# Accidental temporary instruction-file name patterns that must NOT be committed
-# inside the app tree. (The real prototype reference files and the parity spec
-# are NOT in this list — they are legitimate repo references.)
+# Accidental temporary prototype/design instruction-file name patterns that must
+# NOT be committed. The production catalog JSON is intentionally not listed.
 FORBIDDEN_TEMP_PATTERNS = [
     "scratch_proto",
     "TEMP_RUN3",
     "RUN3_SCRATCH",
     ".tmp.instructions",
+    "PROTOTYPE_PARITY_SPEC",
+    "prototype design.zip",
+    "support.js",
+    "image-slot.js",
+    "Canvas.dc.html",
+    "ScoreGauge.dc.html",
 ]
 
 
@@ -165,10 +171,12 @@ def main() -> int:
     if html and 'dir="rtl"' not in html:
         _fail(failures, 'recommendations.html lost dir="rtl" (RTL must be preserved)')
 
-    # 8. No accidental temporary instruction files inside the app tree.
+    # 8. No accidental temporary prototype/design/runtime files anywhere in the repo.
     for pattern in FORBIDDEN_TEMP_PATTERNS:
-        for hit in APP_ROOT.rglob(f"*{pattern}*"):
-            _fail(failures, f"accidental temporary file present: {hit.relative_to(APP_ROOT.parent)}")
+        for hit in REPO_ROOT.rglob(f"*{pattern}*"):
+            if ".git" in hit.parts:
+                continue
+            _fail(failures, f"accidental temporary file present: {hit.relative_to(REPO_ROOT)}")
 
     if failures:
         print("ADVISOR FRONTEND CONTRACT: FAIL")
