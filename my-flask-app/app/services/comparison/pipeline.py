@@ -18,7 +18,13 @@ from app.services.comparison.normalization import build_checked_versions, map_ca
 from app.services.comparison.prompts import build_compare_writer_prompt, build_compare_writer_retry_prompt
 from app.services.comparison.schemas import validate_buyer_profile, validate_comparison_request
 from app.services.comparison.computation import compute_comparison_results
-from app.services.comparison.constants import COMPARISON_MODEL_ID, COMPARISON_PROMPT_VERSION
+from app.services.comparison.constants import COMPARISON_PROMPT_VERSION
+from app.services.comparison.model_config import (
+    comparison_stage_a_model_id,
+    comparison_stage_a_repair_model_id,
+    comparison_stage_b_model_id,
+    comparison_fallback_model_id,
+)
 from app.services.comparison.decision import build_deterministic_decision_result
 from app.services.comparison.metrics import _inc_compare_metric
 from app.services.comparison.parsing import _extract_stage_a_error_code, _sanitize_stage_a_errors
@@ -313,15 +319,8 @@ def handle_comparison_request(
         )
         return api_error(
             "comparison_ai_unavailable",
-            "שירות ההשוואה אינו זמין כרגע. נסה שוב בעוד רגע.",
+            "לא הצלחנו להשלים את ההשוואה כרגע. אפשר לנסות שוב או לדייק שנתון, מנוע ורמת גימור.",
             status=503,
-            details={
-                "stage": "stage_a",
-                "request_id": request_id,
-                "retryable": True,
-                "error_code": "stage_a_unavailable",
-                "errors": sanitized_errors,
-            },
         )
     elif stage_a_errors:
         # Partial failure — log but continue with available data
@@ -582,6 +581,12 @@ def handle_comparison_request(
     if narrative:
         stored_computed["narrative"] = narrative
     stored_computed["ai"] = ai_payload
+    stored_computed["model_ids"] = {
+        "stage_a": comparison_stage_a_model_id(),
+        "stage_a_repair": comparison_stage_a_repair_model_id(),
+        "stage_b": comparison_stage_b_model_id(),
+        "fallback": comparison_fallback_model_id(),
+    }
     stored_computed["guardrail_meta"] = comparison_guarded.get("guardrail_meta", {})
 
     # Save to database
@@ -595,7 +600,12 @@ def handle_comparison_request(
             model_json_raw=json.dumps(model_output, ensure_ascii=False),
             computed_result=json.dumps(stored_computed, ensure_ascii=False),
             sources_index=json.dumps(sources_index, ensure_ascii=False),
-            model_name=COMPARISON_MODEL_ID,
+            model_name=", ".join([
+                comparison_stage_a_model_id(),
+                comparison_stage_a_repair_model_id(),
+                comparison_stage_b_model_id(),
+                comparison_fallback_model_id(),
+            ])[:64],
             grounding_enabled=bool(model_output.get("grounding_successful")),
             prompt_version=COMPARISON_PROMPT_VERSION,
             request_hash=request_hash,
@@ -640,6 +650,7 @@ def handle_comparison_request(
             "visible_warning": visible_warning,
             "central_differences": central_differences,
             "guardrail_meta": comparison_guarded.get("guardrail_meta", {}),
+            "model_ids": stored_computed.get("model_ids"),
             "research_status": model_output.get("research_status")
             or {"grounding_successful": False, "web_search_performed": False},
         }

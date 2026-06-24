@@ -321,8 +321,12 @@ def _safe_ai_response_snippet(exc: Exception, max_len: int = 280) -> str:
 def _is_valid_single_car_payload(payload: Any) -> bool:
     if not isinstance(payload, dict):
         return False
-    # Reject schema echoes before accepting the payload
+    # Reject schema echoes, research-status-only objects, and placeholder repairs
+    # before accepting the payload.
     if _is_schema_echo(payload):
+        return False
+    top_keys = set(payload.keys())
+    if top_keys <= {"status", "checked_areas", "open_fields", "sources_found", "research_status"}:
         return False
     # Accept legacy categories
     if _SINGLE_CAR_REQUIRED_CATEGORIES.intersection(set(payload.keys())):
@@ -355,7 +359,17 @@ def _is_schema_echo(payload: Any) -> bool:
     for pattern in SCHEMA_ECHO_PATTERNS:
         if _re.search(pattern, raw):
             placeholder_hits += 1
-    if placeholder_hits >= 2:
+    if placeholder_hits >= 1:
+        return True
+
+    placeholder_values = {"string", "number", "array", "object", "high|medium|low", "unknown|low|medium|high"}
+    def _walk_has_placeholder(obj: Any) -> bool:
+        if isinstance(obj, dict):
+            return any(_walk_has_placeholder(v) for v in obj.values())
+        if isinstance(obj, list):
+            return any(_walk_has_placeholder(v) for v in obj)
+        return isinstance(obj, str) and obj.strip().lower() in placeholder_values
+    if _walk_has_placeholder(payload):
         return True
 
     # Check for "string" as a literal value in important fields

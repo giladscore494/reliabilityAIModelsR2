@@ -6,6 +6,8 @@ import json
 from typing import Any, Dict, List, Optional, Tuple
 
 COMPARISON_PROMPT_VERSION = "v4"
+DECISION_CATEGORY_VERSION = "decision_categories_v2_9"
+SCORING_CONTRACT_VERSION = "scoring_compact_v2"
 
 
 def _safe_json_obj(value, default):
@@ -122,7 +124,12 @@ def compute_request_hash(
         get_catalog_generation_meta,
         resolve_comparison_car,
     )
-    from app.services.comparison.constants import COMPARISON_MODEL_ID
+    from app.services.comparison.model_config import (
+        comparison_stage_a_model_id,
+        comparison_stage_a_repair_model_id,
+        comparison_stage_b_model_id,
+        comparison_fallback_model_id,
+    )
 
     catalog_meta = get_catalog_generation_meta()
 
@@ -161,7 +168,12 @@ def compute_request_hash(
         "prompt_version": COMPARISON_PROMPT_VERSION,
         "catalog_hash": catalog_meta.get("catalog_hash"),
         "catalog_generated_at": catalog_meta.get("generated_at"),
-        "model_id": COMPARISON_MODEL_ID,
+        "stage_a_model_id": comparison_stage_a_model_id(),
+        "stage_a_repair_model_id": comparison_stage_a_repair_model_id(),
+        "stage_b_model_id": comparison_stage_b_model_id(),
+        "fallback_model_id": comparison_fallback_model_id(),
+        "decision_category_version": DECISION_CATEGORY_VERSION,
+        "scoring_contract_version": SCORING_CONTRACT_VERSION,
     }
     data_str = json.dumps(data, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(data_str.encode("utf-8")).hexdigest()[:32]  # 128 bits

@@ -13,7 +13,6 @@ from google.genai import types as genai_types
 from app.services.comparison.fallbacks import build_deterministic_fallback_narrative
 from app.services.comparison.schemas import validate_compare_writer_response
 from app.services.comparison.constants import (
-    COMPARISON_MODEL_ID,
     COMPARE_WRITER_MAX_OUTPUT_TOKENS,
     COMPARE_WRITER_RETRY_MAX_OUTPUT_TOKENS,
     COMPARE_WRITER_TIMEOUT_SEC,
@@ -55,7 +54,7 @@ from app.utils.sanitization import sanitize_comparison_narrative
 logger = logging.getLogger(__name__)
 
 
-def _generate_content_with_404_fallback(*, model, contents, config):
+def _generate_content_with_404_fallback(*, model, contents, config, request_id=None, stage="comparison_stage_b"):
     try:
         resp = extensions.ai_client.models.generate_content(
             model=model,
@@ -67,7 +66,9 @@ def _generate_content_with_404_fallback(*, model, contents, config):
         safe_model = comparison_safe_model_id()
         if is_model_not_found_error(exc) and model != safe_model:
             logger.warning(
-                "[AI] feature=comparison_stage_b event=model_fallback_due_to_404 original_model=%s fallback_model=%s fallback_reason=model_404",
+                "[AI] request_id=%s feature=comparison_stage_b stage=%s event=model_fallback_due_to_404 original_model=%s fallback_model=%s fallback_reason=model_404",
+                request_id or "unknown",
+                stage,
                 model,
                 safe_model,
             )
@@ -730,6 +731,8 @@ def call_gemini_compare_writer(
                 model=comparison_stage_b_model_id(),
                 contents=prompt,
                 config=config,
+                request_id=get_request_id(),
+                stage="comparison_stage_b",
             )
 
         try:
@@ -898,7 +901,7 @@ Return this EXACT JSON structure:
 
         def _invoke():
             return extensions.ai_client.models.generate_content(
-                model=COMPARISON_MODEL_ID,
+                model=comparison_stage_b_model_id(),
                 contents=prompt,
                 config=config,
             )
