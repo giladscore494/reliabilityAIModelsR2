@@ -26,6 +26,12 @@ from app.services.comparison.model_calls import (
     _is_output_too_long_error,
     _log_ai_client_error,
 )
+from app.services.comparison.model_config import (
+    comparison_safe_model_id,
+    comparison_stage_a_model_id,
+    comparison_stage_a_repair_model_id,
+    is_model_not_found_error,
+)
 from app.services.comparison.parsing import (
     _extract_first_json_object,
     _is_schema_echo_text,
@@ -42,6 +48,43 @@ from app.services.comparison.fallbacks import _empty_stage_a_output
 from app.utils.http_helpers import get_request_id
 
 logger = logging.getLogger(__name__)
+
+
+def _generate_content_with_404_fallback(
+    *,
+    feature: str,
+    model: str,
+    contents: str,
+    config: "genai_types.GenerateContentConfig",
+    request_id: Optional[str] = None,
+    log: Optional[logging.Logger] = None,
+) -> Tuple[Any, str, Optional[str]]:
+    """Call Gemini once, falling back once to the safe model on model 404."""
+    call_log = log or logger
+    try:
+        resp = extensions.ai_client.models.generate_content(
+            model=model,
+            contents=contents,
+            config=config,
+        )
+        return resp, model, None
+    except Exception as exc:
+        safe_model = comparison_safe_model_id()
+        if is_model_not_found_error(exc) and model != safe_model:
+            call_log.warning(
+                "[AI] request_id=%s feature=%s event=model_fallback_due_to_404 original_model=%s fallback_model=%s fallback_reason=model_404",
+                request_id or "unknown",
+                feature,
+                model,
+                safe_model,
+            )
+            resp = extensions.ai_client.models.generate_content(
+                model=safe_model,
+                contents=contents,
+                config=config,
+            )
+            return resp, safe_model, "model_fallback_due_to_404"
+        raise
 
 
 def _google_search_tool() -> "genai_types.Tool":
@@ -127,6 +170,8 @@ def call_gemini_comparison(
     prompt_chars = len(prompt or "")
     outcome = "ok"
     outcome_reason = None
+    model_used = comparison_stage_a_model_id()
+    fallback_reason = None
     try:
         if extensions.ai_client is None:
             outcome = "error"
@@ -142,8 +187,9 @@ def call_gemini_comparison(
         )
 
         def _invoke():
-            return extensions.ai_client.models.generate_content(
-                model=COMPARISON_MODEL_ID,
+            return _generate_content_with_404_fallback(
+                feature="comparison_stage_a",
+                model=comparison_stage_a_model_id(),
                 contents=prompt,
                 config=config,
             )
@@ -165,7 +211,7 @@ def call_gemini_comparison(
             return None, "EXECUTOR_SATURATED"
 
         try:
-            resp = future.result(timeout=timeout_sec)
+            resp, model_used, fallback_reason = future.result(timeout=timeout_sec)
         except concurrent.futures.TimeoutError:
             future.cancel()
             _inc_compare_metric("compare_ai_failures_total", reason="timeout")
@@ -205,7 +251,7 @@ def call_gemini_comparison(
         duration_ms = (pytime.perf_counter() - start_time) * 1000
         current_app.logger.info(
             "[AI] feature=comparison_stage_a model=%s duration_ms=%.2f prompt_chars=%s prompt_tokens_est=%s max_output_tokens=%s timeout_ms=%s tools_enabled=%s retry_count=%s outcome=%s reason=%s",
-            COMPARISON_MODEL_ID,
+            model_used,
             duration_ms,
             prompt_chars,
             _estimate_token_count(prompt),
@@ -214,7 +260,7 @@ def call_gemini_comparison(
             True,
             0,
             outcome,
-            outcome_reason,
+            fallback_reason or outcome_reason,
         )
 
 
@@ -238,6 +284,8 @@ def _call_gemini_single_car_raw(
     prompt_chars = len(prompt or "")
     outcome = "ok"
     outcome_reason = None
+    model_used = comparison_stage_a_model_id()
+    fallback_reason = None
     grounding_meta: Dict[str, Any] = {"grounding_successful": False, "source_count": 0}
     worker_logger = log or logger
     finish_reason = None
@@ -266,10 +314,13 @@ def _call_gemini_single_car_raw(
         # Direct SDK call — no nested executor submission. This function
         # is already running inside the Stage A parallel worker thread.
         try:
-            resp = extensions.ai_client.models.generate_content(
-                model=COMPARISON_MODEL_ID,
+            resp, model_used, fallback_reason = _generate_content_with_404_fallback(
+                feature="comparison_stage_a_single_car",
+                model=comparison_stage_a_model_id(),
                 contents=prompt,
                 config=config,
+                request_id=request_id,
+                log=worker_logger,
             )
         except Exception as e:
             elapsed = pytime.perf_counter() - start_time
@@ -391,7 +442,7 @@ def _call_gemini_single_car_raw(
         duration_ms = (pytime.perf_counter() - start_time) * 1000
         worker_logger.info(
             "[AI] feature=comparison_stage_a_per_car model=%s car=%s duration_ms=%.2f prompt_chars=%s prompt_tokens_est=%s max_output_tokens=%s timeout_ms=%s tools_enabled=%s grounding_successful=%s source_count=%s outcome=%s reason=%s",
-            COMPARISON_MODEL_ID,
+            model_used,
             car_label,
             duration_ms,
             prompt_chars,
@@ -402,7 +453,7 @@ def _call_gemini_single_car_raw(
             grounding_meta.get("grounding_successful"),
             grounding_meta.get("source_count"),
             outcome,
-            outcome_reason,
+            fallback_reason or outcome_reason,
         )
 
 
@@ -441,6 +492,8 @@ def _attempt_json_repair(
     start_time = pytime.perf_counter()
     outcome = "ok"
     outcome_reason = None
+    model_used = comparison_stage_a_repair_model_id()
+    fallback_reason = None
 
     try:
         if extensions.ai_client is None:
@@ -465,10 +518,13 @@ def _attempt_json_repair(
             tools=[],  # No Google Search for repair
         )
 
-        resp = extensions.ai_client.models.generate_content(
-            model=COMPARISON_MODEL_ID,
+        resp, model_used, fallback_reason = _generate_content_with_404_fallback(
+            feature="comparison_stage_a_repair",
+            model=comparison_stage_a_repair_model_id(),
             contents=repair_prompt,
             config=config,
+            request_id=request_id,
+            log=worker_logger,
         )
 
         if resp is None:
@@ -517,12 +573,12 @@ def _attempt_json_repair(
         duration_ms = (pytime.perf_counter() - start_time) * 1000
         worker_logger.info(
             "[AI] feature=comparison_stage_a_repair model=%s car=%s duration_ms=%.2f tools_enabled=%s outcome=%s reason=%s",
-            COMPARISON_MODEL_ID,
+            model_used,
             car_label,
             duration_ms,
             False,
             outcome,
-            outcome_reason,
+            fallback_reason or outcome_reason,
         )
 
 
