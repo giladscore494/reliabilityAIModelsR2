@@ -328,8 +328,8 @@ def _is_valid_single_car_payload(payload: Any) -> bool:
     if isinstance(car_profile, dict) and car_profile:
         return True
     # Accept any rich Stage A key at top-level
-    _RICH_KEYS_SET = set(RICH_STAGE_A_KEYS)
-    if _RICH_KEYS_SET.intersection(set(payload.keys())):
+    rich_keys_set = set(RICH_STAGE_A_KEYS)
+    if rich_keys_set.intersection(set(payload.keys())):
         return True
     return False
 
