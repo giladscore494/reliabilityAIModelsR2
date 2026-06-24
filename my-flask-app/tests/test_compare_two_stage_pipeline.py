@@ -555,7 +555,10 @@ def test_compare_writer_prompt_requires_checked_versions():
 
     assert '"checked_versions"' in prompt
     assert "Do not use DSG" in prompt
-    assert "לא ידוע / לבדיקה" in prompt
+    # General transmission labels must be offered, and unverified fields must
+    # use null + verification notes (catalog-first prompt rewrite).
+    assert "רובוטית" in prompt and "ידנית" in prompt
+    assert "null" in prompt
 
 
 def test_compare_stage_b_empty_decision_arrays_are_backfilled(
@@ -898,7 +901,8 @@ def test_compare_writer_prompt_hard_rules_contain_critical_transmission_rule():
     assert "ידנית" in prompt or "manual" in prompt.lower(), (
         "Prompt must mention manual/ידנית in the context of critical rules"
     )
-    assert "לא ידוע / לבדיקה" in prompt
+    # Unverified fields must be expressed as null + verification notes.
+    assert "null" in prompt
     assert "14." in prompt, "Prompt must include rule 14 (transmission critical rule)"
     assert "15." in prompt, "Prompt must include rule 15 (required fields rule)"
     assert "16." in prompt, "Prompt must include rule 16 (decision text rule)"
@@ -974,14 +978,18 @@ def test_parse_stage_a_json_invalid_returns_model_json_invalid():
     assert err == "MODEL_JSON_INVALID"
 
 
-def test_stage_a_config_is_bounded_and_tools_disabled(app, monkeypatch):
+def test_stage_a_config_is_bounded_and_grounding_enabled(app, monkeypatch):
+    """Stage A must be bounded AND must enable Google Search grounding
+    (catalog-first rebuild: grounding is mandatory for Stage A evidence)."""
     captured = {}
 
     class _FakeModels:
         def generate_content(self, *, model, contents, config):
             captured["config"] = config
+            captured["model"] = model
             return SimpleNamespace(
-                text='{"car_name":"Toyota Corolla 2020","reliability":{"overall":"high"},"ownership_cost":{},"comfort_practicality":{},"performance_driving":{},"facts":{},"short_notes":[],"sources":[]}'
+                text='{"car_name":"Toyota Corolla 2020","reliability":{"overall":"high"},"ownership_cost":{},"comfort_practicality":{},"performance_driving":{},"facts":{},"short_notes":[],"sources":[]}',
+                candidates=[],
             )
 
     monkeypatch.setattr(
@@ -1000,8 +1008,12 @@ def test_stage_a_config_is_bounded_and_tools_disabled(app, monkeypatch):
         int(getattr(cfg, "max_output_tokens", 0))
         == comparison_service.COMPARE_STAGE_A_MAX_OUTPUT_TOKENS
     )
-    assert not getattr(cfg, "tools", None)
-    assert getattr(cfg, "automatic_function_calling", None) is None
+    # Google Search grounding tool must be present.
+    tools = getattr(cfg, "tools", None) or []
+    assert any(getattr(t, "google_search", None) is not None for t in tools)
+    # JSON mime type must NOT be combined with grounding tools.
+    assert getattr(cfg, "response_mime_type", None) in (None, "")
+    assert "flash" in captured["model"].lower()
 
 
 def test_call_gemini_compare_writer_exception_path_returns_error(app, monkeypatch):

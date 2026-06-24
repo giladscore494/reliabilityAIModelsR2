@@ -4,6 +4,13 @@ import main
 from main import db
 
 
+def _corolla_vid():
+    from app.services.vehicle_catalog_service import resolve_vehicle_selection
+
+    res = resolve_vehicle_selection({"make": "Toyota", "model": "Corolla", "year": 2020})
+    return res.get("variant_id") or (res.get("ambiguity_options") or [{}])[0].get("variant_id")
+
+
 def _base_usage(**overrides):
     usage = {
         "annual_km": 15000,
@@ -95,6 +102,7 @@ def test_analyze_response_uses_risk_only_reliability_report(logged_in_client, mo
         "transmission": "אוטומטית",
         "sub_model": "",
         "legal_confirm": True,
+        "variant_id": _corolla_vid(),
     }
 
     client.post("/api/legal/accept", json={"legal_confirm": True})

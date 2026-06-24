@@ -133,6 +133,10 @@ def _minimal_ai_response(vehicle_profile=None):
 
 
 def _analyze_payload():
+    from app.services.vehicle_catalog_service import resolve_vehicle_selection
+
+    res = resolve_vehicle_selection({"make": "Toyota", "model": "Corolla", "year": 2020})
+    variant_id = res.get("variant_id") or (res.get("ambiguity_options") or [{}])[0].get("variant_id")
     return {
         "make": "Toyota",
         "model": "Corolla",
@@ -142,6 +146,7 @@ def _analyze_payload():
         "transmission": "אוטומטית",
         "sub_model": "",
         "legal_confirm": True,
+        "variant_id": variant_id,
     }
 
 

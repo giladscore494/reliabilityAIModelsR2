@@ -35,11 +35,16 @@ def _normalize_general_transmission_label(value: Any) -> str:
         return CHECKED_VERSION_UNKNOWN_HE
 
     lowered = text.lower()
+    # Only genuine dual-clutch indicators expand to the dual-clutch label.
+    # A plain general "robotic"/"רובוטית" the user selected must stay "רובוטית"
+    # (do not over-specify a general choice into dual-clutch).
     if any(
         token in lowered
-        for token in ("dsg", "dct", "dual clutch", "dual-clutch", "dual_clutch", "robot", "רובוט")
+        for token in ("dsg", "dct", "dual clutch", "dual-clutch", "dual_clutch", "כפולת מצמדים")
     ):
         return "רובוטית כפולת מצמדים"
+    if any(token in lowered for token in ("robot", "רובוט", "amt", "automated manual")):
+        return "רובוטית"
     if any(token in lowered for token in ("cvt", "רציפ", "continuously variable")):
         return "רציפה"
     if any(token in lowered for token in ("manual", "ידני", "ידנית")):
@@ -196,9 +201,21 @@ def build_checked_versions(
             )
             or CHECKED_VERSION_UNKNOWN_HE
         )
-        transmission = _normalize_general_transmission_label(
-            powertrain_source.get("transmission") or powertrain.get("gearbox") or selection.get("gearbox")
-        )
+        if catalog_exact:
+            transmission = _normalize_general_transmission_label(
+                powertrain_source.get("transmission")
+                or powertrain.get("gearbox")
+                or selection.get("gearbox")
+            )
+        else:
+            # Honor the user's general transmission choice over a more specific
+            # grounded gearbox (keep "רובוטית" rather than expanding a grounded
+            # DSG to "רובוטית כפולת מצמדים"); see Stage B writer HARD RULE 14.
+            transmission = _normalize_general_transmission_label(
+                selection.get("gearbox")
+                or powertrain.get("transmission")
+                or powertrain.get("gearbox")
+            )
         drivetrain = _normalize_checked_version_text(
             powertrain_source.get("drivetrain") or powertrain.get("drivetrain"),
             CHECKED_VERSION_NOT_VERIFIED_HE,

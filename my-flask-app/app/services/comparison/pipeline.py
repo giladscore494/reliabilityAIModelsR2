@@ -587,7 +587,7 @@ def handle_comparison_request(
             computed_result=json.dumps(stored_computed, ensure_ascii=False),
             sources_index=json.dumps(sources_index, ensure_ascii=False),
             model_name=COMPARISON_MODEL_ID,
-            grounding_enabled=True,
+            grounding_enabled=bool(model_output.get("grounding_successful")),
             prompt_version=COMPARISON_PROMPT_VERSION,
             request_hash=request_hash,
             duration_ms=duration_ms,
@@ -631,6 +631,8 @@ def handle_comparison_request(
             "visible_warning": visible_warning,
             "central_differences": central_differences,
             "guardrail_meta": comparison_guarded.get("guardrail_meta", {}),
+            "research_status": model_output.get("research_status")
+            or {"grounding_successful": False, "web_search_performed": False},
         }
     )
 

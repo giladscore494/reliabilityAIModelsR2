@@ -21,8 +21,19 @@ ACTIVE_ROUTES = [
 
 @pytest.fixture(scope="module")
 def app():
+    # Provide test-only env so create_app() can boot. This mirrors the
+    # function-scoped `app` fixture in conftest.py and never weakens the
+    # production requirement that SECRET_KEY must be set in real deployments.
     from main import create_app
-    return create_app()
+
+    mp = pytest.MonkeyPatch()
+    mp.setenv("SECRET_KEY", "test-secret-key-for-smoke")
+    mp.setenv("DATABASE_URL", "sqlite:///:memory:")
+    mp.delenv("RENDER", raising=False)
+    try:
+        yield create_app()
+    finally:
+        mp.undo()
 
 
 def test_app_imports(app):

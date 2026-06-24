@@ -737,13 +737,18 @@ class TestCompareSegmentInference:
         )
         assert segment == "city_mini"
 
-    def test_build_single_car_prompt_embeds_segment_context(self):
+    def test_build_single_car_prompt_is_catalog_first_and_grounded(self):
+        # Catalog-first rebuild: the Stage A single-car prompt no longer embeds
+        # segment taxonomy. It locks identity from the local catalog, mandates
+        # Google Search, and requests per-car car_profile evidence only.
         prompt = build_single_car_prompt(
             {"make": "Kia", "model": "Sportage", "year": 2020}
         )
-        assert '"segment_key": "crossover_soft_suv"' in prompt
-        assert "family usability" in prompt
-        assert "CATEGORY_BEHAVIOR_RULES" in prompt
+        assert "LOCAL_VEHICLE_CATALOG_CONTEXT" in prompt
+        assert "Google Search" in prompt
+        assert "car_profile" in prompt
+        # It must not ask the model to re-decide catalog identity.
+        assert "segment_key" not in prompt
 
 
 # ============================================================

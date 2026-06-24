@@ -21,6 +21,18 @@ from main import (
 MIN_SHARED_NAV_OCCURRENCES = 2
 
 
+def _corolla_variant_id():
+    """Resolve a concrete catalog variant_id so analyze does not short-circuit
+    on the ambiguity guard (catalog-first rebuild)."""
+    from app.services.vehicle_catalog_service import resolve_vehicle_selection
+
+    res = resolve_vehicle_selection({"make": "Toyota", "model": "Corolla", "year": 2020})
+    if res.get("variant_id"):
+        return res["variant_id"]
+    opts = res.get("ambiguity_options") or []
+    return opts[0]["variant_id"] if opts else None
+
+
 def _valid_payload():
     return {
         "make": "Toyota",
@@ -30,6 +42,7 @@ def _valid_payload():
         "fuel_type": "בנזין",
         "transmission": "אוטומטית",
         "sub_model": "",
+        "variant_id": _corolla_variant_id(),
     }
 
 
