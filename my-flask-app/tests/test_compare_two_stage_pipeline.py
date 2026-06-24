@@ -1013,7 +1013,7 @@ def test_stage_a_config_is_bounded_and_grounding_enabled(app, monkeypatch):
     assert any(getattr(t, "google_search", None) is not None for t in tools)
     # JSON mime type must NOT be combined with grounding tools.
     assert getattr(cfg, "response_mime_type", None) in (None, "")
-    assert "flash" in captured["model"].lower()
+    assert "3.1-pro" in captured["model"].lower()
 
 
 def test_call_gemini_compare_writer_exception_path_returns_error(app, monkeypatch):
