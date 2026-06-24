@@ -994,7 +994,7 @@
             const arr = infoReview.riskAreas;
             let html = '';
             if (arr.length) {
-                html += '<h4 class="text-base font-semibold text-white mb-2">תחומי סיכון מרכזיים לבדיקה</h4>';
+                html += '<div class="yr-section-kicker">תחומי סיכון עיקריים</div>';
                 html += '<ul class="list-disc list-inside space-y-1 text-sm text-slate-200">';
                 html += arr.map(item => {
                     if (item && typeof item === 'object') {
@@ -1019,7 +1019,7 @@
             // Legacy / fallback: recommended_checks
             const recommendedChecks = Array.isArray(data.recommended_checks) ? data.recommended_checks.filter(Boolean) : [];
             if (recommendedChecks.length) {
-                html += '<h5 class="text-sm font-semibold text-slate-300 mt-4 mb-1">בדיקות קונקרטיות מומלצות</h5>';
+                html += '<h5 class="text-sm font-semibold text-slate-300 mt-4 mb-1">מה לבדוק לפני קנייה</h5>';
                 html += '<ul class="list-disc list-inside space-y-1 text-sm text-slate-300">';
                 html += recommendedChecks.map(item => `<li>${safe(item)}</li>`).join('');
                 html += '</ul>';
@@ -1032,7 +1032,7 @@
             const list = infoReview.estimatedCostSensitivity;
             let html = '';
             if (list.length) {
-                html += '<h4 class="text-base font-semibold text-white mb-2">רגישות עלויות משוערת</h4>';
+                html += '<div class="yr-section-kicker">רגישות עלויות</div>';
                 html += '<ul class="list-disc list-inside space-y-1 text-sm text-slate-200">';
                 html += list.map(item => `<li>${safe(item)}</li>`).join('');
                 html += '</ul>';
@@ -1067,40 +1067,35 @@
 
         if (competitorsContainer) {
             const vp = (data.vehicle_profile && typeof data.vehicle_profile === 'object') ? data.vehicle_profile : null;
-            const vpCompetitors = (vp && Array.isArray(vp.competitors)) ? vp.competitors.filter(Boolean) : [];
-            const uncertainties = infoReview.knownUncertainties;
-            let html = '';
+            const vpCompetitors = (vp && Array.isArray(vp.competitors)) ? vp.competitors.filter(Boolean).slice(0, 5) : [];
+            let html = '<div class="yr-section-kicker">מתחרים רלוונטיים</div>';
 
-            // Show vehicle_profile.competitors as primary section
             if (vpCompetitors.length) {
-                html += '<h4 class="text-base font-semibold text-white mb-2">מתחרים רלוונטיים</h4>';
-                html += '<ul class="space-y-3">';
+                html += '<p class="text-sm text-slate-400 mb-4">חלופות ישראליות מאותו אזור שימוש/תקציב כאשר המידע זמין. זו אינה השוואה מלאה.</p>';
+                html += '<div class="yr-competitor-grid">';
                 html += vpCompetitors.map(comp => {
-                    const model = safe(comp.model || '');
-                    const adv = safe(comp.advantage_vs_current || '');
-                    const dis = safe(comp.disadvantage_vs_current || '');
-                    return `<li class="bg-slate-900/40 border border-slate-700/70 rounded-xl px-3 py-3">
-                        <div class="font-semibold text-white mb-1">${model}</div>
-                        ${adv ? `<div class="text-xs text-emerald-300 mb-0.5">✓ ${adv}</div>` : ''}
-                        ${dis ? `<div class="text-xs text-amber-300">⚠ ${dis}</div>` : ''}
-                    </li>`;
+                    const model = safe(comp.model || comp.name || 'דורש בדיקה');
+                    const why = safe(comp.why_relevant || comp.why_consider || comp.reason || 'דורש בדיקה');
+                    const adv = safe(comp.advantage_vs_current || comp.key_advantage || 'דורש בדיקה');
+                    const dis = safe(comp.disadvantage_vs_current || comp.key_risk || 'דורש בדיקה');
+                    const bestFor = safe(comp.best_for || comp.who_should_choose || 'מידע חלקי');
+                    const weak = [why, adv, dis, bestFor].some(v => v === 'דורש בדיקה' || v === 'מידע חלקי');
+                    return `<article class="yr-competitor-card">
+                        <div class="flex items-start justify-between gap-3 mb-3">
+                            <h4 class="font-black text-white text-lg">${model}</h4>
+                            ${weak ? '<span class="yr-mini-badge yr-mini-badge--warn">דורש בדיקה</span>' : ''}
+                        </div>
+                        <dl class="space-y-2 text-sm leading-6">
+                            <div><dt>למה רלוונטי</dt><dd>${why}</dd></div>
+                            <div><dt>יתרון מול הנסקר</dt><dd>${adv}</dd></div>
+                            <div><dt>חיסרון/סיכון</dt><dd>${dis}</dd></div>
+                            <div><dt>למי עדיף</dt><dd>${bestFor}</dd></div>
+                        </dl>
+                    </article>`;
                 }).join('');
-                html += '</ul>';
-            }
-
-            // Show knownUncertainties as a separate section below
-            if (uncertainties.length) {
-                html += '<h4 class="text-base font-semibold text-white mt-4 mb-2">מה עוד לא ידוע</h4>';
-                html += '<p class="text-sm text-slate-300 mb-2">נקודות שעדיין חסר עליהם מידע ושכדאי לוודא מול המוכר/מוסך בדיקה:</p>';
-                html += '<ul class="space-y-2 text-sm text-slate-200">';
-                html += uncertainties.map(item => `
-                    <li class="bg-slate-900/40 border border-slate-700/70 rounded-xl px-3 py-2">${safe(item)}</li>
-                `).join('');
-                html += '</ul>';
-            }
-
-            if (!vpCompetitors.length && !uncertainties.length) {
-                html += '<p class="text-sm text-slate-400">מידע לא זוהה ממקור רשמי.</p>';
+                html += '</div>';
+            } else {
+                html += '<p class="text-sm text-slate-400">לא התקבלו 3–5 חלופות אמינות. דורש בדיקה מול שוק יד שנייה/יבואן.</p>';
             }
 
             competitorsContainer.innerHTML = html;
@@ -1128,7 +1123,7 @@
                 const statusInfo = marketStatus ? marketStatusMap[marketStatus] : null;
                 vpHtml += `<div class="mb-6 pb-6 border-b border-slate-700/50">
                     <h3 class="text-lg font-bold text-white mb-2 flex items-center gap-2">
-                        זהות הרכב
+                        כרטיס זהות טכנית
                         ${statusInfo ? `<span class="text-[10px] px-2 py-0.5 rounded-full border ${statusInfo.cls}">${statusInfo.label}</span>` : ''}
                     </h3>
                     <div class="grid grid-cols-2 gap-2 text-sm">
@@ -1309,71 +1304,26 @@
         }
 
         if (reportContainer) {
-            const riskAreas = infoReview.riskAreas;
-            const uncertainties = infoReview.knownUncertainties;
-            const costSensitivity = infoReview.estimatedCostSensitivity;
-            let html = '';
-            if (
-                !infoReview.basedOnAvailableInformation &&
-                !riskAreas.length &&
-                !uncertainties.length &&
-                !costSensitivity.length &&
-                !Object.keys(checklist).length
-            ) {
-                html = '<p class="text-sm text-slate-400">לא התקבלו פרטי ניתוח להצגה.</p>';
+            const groups = [
+                ['נקודות בדיקה מכניות', checklist.mechanical_inspection_points || []],
+                ['מסמכים לאימות', checklist.documents_to_verify || []],
+                ['שאלות למוכר', checklist.questions_to_ask_seller || []],
+                ['דגלים אדומים', checklist.red_flags_to_look_for || []],
+                ['אי-ודאויות שדורשות אימות', infoReview.knownUncertainties || []],
+            ].map(([title, items]) => [title, Array.isArray(items) ? items.filter(Boolean) : []])
+             .filter(([, items]) => items.length);
+            let html = '<div class="yr-section-kicker">מה לבדוק לפני קנייה</div>';
+            if (!groups.length) {
+                html += '<p class="text-sm text-slate-400">לא התקבלה רשימת בדיקות קונקרטית. יש לבצע בדיקה מקצועית מלאה.</p>';
             } else {
-                html += `
-                    <div class="space-y-3">
-                        <p class="text-slate-200 text-sm">${safe(infoReview.basedOnAvailableInformation || '')}</p>
-                        <div>
-                            <h4 class="text-sm font-semibold text-white mb-1">תחומי סיכון מרכזיים לבדיקה</h4>
-                            <ul class="list-disc list-inside text-sm text-slate-200 space-y-1">
-                                ${riskAreas.slice(0, 6).map(r => `<li><span class="font-semibold">${safe(r.risk_area || '')}</span>${r.why_to_check ? ` – ${safe(r.why_to_check)}` : ''}</li>`).join('') || '<li class="text-slate-400">אין תחומי סיכון מפורטים.</li>'}
-                            </ul>
-                        </div>
-                        <div>
-                            <h4 class="text-sm font-semibold text-white mb-1">מה חייבים לבדוק לפני החלטה</h4>
-                            <div class="space-y-2 text-sm text-slate-200">
-                                <div>
-                                    <div class="font-semibold text-white mb-1">נקודות בדיקה מכניות</div>
-                                    <ul class="list-disc list-inside space-y-1">
-                                        ${(checklist.mechanical_inspection_points || []).map(x => `<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין נתונים</li>'}
-                                    </ul>
-                                </div>
-                                <div>
-                                    <div class="font-semibold text-white mb-1">מסמכים לאימות</div>
-                                    <ul class="list-disc list-inside space-y-1">
-                                        ${(checklist.documents_to_verify || []).map(x => `<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין נתונים</li>'}
-                                    </ul>
-                                </div>
-                                <div>
-                                    <div class="font-semibold text-white mb-1">שאלות למוכר</div>
-                                    <ul class="list-disc list-inside space-y-1">
-                                        ${(checklist.questions_to_ask_seller || []).map(x => `<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין נתונים</li>'}
-                                    </ul>
-                                </div>
-                                <div>
-                                    <div class="font-semibold text-white mb-1">דגלים אדומים</div>
-                                    <ul class="list-disc list-inside space-y-1">
-                                        ${(checklist.red_flags_to_look_for || []).map(x => `<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין נתונים</li>'}
-                                    </ul>
-                                </div>
-                            </div>
-                        </div>
-                        <div>
-                            <h4 class="text-sm font-semibold text-white mb-1">אי-ודאויות ידועות</h4>
-                            <ul class="list-disc list-inside text-sm text-slate-200 space-y-1">
-                                ${uncertainties.map(x => `<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
-                            </ul>
-                        </div>
-                        <div>
-                            <h4 class="text-sm font-semibold text-white mb-1">רגישות עלויות משוערת</h4>
-                            <ul class="list-disc list-inside text-sm text-slate-200 space-y-1">
-                                ${costSensitivity.map(x => `<li>${safe(x)}</li>`).join('') || '<li class="text-slate-400">אין מידע</li>'}
-                            </ul>
-                        </div>
+                html += '<div class="space-y-4">' + groups.map(([title, items]) => `
+                    <div>
+                        <h4 class="text-sm font-semibold text-white mb-2">${safe(title)}</h4>
+                        <ul class="list-disc list-inside text-sm text-slate-200 space-y-1">
+                            ${items.map(x => `<li>${safe(x)}</li>`).join('')}
+                        </ul>
                     </div>
-                `;
+                `).join('') + '</div>';
             }
             reportContainer.innerHTML = html;
         }
