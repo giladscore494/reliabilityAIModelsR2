@@ -45,8 +45,87 @@ from app.factory import (
     mileage_adjustment,
     normalize_text,
 )
+from app.services.vehicle_catalog_service import (
+    CatalogUnavailableError,
+    catalog_is_available,
+    get_catalog_hash,
+    resolve_vehicle_selection,
+)
 
 logger = logging.getLogger(__name__)
+
+# Identity fields owned by the catalog; the AI must never overwrite them.
+_LOCKED_IDENTITY_FIELDS = (
+    "make",
+    "model",
+    "canonical_model",
+    "version_or_trim",
+    "body_type",
+    "fuel_type",
+    "engine",
+    "engine_displacement_l",
+    "horsepower_hp",
+    "transmission",
+    "drivetrain",
+    "year_start",
+    "year_end",
+    "support_level",
+)
+
+
+def _build_identity_snapshot(resolution: Dict[str, Any]) -> Dict[str, Any]:
+    """Server-owned identity snapshot derived strictly from the catalog."""
+    snapshot = {"source": "catalog", "variant_id": resolution.get("variant_id"),
+                "selected_year": resolution.get("selected_year")}
+    for field in _LOCKED_IDENTITY_FIELDS:
+        snapshot[field] = resolution.get(field)
+    return snapshot
+
+
+def _build_research_status(grounding_meta: Dict[str, Any], ai_output: Dict[str, Any]) -> Dict[str, Any]:
+    """Honest research_status: grounding flags come from real call metadata."""
+    meta = grounding_meta if isinstance(grounding_meta, dict) else {}
+    grounded = bool(meta.get("grounding_successful"))
+    source_count = int(meta.get("source_count") or 0)
+    limitations = []
+    rs = ai_output.get("research_status") if isinstance(ai_output.get("research_status"), dict) else {}
+    if isinstance(rs.get("limitations"), list):
+        limitations.extend([str(x) for x in rs["limitations"] if x])
+    if not grounded:
+        limitations.append("חיפוש האינטרנט לא אומת לבקשה זו — הראיות מוגבלות.")
+    return {
+        "web_search_required": True,
+        "web_search_performed": grounded,
+        "grounding_successful": grounded,
+        "source_count": source_count,
+        "limitations": limitations[:8],
+    }
+
+
+def _enforce_catalog_identity(ai_output: Dict[str, Any], resolution: Dict[str, Any], request_id: str) -> Dict[str, Any]:
+    """Catalog identity always wins; AI identity fields are discarded."""
+    snapshot = _build_identity_snapshot(resolution)
+    ai_identity = ai_output.get("identity_snapshot")
+    if isinstance(ai_identity, dict):
+        for field in _LOCKED_IDENTITY_FIELDS:
+            ai_val = ai_identity.get(field)
+            cat_val = snapshot.get(field)
+            if ai_val not in (None, "", []) and cat_val not in (None, "") and str(ai_val).strip().lower() != str(cat_val).strip().lower():
+                logging.getLogger(__name__).warning(
+                    "[ANALYZE] AI identity drift ignored field=%s ai=%s catalog=%s request_id=%s",
+                    field, ai_val, cat_val, request_id,
+                )
+    ai_output["identity_snapshot"] = snapshot
+    ai_output["catalog_resolution"] = {
+        "resolution_status": resolution.get("resolution_status"),
+        "variant_id": resolution.get("variant_id"),
+        "profile_confidence": resolution.get("profile_confidence"),
+        "catalog_hash": resolution.get("catalog_hash"),
+        "catalog_generated_at": resolution.get("catalog_generated_at"),
+        "missing_catalog_fields": resolution.get("missing_catalog_fields", []),
+        "notes": resolution.get("notes", []),
+    }
+    return ai_output
 
 
 _DEPRECATED_SCORE_KEYS = (
@@ -274,6 +353,41 @@ def handle_analyze_request(
                 status=400,
                 details={"field": "payload"},
             )
+
+        # --- Catalog-first identity resolution (catalog decides identity) ---
+        try:
+            if not catalog_is_available():
+                return api_error(
+                    "catalog_unavailable",
+                    "מאגר הרכבים אינו זמין כעת. נסה שוב מאוחר יותר.",
+                    status=503,
+                )
+            resolution = resolve_vehicle_selection(validated)
+        except CatalogUnavailableError:
+            log_rejection("server_error", "catalog unreadable")
+            return api_error(
+                "catalog_unavailable",
+                "מאגר הרכבים אינו קריא כעת. נסה שוב מאוחר יותר.",
+                status=503,
+            )
+        # Ambiguous selection without a chosen variant → ask the UI to choose;
+        # never guess (PART 9).
+        if resolution.get("resolution_status") == "ambiguous" and not validated.get("variant_id"):
+            return api_ok(
+                {
+                    "needs_variant_selection": True,
+                    "catalog_resolution": {
+                        "resolution_status": "ambiguous",
+                        "make": resolution.get("make"),
+                        "model": resolution.get("model"),
+                        "selected_year": resolution.get("selected_year"),
+                        "catalog_hash": resolution.get("catalog_hash"),
+                    },
+                    "ambiguity_options": resolution.get("ambiguity_options", []),
+                    "message": "נמצאו כמה גרסאות טכניות תואמות. בחר/י גרסה מדויקת כדי להמשיך.",
+                    "request_id": get_request_id(),
+                }
+            )
     except ValidationError as e:
         log_access_decision(
             "/analyze",
@@ -385,7 +499,7 @@ def handle_analyze_request(
     try:
         if os.environ.get("SIMULATE_AI_FAIL", "").lower() in ("1", "true", "yes"):
             raise RuntimeError("SIMULATED_AI_FAILURE")
-        prompt = build_combined_prompt(validated, missing_info)
+        prompt = build_combined_prompt(validated, missing_info, resolution=resolution)
         # Inject compact user_context_for_reasoning (no PII) when available.
         # Optional context that may improve AI personalization without distorting
         # vehicle reliability factuality. Safe to skip if no data / consent.
@@ -419,6 +533,9 @@ def handle_analyze_request(
         if not isinstance(model_output, dict):
             model_output = {}
         ai_output = model_output
+        grounding_meta = ai_output.pop("_grounding_meta", {}) if isinstance(ai_output, dict) else {}
+        ai_output = _enforce_catalog_identity(ai_output, resolution, get_request_id())
+        ai_output["research_status"] = _build_research_status(grounding_meta, ai_output)
         ai_output = _adapt_catalog_first_reliability_output(ai_output)
         ai_output = _validate_vehicle_profile_buyer_summary(ai_output, get_request_id())
     except ModelOutputInvalidError:
@@ -448,9 +565,11 @@ def handle_analyze_request(
             "reason": "MISSING_OR_INVALID",
         }
 
-    # defaults for search data
+    # defaults for search data. search_performed reflects REAL grounding only
+    # (no fake claim) — research_status is the source of truth.
     ai_output.setdefault("ok", True)
-    ai_output.setdefault("search_performed", True)
+    _rs = ai_output.get("research_status") if isinstance(ai_output.get("research_status"), dict) else {}
+    ai_output["search_performed"] = bool(_rs.get("grounding_successful"))
     ai_output.setdefault("search_queries", [])
     ai_output.setdefault("sources", [])
 

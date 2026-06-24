@@ -80,6 +80,28 @@ def _sanitize_str_list(value: Any, *, max_items: int = _MAX_LIST) -> list:
     return [_escape(v) for v in arr]
 
 
+def _safe_escape_tree(value: Any, _depth: int = 0) -> Any:
+    """Bounded recursive HTML-escape for trusted, server-built nested structures.
+
+    Preserves numbers/booleans/None and escapes strings; caps depth and width
+    to avoid pathological payloads.
+    """
+    if _depth > 6:
+        return None
+    if isinstance(value, dict):
+        return {
+            str(k)[:120]: _safe_escape_tree(v, _depth + 1)
+            for k, v in list(value.items())[:60]
+        }
+    if isinstance(value, list):
+        return [_safe_escape_tree(v, _depth + 1) for v in value[:60]]
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    return _escape(value)
+
+
 # -----------------------------
 # /analyze sanitization
 # -----------------------------
@@ -588,6 +610,13 @@ def sanitize_analyze_response(response: Any) -> Dict[str, Any]:
         sanitized_vp = _sanitize_vehicle_profile(src.get("vehicle_profile"))
         if sanitized_vp is not None:
             out["vehicle_profile"] = sanitized_vp
+
+    # Catalog-first server-owned blocks (identity is server-controlled, not AI).
+    # Pass through with bounded recursive escaping so the UI can show the exact
+    # locked variant and honest research status.
+    for key in ("identity_snapshot", "catalog_resolution", "research_status"):
+        if key in src:
+            out[key] = _safe_escape_tree(src.get(key))
 
     # Log dropped keys (only key names, no PII)
     dropped_keys = set(src.keys()) - set(out.keys())

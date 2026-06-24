@@ -275,8 +275,8 @@ def build_reliability_report_prompt(payload: dict, missing_info: list[str]) -> s
     return _build_reliability_report_prompt(payload, missing_info)
 
 
-def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
-    return _build_combined_prompt(payload, missing_info)
+def build_combined_prompt(payload: dict, missing_info: list[str], resolution: dict | None = None) -> str:
+    return _build_combined_prompt(payload, missing_info, resolution=resolution)
 
 
 def call_model_with_retry(prompt: str) -> dict:

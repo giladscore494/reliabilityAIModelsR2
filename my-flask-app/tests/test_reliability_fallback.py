@@ -4,6 +4,16 @@ import main
 from main import db
 
 
+def _corolla_variant_id():
+    from app.services.vehicle_catalog_service import resolve_vehicle_selection
+
+    res = resolve_vehicle_selection({"make": "Toyota", "model": "Corolla", "year": 2020})
+    if res.get("variant_id"):
+        return res["variant_id"]
+    opts = res.get("ambiguity_options") or []
+    return opts[0]["variant_id"] if opts else None
+
+
 def _base_payload():
     return {
         "make": "Toyota",
@@ -14,6 +24,7 @@ def _base_payload():
         "transmission": "אוטומטית",
         "sub_model": "",
         "legal_confirm": True,
+        "variant_id": _corolla_variant_id(),
     }
 
 

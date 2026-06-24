@@ -148,8 +148,43 @@ def _execute_with_timeout(fn, timeout_sec: int):
         return None, e
 
 
+def extract_grounding_meta(resp) -> dict:
+    """Inspect a genai response for real Google Search grounding signals.
+
+    Returns ``{"grounding_successful": bool, "source_count": int,
+    "search_queries": [...]}``. This is the single source of truth for whether
+    a grounded call actually happened — never trust a model-asserted flag.
+    """
+    meta = {"grounding_successful": False, "source_count": 0, "search_queries": []}
+    try:
+        candidates = getattr(resp, "candidates", None) or []
+        for cand in candidates:
+            gm = getattr(cand, "grounding_metadata", None)
+            if gm is None:
+                continue
+            queries = list(getattr(gm, "web_search_queries", None) or [])
+            chunks = list(getattr(gm, "grounding_chunks", None) or [])
+            if queries:
+                meta["search_queries"].extend([str(q) for q in queries])
+            if chunks:
+                meta["source_count"] += len(chunks)
+            if queries or chunks:
+                meta["grounding_successful"] = True
+    except Exception:  # pragma: no cover - defensive
+        logger.debug("[AI] grounding metadata extraction failed", exc_info=True)
+    return meta
+
+
 def call_gemini_grounded_once(prompt: str) -> Tuple[Optional[dict], Optional[str]]:
+    """Single grounded reliability call.
+
+    Google Search grounding is mandatory. The grounding tool and a forced JSON
+    mime type are mutually exclusive in the Gemini API, so we enable the tool
+    and parse JSON defensively from text. Real grounding signals are attached
+    to the parsed payload under ``_grounding_meta`` for honest research_status.
+    """
     start_time = pytime.perf_counter()
+    grounding_meta = {"grounding_successful": False, "source_count": 0, "search_queries": []}
     try:
         if extensions.ai_client is None:
             return None, "CLIENT_NOT_INITIALIZED"
@@ -159,7 +194,6 @@ def call_gemini_grounded_once(prompt: str) -> Tuple[Optional[dict], Optional[str
             top_p=0.9,
             top_k=40,
             tools=[search_tool],
-            response_mime_type="application/json",
         )
         def _invoke():
             return extensions.ai_client.models.generate_content(
@@ -176,13 +210,19 @@ def call_gemini_grounded_once(prompt: str) -> Tuple[Optional[dict], Optional[str
             return None, f"CALL_FAILED:{type(err).__name__}"
         if resp is None:
             return None, "CALL_FAILED:EMPTY"
+        grounding_meta = extract_grounding_meta(resp)
         text = (getattr(resp, "text", "") or "").strip()
         parsed, err = parse_model_json(text)
+        if isinstance(parsed, dict):
+            parsed["_grounding_meta"] = grounding_meta
         return parsed, err
     finally:
         duration_ms = (pytime.perf_counter() - start_time) * 1000
         logger.info(
-            "[AI] feature=reliability model=%s duration_ms=%.2f",
+            "[AI] feature=reliability model=%s duration_ms=%.2f tools_enabled=%s grounding_successful=%s source_count=%s",
             GEMINI_RELIABILITY_MODEL_ID,
             duration_ms,
+            True,
+            grounding_meta.get("grounding_successful"),
+            grounding_meta.get("source_count"),
         )

@@ -254,7 +254,8 @@
                                     <label class="text-xs font-bold uppercase tracking-wider text-slate-400">סוג מנוע</label>
                                     <select id="engine_1" name="engine_1"
                                             class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
-                                        <option value="בנזין" selected>בנזין</option>
+                                        <option value="" selected>-- לפי המאגר / לא נבחר --</option>
+                                        <option value="בנזין">בנזין</option>
                                         <option value="דיזל">דיזל</option>
                                         <option value="היברידי">היברידי</option>
                                         <option value="חשמלי">חשמלי</option>
@@ -264,7 +265,8 @@
                                     <label class="text-xs font-bold uppercase tracking-wider text-slate-400">תיבת הילוכים</label>
                                     <select id="gear_1" name="gear_1"
                                             class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
-                                        <option value="אוטומטית" selected>אוטומטית</option>
+                                        <option value="" selected>-- לפי המאגר / לא נבחר --</option>
+                                        <option value="אוטומטית">אוטומטית</option>
                                         <option value="רובוטית">רובוטית</option>
                                         <option value="רובוטית כפולת מצמדים">רובוטית כפולת מצמדים</option>
                                         <option value="רציפה">רציפה</option>
@@ -315,7 +317,8 @@
                                     <label class="text-xs font-bold uppercase tracking-wider text-slate-400">סוג מנוע</label>
                                     <select id="engine_2" name="engine_2"
                                             class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
-                                        <option value="בנזין" selected>בנזין</option>
+                                        <option value="" selected>-- לפי המאגר / לא נבחר --</option>
+                                        <option value="בנזין">בנזין</option>
                                         <option value="דיזל">דיזל</option>
                                         <option value="היברידי">היברידי</option>
                                         <option value="חשמלי">חשמלי</option>
@@ -325,7 +328,8 @@
                                     <label class="text-xs font-bold uppercase tracking-wider text-slate-400">תיבת הילוכים</label>
                                     <select id="gear_2" name="gear_2"
                                             class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
-                                        <option value="אוטומטית" selected>אוטומטית</option>
+                                        <option value="" selected>-- לפי המאגר / לא נבחר --</option>
+                                        <option value="אוטומטית">אוטומטית</option>
                                         <option value="רובוטית">רובוטית</option>
                                         <option value="רובוטית כפולת מצמדים">רובוטית כפולת מצמדים</option>
                                         <option value="רציפה">רציפה</option>
@@ -376,7 +380,8 @@
                                     <label class="text-xs font-bold uppercase tracking-wider text-slate-400">סוג מנוע</label>
                                     <select id="engine_3" name="engine_3"
                                             class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
-                                        <option value="בנזין" selected>בנזין</option>
+                                        <option value="" selected>-- לפי המאגר / לא נבחר --</option>
+                                        <option value="בנזין">בנזין</option>
                                         <option value="דיזל">דיזל</option>
                                         <option value="היברידי">היברידי</option>
                                         <option value="חשמלי">חשמלי</option>
@@ -386,7 +391,8 @@
                                     <label class="text-xs font-bold uppercase tracking-wider text-slate-400">תיבת הילוכים</label>
                                     <select id="gear_3" name="gear_3"
                                             class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
-                                        <option value="אוטומטית" selected>אוטומטית</option>
+                                        <option value="" selected>-- לפי המאגר / לא נבחר --</option>
+                                        <option value="אוטומטית">אוטומטית</option>
                                         <option value="רובוטית">רובוטית</option>
                                         <option value="רובוטית כפולת מצמדים">רובוטית כפולת מצמדים</option>
                                         <option value="רציפה">רציפה</option>
@@ -1374,8 +1380,8 @@
                 yearSelect.disabled = true;
                 const engineSelect = document.getElementById(`engine_${slotSuffix}`);
                 const gearSelect = document.getElementById(`gear_${slotSuffix}`);
-                if (engineSelect) engineSelect.value = 'בנזין';
-                if (gearSelect) gearSelect.value = 'אוטומטית';
+                if (engineSelect) engineSelect.value = '';
+                if (gearSelect) gearSelect.value = '';
                 updateClearButton(slotSuffix);
                 resetSlotTitle(slotSuffix);
                 updateCompareButton();
@@ -1596,12 +1602,14 @@
 
         if (!make || !model || !year) return null;
 
+        // Do NOT inject fake gasoline/automatic defaults. Empty stays empty so
+        // the catalog resolver (not a silent default) decides identity.
         const car = {
             make: make,
             model: model,
             year: parseInt(year, 10),
-            engine_type: engineSelect?.value || 'בנזין',
-            gearbox: gearSelect?.value || 'אוטומטית'
+            engine_type: engineSelect?.value || '',
+            gearbox: gearSelect?.value || ''
         };
 
         // Include year_start/year_end for the backend

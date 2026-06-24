@@ -419,6 +419,10 @@ class TestPostHogServerFlows:
         monkeypatch.setattr("main.call_gemini_grounded_once", fake_ai)
         monkeypatch.setattr("app.services.analyze_service.track_event", track_event)
 
+        from app.services.vehicle_catalog_service import resolve_vehicle_selection
+
+        _res = resolve_vehicle_selection({"make": "Toyota", "model": "Corolla", "year": 2020})
+        _vid = _res.get("variant_id") or (_res.get("ambiguity_options") or [{}])[0].get("variant_id")
         resp = client.post(
             "/analyze",
             json={
@@ -430,6 +434,7 @@ class TestPostHogServerFlows:
                 "transmission": "אוטומטית",
                 "sub_model": "",
                 "legal_confirm": True,
+                "variant_id": _vid,
             },
             headers={"Origin": "http://localhost"},
         )

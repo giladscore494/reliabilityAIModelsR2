@@ -21,13 +21,26 @@ _CATALOG_PATH = os.path.join(_DATA_DIR, "model_technical_catalog_il.json")
 _catalog_cache: Optional[Dict[str, Any]] = None
 _ui_data_cache: Optional[Dict[str, Any]] = None
 _flat_cache: Optional[List[Dict[str, Any]]] = None
+_catalog_hash_cache: Optional[str] = None
+
+
+class CatalogUnavailableError(RuntimeError):
+    """Raised when the technical catalog cannot be read/parsed.
+
+    Callers must surface a clean server error rather than letting the AI
+    hallucinate a model-only identity (see PART 9 — error handling).
+    """
 
 
 def load_vehicle_catalog() -> Dict[str, Any]:
     """Load and cache the full catalog JSON.
 
-    Returns an empty dict with ``models: []`` on any IO/parse error so the
-    application can keep running without the catalog.
+    Deduplicates variants that share the same deterministic ``variant_id``
+    inside a model and logs a warning for each duplicate. Returns an empty
+    dict with ``models: []`` on a *missing* file so non-catalog flows keep
+    running, but raises :class:`CatalogUnavailableError` when a present file
+    is unreadable/corrupt so identity resolution fails loudly instead of
+    silently inventing data.
     """
     global _catalog_cache
     if _catalog_cache is not None:
@@ -35,19 +48,86 @@ def load_vehicle_catalog() -> Dict[str, Any]:
 
     try:
         with open(_CATALOG_PATH, encoding="utf-8") as fh:
-            _catalog_cache = json.load(fh)
-        logger.info(
-            "[CATALOG] Loaded %d models from %s",
-            len(_catalog_cache.get("models", [])),
-            _CATALOG_PATH,
-        )
+            raw = json.load(fh)
     except FileNotFoundError:
         logger.warning("[CATALOG] File not found: %s — running without catalog", _CATALOG_PATH)
-        _catalog_cache = {"models": []}
-    except Exception:
+        _catalog_cache = {"models": [], "_unavailable": True}
+        return _catalog_cache
+    except Exception as exc:
         logger.exception("[CATALOG] Failed to parse catalog")
-        _catalog_cache = {"models": []}
+        raise CatalogUnavailableError(str(exc)) from exc
+
+    _dedupe_catalog_variants(raw)
+    _catalog_cache = raw
+    logger.info(
+        "[CATALOG] Loaded %d models from %s (generated_at=%s)",
+        len(_catalog_cache.get("models", [])),
+        _CATALOG_PATH,
+        _catalog_cache.get("generated_at"),
+    )
     return _catalog_cache
+
+
+def _dedupe_catalog_variants(catalog: Dict[str, Any]) -> None:
+    """Drop duplicate variant_id entries inside each model, logging warnings."""
+    dup_count = 0
+    for entry in catalog.get("models", []):
+        seen: set[str] = set()
+        deduped: List[Dict[str, Any]] = []
+        for variant in entry.get("technical_variants_il", []) or []:
+            vid = _compute_variant_id(entry.get("make", ""), entry.get("model", ""), variant)
+            if vid in seen:
+                dup_count += 1
+                logger.warning(
+                    "[CATALOG] duplicate variant dropped make=%s model=%s variant_id=%s",
+                    entry.get("make"),
+                    entry.get("model"),
+                    vid,
+                )
+                continue
+            seen.add(vid)
+            deduped.append(variant)
+        entry["technical_variants_il"] = deduped
+    if dup_count:
+        logger.warning("[CATALOG] total duplicate variants dropped: %d", dup_count)
+
+
+def catalog_is_available() -> bool:
+    """True when the catalog file was found and parsed."""
+    return not load_vehicle_catalog().get("_unavailable", False)
+
+
+def get_catalog_generation_meta() -> Dict[str, Any]:
+    """Return catalog provenance metadata for responses and cache keys."""
+    catalog = load_vehicle_catalog()
+    return {
+        "generated_at": catalog.get("generated_at"),
+        "market": catalog.get("market"),
+        "model_count": len(catalog.get("models", [])),
+        "catalog_hash": get_catalog_hash(),
+    }
+
+
+def get_catalog_hash() -> str:
+    """Stable short hash of catalog identity-relevant content.
+
+    Used in cache keys so that any catalog regeneration invalidates stale
+    cache entries deterministically.
+    """
+    global _catalog_hash_cache
+    if _catalog_hash_cache is not None:
+        return _catalog_hash_cache
+    catalog = load_vehicle_catalog()
+    basis = json.dumps(
+        {
+            "generated_at": catalog.get("generated_at"),
+            "model_count": len(catalog.get("models", [])),
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    _catalog_hash_cache = hashlib.sha256(basis.encode("utf-8")).hexdigest()[:16]
+    return _catalog_hash_cache
 
 
 def normalize_fuel_label(value: Any) -> str:
@@ -186,8 +266,14 @@ def get_vehicle_catalog_ui_data() -> Dict[str, Any]:
             if entry_ye and (existing["year_end"] is None or entry_ye > existing["year_end"]):
                 existing["year_end"] = entry_ye
 
+        existing_vids = {
+            opt.get("variant_id") for opt in ui[make][model]["variants"]
+        }
         for v in entry.get("technical_variants_il", []):
             variant_id = _compute_variant_id(make, model, v)
+            if variant_id in existing_vids:
+                continue  # dedupe duplicate UI options (PART 2 rule 7)
+            existing_vids.add(variant_id)
             label = _build_variant_label(v)
             ui[make][model]["variants"].append({
                 "variant_id": variant_id,
@@ -370,6 +456,185 @@ def build_vehicle_catalog_context(selection: Mapping[str, Any]) -> Dict[str, Any
         "identity_snapshot": snapshot,
         "prompt_block": prompt_block,
     }
+
+
+def _resolution_skeleton(selection: Mapping[str, Any]) -> Dict[str, Any]:
+    """Empty resolution result pre-filled with the raw user selection."""
+    year_raw = selection.get("year") or selection.get("year_start")
+    try:
+        selected_year = int(year_raw) if year_raw not in (None, "") else None
+    except (TypeError, ValueError):
+        selected_year = None
+    return {
+        "resolution_status": "unmatched",
+        "variant_id": None,
+        "make": str(selection.get("make") or "").strip() or None,
+        "model": str(selection.get("model") or "").strip() or None,
+        "canonical_model": None,
+        "selected_year": selected_year,
+        "version_or_trim": None,
+        "body_type": None,
+        "fuel_type": None,
+        "engine": None,
+        "engine_displacement_l": None,
+        "horsepower_hp": None,
+        "transmission": None,
+        "drivetrain": None,
+        "year_start": None,
+        "year_end": None,
+        "support_level": None,
+        "profile_confidence": "low",
+        "catalog_sources": [],
+        "missing_catalog_fields": [],
+        "ambiguity_options": [],
+        "notes": [],
+        "catalog_hash": get_catalog_hash(),
+        "catalog_generated_at": load_vehicle_catalog().get("generated_at"),
+    }
+
+
+def _ambiguity_option(entry: Mapping[str, Any], variant: Mapping[str, Any], vid: str) -> Dict[str, Any]:
+    return {
+        "variant_id": vid,
+        "label": _build_variant_label(variant),
+        "version_or_trim": variant.get("version_or_trim"),
+        "body_type": variant.get("body_type"),
+        "fuel_type": variant.get("fuel_type"),
+        "fuel_label": normalize_fuel_label(variant.get("fuel_type")),
+        "engine": variant.get("engine"),
+        "horsepower_hp": variant.get("horsepower_hp"),
+        "transmission": variant.get("transmission"),
+        "transmission_label": normalize_transmission_label(variant.get("transmission")),
+        "drivetrain": variant.get("drivetrain"),
+        "year_start": variant.get("year_start"),
+        "year_end": variant.get("year_end"),
+    }
+
+
+def _fill_resolution_identity(
+    result: Dict[str, Any],
+    entry: Mapping[str, Any],
+    variant: Mapping[str, Any],
+    vid: str,
+    status: str,
+    confidence: str,
+) -> Dict[str, Any]:
+    result.update(
+        {
+            "resolution_status": status,
+            "variant_id": vid,
+            "make": entry.get("make") or result.get("make"),
+            "model": entry.get("model") or result.get("model"),
+            "canonical_model": entry.get("canonical_model"),
+            "version_or_trim": variant.get("version_or_trim"),
+            "body_type": variant.get("body_type"),
+            "fuel_type": variant.get("fuel_type"),
+            "engine": variant.get("engine"),
+            "engine_displacement_l": variant.get("engine_displacement_l"),
+            "horsepower_hp": variant.get("horsepower_hp"),
+            "transmission": variant.get("transmission"),
+            "drivetrain": variant.get("drivetrain"),
+            "year_start": variant.get("year_start") or entry.get("year_start"),
+            "year_end": variant.get("year_end") if variant.get("year_end") is not None else entry.get("year_end"),
+            "support_level": variant.get("support_level"),
+            "profile_confidence": confidence,
+            "catalog_sources": _source_summary(entry, variant),
+            "missing_catalog_fields": variant.get("missing_grounded_fields", []) or [],
+        }
+    )
+    return result
+
+
+def resolve_vehicle_selection(payload: Mapping[str, Any]) -> Dict[str, Any]:
+    """Resolve a user selection to a locked catalog identity (PART 2 schema).
+
+    The catalog — never the model — decides identity. Resolution status:
+      * ``exact``     — a supplied variant_id matched a catalog variant.
+      * ``inferred``  — make/model(/year/discriminators) mapped to one variant.
+      * ``ambiguous`` — several variants matched; ``ambiguity_options`` listed.
+      * ``unmatched`` — nothing matched; identity stays user-provided.
+    """
+    result = _resolution_skeleton(payload)
+    make = result["make"] or ""
+    model = result["model"] or ""
+    variant_id = str(payload.get("variant_id") or "").strip()
+    selected_year = result["selected_year"]
+
+    candidates: List[Tuple[Dict[str, Any], Dict[str, Any], str]] = []
+    for entry in load_vehicle_catalog().get("models", []):
+        if make and str(entry.get("make") or "").strip() != make:
+            continue
+        if model and str(entry.get("model") or "").strip() != model:
+            continue
+        for variant in entry.get("technical_variants_il", []) or []:
+            vid = _compute_variant_id(entry.get("make", ""), entry.get("model", ""), variant)
+            candidates.append((entry, variant, vid))
+
+    # 1) Exact variant_id wins.
+    if variant_id:
+        for entry, variant, vid in candidates:
+            if vid == variant_id:
+                return _fill_resolution_identity(result, entry, variant, vid, "exact", "high")
+        result["notes"].append("variant_id שנשלח לא קיים במאגר הטכני; נדרשת בחירה מחדש.")
+        result["resolution_status"] = "unmatched"
+        return result
+
+    if not candidates:
+        result["notes"].append("לא נמצאה התאמה במאגר הטכני המקומי ליצרן/דגם שנבחרו.")
+        return result
+
+    # 2) Narrow by year, then by explicit technical discriminators.
+    pool = candidates
+    if selected_year is not None:
+        year_pool = []
+        for entry, variant, vid in candidates:
+            ys = variant.get("year_start") or entry.get("year_start") or 0
+            ye = variant.get("year_end") or entry.get("year_end") or 9999
+            if ys <= selected_year <= ye:
+                year_pool.append((entry, variant, vid))
+        if year_pool:
+            pool = year_pool
+
+    fuel = _normalize_match_value(payload.get("catalog_fuel_type") or payload.get("fuel_type") or payload.get("engine_type"))
+    trans = _normalize_match_value(payload.get("catalog_transmission") or payload.get("transmission") or payload.get("gearbox"))
+    engine = _normalize_match_value(payload.get("catalog_engine") or payload.get("engine"))
+    if fuel or trans or engine:
+        narrowed = []
+        for entry, variant, vid in pool:
+            ok = True
+            if fuel and fuel not in {_normalize_match_value(variant.get("fuel_type")), _normalize_match_value(normalize_fuel_label(variant.get("fuel_type")))}:
+                ok = False
+            if trans and trans not in {_normalize_match_value(variant.get("transmission")), _normalize_match_value(normalize_transmission_label(variant.get("transmission")))}:
+                ok = False
+            if engine and engine != _normalize_match_value(variant.get("engine")):
+                ok = False
+            if ok:
+                narrowed.append((entry, variant, vid))
+        if narrowed:
+            pool = narrowed
+
+    if len(pool) == 1:
+        entry, variant, vid = pool[0]
+        return _fill_resolution_identity(result, entry, variant, vid, "inferred", "medium")
+
+    # 3) Multiple matches → ambiguous, offer choices (deduped).
+    seen_vids: set[str] = set()
+    options = []
+    for entry, variant, vid in pool:
+        if vid in seen_vids:
+            continue
+        seen_vids.add(vid)
+        options.append(_ambiguity_option(entry, variant, vid))
+    result["resolution_status"] = "ambiguous"
+    result["ambiguity_options"] = options
+    result["canonical_model"] = pool[0][0].get("canonical_model")
+    result["notes"].append("נמצאו כמה גרסאות טכניות תואמות; יש לבחור גרסה מדויקת.")
+    return result
+
+
+def resolve_comparison_car(car: Mapping[str, Any]) -> Dict[str, Any]:
+    """Resolve a single comparison car selection to a locked catalog identity."""
+    return resolve_vehicle_selection(car)
 
 
 def _compute_variant_id(make: str, model: str, variant: Dict[str, Any]) -> str:

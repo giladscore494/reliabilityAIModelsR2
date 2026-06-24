@@ -109,11 +109,23 @@ def _safe_parse_json_cached(
 def compute_request_hash(
     cars: List[Dict], buyer_profile: Optional[Dict[str, Any]] = None
 ) -> str:
+    """Compute a cache hash for a comparison request.
+
+    The key binds the request to the locked catalog variant identity, the
+    catalog generation hash, the comparison prompt version, and the runtime
+    model id. Any of these changing produces a cache miss, so legacy entries
+    created before variant_id/catalog-hash existed can never be reused
+    (PART 5). Uses 32 hex chars (128 bits) of SHA256.
     """
-    Compute a hash for caching based on selected cars and prompt version.
-    Uses 32 characters (128 bits) of SHA256 for adequate collision resistance.
-    Includes year, engine_type, and gearbox in hash calculation.
-    """
+    # Imported lazily to avoid import cycles at module load.
+    from app.services.vehicle_catalog_service import (
+        get_catalog_generation_meta,
+        resolve_comparison_car,
+    )
+    from app.services.comparison.constants import COMPARISON_MODEL_ID
+
+    catalog_meta = get_catalog_generation_meta()
+
     car_keys = []
     for c in cars:
         # Consistent year extraction: prefer year, fallback to year_start
@@ -122,12 +134,24 @@ def compute_request_hash(
             year_val = c.get("year_start")
         year_str = str(year_val) if year_val is not None else ""
 
+        try:
+            resolution = resolve_comparison_car(c)
+        except Exception:
+            resolution = {}
+
         key_parts = [
             c.get("make", ""),
             c.get("model", ""),
             year_str,
             c.get("engine_type", ""),
             c.get("gearbox", ""),
+            str(c.get("variant_id") or resolution.get("variant_id") or ""),
+            str(resolution.get("version_or_trim") or ""),
+            str(resolution.get("fuel_type") or ""),
+            str(resolution.get("engine") or ""),
+            str(resolution.get("transmission") or ""),
+            str(resolution.get("drivetrain") or ""),
+            str(resolution.get("resolution_status") or ""),
         ]
         car_keys.append("|".join(key_parts))
 
@@ -135,6 +159,9 @@ def compute_request_hash(
         "cars": sorted(car_keys),
         "buyer_profile": buyer_profile,
         "prompt_version": COMPARISON_PROMPT_VERSION,
+        "catalog_hash": catalog_meta.get("catalog_hash"),
+        "catalog_generated_at": catalog_meta.get("generated_at"),
+        "model_id": COMPARISON_MODEL_ID,
     }
-    data_str = json.dumps(data, sort_keys=True)
-    return hashlib.sha256(data_str.encode()).hexdigest()[:32]  # 128 bits
+    data_str = json.dumps(data, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(data_str.encode("utf-8")).hexdigest()[:32]  # 128 bits

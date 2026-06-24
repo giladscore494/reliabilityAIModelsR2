@@ -39,6 +39,19 @@ from app.utils.http_helpers import get_request_id
 
 logger = logging.getLogger(__name__)
 
+
+def _google_search_tool() -> "genai_types.Tool":
+    """Build the Google Search grounding tool for Stage A calls."""
+    return genai_types.Tool(google_search=genai_types.GoogleSearch())
+
+
+def _extract_stage_a_grounding(resp) -> Dict[str, Any]:
+    """Detect real Google Search grounding signals on a Stage A response."""
+    from app.services.reliability_model_service import extract_grounding_meta
+
+    return extract_grounding_meta(resp)
+
+
 def parse_single_car_json(raw_text: str) -> Tuple[Optional[Dict], Optional[str]]:
     """Parse and validate single-car JSON response."""
     candidate = _extract_first_json_object(_strip_json_code_fences(raw_text))
@@ -116,14 +129,13 @@ def call_gemini_comparison(
             outcome_reason = "CLIENT_NOT_INITIALIZED"
             return None, "CLIENT_NOT_INITIALIZED"
 
-        config_kwargs = {
-            "temperature": COMPARE_STAGE_A_TEMPERATURE,
-            "top_p": 0.8,
-            "top_k": 20,
-            "max_output_tokens": COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
-            "response_mime_type": "application/json",
-        }
-        config = genai_types.GenerateContentConfig(**config_kwargs)
+        config = genai_types.GenerateContentConfig(
+            temperature=COMPARE_STAGE_A_TEMPERATURE,
+            top_p=0.8,
+            top_k=20,
+            max_output_tokens=COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
+            tools=[_google_search_tool()],
+        )
 
         def _invoke():
             return extensions.ai_client.models.generate_content(
@@ -195,7 +207,7 @@ def call_gemini_comparison(
             _estimate_token_count(prompt),
             COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
             int(timeout_sec * 1000),
-            False,
+            True,
             0,
             outcome,
             outcome_reason,
@@ -217,6 +229,7 @@ def call_gemini_single_car(
     prompt_chars = len(prompt or "")
     outcome = "ok"
     outcome_reason = None
+    grounding_meta = {"grounding_successful": False, "source_count": 0}
     worker_logger = log or logger
     try:
         if extensions.ai_client is None:
@@ -224,14 +237,16 @@ def call_gemini_single_car(
             outcome_reason = "CLIENT_NOT_INITIALIZED"
             return None, "CLIENT_NOT_INITIALIZED"
 
-        config_kwargs = {
-            "temperature": COMPARE_STAGE_A_TEMPERATURE,
-            "top_p": 0.8,
-            "top_k": 20,
-            "max_output_tokens": COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
-            "response_mime_type": "application/json",
-        }
-        config = genai_types.GenerateContentConfig(**config_kwargs)
+        # Google Search grounding is mandatory for Stage A evidence. The
+        # grounding tool and a forced JSON mime type are mutually exclusive in
+        # the Gemini API, so we enable the tool and parse JSON from text.
+        config = genai_types.GenerateContentConfig(
+            temperature=COMPARE_STAGE_A_TEMPERATURE,
+            top_p=0.8,
+            top_k=20,
+            max_output_tokens=COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
+            tools=[_google_search_tool()],
+        )
 
         def _invoke():
             return extensions.ai_client.models.generate_content(
@@ -280,6 +295,7 @@ def call_gemini_single_car(
             outcome_reason = "CALL_FAILED_EMPTY"
             return None, "CALL_FAILED:EMPTY"
 
+        grounding_meta = _extract_stage_a_grounding(resp)
         text = (getattr(resp, "text", "") or "").strip()
         if not text:
             outcome = "error"
@@ -292,12 +308,14 @@ def call_gemini_single_car(
             outcome_reason = parse_error
             _inc_compare_metric("compare_stage_a_json_invalid_total")
             return None, parse_error
+        if isinstance(parsed, dict):
+            parsed["_grounding_meta"] = grounding_meta
         return parsed, None
 
     finally:
         duration_ms = (pytime.perf_counter() - start_time) * 1000
         worker_logger.info(
-            "[AI] feature=comparison_stage_a_per_car model=%s car=%s duration_ms=%.2f prompt_chars=%s prompt_tokens_est=%s max_output_tokens=%s timeout_ms=%s outcome=%s reason=%s",
+            "[AI] feature=comparison_stage_a_per_car model=%s car=%s duration_ms=%.2f prompt_chars=%s prompt_tokens_est=%s max_output_tokens=%s timeout_ms=%s tools_enabled=%s grounding_successful=%s source_count=%s outcome=%s reason=%s",
             COMPARISON_MODEL_ID,
             car_label,
             duration_ms,
@@ -305,6 +323,9 @@ def call_gemini_single_car(
             _estimate_token_count(prompt),
             COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
             int(timeout_sec * 1000),
+            True,
+            grounding_meta.get("grounding_successful"),
+            grounding_meta.get("source_count"),
             outcome,
             outcome_reason,
         )
@@ -337,7 +358,10 @@ def call_stage_a_parallel(
             "- If data is missing, keep the key and use null instead of omitting it.\n"
         )
 
+    grounding_flags: Dict[str, Dict[str, Any]] = {}
+
     def _store_slot_result(slot_key: str, result: Optional[Dict[str, Any]]) -> bool:
+        gmeta = result.get("_grounding_meta") if isinstance(result, dict) else None
         normalized_result = normalize_single_car_payload(
             result,
             fallback_name=(cars_selected_slots.get(slot_key, {}) or {}).get(
@@ -346,6 +370,14 @@ def call_stage_a_parallel(
         )
         if normalized_result is None:
             return False
+        if isinstance(gmeta, dict):
+            grounding_flags[slot_key] = gmeta
+            normalized_result["research_status"] = {
+                "web_search_required": True,
+                "web_search_performed": bool(gmeta.get("grounding_successful")),
+                "grounding_successful": bool(gmeta.get("grounding_successful")),
+                "source_count": int(gmeta.get("source_count") or 0),
+            }
         car_sources = normalized_result.get("sources", [])
         merged["cars"][slot_key] = normalized_result
         merged["sources"].extend(car_sources)
@@ -473,6 +505,27 @@ def call_stage_a_parallel(
     deduped_sources = list(dict.fromkeys(merged.get("sources", [])))
     source_limit = _MAX_STAGE_A_SOURCES * max(1, len(slot_keys))
     merged["sources"] = deduped_sources[:source_limit]
+    # Honest, server-owned grounding flag: only true if at least one Stage A
+    # per-car call actually triggered Google Search (never model-asserted).
+    any_grounded = any(
+        bool(g.get("grounding_successful")) for g in grounding_flags.values()
+    )
+    merged["grounding_successful"] = any_grounded
+    merged["research_status"] = {
+        "web_search_required": True,
+        "web_search_performed": any_grounded,
+        "grounding_successful": any_grounded,
+        "grounded_car_count": sum(
+            1 for g in grounding_flags.values() if g.get("grounding_successful")
+        ),
+        "source_count": sum(int(g.get("source_count") or 0) for g in grounding_flags.values()),
+    }
+    stage_a_logger.info(
+        "[COMPARISON] stage_a_grounding request_id=%s tools_enabled=true grounding_successful=%s grounded_cars=%s",
+        request_id,
+        any_grounded,
+        merged["research_status"]["grounded_car_count"],
+    )
     return merged, build_sources_index_from_flat(merged), errors
 
 

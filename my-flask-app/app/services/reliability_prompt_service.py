@@ -1,12 +1,46 @@
 # -*- coding: utf-8 -*-
-"""Reliability prompt builders."""
+"""Reliability prompt builders (catalog-first review)."""
 
-from app.services.vehicle_catalog_service import build_vehicle_catalog_context
+import json
+
+from app.services.vehicle_catalog_service import (
+    build_vehicle_catalog_context,
+    resolve_vehicle_selection,
+)
 from app.utils.prompt_defense import (
     create_data_only_instruction,
     escape_prompt_input,
     wrap_user_input_in_boundary,
 )
+
+
+# Identity fields the model is NOT allowed to decide; they are owned by the
+# catalog resolver and locked into the prompt.
+LOCKED_IDENTITY_FIELDS = (
+    "make",
+    "model",
+    "canonical_model",
+    "version_or_trim",
+    "body_type",
+    "fuel_type",
+    "engine",
+    "engine_displacement_l",
+    "horsepower_hp",
+    "transmission",
+    "drivetrain",
+    "year_start",
+    "year_end",
+    "support_level",
+)
+
+
+def _build_locked_identity_block(resolution: dict) -> str:
+    """Render a compact, injection-safe locked-identity JSON block."""
+    locked = {k: resolution.get(k) for k in LOCKED_IDENTITY_FIELDS}
+    locked["selected_year"] = resolution.get("selected_year")
+    locked["variant_id"] = resolution.get("variant_id")
+    locked["resolution_status"] = resolution.get("resolution_status")
+    return json.dumps(locked, ensure_ascii=False, separators=(",", ":"))
 
 
 def build_reliability_report_prompt(payload: dict, missing_info: list[str]) -> str:
@@ -77,109 +111,122 @@ def build_reliability_report_prompt(payload: dict, missing_info: list[str]) -> s
     """.strip()
 
 
-def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
-    """Single catalog-first prompt for analyze + reliability review."""
+def build_combined_prompt(payload: dict, missing_info: list[str], resolution: dict | None = None) -> str:
+    """Single catalog-first prompt for the reliability review.
+
+    The catalog resolver owns vehicle identity; the model only researches
+    dynamic/external fields with mandatory Google Search. ``resolution`` is the
+    output of :func:`resolve_vehicle_selection`; it is resolved internally when
+    not supplied (keeps backwards-compatible call sites working).
+    """
+    if resolution is None:
+        resolution = resolve_vehicle_selection(payload)
+
     safe_make = escape_prompt_input(payload.get("make"), max_length=120)
     safe_model = escape_prompt_input(payload.get("model"), max_length=120)
     safe_year = escape_prompt_input(payload.get("year"), max_length=10)
     safe_mileage = escape_prompt_input(payload.get("mileage_range") or payload.get("mileage_km"), max_length=50)
-    safe_fuel = escape_prompt_input(payload.get("fuel_type"), max_length=50)
-    safe_trans = escape_prompt_input(payload.get("transmission"), max_length=50)
-    user_data = f"""יצרן: {safe_make}
-דגם: {safe_model}
-שנה: {safe_year}
-טווח קילומטראז׳: {safe_mileage or 'לא צוין'}
-סוג דלק בטופס: {safe_fuel or 'לא צוין'}
-תיבת הילוכים בטופס: {safe_trans or 'לא צוין'}"""
-    bounded_user_data = wrap_user_input_in_boundary(user_data)
+    user_context = {
+        "form_make": safe_make,
+        "form_model": safe_model,
+        "form_year": safe_year,
+        "mileage_range": safe_mileage or "לא צוין",
+        "missing_info": missing_info or [],
+    }
+    bounded_user_data = wrap_user_input_in_boundary(
+        json.dumps(user_context, ensure_ascii=False), boundary_tag="user_context"
+    )
     data_instruction = create_data_only_instruction()
-    missing_block = ", ".join(missing_info) if missing_info else "אין"
-    catalog_block = build_vehicle_catalog_context(payload)["prompt_block"]
+    locked_identity = _build_locked_identity_block(resolution)
+    status = resolution.get("resolution_status") or "unmatched"
+    if status in ("exact", "inferred"):
+        identity_rule = (
+            "הזהות הטכנית נעולה מהקטלוג. אסור לשנות אף שדה זהות. אם מקור web סותר — "
+            "דווח זאת ב-research_status בלבד, אל תכתוב זהות חלופית."
+        )
+    else:
+        identity_rule = (
+            "אין התאמת קטלוג חד-משמעית (unmatched). מותר לתאר אי-ודאות זהות, אך אל "
+            "תמציא מנוע/גיר/הנעה/שנה כעובדה; סמן כל הנחה כלא-מאומתת."
+        )
 
     return f"""
 {data_instruction}
 
-{catalog_block}
+SYSTEM/ROLE:
+אתה עוזר מחקר אמינות לרכבי יד-שנייה בישראל. אינך מחליט על זהות הרכב — היא נקבעת מראש מהקטלוג.
 
-אתה אוסף ראיות ומנתח אמינות לרכב בישראל. אינך פותר זהות טכנית כאשר המאגר המקומי סיפק התאמה מדויקת.
-חובה להשתמש ב-Google Search לכל טענה אנליטית ולבצע כמה חיפושים ממוקדים, לא שאילתה כללית אחת: זהות ושיווק בישראל, מקור יבואן/יצרן, תקלות נפוצות, recalls/קריאות שירות/ליקויי בטיחות, מחירון והיצע יד שנייה בישראל, רגישות עלויות אחזקה, צריכת דלק/אנרגיה אמיתית או ממקור אמין, דירוג בטיחות רשמי, תלונות בעלים כתבנית חלשה בלבד, וחלופות רלוונטיות בישראל.
-היררכיית מקורות: יבואן/יצרן רשמי; מאגרי בטיחות/recall/ממשלה; פרסומי רכב ישראליים אמינים; מחירונים/לוחות ישראליים גדולים; מקורות אמינות/בטיחות בינלאומיים מוכרים; פורומים רק כתמיכה חלשה ולעולם לא כהוכחה יחידה.
+LOCKED_CATALOG_IDENTITY:
+{locked_identity}
 
-כללי זהות:
-- match_type=exact: השתמש בזהות הטכנית מהקטלוג בלבד. אל תחליף make/model/canonical_model/year range/version/body/fuel/engine/hp/transmission/drivetrain/support_level לפי טקסט מהאינטרנט. אם מקור אינטרנט סותר — הוסף conflict.
-- match_type=ambiguous: הקטלוג הוא מועמד. אמת בזהירות ודווח אי-ודאות/סתירה.
-- match_type=unmatched: מותר לזהות דרך web, אך label identity_basis כ-web_resolved או unmatched והסבר אי-ודאות. אם המחקר אינו מספיק, החזר research_status.status=partial ואל תמלא כרטיסים בטקסט גנרי.
+USER_CONTEXT:
+{bounded_user_data}
 
-חוקי כתיבה:
-- עברית בלבד, JSON תקני בלבד, בלי Markdown.
-- אין verdict, ציון, purchase recommendation, "מומלץ לקנות", "כדאי לקנות", או שפה מוחלטת.
-- אל תמציא מספרים או טקסט מילוי. אם מקור חסר, ציין ב-research_status.open_fields את סוג המקור החסר: לא נמצא מקור יבואן רשמי / לא נמצא מחירון ישראלי עדכני / לא נמצאה קריאת שירות רשמית / לא נמצא מבחן בטיחות רשמי לדגם/שנה זו.
-- מתחרים: החזר 3–5 חלופות קומפקטיות רק בתוך market_context.competitors; לא לשכפל במקום אחר.
+TASK:
+השתמש ב-Google Search כדי לחקור אך ורק שדות דינמיים/חיצוניים/משתנים. בצע כמה חיפושים ממוקדים (לא שאילתה כללית אחת):
+- תקלות נפוצות וסיכוני אמינות
+- recalls / קריאות שירות / ליקויי בטיחות
+- רגישות ועומס עלויות אחזקה
+- צריכת דלק/אנרגיה אמיתית
+- מחירון והיצע יד-שנייה בישראל
+- בטיחות רשמית
+- אחריות/יבואן רשמי
+- צ'ק-ליסט בדיקה לקונה ומתחרים רלוונטיים בישראל
+
+STRICT RULES:
+- {identity_rule}
+- אל תשנה את שדות הזהות הנעולים: make/model/canonical_model/version_or_trim/body_type/fuel_type/engine/engine_displacement_l/horsepower_hp/transmission/drivetrain/year_start/year_end/support_level.
+- החזר JSON תקני בלבד, ללא Markdown וללא טקסט חופשי מסביב.
+- "unknown" עדיף על ניחוש. אם אין מקור — ציין סוג מקור חסר ב-research_status.open_fields.
+- אסור ציון אמינות מספרי כלשהו (אין /100, /10, אחוזים, "ציון", "ניקוד").
+- אסור verdict קנייה ("מומלץ לקנות", "כדאי", "אל תקנה", "הרכב הטוב ביותר").
+- עברית מעשית וברורה. הימנע מוודאות משפטית/פיננסית. המלץ על בדיקה מקצועית במוסך כשרלוונטי.
+- מתחרים: 3–5 חלופות קומפקטיות רק בתוך market_context.competitors.
 - final_line חייב להיות בדיוק המשפט האנגלי שבסכימה.
 
-החזר אובייקט JSON יחיד במבנה זה:
+החזר אובייקט JSON יחיד במבנה זה (ערכי הזהות יוחלפו בשרת מהקטלוג — אל תסתמך עליהם להחלטה):
 {{
   "ok": true,
-  "search_performed": true,
-  "search_queries": ["שאילתות שבוצעו"],
-  "sources": [{{"title":"","url":"","domain":""}}],
-  "catalog_resolution": {{
-    "match_type": "exact|ambiguous|unmatched",
-    "identity_basis": "catalog_exact|catalog_ambiguous|web_resolved|unmatched",
-    "conflicts": ["סתירות בין הקטלוג למקורות, אם יש"],
-    "confidence": "high|medium|low"
-  }},
-  "identity_snapshot": {{
-    "make": "", "model": "", "canonical_model": null, "selected_year": null,
-    "version_or_trim": null, "body_type": null, "fuel_type": null, "engine": null,
-    "engine_displacement_l": null, "horsepower_hp": null, "transmission": null,
-    "drivetrain": null, "year_start": null, "year_end": null, "support_level": null,
-    "profile_confidence": null, "source_summary": [], "missing_grounded_fields": [], "notes": []
-  }},
-  "research_status": {"status":"complete|partial|technical_error","checked_areas":[],"sources_found":[],"open_fields":[{"field":"","missing_source_type":"","why_open":""}]},
+  "search_queries": ["שאילתות שבוצעו בפועל"],
+  "sources": [{{"title":"","url":"","publisher":"","used_for":"recall|fault|market|safety|warranty|fuel|other"}}],
+  "research_status": {{"limitations": [], "open_fields": [{{"field":"","missing_source_type":"","why_open":""}}]}},
   "overview": {{
     "based_on_available_information": "",
     "plain_summary": "",
-    "decision_readiness": "מספיק לבדיקה ראשונית|מחקר חלקי|דורש בדיקה נוספת|מידע חלש",
-    "data_quality_label": "high|medium|low",
-    "weakly_sourced": false
+    "best_for": [],
+    "less_suitable_for": [],
+    "confidence": "high|medium|low"
   }},
   "risk_analysis": {{
+    "overall_risk_level": "low|medium|high|unknown",
     "top_risks": [{{"risk_area":"","why_to_check":"","sources":[""]}}],
-    "systemic_issues": [{{"system":"","issue":"","severity":"low|medium|high","evidence":"","sources":[""]}}],
-    "recalls": [{{"system":"","description":"","severity":"low|medium|high","source":""}}],
+    "systemic_issues": [{{"issue":"","severity":"low|medium|high|unknown","frequency_signal":"low|medium|high|unknown","what_to_check":"","source_refs":[""]}}],
+    "recalls_or_service_campaigns": [{{"description":"","severity":"low|medium|high|unknown","source":""}}],
     "known_uncertainties": []
-  }},
-  "buyer_checklist": {{
-    "mechanical_inspection_points": [],
-    "documents_to_verify": [],
-    "questions_to_ask_seller": [],
-    "red_flags_to_look_for": []
   }},
   "ownership_cost": {{
     "maintenance_cost_pressure": "low|medium|high|unknown",
-    "cost_sensitivity_notes": [],
-    "issue_cost_ranges": [{{"issue":"","cost_range_ils":"","source":"","severity":"נמוך|בינוני|גבוה"}}]
+    "expensive_items_to_check": [],
+    "fuel_or_energy_notes": [],
+    "insurance_or_tax_notes_if_found": [],
+    "cost_confidence": "high|medium|low"
   }},
   "market_context": {{
+    "israel_used_market_notes": [],
+    "price_supply_signal": "strong|average|weak|unknown",
+    "resale_notes": [],
+    "warranty_israel": {{"vehicle_warranty": null, "battery_warranty": null, "notes": [], "sources": []}},
+    "official_safety": {{"rating": null, "organization": null, "test_year": null, "notes": [], "sources": []}},
     "pricing_israel": {{"used_price_range_ils": null, "new_price_range_ils": null, "notes": [], "sources": []}},
     "trims_israel": [],
-    "official_safety": {{"rating": null, "organization": null, "test_year": null, "notes": [], "sources": []}},
-    "warranty_israel": {{"vehicle_warranty": null, "battery_warranty": null, "notes": [], "sources": []}},
-    "competitors": [{{
-      "model_name": "",
-      "why_relevant": "",
-      "advantage_vs_reviewed_vehicle": "",
-      "disadvantage_or_risk_vs_reviewed_vehicle": "",
-      "better_for": "",
-      "confidence": "high|medium|low",
-      "sources": []
-    }}]
+    "competitors": [{{"model_name":"","why_relevant":"","better_for":"","confidence":"high|medium|low","sources":[]}}]
+  }},
+  "buyer_checklist": {{
+    "mechanical_inspection_points": [],
+    "paperwork_checks": [],
+    "test_drive_checks": [],
+    "questions_to_ask_seller": []
   }},
   "final_line": "This information highlights areas to verify and is not a substitute for a professional inspection."
 }}
-
-Missing info שסיפק המשתמש: {missing_block}
-נתוני הקלט:
-{bounded_user_data}
 """.strip()

@@ -974,14 +974,18 @@ def test_parse_stage_a_json_invalid_returns_model_json_invalid():
     assert err == "MODEL_JSON_INVALID"
 
 
-def test_stage_a_config_is_bounded_and_tools_disabled(app, monkeypatch):
+def test_stage_a_config_is_bounded_and_grounding_enabled(app, monkeypatch):
+    """Stage A must be bounded AND must enable Google Search grounding
+    (catalog-first rebuild: grounding is mandatory for Stage A evidence)."""
     captured = {}
 
     class _FakeModels:
         def generate_content(self, *, model, contents, config):
             captured["config"] = config
+            captured["model"] = model
             return SimpleNamespace(
-                text='{"car_name":"Toyota Corolla 2020","reliability":{"overall":"high"},"ownership_cost":{},"comfort_practicality":{},"performance_driving":{},"facts":{},"short_notes":[],"sources":[]}'
+                text='{"car_name":"Toyota Corolla 2020","reliability":{"overall":"high"},"ownership_cost":{},"comfort_practicality":{},"performance_driving":{},"facts":{},"short_notes":[],"sources":[]}',
+                candidates=[],
             )
 
     monkeypatch.setattr(
@@ -1000,8 +1004,12 @@ def test_stage_a_config_is_bounded_and_tools_disabled(app, monkeypatch):
         int(getattr(cfg, "max_output_tokens", 0))
         == comparison_service.COMPARE_STAGE_A_MAX_OUTPUT_TOKENS
     )
-    assert not getattr(cfg, "tools", None)
-    assert getattr(cfg, "automatic_function_calling", None) is None
+    # Google Search grounding tool must be present.
+    tools = getattr(cfg, "tools", None) or []
+    assert any(getattr(t, "google_search", None) is not None for t in tools)
+    # JSON mime type must NOT be combined with grounding tools.
+    assert getattr(cfg, "response_mime_type", None) in (None, "")
+    assert "flash" in captured["model"].lower()
 
 
 def test_call_gemini_compare_writer_exception_path_returns_error(app, monkeypatch):
