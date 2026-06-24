@@ -362,7 +362,7 @@ def build_vehicle_catalog_context(selection: Mapping[str, Any]) -> Dict[str, Any
         "LOCAL_VEHICLE_CATALOG_CONTEXT:\n"
         f"{identity_json}\n"
         f"CATALOG_FIRST_RULE: {rule} Mandatory web grounding remains required for reliability, faults, recalls, prices, trims, license fee, safety, warranty, supply, reviews, and ownership costs.\n"
-        "NULL_YEAR_END_RULE: If year_end is null in the catalog, it means no grounded end year — the model should be treated as current/open-ended unless other evidence says discontinued. Do NOT hallucinate a hard end year (e.g. 2026) from null. For display, use 'עד היום' (Hebrew) or 'present' (English)."
+        "NULL_YEAR_END_RULE: If year_end is null in the catalog, it means no grounded end year — the model should be treated as current/open-ended unless other evidence says discontinued. Do NOT hallucinate a hard end year from null. For display, use 'עד היום' (Hebrew) or 'present' (English)."
     )
     return {
         "match_type": match_type,
