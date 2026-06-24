@@ -6,7 +6,7 @@ import logging
 import os
 from typing import Set
 
-DEFAULT_COMPARISON_MODEL_ID = "gemini-3.5-flash"
+DEFAULT_COMPARISON_MODEL_ID = "gemini-3.1-pro-preview"
 DEFAULT_COMPARISON_FALLBACK_MODEL_ID = "gemini-3.5-flash"
 DEFAULT_COMPARISON_LOW_COST_MODEL_ID = "gemini-3.5-flash"
 
@@ -18,6 +18,7 @@ SDK_SUPPORTED_COMPARISON_MODEL_IDS: Set[str] = {
     DEFAULT_COMPARISON_FALLBACK_MODEL_ID,
     DEFAULT_COMPARISON_LOW_COST_MODEL_ID,
     "gemini-3.1-flash-lite",
+    "gemini-3.1-pro-preview",
 }
 
 COMPARISON_MODEL_ENV_VARS = (

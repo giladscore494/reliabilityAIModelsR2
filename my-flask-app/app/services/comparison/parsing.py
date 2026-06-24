@@ -246,6 +246,46 @@ def _extract_first_json_object(text: str) -> Optional[str]:
     return None
 
 
+def _json_balance_state(text: str) -> Dict[str, Any]:
+    depth = 0
+    in_str = False
+    escaped = False
+    for ch in text or "":
+        if in_str:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth < 0:
+                return {"unbalanced": True, "depth": depth, "in_string": in_str}
+    return {"unbalanced": bool(depth or in_str), "depth": depth, "in_string": in_str}
+
+
+def conservative_local_json_repair(text: str) -> Optional[str]:
+    """Repair only syntax around an existing JSON object; never add facts/fields."""
+    cleaned = _repair_json_once(_strip_json_code_fences(text))
+    candidate = _extract_first_json_object(cleaned)
+    if candidate:
+        return _repair_json_once(candidate)
+    stripped = cleaned.strip()
+    if not stripped.startswith("{"):
+        return None
+    state = _json_balance_state(stripped)
+    if state.get("in_string") or state.get("depth", 0) < 0 or state.get("depth", 0) > 8:
+        return None
+    repaired = stripped + ("}" * int(state.get("depth") or 0))
+    return _repair_json_once(repaired)
+
+
 def _repair_json_once(text: str) -> str:
     repaired = (text or "").lstrip("\ufeff")
     smart_quotes = {
