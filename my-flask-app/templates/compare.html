@@ -1257,7 +1257,8 @@
                 return;
             }
             dropdown.innerHTML = items.map((car, idx) => {
-                const yearText = car.yearStart && car.yearEnd ? `(${car.yearStart}-${car.yearEnd})` : '';
+                const yearEndLabel = car.yearEnd != null ? car.yearEnd : 'עד היום';
+                const yearText = car.yearStart ? `(${car.yearStart}-${yearEndLabel})` : '';
                 return `<div class="autocomplete-item" data-index="${idx}">
                     <span class="item-make">${escapeHtml(car.make)}</span> ${escapeHtml(car.model)} <span class="item-years">${yearText}</span>
                 </div>`;
@@ -1288,7 +1289,7 @@
             // Populate year dropdown
             const nowYear = new Date().getFullYear();
             let from = car.yearStart || (nowYear - 20);
-            let to = car.yearEnd || (nowYear + 1);
+            let to = car.yearEnd != null ? car.yearEnd : (nowYear + 1);
             yearSelect.innerHTML = '<option value="">בחר שנתון...</option>';
             for (let y = to; y >= from; y--) {
                 const opt = document.createElement('option');
@@ -1431,7 +1432,7 @@
             const matchingCar = FLAT_CARS_LIST.find(c => c.make === car.make && c.model === car.model);
             const nowYear = new Date().getFullYear();
             let from = matchingCar?.yearStart || (nowYear - 20);
-            let to = matchingCar?.yearEnd || (nowYear + 1);
+            let to = matchingCar?.yearEnd != null ? matchingCar.yearEnd : (nowYear + 1);
             if (yearStartHidden) yearStartHidden.value = from;
             if (yearEndHidden) yearEndHidden.value = to;
             

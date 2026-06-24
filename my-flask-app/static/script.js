@@ -916,7 +916,7 @@
 
         if (info) {
             if (info.year_start) from = info.year_start;
-            if (info.year_end) to = info.year_end;
+            if (info.year_end != null) to = info.year_end;
         }
 
         for (let y = to; y >= from; y--) {

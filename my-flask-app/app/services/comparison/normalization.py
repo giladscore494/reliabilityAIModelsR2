@@ -22,8 +22,10 @@ def build_display_name(car: Dict[str, Any]) -> str:
     year = car.get("year")
     if year:
         parts.append(str(year))
-    elif car.get("year_start") and car.get("year_end"):
-        parts.append(f"{car['year_start']}-{car['year_end']}")
+    elif car.get("year_start"):
+        ye = car.get("year_end")
+        ye_label = str(ye) if ye is not None else "עד היום"
+        parts.append(f"{car['year_start']}-{ye_label}")
     return " ".join(p for p in parts if p).strip()
 
 
