@@ -111,13 +111,19 @@ def test_main_pages_render_shared_nav(
 
 
 def test_landing_preview_uses_information_review_demo(client):
+    # The landing page was intentionally simplified to a minimal premium
+    # white/chrome layout: the brand title plus the four product-area cards.
+    # It must keep its decision-support framing and must NOT surface a numeric
+    # "/100" score on the public landing page.
     resp = client.get("/")
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
-    assert "סיקור מבוסס מידע זמין" in html
-    assert "נקודות לבדיקה" in html
-    assert "חוסרי מידע" in html
-    assert "ניתוחים אמיתיים לדוגמה" in html
+    assert "ידע רכב" in html
+    assert "ארבעה תחומי בדיקה מרכזיים — הכל במקום אחד" in html
+    assert "התאמת רכב אישית" in html
+    assert "בדיקת אמינות" in html
+    assert "השוואת רכבים" in html
+    assert "עלויות וסיכונים" in html
     assert "/100" not in html
 
 
