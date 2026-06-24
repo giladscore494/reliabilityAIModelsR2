@@ -56,10 +56,21 @@
         'מידע חלקי'
     ]);
 
+    const INTERNAL_PATTERNS = [
+        'מידע חסר', 'חסר מידע', 'מידע קריטי חסר', 'לא נמצא מידע', 'לא זמין',
+        'אין מידע', 'רמת ודאות', 'ודאות', 'לא מאומת', 'לא אומת', 'דורש אימות',
+        'מוקדי אימות', 'מחקר חלקי', 'partial research', 'weakly sourced', 'מקור חלש',
+        'איכות מידע', 'מצב בדיקה', 'request_id', 'data quality', 'decision readiness',
+        'source_count', 'source_scope_label', 'missing_source_type', 'why_open',
+        'open_fields', 'checked_areas', 'grounding_successful', 'web_search_performed'
+    ];
+
     function meaningfulText(value) {
         const text = String(value ?? '').trim();
         if (!text) return '';
         if (GENERIC_RESULT_TEXTS.has(text)) return '';
+        const lower = text.toLowerCase();
+        if (INTERNAL_PATTERNS.some(p => lower.includes(p.toLowerCase()))) return '';
         return text;
     }
 
@@ -75,6 +86,14 @@
                     return Boolean(meaningfulText(value));
                 });
             });
+    }
+
+    function isUserFacingMeaningful(value) {
+        const text = String(value ?? '').trim();
+        if (!text) return false;
+        if (GENERIC_RESULT_TEXTS.has(text)) return false;
+        const lower = text.toLowerCase();
+        return !INTERNAL_PATTERNS.some(p => lower.includes(p.toLowerCase()));
     }
 
     function renderPartialResearchState(researchStatus, requestId) {
@@ -1040,373 +1059,230 @@
         const safe = (v) => escapeHtml(v);
         const infoReview = normalizeInfoReview(data);
         const checklist = infoReview.checklist || {};
+        const vp = (data.vehicle_profile && typeof data.vehicle_profile === 'object') ? data.vehicle_profile : null;
 
         clearAnalyzeError();
 
-        if (scoreContainer) {
-            scoreContainer.innerHTML = '';
-            scoreContainer.appendChild(buildDataQualityIndicator(data, infoReview));
+        // Build tab sections dynamically
+        const tabs = [];
+
+        // Tab 1: Summary
+        const summaryParts = [];
+        const buyerSummary = meaningfulText(vp?.buyer_summary || '');
+        const basedOn = meaningfulText(infoReview.basedOnAvailableInformation || '');
+        const bestFor = (vp?.best_for || []).filter(x => meaningfulText(x));
+        const notIdeal = (vp?.not_ideal_for || []).filter(x => meaningfulText(x));
+        const finalLine = meaningfulText(vp?.final_line || data?.final_line || '');
+        if (buyerSummary) summaryParts.push(`<p class="text-base leading-relaxed mb-3">${safe(buyerSummary)}</p>`);
+        if (basedOn) summaryParts.push(`<p class="text-sm leading-relaxed mb-3">${safe(basedOn)}</p>`);
+        if (bestFor.length) summaryParts.push(`<div class="mb-3"><h4 class="text-sm font-bold mb-1" style="color:#047857">מתאים ל:</h4><ul class="list-disc list-inside text-sm space-y-1">${bestFor.map(x=>`<li>${safe(x)}</li>`).join('')}</ul></div>`);
+        if (notIdeal.length) summaryParts.push(`<div class="mb-3"><h4 class="text-sm font-bold mb-1" style="color:#b45309">פחות מתאים ל:</h4><ul class="list-disc list-inside text-sm space-y-1">${notIdeal.map(x=>`<li>${safe(x)}</li>`).join('')}</ul></div>`);
+        if (finalLine) summaryParts.push(`<p class="text-sm font-semibold mt-2">${safe(finalLine)}</p>`);
+        if (summaryParts.length) tabs.push({ key: 'summary', label: 'סיכום', html: summaryParts.join('') });
+
+        // Tab 2: Technical Identity
+        const vi = vp?.vehicle_identity || {};
+        const ci = vp?.catalog_identity || data?.catalog_identity || {};
+        const idFields = [
+            ['יצרן', vi.make || ci.make],
+            ['דגם', vi.model || ci.model],
+            ['שנה', vi.year || ci.year],
+            ['דור', vi.generation],
+            ['סוג מרכב', vi.body_type || ci.body_type],
+            ['סגמנט', vi.segment || ci.segment],
+            ['מנוע', vi.engine || ci.engine],
+            ['דלק', vi.fuel_type || ci.fuel_type],
+            ['תיבת הילוכים', vi.transmission || ci.transmission],
+            ['הנעה', vi.drivetrain || ci.drivetrain],
+            ['מושבים', vi.seats || ci.seats],
+        ].filter(([, v]) => meaningfulText(v));
+        if (idFields.length) {
+            const idHtml = `<div class="yr-review-param-grid">${idFields.map(([label, val]) => `<div class="yr-review-param"><span class="yr-review-param__label">${safe(label)}</span><span class="yr-review-param__value">${safe(val)}</span></div>`).join('')}</div>`;
+            tabs.push({ key: 'identity', label: 'זהות טכנית', html: idHtml });
         }
 
-        if (summarySimpleEl) {
-            summarySimpleEl.textContent = infoReview.basedOnAvailableInformation;
-            summarySimpleEl.closest('section')?.classList.toggle('hidden', !infoReview.basedOnAvailableInformation);
+        // Tab 3: Prices and license fee
+        const pricing = vp?.pricing_israel || vp?.pricing || {};
+        const lf = vp?.license_fee_israel || {};
+        const lrc = vp?.license_running_cost || {};
+        const priceParts = [];
+        if (meaningfulText(pricing.new_price_range_ils)) priceParts.push(`<div class="yr-review-param"><span class="yr-review-param__label">מחיר חדש</span><span class="yr-review-param__value">${safe(pricing.new_price_range_ils)}</span></div>`);
+        if (meaningfulText(pricing.used_price_range_ils)) priceParts.push(`<div class="yr-review-param"><span class="yr-review-param__label">מחיר יד-2</span><span class="yr-review-param__value">${safe(pricing.used_price_range_ils)}</span></div>`);
+        if (lf.annual_fee_ils && lf.method !== 'unknown') priceParts.push(`<div class="yr-review-param"><span class="yr-review-param__label">אגרת רישוי שנתית</span><span class="yr-review-param__value">${safe(String(lf.annual_fee_ils))} ₪</span></div>`);
+        if (meaningfulText(lrc.license_fee)) priceParts.push(`<div class="yr-review-param"><span class="yr-review-param__label">אגרה</span><span class="yr-review-param__value">${safe(lrc.license_fee)}</span></div>`);
+        if (priceParts.length) tabs.push({ key: 'prices', label: 'מחירים ואגרה', html: `<div class="yr-review-param-grid">${priceParts.join('')}</div>` });
+
+        // Tab 4: Trim levels
+        const trims = vp?.trim_levels_israel || [];
+        const trimEquip = vp?.trim_equipment_summary || {};
+        const recTrim = vp?.recommended_trim || {};
+        const trimParts = [];
+        const validTrims = trims.filter(t => meaningfulText(t.trim_name));
+        if (validTrims.length) {
+            trimParts.push(`<div class="space-y-2">${validTrims.map(t => `<div class="yr-review-mini-card"><div class="font-semibold">${safe(t.trim_name)}${t.price_ils ? ` – <span style="color:var(--yr-accent)">${safe(String(t.price_ils))} ₪</span>` : ''}</div>${t.powertrain ? `<div class="text-xs" style="color:var(--yr-muted)">${safe(t.powertrain)}</div>` : ''}</div>`).join('')}</div>`);
         }
-        if (summaryDetailedEl) {
-            const detailLines = [
-                `מצב הבדיקה: ${infoReview.decisionReadiness}`,
-                infoReview.missingInfo.length ? `מידע קריטי חסר: ${infoReview.missingInfo.join(' • ')}` : '',
-                infoReview.verificationFocus.length ? `מוקדי אימות: ${infoReview.verificationFocus.join(' • ')}` : '',
-            ].filter(Boolean);
-            summaryDetailedEl.textContent = detailLines.join('\n');
+        if (meaningfulText(recTrim.trim_name) || meaningfulText(recTrim.reason)) {
+            trimParts.push(`<div class="mt-3"><h4 class="text-sm font-bold mb-1">גימור מומלץ</h4>${meaningfulText(recTrim.trim_name) ? `<div class="font-semibold">${safe(recTrim.trim_name)}</div>` : ''}${meaningfulText(recTrim.reason) ? `<div class="text-sm" style="color:var(--yr-muted)">${safe(recTrim.reason)}</div>` : ''}</div>`);
         }
-        if (summaryDetailedBlock && !summaryDetailedBlock.classList.contains('hidden')) {
-            // להשאיר פתוח אם המשתמש כבר פתח
+        if (trimParts.length) tabs.push({ key: 'trims', label: 'רמות גימור', html: trimParts.join('') });
+
+        // Tab 5: Reliability and risks
+        const riskParts = [];
+        const riskAreas = infoReview.riskAreas.filter(x => typeof x === 'string' ? meaningfulText(x) : meaningfulText(x?.risk_area));
+        if (riskAreas.length) {
+            riskParts.push(`<h4 class="text-sm font-bold mb-2">תחומי סיכון עיקריים</h4><ul class="yr-review-list">${riskAreas.map(item => {
+                if (item && typeof item === 'object') return `<li><span class="font-semibold">${safe(item.risk_area || '')}</span>${item.why_to_check ? ` – ${safe(item.why_to_check)}` : ''}</li>`;
+                return `<li>${safe(item)}</li>`;
+            }).join('')}</ul>`);
         }
+        const commonIssues = (data.common_issues || []).filter(x => meaningfulText(x));
+        if (commonIssues.length) riskParts.push(`<h4 class="text-sm font-bold mt-3 mb-1">תקלות מתועדות</h4><ul class="yr-review-list">${commonIssues.map(i => `<li>${safe(i)}</li>`).join('')}</ul>`);
+        const reliabilityRisks = ((vp?.reliability_risks || data?.reliability_risks || {}).top_risks || []).filter(x => meaningfulText(typeof x === 'string' ? x : x?.description || x?.risk));
+        if (reliabilityRisks.length) riskParts.push(`<h4 class="text-sm font-bold mt-3 mb-1">סיכוני אמינות</h4><ul class="yr-review-list">${reliabilityRisks.map(r => `<li>${safe(typeof r === 'string' ? r : r.description || r.risk || '')}</li>`).join('')}</ul>`);
+        const recChecks = (data.recommended_checks || []).filter(x => meaningfulText(x));
+        if (recChecks.length) riskParts.push(`<h4 class="text-sm font-bold mt-3 mb-1">בדיקות מומלצות</h4><ul class="yr-review-list">${recChecks.map(i => `<li>${safe(i)}</li>`).join('')}</ul>`);
+        const knownFaults = (data.known_faults || []).filter(x => meaningfulText(typeof x === 'string' ? x : x?.fault || x?.description));
+        if (knownFaults.length) riskParts.push(`<h4 class="text-sm font-bold mt-3 mb-1">תקלות ידועות</h4><ul class="yr-review-list">${knownFaults.map(f => `<li>${safe(typeof f === 'string' ? f : f.fault || f.description || '')}</li>`).join('')}</ul>`);
+        if (riskParts.length) tabs.push({ key: 'risks', label: 'אמינות וסיכונים', html: riskParts.join('') });
 
-        if (faultsContainer) {
-            const arr = infoReview.riskAreas;
-            let html = '';
-            if (arr.length) {
-                html += '<div class="yr-section-kicker">תחומי סיכון עיקריים</div>';
-                html += '<ul class="list-disc list-inside space-y-1 text-sm text-slate-200">';
-                html += arr.map(item => {
-                    if (item && typeof item === 'object') {
-                        return `<li><span class="font-semibold">${safe(item.risk_area || '')}</span>${item.why_to_check ? ` – ${safe(item.why_to_check)}` : ''}</li>`;
-                    }
-                    return `<li>${safe(item)}</li>`;
-                }).join('');
-                html += '</ul>';
-            } else {
-
-            }
-
-            // Legacy / fallback: common_issues
-            const commonIssues = Array.isArray(data.common_issues) ? data.common_issues.filter(Boolean) : [];
-            if (commonIssues.length) {
-                html += '<h5 class="text-sm font-semibold text-slate-300 mt-4 mb-1">תקלות מתועדות בדגם</h5>';
-                html += '<ul class="list-disc list-inside space-y-1 text-sm text-slate-300">';
-                html += commonIssues.map(item => `<li>${safe(item)}</li>`).join('');
-                html += '</ul>';
-            }
-
-            // Legacy / fallback: recommended_checks
-            const recommendedChecks = Array.isArray(data.recommended_checks) ? data.recommended_checks.filter(Boolean) : [];
-            if (recommendedChecks.length) {
-                html += '<h5 class="text-sm font-semibold text-slate-300 mt-4 mb-1">מה לבדוק לפני קנייה</h5>';
-                html += '<ul class="list-disc list-inside space-y-1 text-sm text-slate-300">';
-                html += recommendedChecks.map(item => `<li>${safe(item)}</li>`).join('');
-                html += '</ul>';
-            }
-
-            faultsContainer.innerHTML = html;
-            faultsContainer.classList.toggle('hidden', !html.trim());
+        // Tab 6: Pre-purchase checks
+        const checkParts = [];
+        const groups = [
+            ['נקודות בדיקה מכניות', checklist.mechanical_inspection_points || []],
+            ['מסמכים לאימות', checklist.documents_to_verify || []],
+            ['שאלות למוכר', checklist.questions_to_ask_seller || []],
+            ['דגלים אדומים', checklist.red_flags_to_look_for || []],
+        ].map(([title, items]) => [title, items.filter(x => meaningfulText(x))]).filter(([, items]) => items.length);
+        if (groups.length) {
+            checkParts.push(groups.map(([title, items]) => `<div class="mb-3"><h4 class="text-sm font-bold mb-1">${safe(title)}</h4><ul class="yr-review-list">${items.map(x => `<li>${safe(x)}</li>`).join('')}</ul></div>`).join(''));
         }
+        if (checkParts.length) tabs.push({ key: 'checks', label: 'בדיקות קנייה', html: checkParts.join('') });
 
-        if (costsContainer) {
-            const list = infoReview.estimatedCostSensitivity;
-            let html = '';
-            if (list.length) {
-                html += '<div class="yr-section-kicker">רגישות עלויות</div>';
-                html += '<ul class="list-disc list-inside space-y-1 text-sm text-slate-200">';
-                html += list.map(item => `<li>${safe(item)}</li>`).join('');
-                html += '</ul>';
-            } else {
+        // Tab 7: Ownership costs
+        const costParts = [];
+        const costSensitivity = infoReview.estimatedCostSensitivity.filter(x => meaningfulText(x));
+        if (costSensitivity.length) costParts.push(`<h4 class="text-sm font-bold mb-2">רגישות עלויות</h4><ul class="yr-review-list">${costSensitivity.map(i => `<li>${safe(i)}</li>`).join('')}</ul>`);
+        const avgCost = data.avg_repair_cost_ILS;
+        if (avgCost) costParts.push(`<div class="yr-review-param-grid"><div class="yr-review-param"><span class="yr-review-param__label">עלות תיקון ממוצעת</span><span class="yr-review-param__value">${safe(String(avgCost))} ₪</span></div></div>`);
+        const issuesWithCosts = (data.issues_with_costs || []).filter(Boolean);
+        if (issuesWithCosts.length) costParts.push(`<h4 class="text-sm font-bold mt-3 mb-1">עלויות לפי תקלה</h4><ul class="yr-review-list">${issuesWithCosts.map(item => { if (item && typeof item === 'object') { return `<li>${safe(item.issue || item.name || '')}${item.cost_ILS || item.cost ? ` – ${safe(String(item.cost_ILS || item.cost))} ₪` : ''}</li>`; } return `<li>${safe(item)}</li>`; }).join('')}</ul>`);
+        const oc = vp?.ownership_cost_notes || {};
+        const costLevelMap = { 'low': 'נמוך', 'medium': 'בינוני', 'high': 'גבוה' };
+        const ownerCostFields = [['תחזוקה', oc.maintenance_cost_pressure], ['ביטוח', oc.insurance_cost_pressure], ['פחת', oc.depreciation_risk], ['חלפים', oc.parts_availability]].filter(([,v]) => costLevelMap[v]);
+        if (ownerCostFields.length) costParts.push(`<div class="yr-review-param-grid mt-3">${ownerCostFields.map(([label, val]) => `<div class="yr-review-param"><span class="yr-review-param__label">${safe(label)}</span><span class="yr-review-param__value">${safe(costLevelMap[val])}</span></div>`).join('')}</div>`);
+        if (costParts.length) tabs.push({ key: 'costs', label: 'עלויות אחזקה', html: costParts.join('') });
 
-            }
-
-            // Legacy / fallback: avg_repair_cost_ILS and issues_with_costs
-            const avgCost = data.avg_repair_cost_ILS;
-            const issuesWithCosts = Array.isArray(data.issues_with_costs) ? data.issues_with_costs.filter(Boolean) : [];
-            if (avgCost || issuesWithCosts.length) {
-                html += '<h5 class="text-sm font-semibold text-slate-300 mt-4 mb-1">טווחי עלויות משוערים</h5>';
-                if (avgCost) {
-                    html += `<p class="text-sm text-slate-200 mb-1">עלות תיקון ממוצעת: <span class="font-semibold">${safe(String(avgCost))} ₪</span></p>`;
-                }
-                if (issuesWithCosts.length) {
-                    html += '<ul class="list-disc list-inside space-y-1 text-sm text-slate-300">';
-                    html += issuesWithCosts.map(item => {
-                        if (item && typeof item === 'object') {
-                            const label = safe(item.issue || item.name || '');
-                            const cost = safe(item.cost_ILS || item.cost || '');
-                            return `<li>${label}${cost ? ` – ${cost} ₪` : ''}</li>`;
-                        }
-                        return `<li>${safe(item)}</li>`;
-                    }).join('');
-                    html += '</ul>';
-                }
-            }
-
-            costsContainer.innerHTML = html;
-            costsContainer.classList.toggle('hidden', !html.trim());
+        // Tab 8: Safety and warranty
+        const safetyParts = [];
+        const safety = vp?.official_safety || {};
+        if (safety.rating && safety.organization && safety.organization !== 'unknown') {
+            const safetyFields = [['דירוג', safety.rating], ['ארגון', safety.organization], ['שנת בדיקה', safety.test_year], ['מבוגרים', safety.adult_score], ['ילדים', safety.child_score]].filter(([,v]) => meaningfulText(v));
+            if (safetyFields.length) safetyParts.push(`<h4 class="text-sm font-bold mb-2">בטיחות רשמית</h4><div class="yr-review-param-grid">${safetyFields.map(([label, val]) => `<div class="yr-review-param"><span class="yr-review-param__label">${safe(label)}</span><span class="yr-review-param__value">${safe(String(val))}</span></div>`).join('')}</div>`);
         }
+        const warranty = vp?.warranty_israel || {};
+        if (meaningfulText(warranty.vehicle_warranty) || meaningfulText(warranty.battery_warranty)) {
+            const wFields = [['אחריות רכב', warranty.vehicle_warranty], ['אחריות סוללה', warranty.battery_warranty]].filter(([,v]) => meaningfulText(v));
+            safetyParts.push(`<h4 class="text-sm font-bold mt-3 mb-2">אחריות</h4><div class="yr-review-param-grid">${wFields.map(([label, val]) => `<div class="yr-review-param"><span class="yr-review-param__label">${safe(label)}</span><span class="yr-review-param__value">${safe(val)}</span></div>`).join('')}</div>`);
+        }
+        if (safetyParts.length) tabs.push({ key: 'safety', label: 'בטיחות ואחריות', html: safetyParts.join('') });
 
-        if (competitorsContainer) {
-            const vp = (data.vehicle_profile && typeof data.vehicle_profile === 'object') ? data.vehicle_profile : null;
-            const vpCompetitors = (vp && Array.isArray(vp.competitors)) ? vp.competitors.filter(Boolean).slice(0, 5) : [];
-            let html = '<div class="yr-section-kicker">מתחרים רלוונטיים</div>';
-
-            if (vpCompetitors.length) {
-                html += '<p class="text-sm text-slate-400 mb-4">חלופות ישראליות מאותו אזור שימוש/תקציב כאשר המידע זמין. זו אינה השוואה מלאה.</p>';
-                html += '<div class="yr-competitor-grid">';
-                html += vpCompetitors.map(comp => {
-                    const model = safe(meaningfulText(comp.model_name || comp.model || comp.name));
-                    const why = safe(meaningfulText(comp.why_relevant || comp.why_consider || comp.reason));
-                    const adv = safe(meaningfulText(comp.advantage_vs_reviewed_vehicle || comp.advantage_vs_current || comp.key_advantage));
-                    const dis = safe(meaningfulText(comp.disadvantage_or_risk_vs_reviewed_vehicle || comp.disadvantage_vs_current || comp.key_risk));
-                    const bestFor = safe(meaningfulText(comp.better_for || comp.best_for || comp.who_should_choose));
-                    if (!model || !why) return '';
-                    const weak = (comp.confidence === 'low');
-                    return `<article class="yr-competitor-card">
-                        <div class="flex items-start justify-between gap-3 mb-3">
-                            <h4 class="font-black text-white text-lg">${model}</h4>
-                            ${weak ? '<span class="yr-mini-badge yr-mini-badge--warn">דורש בדיקה</span>' : ''}
-                        </div>
-                        <dl class="space-y-2 text-sm leading-6">
-                            <div><dt>למה רלוונטי</dt><dd>${why}</dd></div>
-                            ${adv ? `<div><dt>יתרון מול הנסקר</dt><dd>${adv}</dd></div>` : ''}
-                            ${dis ? `<div><dt>חיסרון/סיכון</dt><dd>${dis}</dd></div>` : ''}
-                            ${bestFor ? `<div><dt>למי עדיף</dt><dd>${bestFor}</dd></div>` : ''}
-                        </dl>
-                    </article>`;
-                }).join('');
-                html += '</div>';
-            } else {
-                html = '';
-            }
-
-            competitorsContainer.innerHTML = html;
-            competitorsContainer.classList.toggle('hidden', !html.trim());
+        // Tab 9: Recalls
+        const recalls = vp?.recalls_israel || {};
+        const recallList = recalls.known_recalls || [];
+        if (recallList.length > 0) {
+            const recallHtml = `<ul class="space-y-2">${recallList.map(r => `<li class="yr-review-mini-card text-sm">${r.year ? `<span style="color:var(--yr-muted)">${safe(String(r.year))}: </span>` : ''}<span>${safe(r.issue || '')}</span>${r.source ? ` <a href="${sanitizeUrl(safe(r.source))}" target="_blank" rel="noopener noreferrer" class="text-sm" style="color:var(--yr-accent)">מקור</a>` : ''}</li>`).join('')}</ul>`;
+            tabs.push({ key: 'recalls', label: 'ריקולים', html: recallHtml });
         }
 
-        // Vehicle Profile Card (Single Vehicle Intelligence Card)
-        const vpContainer = document.getElementById('vehicle-profile-container');
-        if (vpContainer) {
-            const vp = (data.vehicle_profile && typeof data.vehicle_profile === 'object') ? data.vehicle_profile : null;
-            if (!vp) {
-                vpContainer.innerHTML = renderPartialResearchState(infoReview.researchStatus || {}, data.request_id);
-            } else {
-                let vpHtml = '';
-
-                // 1. Vehicle Identity
-                const vi = vp.vehicle_identity || {};
-                const marketStatus = vi.israel_market_status;
-                const marketStatusMap = {
-                    'sold_new': { label: 'נמכר חדש בישראל', cls: 'bg-emerald-500/20 text-emerald-200 border-emerald-500/40' },
-                    'sold_used_only': { label: 'יד שנייה בלבד', cls: 'bg-amber-500/20 text-amber-200 border-amber-500/40' },
-                    'parallel_import': { label: 'יבוא מקביל', cls: 'bg-blue-500/20 text-blue-200 border-blue-500/40' },
-                    'discontinued_in_israel': { label: 'הופסק בישראל', cls: 'bg-red-500/20 text-red-200 border-red-500/40' },
-                    'unclear': { label: 'סטטוס לא ברור', cls: 'bg-slate-500/20 text-slate-300 border-slate-500/40' },
-                };
-                const statusInfo = marketStatus ? marketStatusMap[marketStatus] : null;
-                vpHtml += `<div class="mb-6 pb-6 border-b border-slate-700/50">
-                    <h3 class="text-lg font-bold text-white mb-2 flex items-center gap-2">
-                        כרטיס זהות טכנית
-                        ${statusInfo ? `<span class="text-[10px] px-2 py-0.5 rounded-full border ${statusInfo.cls}">${statusInfo.label}</span>` : ''}
-                    </h3>
-                    <div class="grid grid-cols-2 gap-2 text-sm">
-                        ${vi.make ? `<div><span class="text-slate-400">יצרן: </span><span class="text-white">${safe(vi.make)}</span></div>` : ''}
-                        ${vi.model ? `<div><span class="text-slate-400">דגם: </span><span class="text-white">${safe(vi.model)}</span></div>` : ''}
-                        ${vi.year ? `<div><span class="text-slate-400">שנה: </span><span class="text-white">${safe(vi.year)}</span></div>` : ''}
-                        ${vi.generation ? `<div><span class="text-slate-400">דור: </span><span class="text-white">${safe(vi.generation)}</span></div>` : ''}
-                        ${vi.body_type ? `<div><span class="text-slate-400">סוג: </span><span class="text-white">${safe(vi.body_type)}</span></div>` : ''}
-                        ${vi.segment ? `<div><span class="text-slate-400">סגמנט: </span><span class="text-white">${safe(vi.segment)}</span></div>` : ''}
-                    </div>
-                </div>`;
-
-                // 2. Pricing
-                const pricing = vp.pricing_israel || {};
-                const hasPricing = pricing.new_price_range_ils || pricing.used_price_range_ils;
-                if (hasPricing) {
-                    vpHtml += `<div class="mb-6 pb-6 border-b border-slate-700/50">
-                        <h3 class="text-lg font-bold text-white mb-2">מחירים בישראל</h3>
-                        <div class="space-y-1 text-sm">
-                            ${pricing.new_price_range_ils ? `<div><span class="text-slate-400">מחיר חדש: </span><span class="text-white">${safe(pricing.new_price_range_ils)}</span></div>` : ''}
-                            ${pricing.used_price_range_ils ? `<div><span class="text-slate-400">מחיר יד-2: </span><span class="text-white">${safe(pricing.used_price_range_ils)}</span></div>` : ''}
-                            ${(pricing.price_notes || []).map(n => `<div class="text-slate-400 text-xs">${safe(n)}</div>`).join('')}
-                        </div>
-                    </div>`;
-                }
-
-                // 3. License Fee
-                const lf = vp.license_fee_israel || {};
-                vpHtml += `<div class="mb-6 pb-6 border-b border-slate-700/50">
-                    <h3 class="text-lg font-bold text-white mb-2">אגרת רישוי</h3>
-                    ${lf.method === 'unknown' ?
-                        '<p class="text-sm text-slate-400">אגרה רשמית לא נמצאה בפרסומי משרד התחבורה / היבואן.</p>' :
-                        `<div class="text-sm">${lf.annual_fee_ils ? `<div><span class="text-slate-400">אגרה שנתית: </span><span class="text-white font-semibold">${safe(String(lf.annual_fee_ils))} ₪</span></div>` : '<div class="text-slate-400">לא נמצאה</div>'}
-                        ${(lf.notes || []).map(n => `<div class="text-slate-400 text-xs">${safe(n)}</div>`).join('')}</div>`
-                    }
-                </div>`;
-
-                // 4. Trim Levels
-                const trims = vp.trim_levels_israel || [];
-                vpHtml += `<div class="mb-6 pb-6 border-b border-slate-700/50">
-                    <h3 class="text-lg font-bold text-white mb-2">רמות גימור בישראל</h3>
-                    ${trims.length === 0 ? '<p class="text-sm text-slate-400">מידע על גימורים ספציפיים לא זוהה.</p>' :
-                        `<div class="space-y-3">${trims.map(t => `
-                            <div class="bg-slate-900/40 border border-slate-700/70 rounded-xl px-3 py-3">
-                                <div class="font-semibold text-white mb-1">${safe(t.trim_name || '')}${t.price_ils ? ` – <span class="text-primary">${safe(String(t.price_ils))} ₪</span>` : ''}</div>
-                                ${t.powertrain ? `<div class="text-xs text-slate-300">${safe(t.powertrain)}</div>` : ''}
-                            </div>`).join('')}</div>`
-                    }
-                </div>`;
-
-                // 5. Recommended Trim
-                const rt = vp.recommended_trim || {};
-                if (rt.trim_name || rt.reason) {
-                    vpHtml += `<div class="mb-6 pb-6 border-b border-slate-700/50">
-                        <h3 class="text-lg font-bold text-white mb-2 flex items-center gap-2">
-                            גימור מומלץ
-                            ${rt.confidence === 'low' ? '<span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-200 border border-amber-500/40">אינדיקציה בלבד</span>' : ''}
-                        </h3>
-                        <div class="text-sm">
-                            ${rt.trim_name ? `<div class="font-semibold text-white mb-1">${safe(rt.trim_name)}</div>` : ''}
-                            ${rt.reason ? `<div class="text-slate-300">${safe(rt.reason)}</div>` : ''}
-                        </div>
-                    </div>`;
-                }
-
-                // 6. Official Safety
-                const safety = vp.official_safety || {};
-                vpHtml += `<div class="mb-6 pb-6 border-b border-slate-700/50">
-                    <h3 class="text-lg font-bold text-white mb-2">בטיחות רשמית</h3>
-                    ${(!safety.rating || !safety.organization || safety.organization === 'unknown') ?
-                        '<p class="text-sm text-slate-400">לא נמצא ציון בטיחות במקור רשמי.</p>' :
-                        `<div class="text-sm space-y-1">
-                            ${safety.rating ? `<div><span class="text-slate-400">דירוג: </span><span class="text-white font-semibold">${safe(safety.rating)}</span></div>` : ''}
-                            ${safety.organization ? `<div><span class="text-slate-400">ארגון: </span><span class="text-white">${safe(safety.organization)}</span></div>` : ''}
-                            ${safety.test_year ? `<div><span class="text-slate-400">שנת בדיקה: </span><span class="text-white">${safe(String(safety.test_year))}</span></div>` : ''}
-                            ${safety.adult_score ? `<div><span class="text-slate-400">מבוגרים: </span><span class="text-white">${safe(safety.adult_score)}</span></div>` : ''}
-                            ${safety.child_score ? `<div><span class="text-slate-400">ילדים: </span><span class="text-white">${safe(safety.child_score)}</span></div>` : ''}
-                        </div>`
-                    }
-                </div>`;
-
-                // 7. Warranty
-                const warranty = vp.warranty_israel || {};
-                if (warranty.vehicle_warranty || warranty.battery_warranty) {
-                    vpHtml += `<div class="mb-6 pb-6 border-b border-slate-700/50">
-                        <h3 class="text-lg font-bold text-white mb-2">אחריות</h3>
-                        <div class="text-sm space-y-1">
-                            ${warranty.vehicle_warranty ? `<div><span class="text-slate-400">אחריות רכב: </span><span class="text-white">${safe(warranty.vehicle_warranty)}</span></div>` : ''}
-                            ${warranty.battery_warranty ? `<div><span class="text-slate-400">אחריות סוללה: </span><span class="text-white">${safe(warranty.battery_warranty)}</span></div>` : ''}
-                            ${(warranty.importer_notes || []).map(n => `<div class="text-slate-400 text-xs">${safe(n)}</div>`).join('')}
-                        </div>
-                    </div>`;
-                }
-
-                // 8. Recalls Israel
-                const recalls = vp.recalls_israel || {};
-                if (recalls.checked_against_official_source) {
-                    vpHtml += `<div class="mb-6 pb-6 border-b border-slate-700/50">
-                        <h3 class="text-lg font-bold text-white mb-2">Recalls (ישראל)</h3>
-                        ${(!recalls.known_recalls || recalls.known_recalls.length === 0) ?
-                            '<p class="text-sm text-slate-400">לא נמצאו recalls רשומים מול המקור הרשמי.</p>' :
-                            `<ul class="space-y-2">${recalls.known_recalls.map(r => `
-                                <li class="bg-slate-900/40 border border-slate-700/70 rounded-xl px-3 py-2 text-sm">
-                                    ${r.year ? `<span class="text-slate-400">${safe(String(r.year))}: </span>` : ''}
-                                    <span class="text-white">${safe(r.issue || '')}</span>
-                                    ${r.source ? `<a href="${sanitizeUrl(safe(r.source))}" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline text-xs mr-2">מקור</a>` : ''}
-                                </li>`).join('')}</ul>`
-                        }
-                    </div>`;
-                }
-
-                // 9. Ownership Cost Notes
-                const oc = vp.ownership_cost_notes || {};
-                const costLevelMap = { 'low': 'נמוך', 'medium': 'בינוני', 'high': 'גבוה' };
-                vpHtml += `<div class="mb-6 pb-6 border-b border-slate-700/50">
-                    <h3 class="text-lg font-bold text-white mb-2">עלויות אחזקה</h3>
-                    <div class="grid grid-cols-2 gap-2 text-sm">
-                        <div><span class="text-slate-400">תחזוקה: </span><span class="text-white">${costLevelMap[oc.maintenance_cost_pressure] || ''}</span></div>
-                        <div><span class="text-slate-400">ביטוח: </span><span class="text-white">${costLevelMap[oc.insurance_cost_pressure] || ''}</span></div>
-                        <div><span class="text-slate-400">פחת: </span><span class="text-white">${costLevelMap[oc.depreciation_risk] || ''}</span></div>
-                        <div><span class="text-slate-400">חלפים: </span><span class="text-white">${costLevelMap[oc.parts_availability] || ''}</span></div>
-                    </div>
-                    ${(oc.notes || []).length ? `<div class="mt-2 space-y-1">${(oc.notes || []).map(n => `<div class="text-slate-400 text-xs">${safe(n)}</div>`).join('')}</div>` : ''}
-                </div>`;
-
-                // 10. Best for / Not ideal for
-                const bestFor = vp.best_for || [];
-                const notIdeal = vp.not_ideal_for || [];
-                if (bestFor.length || notIdeal.length) {
-                    vpHtml += `<div class="mb-6 pb-6 border-b border-slate-700/50">
-                        <h3 class="text-lg font-bold text-white mb-2">למי הרכב מתאים?</h3>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            ${bestFor.length ? `<div>
-                                <h4 class="text-sm font-semibold text-emerald-300 mb-1">מתאים ל:</h4>
-                                <ul class="list-disc list-inside text-sm text-slate-200 space-y-1">${bestFor.map(x => `<li>${safe(x)}</li>`).join('')}</ul>
-                            </div>` : ''}
-                            ${notIdeal.length ? `<div>
-                                <h4 class="text-sm font-semibold text-amber-300 mb-1">פחות מתאים ל:</h4>
-                                <ul class="list-disc list-inside text-sm text-slate-200 space-y-1">${notIdeal.map(x => `<li>${safe(x)}</li>`).join('')}</ul>
-                            </div>` : ''}
-                        </div>
-                    </div>`;
-                }
-
-                // 11. Buyer Summary
-                const buyerSummary = vp.buyer_summary;
-                if (buyerSummary) {
-                    vpHtml += `<div class="mb-4">
-                        <h3 class="text-lg font-bold text-white mb-2">סיכום פרקטי</h3>
-                        <p class="text-slate-200 leading-relaxed text-sm">${safe(buyerSummary)}</p>
-                    </div>`;
-                }
-
-                vpContainer.innerHTML = vpHtml;
-            }
+        // Tab 10: Competitors
+        const vpCompetitors = vp?.competitors || data?.competitors || [];
+        const validCompetitors = (Array.isArray(vpCompetitors) ? vpCompetitors : []).filter(c => meaningfulText(c?.model_name || c?.model || c?.name)).slice(0, 5);
+        if (validCompetitors.length) {
+            const compHtml = `<div class="yr-review-competitor-grid">${validCompetitors.map(comp => {
+                const model = safe(meaningfulText(comp.model_name || comp.model || comp.name));
+                const why = safe(meaningfulText(comp.why_relevant || comp.why_consider || comp.reason));
+                const adv = safe(meaningfulText(comp.advantage_vs_reviewed_vehicle || comp.advantage_vs_current || comp.key_advantage));
+                const dis = safe(meaningfulText(comp.disadvantage_or_risk_vs_reviewed_vehicle || comp.disadvantage_vs_current || comp.key_risk));
+                const bestForComp = safe(meaningfulText(comp.better_for || comp.best_for || comp.who_should_choose));
+                if (!model || !why) return '';
+                return `<article class="yr-review-mini-card"><h4 class="font-bold text-base mb-2">${model}</h4><dl class="space-y-1 text-sm"><div><dt class="text-xs font-bold" style="color:var(--yr-muted)">למה רלוונטי</dt><dd>${why}</dd></div>${adv ? `<div><dt class="text-xs font-bold" style="color:var(--yr-muted)">יתרון</dt><dd>${adv}</dd></div>` : ''}${dis ? `<div><dt class="text-xs font-bold" style="color:var(--yr-muted)">חיסרון/סיכון</dt><dd>${dis}</dd></div>` : ''}${bestForComp ? `<div><dt class="text-xs font-bold" style="color:var(--yr-muted)">למי עדיף</dt><dd>${bestForComp}</dd></div>` : ''}</dl></article>`;
+            }).join('')}</div>`;
+            tabs.push({ key: 'competitors', label: 'מתחרים', html: compHtml });
         }
 
-        if (sourcesListEl && sourcesBlockEl) {
-            const sources = infoReview.sources;
-            sourcesListEl.innerHTML = '';
-            if (!sources.length) {
-                sourcesBlockEl.classList.add('hidden');
-            } else {
-                sourcesBlockEl.classList.remove('hidden');
-                sources.forEach((src) => {
-                    const li = document.createElement('li');
-                    if (src && typeof src === 'object') {
-                        const title = safe(src.title || '');
-                        const url = safe(src.url || '');
-                        const safeHref = sanitizeUrl(url);
-                        li.innerHTML = safeHref ? `<a class="text-primary hover:underline" href="${safeHref}" target="_blank" rel="noopener noreferrer">${title || url}</a>` : (title || url);
-                    } else {
-                        li.textContent = safe(src || '');
-                    }
-                    sourcesListEl.appendChild(li);
+        // Tab 11: Sources
+        const sources = infoReview.sources.filter(s => {
+            if (typeof s === 'string') return meaningfulText(s);
+            if (typeof s === 'object' && s) return meaningfulText(s.url || s.title);
+            return false;
+        });
+        if (sources.length) {
+            const srcHtml = `<ul class="list-disc list-inside text-sm space-y-1">${sources.map(src => {
+                if (src && typeof src === 'object') {
+                    const title = safe(src.title || '');
+                    const url = safe(src.url || '');
+                    const href = sanitizeUrl(url);
+                    return `<li>${href ? `<a style="color:var(--yr-accent)" href="${href}" target="_blank" rel="noopener noreferrer">${title || url}</a>` : (title || url)}</li>`;
+                }
+                return `<li>${safe(src)}</li>`;
+            }).join('')}</ul>`;
+            tabs.push({ key: 'sources', label: 'מקורות', html: srcHtml });
+        }
+
+        // No tabs? Show a message
+        if (!tabs.length) {
+            resultsContainer.querySelector('.yr-review-result-shell').innerHTML = '<div class="p-8 text-center" style="color:var(--yr-muted)">לא נמצא מידע מספיק להצגה.</div>';
+            currentHistoryId = data.history_id || null;
+            isLoading = false;
+            isResultReady = true;
+            isResultOpen = false;
+            renderFeedbackCTA(resultsContainer, currentHistoryId);
+            showReliabilityReadyPanel();
+            return;
+        }
+
+        // Build the single card HTML
+        const activeTab = tabs[0];
+        let cardHtml = '';
+
+        // Hero header
+        cardHtml += `<div class="yr-result-hero mb-0" style="border-radius:var(--yr-radius-lg) var(--yr-radius-lg) 0 0;background:linear-gradient(180deg,#ffffff,#f4f7fb);border:1px solid var(--yr-border-strong);border-bottom:none;">
+            <div class="yr-chip mb-3">סקירת רכב</div>
+            <h3 class="text-2xl md:text-3xl font-black" style="font-family:'Rubik','Heebo',sans-serif;">תמונת מצב לפני החלטה</h3>
+        </div>`;
+
+        // Tab bar
+        cardHtml += `<div class="yr-review-tabs" role="tablist">`;
+        tabs.forEach((tab, i) => {
+            cardHtml += `<button class="yr-review-tab${i === 0 ? ' is-active' : ''}" role="tab" aria-selected="${i === 0}" data-tab-key="${tab.key}">${safe(tab.label)}</button>`;
+        });
+        cardHtml += `</div>`;
+
+        // Tab panels
+        tabs.forEach((tab, i) => {
+            cardHtml += `<div class="yr-review-tab-panel${i === 0 ? ' is-active' : ''}" role="tabpanel" data-panel-key="${tab.key}">${tab.html}</div>`;
+        });
+
+        // Build the shell
+        const shell = resultsContainer.querySelector('.yr-review-result-shell');
+        if (shell) {
+            shell.innerHTML = `<div class="yr-review-single-card">${cardHtml}</div>`;
+
+            // Tab click handler
+            shell.querySelectorAll('.yr-review-tab').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const key = this.dataset.tabKey;
+                    shell.querySelectorAll('.yr-review-tab').forEach(t => { t.classList.remove('is-active'); t.setAttribute('aria-selected', 'false'); });
+                    shell.querySelectorAll('.yr-review-tab-panel').forEach(p => p.classList.remove('is-active'));
+                    this.classList.add('is-active');
+                    this.setAttribute('aria-selected', 'true');
+                    const panel = shell.querySelector(`.yr-review-tab-panel[data-panel-key="${key}"]`);
+                    if (panel) panel.classList.add('is-active');
                 });
-            }
+            });
         }
 
-        if (reportContainer) {
-            const groups = [
-                ['נקודות בדיקה מכניות', checklist.mechanical_inspection_points || []],
-                ['מסמכים לאימות', checklist.documents_to_verify || []],
-                ['שאלות למוכר', checklist.questions_to_ask_seller || []],
-                ['דגלים אדומים', checklist.red_flags_to_look_for || []],
-                ['אי-ודאויות שדורשות אימות', infoReview.knownUncertainties || []],
-            ].map(([title, items]) => [title, Array.isArray(items) ? items.filter(Boolean) : []])
-             .filter(([, items]) => items.length);
-            let html = '<div class="yr-section-kicker">מה לבדוק לפני קנייה</div>';
-            if (!groups.length) {
-
-            } else {
-                html += '<div class="space-y-4">' + groups.map(([title, items]) => `
-                    <div>
-                        <h4 class="text-sm font-semibold text-white mb-2">${safe(title)}</h4>
-                        <ul class="list-disc list-inside text-sm text-slate-200 space-y-1">
-                            ${items.map(x => `<li>${safe(x)}</li>`).join('')}
-                        </ul>
-                    </div>
-                `).join('') + '</div>';
-            }
-            reportContainer.innerHTML = html;
-            reportContainer.classList.toggle('hidden', !groups.length);
-        }
-
+        // State management (preserve existing flow)
         currentHistoryId = data.history_id || null;
         isLoading = false;
         isResultReady = true;

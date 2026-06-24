@@ -319,7 +319,7 @@ def handle_comparison_request(
                 "stage": "stage_a",
                 "request_id": request_id,
                 "retryable": True,
-                "error_code": stage_a_error_code,
+                "error_code": "stage_a_unavailable",
                 "errors": sanitized_errors,
             },
         )

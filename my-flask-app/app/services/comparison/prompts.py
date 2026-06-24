@@ -289,9 +289,9 @@ def build_single_car_prompt(car: Dict, region: str = "IL") -> str:
             },
             "evidence": [
                 {
-                    "area": "pricing|fuel|safety|reliability|ownership_cost|market|performance|practicality|warranty|recall",
+                    "area": None,
                     "claim": None,
-                    "confidence": "high|medium|low",
+                    "confidence": None,
                     "source_urls": [],
                 }
             ],
@@ -302,7 +302,7 @@ def build_single_car_prompt(car: Dict, region: str = "IL") -> str:
                 "fuel_type": None,
             },
             "research_status": {
-                "status": "complete|partial",
+                "status": None,
                 "checked_areas": [],
                 "open_fields": [],
             },
@@ -338,6 +338,8 @@ def build_single_car_prompt(car: Dict, region: str = "IL") -> str:
         f"{bounded_car}\n"
         f"Region: {region}\n\n"
         f"Return ONLY valid JSON matching this schema:\n{schema_json}\n\n"
+        "Do not output enum placeholder strings like 'high|medium|low'. "
+        "If unknown, use null. "
         "Rules: All rich evidence goes inside car_profile.evidence array. "
         "facts must be top-level and populated from evidence when available. "
         "sources must be a top-level array of URL strings. "

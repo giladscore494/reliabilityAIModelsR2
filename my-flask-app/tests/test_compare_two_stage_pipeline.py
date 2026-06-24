@@ -1299,7 +1299,7 @@ def test_compare_stage_a_json_invalid_returns_503_without_persisting_success(
     assert body["error"]["code"] == "comparison_ai_unavailable"
     details = body["error"]["details"]
     assert details["stage"] == "stage_a"
-    assert details["error_code"] == "STAGE_A_ALL_FAILED_JSON_INVALID"
+    assert details["error_code"] == "stage_a_unavailable"
     assert details["retryable"] is True
     with app.app_context():
         assert ComparisonHistory.query.count() == 0
@@ -1528,8 +1528,8 @@ def test_call_stage_a_parallel_error_classification(app, monkeypatch):
                 raise concurrent.futures.CancelledError("cancelled")
             if self.behavior == "runtime":
                 raise RuntimeError("boom")
-            return (
-                {
+            return {
+                "parsed": {
                     "car_name": "Kia Sportage 2020",
                     "reliability": {"overall": "high"},
                     "ownership_cost": {},
@@ -1539,8 +1539,11 @@ def test_call_stage_a_parallel_error_classification(app, monkeypatch):
                     "short_notes": [],
                     "sources": ["https://example.com/kia"],
                 },
-                None,
-            )
+                "error": None,
+                "raw_text": "raw model output for Kia",
+                "grounding_meta": {"grounding_successful": True, "source_count": 2},
+                "finish_reason": "STOP",
+            }
 
         def cancel(self):
             return True
@@ -1635,10 +1638,15 @@ def test_call_stage_a_parallel_repairs_json_invalid(app, monkeypatch):
     single_car_calls = []
     repair_calls = []
 
-    def fake_single_car(prompt, car_label, timeout_sec, request_id, log):
+    def fake_single_car_raw(prompt, car_label, timeout_sec, request_id, log):
         single_car_calls.append((prompt, car_label))
-        # First call always returns MODEL_JSON_INVALID
-        return None, "MODEL_JSON_INVALID"
+        return {
+            "parsed": None,
+            "error": "MODEL_JSON_INVALID",
+            "raw_text": "some raw model output about Toyota Corolla",
+            "grounding_meta": {"grounding_successful": True, "source_count": 3},
+            "finish_reason": "STOP",
+        }
 
     def fake_repair(raw_text, car_label, original_grounding_meta, request_id, log):
         repair_calls.append((car_label, original_grounding_meta))
@@ -1653,7 +1661,7 @@ def test_call_stage_a_parallel_repairs_json_invalid(app, monkeypatch):
             "sources": ["https://example.com/toyota"],
         }, None
 
-    monkeypatch.setattr(grounding_mod, "call_gemini_single_car", fake_single_car)
+    monkeypatch.setattr(grounding_mod, "_call_gemini_single_car_raw", fake_single_car_raw)
     monkeypatch.setattr(grounding_mod, "_attempt_json_repair", fake_repair)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as real_executor:
