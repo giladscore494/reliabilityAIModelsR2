@@ -289,7 +289,7 @@ Return ONLY valid JSON:
   "practicality":{{"body_type":null,"space":null,"trunk_liters":null,"seats":null,"notes":[],"sources":[]}},
   "resale_market":{{"supply":null,"depreciation_risk":"unknown|low|medium|high","notes":[],"sources":[]}},
   "sources":["up to 8 urls"],
-  "research_status":{"status":"complete|partial","checked_areas":[],"sources_found":[],"open_fields":[{"field":"","missing_source_type":"","why_open":""}]},
+  "research_status":{{"status":"complete|partial","checked_areas":[],"sources_found":[],"open_fields":[{{"field":"","missing_source_type":"","why_open":""}}]}},
   "uncertainties_conflicts":[]
 }}
 Rules: no comparison, no scores, no winner, no invented facts. Do not fill unknown visible fields with generic placeholders. Use null/[] plus `research_status.open_fields` explaining the missing source type (for example: לא נמצא מקור יבואן רשמי, לא נמצא מחירון ישראלי עדכני, לא נמצאה קריאת שירות רשמית, לא נמצא מבחן בטיחות רשמי לדגם/שנה זו). Return source URLs for analytical facts.
@@ -346,7 +346,7 @@ Return ONLY JSON:
     }}
   }},
   "sources": [],
-  "research_status": {"status":"complete|partial","checked_areas":[],"sources_found":[],"open_fields":[{"car_key":"car_1","field":"","missing_source_type":"","why_open":""}]}
+  "research_status": {{"status":"complete|partial","checked_areas":[],"sources_found":[],"open_fields":[{{"car_key":"car_1","field":"","missing_source_type":"","why_open":""}}]}}
 }}
 Rules: Include all selected car_N slots. Unknown visible analytical fields must be null/[] and explained in `research_status.open_fields`; never use generic filler as normal content. No invented strings. Return source URLs for analytical claims.
 """.strip()
