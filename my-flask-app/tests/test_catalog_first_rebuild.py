@@ -300,9 +300,9 @@ def test_research_status_is_honest():
 
 
 # --------------------------------------------------------------------------
-# 6 — Comparison Stage A: 3.5 fast + Google Search + tools_enabled
+# 6 — Comparison Stage A: Gemini 3.1 Pro + Google Search + tools_enabled
 # --------------------------------------------------------------------------
-def test_stage_a_uses_flash_and_search(app, monkeypatch):
+def test_stage_a_uses_pro_and_search(app, monkeypatch):
     from app.services.comparison import grounding
 
     payload = json.dumps({"car_profile": {"pricing": {"used_price_range_ils": "x"}}, "sources": ["http://e.x"]})
@@ -311,7 +311,7 @@ def test_stage_a_uses_flash_and_search(app, monkeypatch):
     with app.app_context():
         parsed, err = grounding.call_gemini_single_car("prompt", "car_1", 30, "req", None)
     assert err is None
-    assert "flash" in fake.models.last_model.lower()
+    assert "3.1-pro" in fake.models.last_model.lower()
     assert _config_has_search_tool(fake.models.last_config)
     assert getattr(fake.models.last_config, "response_mime_type", None) in (None, "")
     assert parsed["_grounding_meta"]["grounding_successful"] is True
@@ -543,11 +543,13 @@ def test_stage_a_timeout_env_override(monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# 13 — Stage A uses flash, Stage B has no tools
+# 13 — Stage A uses Gemini 3.1 Pro (structured-output quality), Stage B has no tools
 # --------------------------------------------------------------------------
-def test_stage_a_config_uses_flash():
+def test_stage_a_config_uses_gemini_31_pro():
     from app.services.comparison.constants import COMPARISON_MODEL_ID
-    assert "flash" in COMPARISON_MODEL_ID.lower()
+    assert COMPARISON_MODEL_ID == "gemini-3.1-pro", (
+        f"Expected default comparison model to be gemini-3.1-pro, got {COMPARISON_MODEL_ID}"
+    )
 
 
 # --------------------------------------------------------------------------
