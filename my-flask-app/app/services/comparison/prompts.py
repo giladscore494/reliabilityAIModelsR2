@@ -278,21 +278,25 @@ Region: {region}
 Return ONLY valid JSON:
 {{
   "car_name":"string",
-  "catalog_identity":{{"match_type":"exact|ambiguous|unmatched","identity_basis":"catalog_exact|catalog_ambiguous|web_resolved|unmatched","make":"","model":"","canonical_model":null,"year":null,"version_or_trim":null,"body_type":null,"fuel_type":null,"engine":null,"engine_displacement_l":null,"horsepower_hp":null,"transmission":null,"drivetrain":null,"year_start":null,"year_end":null,"support_level":null}},
-  "pricing":{{"new_price_range_ils":null,"used_price_range_ils":null,"notes":[],"sources":[]}},
-  "trim_equipment_summary":{{"trims":[],"summary":null,"sources":[]}},
-  "license_running_cost":{{"license_fee":null,"maintenance_cost_pressure":"unknown|low|medium|high","notes":[],"sources":[]}},
-  "fuel_energy":{{"official":null,"real_world":null,"notes":[],"sources":[]}},
-  "official_safety":{{"rating":null,"organization":null,"test_year":null,"notes":[],"sources":[]}},
-  "powertrain_performance":{{"engine":null,"gearbox":null,"drivetrain":null,"horsepower":null,"torque_nm":null,"zero_to_100_sec":null,"notes":[],"sources":[]}},
-  "reliability_risks":{{"top_risks":[],"recalls":[],"maintenance_complexity":"unknown|low|medium|high","sources":[]}},
-  "practicality":{{"body_type":null,"space":null,"trunk_liters":null,"seats":null,"notes":[],"sources":[]}},
-  "resale_market":{{"supply":null,"depreciation_risk":"unknown|low|medium|high","notes":[],"sources":[]}},
-  "sources":["up to 8 urls"],
-  "research_status":{{"status":"complete|partial","checked_areas":[],"sources_found":[],"open_fields":[{{"field":"","missing_source_type":"","why_open":""}}]}},
-  "uncertainties_conflicts":[]
+  "car_profile":{{
+    "catalog_identity":{{"match_type":"exact|ambiguous|unmatched","identity_basis":"catalog_exact|catalog_ambiguous|web_resolved|unmatched","make":"","model":"","canonical_model":null,"year":null,"version_or_trim":null,"body_type":null,"fuel_type":null,"engine":null,"engine_displacement_l":null,"horsepower_hp":null,"transmission":null,"drivetrain":null,"year_start":null,"year_end":null,"support_level":null}},
+    "pricing":{{"new_price_range_ils":null,"used_price_range_ils":null,"notes":[],"sources":[]}},
+    "trim_equipment_summary":{{"trims":[],"summary":null,"sources":[]}},
+    "license_running_cost":{{"license_fee":null,"maintenance_cost_pressure":"unknown|low|medium|high","notes":[],"sources":[]}},
+    "fuel_energy":{{"official":null,"real_world":null,"notes":[],"sources":[]}},
+    "official_safety":{{"rating":null,"organization":null,"test_year":null,"notes":[],"sources":[]}},
+    "powertrain_performance":{{"engine":null,"gearbox":null,"drivetrain":null,"horsepower":null,"torque_nm":null,"zero_to_100_sec":null,"notes":[],"sources":[]}},
+    "reliability_risks":{{"top_risks":[],"recalls":[],"maintenance_complexity":"unknown|low|medium|high","sources":[]}},
+    "practicality":{{"body_type":null,"space":null,"trunk_liters":null,"seats":null,"notes":[],"sources":[]}},
+    "resale_market":{{"supply":null,"depreciation_risk":"unknown|low|medium|high","notes":[],"sources":[]}},
+    "research_status":{{"status":"complete|partial","checked_areas":[],"sources_found":[],"open_fields":[{{"field":"","missing_source_type":"","why_open":""}}]}},
+    "uncertainties_conflicts":[]
+  }},
+  "facts":{{"horsepower":null,"weight_kg":null,"body_type":null,"fuel_type":null}},
+  "short_notes":[],
+  "sources":["up to 8 urls"]
 }}
-Rules: no comparison, no scores, no winner, no invented facts. Do not fill unknown visible fields with generic placeholders. Use null/[] plus `research_status.open_fields` explaining the missing source type (for example: לא נמצא מקור יבואן רשמי, לא נמצא מחירון ישראלי עדכני, לא נמצאה קריאת שירות רשמית, לא נמצא מבחן בטיחות רשמי לדגם/שנה זו). Return source URLs for analytical facts.
+Rules: All rich evidence sections go inside "car_profile". "facts" must be top-level and populated from car_profile data when available (horsepower from catalog_identity.horsepower_hp or powertrain_performance.horsepower, body_type from catalog_identity.body_type or practicality.body_type, fuel_type from catalog_identity.fuel_type, weight_kg only if sourced otherwise null). "sources" must be a top-level array of URL strings. No comparison, no scores, no winner, no invented facts. Do not fill unknown visible fields with generic placeholders. Use null/[] plus `research_status.open_fields` explaining the missing source type (for example: לא נמצא מקור יבואן רשמי, לא נמצא מחירון ישראלי עדכני, לא נמצאה קריאת שירות רשמית, לא נמצא מבחן בטיחות רשמי לדגם/שנה זו). Return source URLs for analytical facts.
 """.strip()
 
 
@@ -329,6 +333,7 @@ Return ONLY JSON:
 {{
   "grounding_successful": true,
   "search_queries_used": [],
+  "assumptions": {{}},
   "cars": {{
     "car_1": {{
       "catalog_identity": {{"match_type":"exact|ambiguous|unmatched","identity_basis":"catalog_exact|catalog_ambiguous|web_resolved|unmatched","make":"","model":"","canonical_model":null,"year":null,"version_or_trim":null,"body_type":null,"fuel_type":null,"engine":null,"engine_displacement_l":null,"horsepower_hp":null,"transmission":null,"drivetrain":null,"year_start":null,"year_end":null,"support_level":null}},
