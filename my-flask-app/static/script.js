@@ -42,6 +42,58 @@
         return '';
     };
 
+
+    const GENERIC_RESULT_TEXTS = new Set([
+        'לא נמצא מידע זמין',
+        'הסבר AI לא זמין כרגע',
+        'מוצגת השוואה מספרית',
+        'מידע על איכות הניתוח טרם נטען',
+        'לא ידוע / לבדיקה',
+        'לא זמין',
+        'אין סיכום זמין.',
+        'אין סיכום מקצועי זמין.',
+        'דורש בדיקה',
+        'מידע חלקי'
+    ]);
+
+    function meaningfulText(value) {
+        const text = String(value ?? '').trim();
+        if (!text) return '';
+        if (GENERIC_RESULT_TEXTS.has(text)) return '';
+        return text;
+    }
+
+    function meaningfulList(items) {
+        return (Array.isArray(items) ? items : [])
+            .map((item) => (typeof item === 'string' ? meaningfulText(item) : item))
+            .filter((item) => {
+                if (!item) return false;
+                if (typeof item !== 'object') return Boolean(meaningfulText(item));
+                return Object.values(item).some((value) => {
+                    if (Array.isArray(value)) return meaningfulList(value).length > 0;
+                    if (value && typeof value === 'object') return true;
+                    return Boolean(meaningfulText(value));
+                });
+            });
+    }
+
+    function renderPartialResearchState(researchStatus, requestId) {
+        const checked = meaningfulList(researchStatus?.checked_areas || []);
+        const found = meaningfulList(researchStatus?.sources_found || []);
+        const open = meaningfulList(researchStatus?.open_fields || []);
+        const rid = requestId ? `<p class="text-xs text-slate-500 mt-3">request_id: ${escapeHtml(requestId)}</p>` : '';
+        return `<div class="yr-partial-research rounded-3xl border border-amber-400/35 bg-amber-400/10 p-5 md:p-6 text-right">
+            <div class="yr-section-kicker">מחקר חלקי</div>
+            <h3 class="text-2xl font-black text-white mb-2">המחקר לא מספיק לתוצאה מלאה</h3>
+            <p class="text-sm leading-7 text-slate-300 mb-4">מוצגים רק פריטים שנמצאו להם מקורות. שדות פתוחים נשארים מחוץ לכרטיסי התוצאה במקום להתמלא בטקסט גנרי.</p>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                ${checked.length ? `<div><h4 class="font-bold text-white mb-2">נבדק</h4><ul class="space-y-1 text-slate-300">${checked.map(x => `<li>• ${escapeHtml(x)}</li>`).join('')}</ul></div>` : ''}
+                ${found.length ? `<div><h4 class="font-bold text-white mb-2">מקורות שנמצאו</h4><ul class="space-y-1 text-slate-300">${found.map(x => `<li>• ${escapeHtml(typeof x === 'string' ? x : (x.title || x.url || x.domain || 'מקור'))}</li>`).join('')}</ul></div>` : ''}
+                ${open.length ? `<div><h4 class="font-bold text-white mb-2">עדיין פתוח</h4><ul class="space-y-1 text-slate-300">${open.map(x => `<li>• ${escapeHtml(typeof x === 'string' ? x : [x.field, x.missing_source_type, x.why_open].filter(Boolean).join(' — '))}</li>`).join('')}</ul></div>` : ''}
+            </div>${rid}
+        </div>`;
+    }
+
     function trackAnalytics(eventName, properties) {
         if (typeof window.posthog === 'undefined' || typeof window.posthog.capture !== 'function') {
             return;
@@ -136,8 +188,8 @@
         const asObject = (value) => (value && typeof value === 'object' ? value : {});
         const report = asObject(data?.reliability_report);
         const checklist = asObject(data?.what_must_be_checked_before_a_decision || report.what_must_be_checked_before_a_decision);
-        const missingInfo = Array.isArray(data?.missing_critical_info) ? data.missing_critical_info.filter(Boolean) : [];
-        const verificationFocus = Array.isArray(data?.verification_focus) ? data.verification_focus.filter(Boolean) : [];
+        const missingInfo = Array.isArray(data?.missing_critical_info) ? meaningfulList(data.missing_critical_info) : [];
+        const verificationFocus = Array.isArray(data?.verification_focus) ? meaningfulList(data.verification_focus) : [];
         const riskAreas = Array.isArray(data?.key_risk_areas_to_examine || report.key_risk_areas_to_examine)
             ? (data?.key_risk_areas_to_examine || report.key_risk_areas_to_examine).filter(Boolean)
             : [];
@@ -147,8 +199,10 @@
         const estimatedCostSensitivity = Array.isArray(data?.estimated_cost_sensitivity || report.estimated_cost_sensitivity)
             ? (data?.estimated_cost_sensitivity || report.estimated_cost_sensitivity).filter(Boolean)
             : [];
-        const basedOnAvailableInformation =
-            data?.based_on_available_information || report.based_on_available_information || '';
+        const basedOnAvailableInformation = meaningfulText(
+            data?.based_on_available_information || report.based_on_available_information || ''
+        );
+        const researchStatus = (data?.research_status && typeof data.research_status === 'object') ? data.research_status : {};
         const fallbackChecks = []
             .concat(Array.isArray(checklist.mechanical_inspection_points) ? checklist.mechanical_inspection_points : [])
             .concat(Array.isArray(checklist.documents_to_verify) ? checklist.documents_to_verify : [])
@@ -169,7 +223,8 @@
             estimatedCostSensitivity,
             basedOnAvailableInformation,
             checksToVerify,
-            sources: Array.isArray(data?.sources) ? data.sources.filter(Boolean) : [],
+            sources: meaningfulList(data?.sources),
+            researchStatus,
         };
     }
 
@@ -225,7 +280,7 @@
         const qualityLabel = document.createElement('div');
         qualityLabel.className = 'mt-2 text-lg font-black text-white';
         qualityLabel.textContent = isFallback
-            ? 'מידע על איכות הניתוח טרם נטען'
+            ? 'איכות המחקר דורשת אימות נוסף'
             : `איכות המידע הזמין על הרכב הזה: ${label}`;
         meter.appendChild(qualityLabel);
 
@@ -653,7 +708,7 @@
 
     function showTimingBanner(kind = 'analyze') {
         if (!timingBanner) return;
-        
+
         // Fetch ETA estimate
         safeFetchJson(`/api/timing/estimate?kind=${kind}`, {
             method: 'GET',
@@ -664,7 +719,7 @@
                 const p75_ms = data.p75_ms || 20000;
                 const count = data.sample_size || 0;
                 const source = data.source || 'default';
-                
+
                 if (etaTextEl) {
                     if (count > 0) {
                         etaTextEl.textContent = `זמן משוער: ~${Math.ceil(p75_ms / 1000)} שניות (מבוסס על ${count} בדיקות)`;
@@ -672,23 +727,23 @@
                         etaTextEl.textContent = `זמן משוער: ~${Math.ceil(p75_ms / 1000)} שניות`;
                     }
                 }
-                
+
                 // Start timer
                 timingStartTime = performance.now();
                 timingBanner.classList.remove('hidden');
-                
+
                 // Update timer every 100ms
                 timingInterval = setInterval(() => {
                     const elapsed = Math.floor((performance.now() - timingStartTime) / 1000);
                     if (elapsedTimeEl) elapsedTimeEl.textContent = elapsed;
-                    
+
                     // Update progress ring (0 to 100% based on p75_ms)
                     const elapsedMs = performance.now() - timingStartTime;
                     const progress = Math.min(1, elapsedMs / p75_ms);
                     const offset = RING_CIRCUMFERENCE * (1 - progress);
                     if (progressRing) {
                         progressRing.style.strokeDashoffset = offset;
-                        
+
                         if (elapsedMs > p75_ms) {
                             // Overtime: pulsing animation on ring
                             progressRing.classList.add('ring-overtime');
@@ -709,11 +764,11 @@
             timingStartTime = performance.now();
             timingBanner.classList.remove('hidden');
             if (etaTextEl) etaTextEl.textContent = 'זמן משוער: ~20 שניות';
-            
+
             timingInterval = setInterval(() => {
                 const elapsed = Math.floor((performance.now() - timingStartTime) / 1000);
                 if (elapsedTimeEl) elapsedTimeEl.textContent = elapsed;
-                
+
                 const elapsedMs = performance.now() - timingStartTime;
                 const progress = Math.min(1, elapsedMs / 20000);
                 const offset = RING_CIRCUMFERENCE * (1 - progress);
@@ -738,11 +793,11 @@
             clearInterval(timingInterval);
             timingInterval = null;
         }
-        
+
         if (showCompletionMessage && timingStartTime && timingBanner && !timingBanner.classList.contains('hidden')) {
             const finalElapsed = Math.floor((performance.now() - timingStartTime) / 1000);
             if (statusTextEl) statusTextEl.textContent = `הסתיים תוך ${finalElapsed} שניות`;
-            
+
             // Hide after 1.5 seconds
             setTimeout(() => {
                 if (timingBanner) timingBanner.classList.add('hidden');
@@ -760,7 +815,7 @@
                 progressRing.style.stroke = 'url(#rainbowGradient)';
             }
         }
-        
+
         timingStartTime = null;
     }
 
@@ -994,7 +1049,8 @@
         }
 
         if (summarySimpleEl) {
-            summarySimpleEl.textContent = (infoReview.basedOnAvailableInformation || '').trim() || 'אין סיכום זמין.';
+            summarySimpleEl.textContent = infoReview.basedOnAvailableInformation;
+            summarySimpleEl.closest('section')?.classList.toggle('hidden', !infoReview.basedOnAvailableInformation);
         }
         if (summaryDetailedEl) {
             const detailLines = [
@@ -1002,7 +1058,7 @@
                 infoReview.missingInfo.length ? `מידע קריטי חסר: ${infoReview.missingInfo.join(' • ')}` : '',
                 infoReview.verificationFocus.length ? `מוקדי אימות: ${infoReview.verificationFocus.join(' • ')}` : '',
             ].filter(Boolean);
-            summaryDetailedEl.textContent = detailLines.join('\n') || 'אין סיכום מקצועי זמין.';
+            summaryDetailedEl.textContent = detailLines.join('\n');
         }
         if (summaryDetailedBlock && !summaryDetailedBlock.classList.contains('hidden')) {
             // להשאיר פתוח אם המשתמש כבר פתח
@@ -1022,7 +1078,7 @@
                 }).join('');
                 html += '</ul>';
             } else {
-                html += '<p class="text-sm text-slate-400">לא התקבלו תחומי סיכון מפורטים.</p>';
+
             }
 
             // Legacy / fallback: common_issues
@@ -1044,6 +1100,7 @@
             }
 
             faultsContainer.innerHTML = html;
+            faultsContainer.classList.toggle('hidden', !html.trim());
         }
 
         if (costsContainer) {
@@ -1055,7 +1112,7 @@
                 html += list.map(item => `<li>${safe(item)}</li>`).join('');
                 html += '</ul>';
             } else {
-                html += '<p class="text-sm text-slate-400">לא התקבל פירוט על רגישות העלויות.</p>';
+
             }
 
             // Legacy / fallback: avg_repair_cost_ILS and issues_with_costs
@@ -1081,6 +1138,7 @@
             }
 
             costsContainer.innerHTML = html;
+            costsContainer.classList.toggle('hidden', !html.trim());
         }
 
         if (competitorsContainer) {
@@ -1092,12 +1150,13 @@
                 html += '<p class="text-sm text-slate-400 mb-4">חלופות ישראליות מאותו אזור שימוש/תקציב כאשר המידע זמין. זו אינה השוואה מלאה.</p>';
                 html += '<div class="yr-competitor-grid">';
                 html += vpCompetitors.map(comp => {
-                    const model = safe(comp.model || comp.name || 'דורש בדיקה');
-                    const why = safe(comp.why_relevant || comp.why_consider || comp.reason || 'דורש בדיקה');
-                    const adv = safe(comp.advantage_vs_current || comp.key_advantage || 'דורש בדיקה');
-                    const dis = safe(comp.disadvantage_vs_current || comp.key_risk || 'דורש בדיקה');
-                    const bestFor = safe(comp.best_for || comp.who_should_choose || 'מידע חלקי');
-                    const weak = [why, adv, dis, bestFor].some(v => v === 'דורש בדיקה' || v === 'מידע חלקי');
+                    const model = safe(meaningfulText(comp.model_name || comp.model || comp.name));
+                    const why = safe(meaningfulText(comp.why_relevant || comp.why_consider || comp.reason));
+                    const adv = safe(meaningfulText(comp.advantage_vs_reviewed_vehicle || comp.advantage_vs_current || comp.key_advantage));
+                    const dis = safe(meaningfulText(comp.disadvantage_or_risk_vs_reviewed_vehicle || comp.disadvantage_vs_current || comp.key_risk));
+                    const bestFor = safe(meaningfulText(comp.better_for || comp.best_for || comp.who_should_choose));
+                    if (!model || !why) return '';
+                    const weak = (comp.confidence === 'low');
                     return `<article class="yr-competitor-card">
                         <div class="flex items-start justify-between gap-3 mb-3">
                             <h4 class="font-black text-white text-lg">${model}</h4>
@@ -1105,18 +1164,19 @@
                         </div>
                         <dl class="space-y-2 text-sm leading-6">
                             <div><dt>למה רלוונטי</dt><dd>${why}</dd></div>
-                            <div><dt>יתרון מול הנסקר</dt><dd>${adv}</dd></div>
-                            <div><dt>חיסרון/סיכון</dt><dd>${dis}</dd></div>
-                            <div><dt>למי עדיף</dt><dd>${bestFor}</dd></div>
+                            ${adv ? `<div><dt>יתרון מול הנסקר</dt><dd>${adv}</dd></div>` : ''}
+                            ${dis ? `<div><dt>חיסרון/סיכון</dt><dd>${dis}</dd></div>` : ''}
+                            ${bestFor ? `<div><dt>למי עדיף</dt><dd>${bestFor}</dd></div>` : ''}
                         </dl>
                     </article>`;
                 }).join('');
                 html += '</div>';
             } else {
-                html += '<p class="text-sm text-slate-400">לא התקבלו 3–5 חלופות אמינות. דורש בדיקה מול שוק יד שנייה/יבואן.</p>';
+                html = '';
             }
 
             competitorsContainer.innerHTML = html;
+            competitorsContainer.classList.toggle('hidden', !html.trim());
         }
 
         // Vehicle Profile Card (Single Vehicle Intelligence Card)
@@ -1124,7 +1184,7 @@
         if (vpContainer) {
             const vp = (data.vehicle_profile && typeof data.vehicle_profile === 'object') ? data.vehicle_profile : null;
             if (!vp) {
-                vpContainer.innerHTML = '<p class="text-sm text-slate-400">מידע לא זוהה ממקור רשמי.</p>';
+                vpContainer.innerHTML = renderPartialResearchState(infoReview.researchStatus || {}, data.request_id);
             } else {
                 let vpHtml = '';
 
@@ -1255,14 +1315,14 @@
 
                 // 9. Ownership Cost Notes
                 const oc = vp.ownership_cost_notes || {};
-                const costLevelMap = { 'low': 'נמוך', 'medium': 'בינוני', 'high': 'גבוה', 'unknown': 'לא ידוע' };
+                const costLevelMap = { 'low': 'נמוך', 'medium': 'בינוני', 'high': 'גבוה' };
                 vpHtml += `<div class="mb-6 pb-6 border-b border-slate-700/50">
                     <h3 class="text-lg font-bold text-white mb-2">עלויות אחזקה</h3>
                     <div class="grid grid-cols-2 gap-2 text-sm">
-                        <div><span class="text-slate-400">תחזוקה: </span><span class="text-white">${costLevelMap[oc.maintenance_cost_pressure] || 'לא ידוע'}</span></div>
-                        <div><span class="text-slate-400">ביטוח: </span><span class="text-white">${costLevelMap[oc.insurance_cost_pressure] || 'לא ידוע'}</span></div>
-                        <div><span class="text-slate-400">פחת: </span><span class="text-white">${costLevelMap[oc.depreciation_risk] || 'לא ידוע'}</span></div>
-                        <div><span class="text-slate-400">חלפים: </span><span class="text-white">${costLevelMap[oc.parts_availability] || 'לא ידוע'}</span></div>
+                        <div><span class="text-slate-400">תחזוקה: </span><span class="text-white">${costLevelMap[oc.maintenance_cost_pressure] || ''}</span></div>
+                        <div><span class="text-slate-400">ביטוח: </span><span class="text-white">${costLevelMap[oc.insurance_cost_pressure] || ''}</span></div>
+                        <div><span class="text-slate-400">פחת: </span><span class="text-white">${costLevelMap[oc.depreciation_risk] || ''}</span></div>
+                        <div><span class="text-slate-400">חלפים: </span><span class="text-white">${costLevelMap[oc.parts_availability] || ''}</span></div>
                     </div>
                     ${(oc.notes || []).length ? `<div class="mt-2 space-y-1">${(oc.notes || []).map(n => `<div class="text-slate-400 text-xs">${safe(n)}</div>`).join('')}</div>` : ''}
                 </div>`;
@@ -1332,7 +1392,7 @@
              .filter(([, items]) => items.length);
             let html = '<div class="yr-section-kicker">מה לבדוק לפני קנייה</div>';
             if (!groups.length) {
-                html += '<p class="text-sm text-slate-400">לא התקבלה רשימת בדיקות קונקרטית. יש לבצע בדיקה מקצועית מלאה.</p>';
+
             } else {
                 html += '<div class="space-y-4">' + groups.map(([title, items]) => `
                     <div>
@@ -1344,6 +1404,7 @@
                 `).join('') + '</div>';
             }
             reportContainer.innerHTML = html;
+            reportContainer.classList.toggle('hidden', !groups.length);
         }
 
         currentHistoryId = data.history_id || null;
@@ -1809,13 +1870,13 @@
                 }
             });
         }
-        
+
         // Load history list only for authenticated sessions
         if (window.__IS_AUTHENTICATED__ === true && typeof window.loadHistoryList === 'function') {
             window.loadHistoryList();
         }
     });
-    
+
     // History comparison functions (global scope for onclick handlers)
     window.loadHistoryList = async function() {
         try {
@@ -1823,7 +1884,7 @@
                 method: 'GET',
                 credentials: 'same-origin'
             });
-            
+
             if (!res.ok) {
                 if (res.error?.details?.status === 401 || res.error?.code === 'unauthenticated') {
                     return;
@@ -1831,23 +1892,23 @@
                 console.error('Failed to load history:', res.error);
                 return;
             }
-            
+
             const searches = res.data?.searches || [];
             const select1 = document.getElementById('history-select-1');
             const select2 = document.getElementById('history-select-2');
-            
+
             if (!select1 || !select2) return;
-            
+
             // Clear and populate selects
             select1.innerHTML = '<option value="">בחר חיפוש...</option>';
             select2.innerHTML = '<option value="">בחר חיפוש...</option>';
-            
+
             searches.forEach(item => {
                 const option1 = document.createElement('option');
                 option1.value = item.id;
                 option1.textContent = `${item.make} ${item.model} ${item.year} (${item.timestamp.split('T')[0]})`;
                 select1.appendChild(option1);
-                
+
                 const option2 = option1.cloneNode(true);
                 select2.appendChild(option2);
             });
@@ -1855,29 +1916,29 @@
             console.error('Error loading history:', err);
         }
     };
-    
+
     window.compareHistory = async function() {
         const select1 = document.getElementById('history-select-1');
         const select2 = document.getElementById('history-select-2');
         const resultDiv = document.getElementById('comparison-result');
-        
+
         if (!select1 || !select2 || !resultDiv) return;
-        
+
         const id1 = select1.value;
         const id2 = select2.value;
-        
+
         if (!id1 || !id2) {
             resultDiv.innerHTML = '<p class="text-red-400 text-sm p-3 bg-red-950/30 border border-red-900/50 rounded-lg">נא לבחור שני חיפושים להשוואה</p>';
             resultDiv.classList.remove('hidden');
             return;
         }
-        
+
         if (id1 === id2) {
             resultDiv.innerHTML = '<p class="text-red-400 text-sm p-3 bg-red-950/30 border border-red-900/50 rounded-lg">נא לבחור שני חיפושים שונים</p>';
             resultDiv.classList.remove('hidden');
             return;
         }
-        
+
         try {
             // Fetch both items
             const [res1, res2] = await Promise.all([
@@ -1890,16 +1951,16 @@
                     credentials: 'same-origin'
                 })
             ]);
-            
+
             if (!res1.ok || !res2.ok) {
                 resultDiv.innerHTML = '<p class="text-red-400 text-sm p-3 bg-red-950/30 border border-red-900/50 rounded-lg">שגיאה בטעינת נתוני ההשוואה</p>';
                 resultDiv.classList.remove('hidden');
                 return;
             }
-            
+
             const item1 = res1.data;
             const item2 = res2.data;
-            
+
             // Hebrew labels
             const labels = {
                 'data_quality_label': 'איכות מידע',
@@ -1908,7 +1969,7 @@
                 'top_verification_focus': 'מוקד אימות מרכזי',
                 'avg_repair_cost_ILS': 'עלות תיקון ממוצעת (₪)'
             };
-            
+
             // Build comparison HTML
             let html = `
                 <div class="bg-slate-900/40 border border-slate-700/70 rounded-2xl p-6">
@@ -1926,7 +1987,7 @@
                     </div>
                     <div class="space-y-3">
             `;
-            
+
             const missing1 = Array.isArray(item1.result?.missing_critical_info) ? item1.result.missing_critical_info[0] : '—';
             const missing2 = Array.isArray(item2.result?.missing_critical_info) ? item2.result.missing_critical_info[0] : '—';
             const focus1 = Array.isArray(item1.result?.verification_focus) ? item1.result.verification_focus[0] : '—';
@@ -1978,12 +2039,12 @@
                     </div>
                 `;
             }
-            
+
             // Add duration comparison if available
             if (item1.duration_ms || item2.duration_ms) {
                 const dur1 = item1.duration_ms ? (item1.duration_ms / 1000).toFixed(1) : 'N/A';
                 const dur2 = item2.duration_ms ? (item2.duration_ms / 1000).toFixed(1) : 'N/A';
-                
+
                 html += `
                     <div class="flex justify-between items-center py-2 border-b border-slate-700/50">
                         <span class="text-slate-300 text-sm">זמן עיבוד (שניות)</span>
@@ -1995,12 +2056,12 @@
                     </div>
                 `;
             }
-            
+
             // Add repair cost comparison if available
             if (item1.result?.avg_repair_cost_ILS || item2.result?.avg_repair_cost_ILS) {
                 const cost1 = item1.result?.avg_repair_cost_ILS || 'N/A';
                 const cost2 = item2.result?.avg_repair_cost_ILS || 'N/A';
-                
+
                 html += `
                     <div class="flex justify-between items-center py-2 border-b border-slate-700/50">
                         <span class="text-slate-300 text-sm">${labels['avg_repair_cost_ILS']}</span>
@@ -2012,15 +2073,15 @@
                     </div>
                 `;
             }
-            
+
             html += `
                     </div>
                 </div>
             `;
-            
+
             resultDiv.innerHTML = html;
             resultDiv.classList.remove('hidden');
-            
+
         } catch (err) {
             console.error('Error comparing history:', err);
             resultDiv.innerHTML = '<p class="text-red-400 text-sm p-3 bg-red-950/30 border border-red-900/50 rounded-lg">שגיאה בהשוואה</p>';
