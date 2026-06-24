@@ -12,6 +12,7 @@ from google.genai import types as genai_types
 from app.services.comparison.constants import (
     COMPARISON_MODEL_ID,
     COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
+    COMPARE_STAGE_A_REPAIR_MAX_INPUT_CHARS,
     COMPARE_STAGE_A_REPAIR_MAX_OUTPUT_TOKENS,
     COMPARE_STAGE_A_REPAIR_TIMEOUT_SEC,
     COMPARE_STAGE_A_TEMPERATURE,
@@ -392,8 +393,7 @@ def _attempt_json_repair(
             outcome_reason = "CLIENT_NOT_INITIALIZED"
             return None, "CLIENT_NOT_INITIALIZED"
 
-        # Truncate the raw text to avoid excessive token usage
-        truncated_text = (raw_text or "")[:4000]
+        truncated_text = (raw_text or "")[:COMPARE_STAGE_A_REPAIR_MAX_INPUT_CHARS]
         repair_prompt = (
             "Convert the provided text into the required JSON schema using only facts "
             "present in the text. Do not add new facts. Return JSON only.\n\n"
