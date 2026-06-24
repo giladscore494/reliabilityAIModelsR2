@@ -67,3 +67,26 @@ def test_guardrail_warnings_do_not_hide_valid_active_review_tabs():
     assert report["warnings"]
     assert guarded["identity_snapshot"]["model"] == "Corolla"
     assert guarded["market_context"]["pricing_israel"]["used_price_range_ils"] == "80,000-95,000"
+
+
+def test_active_review_ui_renders_identity_competitors_and_ownership_tabs():
+    from pathlib import Path
+
+    script = (Path(__file__).resolve().parents[1] / "static" / "script.js").read_text(encoding="utf-8")
+
+    assert "identity_snapshot" in script
+    assert "זהות טכנית" in script
+    assert "common_competitors_brief" in script
+    assert "מתחרים" in script
+    assert "issues_with_costs" in script
+    assert "avg_cost_ILS" in script
+    assert "עלויות אחזקה" in script
+    assert "yr-review-single-card" in script
+
+
+def test_active_review_ui_uses_clean_empty_result_message():
+    from pathlib import Path
+
+    script = (Path(__file__).resolve().parents[1] / "static" / "script.js").read_text(encoding="utf-8")
+    assert "לא הצלחנו לבנות תוצאה מלאה כרגע. כדאי לנסות שוב עם שנתון, מנוע ורמת גימור מדויקים יותר." in script
+    assert "renderPartialResearchState(_researchStatus, _requestId)" in script

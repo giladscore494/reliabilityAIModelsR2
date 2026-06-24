@@ -197,21 +197,8 @@
 
     const normalizeReviewViewModel = buildReviewViewModel;
 
-    function renderPartialResearchState(researchStatus, requestId) {
-        const checked = meaningfulList(researchStatus?.checked_areas || []);
-        const found = meaningfulList(researchStatus?.sources_found || []);
-        const open = meaningfulList(researchStatus?.open_fields || []);
-        const rid = requestId ? `<p class="text-xs text-slate-500 mt-3">request_id: ${escapeHtml(requestId)}</p>` : '';
-        return `<div class="yr-partial-research rounded-3xl border border-amber-400/35 bg-amber-400/10 p-5 md:p-6 text-right">
-            <div class="yr-section-kicker">מחקר חלקי</div>
-            <h3 class="text-2xl font-black text-white mb-2">המחקר לא מספיק לתוצאה מלאה</h3>
-            <p class="text-sm leading-7 text-slate-300 mb-4">מוצגים רק פריטים שנמצאו להם מקורות. שדות פתוחים נשארים מחוץ לכרטיסי התוצאה במקום להתמלא בטקסט גנרי.</p>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                ${checked.length ? `<div><h4 class="font-bold text-white mb-2">נבדק</h4><ul class="space-y-1 text-slate-300">${checked.map(x => `<li>• ${escapeHtml(x)}</li>`).join('')}</ul></div>` : ''}
-                ${found.length ? `<div><h4 class="font-bold text-white mb-2">מקורות שנמצאו</h4><ul class="space-y-1 text-slate-300">${found.map(x => `<li>• ${escapeHtml(typeof x === 'string' ? x : (x.title || x.url || x.domain || 'מקור'))}</li>`).join('')}</ul></div>` : ''}
-                ${open.length ? `<div><h4 class="font-bold text-white mb-2">עדיין פתוח</h4><ul class="space-y-1 text-slate-300">${open.map(x => `<li>• ${escapeHtml(typeof x === 'string' ? x : [x.field, x.missing_source_type, x.why_open].filter(Boolean).join(' — '))}</li>`).join('')}</ul></div>` : ''}
-            </div>${rid}
-        </div>`;
+    function renderPartialResearchState(_researchStatus, _requestId) {
+        return '';
     }
 
     function trackAnalytics(eventName, properties) {
@@ -299,9 +286,8 @@
         return { ok: true, data: textBody, request_id: requestId };
     }
 
-    function showRequestAwareError(message, requestId) {
-        const suffix = requestId ? ` (ID: ${requestId})` : '';
-        showAnalyzeError(`${message}${suffix}`, { type: 'request_error' });
+    function showRequestAwareError(message, _requestId) {
+        showAnalyzeError(message || 'לא הצלחנו להשלים את הפעולה כרגע. כדאי לנסות שוב בעוד רגע.', { type: 'request_error' });
     }
 
     function normalizeInfoReview(data) {
@@ -348,161 +334,8 @@
         };
     }
 
-    function buildDataQualityIndicator(data, infoReview) {
-        const QUALITY_LEVELS = {
-            'חסרה':  { bars: 1, colorClass: 'bg-orange-500' },
-            'חלקית': { bars: 3, colorClass: 'bg-amber-400' },
-            'טובה':  { bars: 5, colorClass: 'bg-emerald-500' },
-        };
-        const READINESS_STYLES = {
-            'חסר מידע קריטי':        'bg-red-950/40 border-red-700/60 text-red-300',
-            'נדרש אימות נוסף':       'bg-amber-950/40 border-amber-700/60 text-amber-300',
-            'מוכן לבדיקה מקצועית':  'bg-emerald-950/40 border-emerald-700/60 text-emerald-300',
-        };
-
-        const label = infoReview.dataQualityLabel || '';
-        const level = QUALITY_LEVELS[label] || null;
-        const filledBars = level ? level.bars : 0;
-        const barColor = level ? level.colorClass : 'bg-slate-600';
-        const isFallback = !label;
-
-        const sourceCount = typeof data.source_count === 'number' ? data.source_count : 0;
-        const sourceScopeLabel = data.source_scope_label || '';
-        const weaklySourced = data.weakly_sourced === true;
-        const decisionReadiness = infoReview.decisionReadiness || '';
-
-        const wrapper = document.createElement('div');
-        wrapper.className = 'w-full rounded-3xl border border-slate-700/70 bg-slate-900/40 p-5 md:p-6 text-right';
-
-        // Meter element with ARIA attributes
-        const meter = document.createElement('div');
-        meter.setAttribute('role', 'meter');
-        meter.setAttribute('aria-valuenow', String(filledBars));
-        meter.setAttribute('aria-valuemin', '0');
-        meter.setAttribute('aria-valuemax', '5');
-        meter.setAttribute('aria-label', 'איכות המידע הזמין על הרכב');
-        if (isFallback) {
-            meter.setAttribute('aria-busy', 'true');
-        }
-
-        // 5-bar track
-        const barTrack = document.createElement('div');
-        barTrack.className = 'flex gap-1.5';
-        barTrack.setAttribute('aria-hidden', 'true');
-        for (let i = 0; i < 5; i++) {
-            const bar = document.createElement('div');
-            bar.className = 'h-3 flex-1 rounded-full ' + (i < filledBars ? barColor : 'bg-slate-700');
-            barTrack.appendChild(bar);
-        }
-        meter.appendChild(barTrack);
-
-        // Quality label
-        const qualityLabel = document.createElement('div');
-        qualityLabel.className = 'mt-2 text-lg font-black text-white';
-        qualityLabel.textContent = isFallback
-            ? 'איכות המחקר דורשת אימות נוסף'
-            : `איכות המידע הזמין על הרכב הזה: ${label}`;
-        meter.appendChild(qualityLabel);
-
-        // Sub-label
-        const subLabel = document.createElement('div');
-        subLabel.className = 'mt-1 text-xs text-slate-400';
-        subLabel.textContent = 'זה לא ציון על הרכב – זה ציון על כמות המידע שיש לנו עליו';
-        meter.appendChild(subLabel);
-
-        wrapper.appendChild(meter);
-
-        // Source + warning chips
-        const chips = [];
-        if (sourceCount > 0 && sourceScopeLabel && sourceScopeLabel !== 'לא זוהה') {
-            const hasIsraeli = sourceScopeLabel.includes('ישראליים');
-            const hasGlobal = sourceScopeLabel.includes('גלובליים');
-            if (hasIsraeli && hasGlobal) {
-                chips.push({ icon: '🇮🇱', text: 'מקורות ישראליים', dt: 'מקורות ישראליים' });
-                chips.push({ icon: '📚', text: 'מקורות גלובליים', dt: 'מקורות גלובליים' });
-            } else if (hasIsraeli) {
-                chips.push({ icon: '🇮🇱', text: sourceCount + ' מקורות ישראליים', dt: 'מקורות ישראליים' });
-            } else if (hasGlobal) {
-                chips.push({ icon: '📚', text: sourceCount + ' מקורות גלובליים', dt: 'מקורות גלובליים' });
-            }
-        } else if (sourceCount > 0) {
-            chips.push({ icon: '📚', text: sourceCount + ' מקורות', dt: 'מספר מקורות' });
-        }
-        if (weaklySourced) {
-            chips.push({ icon: '⚠️', text: 'מבוסס על מקורות חלשים', dt: 'אזהרת מקורות', isWarning: true });
-        }
-
-        if (chips.length) {
-            const dl = document.createElement('dl');
-            dl.className = 'flex flex-wrap gap-2 mt-4';
-            chips.forEach(function(chip) {
-                const div = document.createElement('div');
-                div.className = 'inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold border ' +
-                    (chip.isWarning
-                        ? 'bg-orange-950/40 border-orange-700/60 text-orange-300'
-                        : 'bg-slate-800 border-slate-700 text-slate-200');
-                const dt = document.createElement('dt');
-                dt.className = 'sr-only';
-                dt.textContent = chip.dt;
-                const dd = document.createElement('dd');
-                dd.className = 'flex items-center gap-1';
-                dd.textContent = chip.icon + ' ' + chip.text;
-                div.appendChild(dt);
-                div.appendChild(dd);
-                dl.appendChild(div);
-            });
-            wrapper.appendChild(dl);
-        }
-
-        // Decision readiness badge
-        if (decisionReadiness) {
-            const badgeStyle = READINESS_STYLES[decisionReadiness] || 'bg-slate-800 border-slate-700 text-slate-300';
-            const badge = document.createElement('div');
-            badge.className = 'mt-3 inline-block px-4 py-1.5 rounded-full text-sm font-bold border ' + badgeStyle;
-            badge.textContent = decisionReadiness;
-            wrapper.appendChild(badge);
-        }
-
-        // System disclaimer (prominent)
-        const disclaimer = document.createElement('div');
-        disclaimer.className = 'mt-4 rounded-xl bg-slate-800/60 border border-slate-600/60 px-4 py-3 text-sm font-semibold text-slate-200';
-        disclaimer.textContent = 'המערכת לא קובעת אם לקנות את הרכב, אלא מציפה מה לבדוק.';
-        wrapper.appendChild(disclaimer);
-
-        // Verification focus list
-        if (infoReview.verificationFocus.length) {
-            const focusTitle = document.createElement('div');
-            focusTitle.className = 'mt-4 text-xs font-semibold text-slate-400';
-            focusTitle.textContent = 'מוקדי אימות מרכזיים';
-            wrapper.appendChild(focusTitle);
-            const focusList = document.createElement('ul');
-            focusList.className = 'mt-2 list-disc list-inside space-y-1 text-sm text-slate-200';
-            infoReview.verificationFocus.slice(0, 4).forEach(function(item) {
-                const li = document.createElement('li');
-                li.textContent = item;
-                focusList.appendChild(li);
-            });
-            wrapper.appendChild(focusList);
-        }
-
-        const sourceTag = data.source_tag || '';
-        const mileageNote = data.mileage_note || '';
-
-        if (sourceTag) {
-            const p = document.createElement('p');
-            p.textContent = sourceTag;
-            p.className = 'mt-4 text-[11px] text-slate-500';
-            wrapper.appendChild(p);
-        }
-
-        if (mileageNote) {
-            const p = document.createElement('p');
-            p.textContent = mileageNote;
-            p.className = 'mt-3 text-xs bg-amber-950/40 text-amber-300 border border-amber-700/60 rounded-lg px-3 py-2';
-            wrapper.appendChild(p);
-        }
-
-        return wrapper;
+    function buildDataQualityIndicator(_data, _infoReview) {
+        return document.createDocumentFragment();
     }
 
     function normalizeAnalyzeResponse(payload) {
@@ -683,9 +516,6 @@
 
     function showAnalyzeError(message, meta = {}) {
         const items = [];
-        if (meta.requestId) {
-            items.push(['Request ID', meta.requestId]);
-        }
         if (meta.status !== undefined && meta.status !== null && meta.status !== '') {
             items.push(['HTTP', String(meta.status)]);
         }
@@ -1337,7 +1167,7 @@
 
         // No tabs? Show a message
         if (!tabs.length) {
-            resultsContainer.querySelector('.yr-review-result-shell').innerHTML = '<div class="p-8 text-center" style="color:var(--yr-muted)">לא הצלחנו לבנות סקירה מלאה לרכב הזה. כדאי לדייק שנתון, מנוע או רמת גימור ולנסות שוב.</div>';
+            resultsContainer.querySelector('.yr-review-result-shell').innerHTML = '<div class="p-8 text-center" style="color:var(--yr-muted)">לא הצלחנו לבנות תוצאה מלאה כרגע. כדאי לנסות שוב עם שנתון, מנוע ורמת גימור מדויקים יותר.</div>';
             currentHistoryId = data.history_id || null;
             isLoading = false;
             isResultReady = true;
@@ -1619,11 +1449,10 @@
             console.info('[ANALYZE_PAYLOAD_KEYS]', Object.keys(payloadFromApi || {}));
 
             if (!response.ok) {
-                showAnalyzeError('השרת החזיר שגיאה', {
+                showAnalyzeError('לא הצלחנו להשלים את הבדיקה כרגע. כדאי לנסות שוב בעוד רגע.', {
                     type: 'backend_error',
                     status: response.status,
-                    requestId: payloadFromApi?.request_id,
-                    details: payloadFromApi?.error?.message || payloadFromApi?.error || payloadFromApi?.message,
+                            details: payloadFromApi?.error?.message || payloadFromApi?.error || payloadFromApi?.message,
                 });
                 if (payloadFromApi?.error?.code === 'unauthenticated') {
                     window.location.href = '/login';
@@ -1632,7 +1461,7 @@
             }
 
             if (!payloadFromApi || typeof payloadFromApi !== 'object') {
-                showAnalyzeError('השרת החזיר תשובה חלקית', {
+                showAnalyzeError('לא הצלחנו לבנות תוצאה מלאה כרגע. כדאי לנסות שוב עם שנתון, מנוע ורמת גימור מדויקים יותר.', {
                     type: 'backend_error',
                     status: response.status,
                 });
@@ -1640,10 +1469,9 @@
             }
 
             if (payloadFromApi.ok === false) {
-                showAnalyzeError('השרת החזיר שגיאה', {
+                showAnalyzeError('לא הצלחנו להשלים את הבדיקה כרגע. כדאי לנסות שוב בעוד רגע.', {
                     type: 'backend_error',
                     status: response.status,
-                    requestId: payloadFromApi.request_id,
                     details: payloadFromApi?.error?.message || payloadFromApi?.error || payloadFromApi?.message,
                 });
                 return;
@@ -1651,10 +1479,9 @@
 
             const normalized = normalizeAnalyzeResponse(payloadFromApi);
             if (!normalized.result || typeof normalized.result !== 'object') {
-                showAnalyzeError('השרת החזיר תשובה חלקית', {
+                showAnalyzeError('לא הצלחנו לבנות תוצאה מלאה כרגע. כדאי לנסות שוב עם שנתון, מנוע ורמת גימור מדויקים יותר.', {
                     type: 'backend_error',
                     status: response.status,
-                    requestId: normalized.requestId,
                     details: 'missing result payload',
                 });
                 return;
@@ -1666,9 +1493,8 @@
                 renderAnalyzeResult(normalized.result);
             } catch (err) {
                 console.error('[ANALYZE_RENDER_ERROR]', err, payloadFromApi);
-                showAnalyzeError('הניתוח הצליח אך הייתה בעיה בהצגת התוצאה', {
+                showAnalyzeError('לא הצלחנו להציג את התוצאה כרגע. כדאי לנסות שוב בעוד רגע.', {
                     type: 'render_error',
-                    requestId: normalized.requestId,
                     details: err.message
                 });
                 return;
