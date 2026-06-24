@@ -221,6 +221,20 @@
         return { ok: true, data: textBody, request_id: requestId };
     }
 
+    // Search-queries expand/collapse — delegated (CSP-safe, no inline handlers).
+    if (queriesEl) {
+        queriesEl.addEventListener('click', function (e) {
+            const toggle = e.target.closest('.yr-queries-toggle');
+            if (!toggle) return;
+            const targetId = toggle.getAttribute('data-queries-target');
+            const panel = targetId ? document.getElementById(targetId) : null;
+            if (!panel) return;
+            const expanded = toggle.getAttribute('aria-expanded') === 'true';
+            toggle.setAttribute('aria-expanded', String(!expanded));
+            panel.style.display = expanded ? 'none' : 'block';
+        });
+    }
+
     function showRequestAwareError(message, requestId) {
         const suffix = requestId ? ` (ID: ${escapeHtml(requestId)})` : '';
         if (errorEl) {
@@ -663,6 +677,18 @@
         currentHistoryId = null;
         researchCardVisible = false;
         researchFormOpen = false;
+        // Clear the latest recommendation data so a restart cannot leak a stale
+        // result into compare/details or re-open an old result list.
+        latestAdvisorResponse = null;
+        latestAdvisorCars = [];
+        resultReadyPanelTrackedForHistory = null;
+        advisorResearchCardTrackedForHistory = null;
+        // Collapse any open internal compare/details view and wipe rendered DOM.
+        backToResultsFromFlow({ silent: true });
+        if (tableWrapper) tableWrapper.innerHTML = '';
+        if (highlightCardsEl) highlightCardsEl.innerHTML = '';
+        if (profileSummaryEl) profileSummaryEl.innerHTML = '';
+        if (queriesEl) queriesEl.textContent = '';
         resultReadyPanel?.classList.add('hidden');
         closeAdvisorResult();
         resetAdvisorResearchCard();
@@ -1273,10 +1299,11 @@
             if (queries.length) {
                 var qId = 'yr-queries-' + Date.now();
                 // Safe innerHTML: search queries come sanitized from backend and escaped here.
+                // Toggle is wired via delegated listener (no inline onclick) so it works
+                // under the enforced nonce-based CSP that blocks inline event handlers.
                 queriesEl.innerHTML = `
                     <div>
-                        <button type="button" class="yr-queries-toggle" aria-expanded="false" aria-controls="${qId}"
-                                onclick="var p=document.getElementById('${qId}');var ex=this.getAttribute('aria-expanded')==='true';this.setAttribute('aria-expanded',String(!ex));p.style.display=ex?'none':'block';">
+                        <button type="button" class="yr-queries-toggle" aria-expanded="false" aria-controls="${qId}" data-queries-target="${qId}">
                             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 5l3 3 3-3"/></svg>
                             שאילתות חיפוש שבוצעו (${queries.length})
                         </button>
@@ -1294,8 +1321,21 @@
         if (!cars.length) {
             if (profileSummaryEl) profileSummaryEl.innerHTML = '';
             if (highlightCardsEl) highlightCardsEl.innerHTML = '';
-            tableWrapper.innerHTML =
-                '<p class="text-sm text-slate-400">לא התקבלו המלצות. ייתכן שהגבלות התקציב/שנים קשיחות מדי.</p>';
+            // Premium empty state (static markup, no model/user text → no escaping needed).
+            tableWrapper.innerHTML = `
+                <div class="yr-empty-state">
+                    <div class="yr-empty-state__icon">
+                        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3 M8 11h6"></path></svg>
+                    </div>
+                    <h3 class="yr-empty-state__title">לא נמצאו דגמים תואמים</h3>
+                    <p class="yr-empty-state__text">המנוע לא החזיר דגמים עבור הסינון הנוכחי. ייתכן שטווח התקציב או טווח השנתון מצומצמים מדי, או שהדרישות (דלק / גיר / מושבים) נוקשות מדי. לא הוצגו נתונים משוערים כדי לא להציג מידע שאינו מבוסס.</p>
+                    <ul class="yr-empty-state__hints">
+                        <li>הרחב מעט את טווח התקציב או השנתון</li>
+                        <li>אפשר יותר מסוג דלק או גיר אחד</li>
+                        <li>ודא שדרישת המושבים / סוג המרכב אינה נדירה</li>
+                    </ul>
+                    <button type="button" class="yr-btn yr-back-to-prefs">חזרה לעריכת ההעדפות</button>
+                </div>`;
             isLoading = false;
             isResultReady = true;
             isResultOpen = false;
