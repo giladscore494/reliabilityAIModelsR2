@@ -1008,3 +1008,18 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
   .yr-empty-state__title{ font-size:1.2rem; }
   .yr-analyzing-panel{ padding:26px 14px; }
 }
+
+/* Vehicle review / comparison prototype alignment */
+.yr-review-result-shell{border:1px solid var(--yr-border);border-radius:var(--yr-radius-lg);background:linear-gradient(180deg,rgba(255,255,255,.94),rgba(247,249,252,.9));box-shadow:var(--yr-shadow-lg);}
+.yr-review-result-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;}
+.yr-result-section{display:block!important;border:1px solid var(--yr-border);border-radius:22px;background:rgba(255,255,255,.82);padding:18px;box-shadow:var(--yr-shadow-sm);}
+.yr-result-section--wide{grid-column:1/-1;}
+.yr-section-kicker{display:inline-flex;align-items:center;border:1px solid rgba(47,107,255,.22);background:rgba(47,107,255,.08);color:var(--yr-accent-2);border-radius:999px;padding:5px 11px;margin-bottom:12px;font-size:12px;font-weight:800;}
+.yr-competitor-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;}
+.yr-competitor-card{border:1px solid var(--yr-border);border-radius:18px;background:linear-gradient(180deg,#fff,#f7f9fc);padding:16px;}
+.yr-competitor-card dt{font-size:11px;font-weight:800;color:var(--yr-muted);}
+.yr-competitor-card dd{margin:2px 0 0;color:var(--yr-ink-2);}
+.yr-mini-badge{border-radius:999px;padding:3px 8px;font-size:11px;font-weight:800;border:1px solid var(--yr-border);white-space:nowrap;}
+.yr-mini-badge--warn{background:rgba(214,138,0,.08);border-color:rgba(214,138,0,.25);color:#8a5800;}
+.yr-compare-category-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;}
+@media (max-width:640px){.yr-review-result-grid{grid-template-columns:1fr}.yr-result-section{padding:15px}.yr-result-hero{padding:18px 15px}.yr-competitor-grid,.yr-compare-category-grid{grid-template-columns:1fr}}

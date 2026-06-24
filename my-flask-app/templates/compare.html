@@ -508,8 +508,8 @@
                 <div id="verdictSection" class="yr-chrome-card p-6 md:p-8">
                     <h3 class="text-2xl font-bold mb-4" style="font-family:'Rubik','Heebo',sans-serif;">תוצאת ההשוואה</h3>
                     
-                    <div id="winnerDisplay" class="mb-6">
-                        <!-- Winner will be displayed here -->
+                    <div id="winnerDisplay" class="mb-6 yr-result-hero">
+                        <!-- Practical decision summary will be displayed here -->
                     </div>
                     
                     <div id="assumptionsDisplay" class="mb-4 p-4 bg-white/60 rounded-2xl border border-slate-700/50 text-sm text-slate-300">
@@ -1916,8 +1916,8 @@
         const title = decisionHeader(label);
         winnerDisplay.innerHTML = `
             <div class="space-y-3">
-                <div class="inline-flex items-center rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-bold text-primary">תקציר החלטה</div>
-                <h4 class="text-2xl md:text-3xl font-black text-white">${escapeHtml(title)}</h4>
+                <div class="inline-flex items-center rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-bold text-primary">תקציר החלטה פרקטי</div>
+                <h4 class="text-2xl md:text-3xl font-black text-white">${escapeHtml(title.replace('מנצח', 'עדיפות אפשרית'))}</h4>
                 ${selectedName ? `<div class="text-lg font-bold text-slate-100">${escapeHtml(selectedName)}</div>` : ''}
                 <p class="text-slate-300 leading-7">${escapeHtml(overall.text || 'אין הכרעה חד משמעית בלי בדיקה של מצב הרכב בפועל.')}</p>
             </div>
@@ -2009,37 +2009,25 @@
                     `).join('') : '<p class="text-sm text-slate-400">אין פערים מרכזיים מנוסחים במידע הזמין.</p>'}
                 </div>
             </section>
-            ${renderCategoryDecisionCard(decision, 'pricing_and_value', 'מחיר ותמורה', carsSelected, carKeys)}
-            ${renderCategoryDecisionCard(decision, 'trim_and_equipment', 'רמות גימור ואבזור', carsSelected, carKeys)}
-            ${renderCategoryDecisionCard(decision, 'license_fee_and_running_cost', 'אגרה ועלויות שוטפות', carsSelected, carKeys)}
-            ${renderCategoryDecisionCard(decision, 'powertrain_and_performance', 'מכלולים וביצועים', carsSelected, carKeys)}
-            ${renderCategoryDecisionCard(decision, 'fuel_consumption', 'צריכת דלק/חשמל', carsSelected, carKeys)}
-            ${renderCategoryDecisionCard(decision, 'official_safety', 'בטיחות רשמית', carsSelected, carKeys)}
-            ${renderCategoryDecisionCard(decision, 'reliability_and_risk', 'אמינות וסיכונים', carsSelected, carKeys)}
-            ${renderCategoryDecisionCard(decision, 'resale_and_market_confidence', 'סחירות ועלויות אחזקה', carsSelected, carKeys)}
-            <section class="grid grid-cols-1 ${gridCols} gap-4">
-                ${carKeys.map((ck, index) => `
-                    <article class="rounded-2xl border border-slate-700/70 bg-white p-4">
-                        <div class="mb-2">
-                            <span class="car-result-chip car-chip-${index + 1}">${escapeHtml(carName(carsSelected, ck))}</span>
-                        </div>
-                        <ul class="text-sm leading-7 text-slate-300">
-                            <li>מחיר: ${escapeHtml(carProfileLine(ck, 'pricing_israel.used_price_range_ils') || carProfileLine(ck, 'pricing_israel.new_price_range_ils') || 'לא נמצא במקור מאומת')}</li>
-                            <li>בטיחות רשמית: ${escapeHtml(carProfileLine(ck, 'official_safety.rating') || 'לא נמצא מקור רשמי')}</li>
-                            <li>צריכת דלק/חשמל: ${escapeHtml(carProfileLine(ck, 'fuel_consumption.official_value') || carProfileLine(ck, 'fuel_consumption.real_world_value') || 'לא נמצא מידע מאומת')}</li>
-                        </ul>
-                    </article>
-                `).join('')}
+            <section class="rounded-2xl border border-primary/30 bg-primary/10 p-4 md:p-5">
+                <h4 class="text-lg font-bold text-white mb-2">תקציר החלטה פרקטי</h4>
+                <p class="text-sm md:text-base leading-8 text-slate-200">${escapeHtml(decision?.practical_summary || 'אין סיכום זמין כרגע.')}</p>
+            </section>
+            <section class="yr-compare-category-grid">
+                ${[
+                    ['pricing_and_value', 'מחיר ותמורה'],
+                    ['license_fee_and_running_cost', 'עלות אחזקה ושימוש'],
+                    ['powertrain_and_performance', 'מנוע/גיר/ביצועים'],
+                    ['fuel_consumption', 'צריכת דלק/חשמל'],
+                    ['official_safety', 'בטיחות'],
+                    ['reliability_and_risk', 'אמינות וסיכונים'],
+                    ['daily_family_use', 'שימוש יומי/משפחתי'],
+                    ['resale_and_market_confidence', 'סחירות ושוק'],
+                ].map(([key, title]) => renderCategoryDecisionCard(decision, key, title, carsSelected, carKeys)).join('')}
             </section>
             <section class="rounded-2xl border border-slate-700/70 bg-white p-4 md:p-5">
-                <h4 class="text-lg font-bold text-white mb-3">מתחרים שכדאי לבדוק</h4>
-                <ul class="text-sm leading-7 text-slate-300">
-                    ${competitors.length ? competitors.map(item => `<li>• <span class="font-bold text-slate-100">${escapeHtml(item.model || '')}</span> – ${escapeHtml(item.why_consider || '')}</li>`).join('') : '<li>אין מתחרים נוספים במידע הזמין.</li>'}
-                </ul>
-            </section>
-            <section class="rounded-2xl border border-primary/30 bg-primary/10 p-4 md:p-5">
-                <h4 class="text-lg font-bold text-white mb-2">סיכום פרקטי</h4>
-                <p class="text-sm md:text-base leading-8 text-slate-200">${escapeHtml(decision?.practical_summary || 'אין סיכום זמין כרגע.')}</p>
+                <h4 class="text-lg font-bold text-white mb-3">מקורות / מגבלות מידע</h4>
+                <p class="text-sm leading-7 text-slate-300">ההשוואה מבוססת על המידע שהוזן ועל מקורות זמינים. נתונים חסרים מסומנים כלא זמין, מידע חלקי או דורש בדיקה.</p>
             </section>
         `;
     }
@@ -2086,7 +2074,8 @@
         }
 
         const reasonsList = document.getElementById('reasonsList');
-        reasonsList.innerHTML = '<li>הפירוט מוצג לפי התאמה, פערים ומה לבדוק לפני החלטה.</li>';
+        reasonsList.innerHTML = '';
+        reasonsList.closest('div')?.classList.add('hidden');
 
         const categoriesSection = document.getElementById('categoriesSection');
         categoriesSection.innerHTML = renderDecisionSections(decision, carsSelected, carKeys, result);
