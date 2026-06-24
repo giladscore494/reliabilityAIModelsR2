@@ -57,10 +57,7 @@ body{
 ::-webkit-scrollbar-thumb{ background:linear-gradient(180deg,#cfd5dd,#aeb6c1); border-radius:6px; border:2px solid #e9edf3; }
 ::-webkit-scrollbar-thumb:hover{ background:linear-gradient(180deg,#aeb6c1,#8a94a1); }
 
-/* ---------- text-white → ink on the now-light surfaces ---------- */
-/* Headings/body that used to sit on dark surfaces become readable ink. */
-html .text-white{ color:var(--yr-ink) !important; }
-/* …but keep white on colored buttons / saturated badges (higher specificity). */
+/* ---------- White text is reserved for explicitly dark/saturated surfaces. ---------- */
 html a[class*="from-primary"], html button[class*="from-primary"],
 html [class*="bg-gradient-to"][class*="from-primary"].text-white,
 html .bg-primary.text-white, html .bg-secondary.text-white,
@@ -1027,7 +1024,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
 /* Review/compare parity: reuse advisor chrome for tool-specific final dashboards */
 .yr-tool-analyzing-popover{max-width:min(92vw,420px);min-height:auto;padding:24px;border-radius:28px;background:linear-gradient(180deg,var(--yr-glass),var(--yr-glass-soft));border:1px solid rgba(255,255,255,.9);box-shadow:var(--yr-shadow-lg)}
 .yr-review-result-shell,.yr-compare-result-shell{border-radius:32px;background:linear-gradient(180deg,var(--yr-glass),var(--yr-glass-soft));border:1px solid rgba(255,255,255,.9);box-shadow:var(--yr-shadow-lg),inset 0 1px 0 rgba(255,255,255,.95)}
-.yr-review-result-grid,.yr-compare-dashboard-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.yr-result-section{border-radius:22px;background:linear-gradient(180deg,#fff,#f7f9fc);border:1px solid var(--yr-border);box-shadow:var(--yr-shadow-sm),inset 0 1px 0 #fff;padding:18px;color:var(--yr-ink-2);overflow:hidden}.yr-result-section--wide{grid-column:1/-1}.yr-result-section h3,.yr-result-section h4{color:var(--yr-ink)}.yr-result-section .text-white{color:var(--yr-ink)!important}.yr-result-section .text-slate-200,.yr-result-section .text-slate-300{color:var(--yr-ink-2)!important}.yr-result-section .text-slate-400{color:var(--yr-muted)!important}.yr-section-kicker{display:inline-flex;align-items:center;border:1px solid rgba(47,107,255,.22);background:rgba(47,107,255,.07);color:var(--yr-accent);border-radius:999px;padding:5px 11px;font-size:12px;font-weight:800;margin-bottom:12px}.yr-result-hero{border-radius:28px;padding:24px}.yr-competitor-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.yr-competitor-card{border-radius:18px;background:#fff;border:1px solid var(--yr-border);box-shadow:var(--yr-shadow-sm);padding:14px}.yr-competitor-card dt{font-size:11px;font-weight:800;color:var(--yr-muted);margin-bottom:2px}.yr-competitor-card dd{color:var(--yr-ink-2)}.yr-mini-badge{display:inline-flex;border-radius:999px;border:1px solid var(--yr-border);padding:3px 8px;font-size:11px;font-weight:700}.yr-mini-badge--warn{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.10);color:#b45309}.yr-partial-research{box-shadow:var(--yr-shadow-sm)}
+.yr-review-result-grid,.yr-compare-dashboard-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.yr-partial-research{box-shadow:var(--yr-shadow-sm)}
 @media(max-width:640px){.yr-review-result-shell,.yr-compare-result-shell{border-radius:24px;padding:14px!important}.yr-review-result-grid,.yr-compare-dashboard-grid{grid-template-columns:1fr;gap:12px}.yr-result-section{padding:15px;border-radius:18px}.yr-result-hero{padding:20px 16px;border-radius:22px}.yr-tool-analyzing-popover{width:calc(100vw - 28px);padding:18px}}
 
 .yr-result-section.hidden{display:none!important}
@@ -1100,3 +1097,19 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
   .yr-review-competitor-grid{grid-template-columns:1fr}
   .yr-review-tab{padding:10px 14px; font-size:12px}
 }
+
+/* Result cards: premium light surfaces with semantic text colors */
+.yr-result-card,.yr-review-single-card,.yr-compare-result-card,.yr-result-section{
+  background:linear-gradient(180deg,#ffffff,#f4f7fb);
+  border:1px solid var(--yr-border-strong);
+  color:var(--yr-ink);
+  box-shadow:var(--yr-shadow-sm), inset 0 1px 0 #fff;
+}
+.yr-result-section,.yr-compare-result-card{border-radius:22px;overflow:hidden}
+.yr-result-section{display:block!important;padding:18px}
+.yr-card-title,.yr-result-card h3,.yr-result-card h4,.yr-compare-result-card h3,.yr-compare-result-card h4,.yr-review-single-card h3,.yr-review-single-card h4{color:var(--yr-ink)!important}
+.yr-card-subtitle,.yr-result-card p,.yr-compare-result-card p,.yr-review-single-card p{color:var(--yr-ink-2)}
+.yr-result-card .text-slate-100,.yr-result-card .text-slate-200,.yr-result-card .text-slate-300,
+.yr-compare-result-card .text-slate-100,.yr-compare-result-card .text-slate-200,.yr-compare-result-card .text-slate-300,
+.yr-result-section .text-slate-100,.yr-result-section .text-slate-200,.yr-result-section .text-slate-300{color:var(--yr-ink-2)!important}
+.yr-result-card .text-slate-400,.yr-compare-result-card .text-slate-400,.yr-result-section .text-slate-400{color:var(--yr-muted)!important}
