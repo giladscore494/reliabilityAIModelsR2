@@ -1858,24 +1858,24 @@
         return {
             overall_decision: {
                 label,
-                text: 'אין מספיק מידע מנוסח ללא מדדים גלויים, לכן חשוב להשוות מצב בפועל, היסטוריית טיפולים ועלויות צפויות.'
+                text: 'מחקר חלקי: לא נוצרה השוואה מלאה מפני שלא התקבל מספיק מידע מבוסס מקור.'
             },
             category_decisions: [],
             key_differences: [],
-            choose_car_1_if: ['מתאים יותר אם מצב הרכב, ההיסטוריה והעלויות בפועל מתאימים לשימוש שלך.'],
-            choose_car_2_if: ['מתאים יותר אם מצב הרכב, ההיסטוריה והעלויות בפועל מתאימים לשימוש שלך.'],
-            choose_car_3_if: ['מתאים יותר אם מצב הרכב, ההיסטוריה והעלויות בפועל מתאימים לשימוש שלך.'],
-            avoid_or_check_car_1_if: ['בדוק היסטוריית טיפולים, תאונות, תקלות ידועות ועלויות אחזקה.'],
-            avoid_or_check_car_2_if: ['בדוק היסטוריית טיפולים, תאונות, תקלות ידועות ועלויות אחזקה.'],
-            avoid_or_check_car_3_if: ['בדוק היסטוריית טיפולים, תאונות, תקלות ידועות ועלויות אחזקה.'],
+            choose_car_1_if: [],
+            choose_car_2_if: [],
+            choose_car_3_if: [],
+            avoid_or_check_car_1_if: [],
+            avoid_or_check_car_2_if: [],
+            avoid_or_check_car_3_if: [],
             competitors_to_consider: [],
-            practical_summary: 'ההחלטה צריכה להישען על התאמה לשימוש ובדיקת רכב מקצועית, לא על מדד יחיד.'
+            practical_summary: ''
         };
     }
 
     function renderBulletList(items) {
         const list = Array.isArray(items) ? items.filter(Boolean) : [];
-        if (!list.length) return '<li class="text-slate-500">אין מידע מספק.</li>';
+        if (!list.length) return '';
         return list.map(item => `<li>• ${escapeHtml(item)}</li>`).join('');
     }
 
@@ -1885,7 +1885,7 @@
 
     function checkedVersionValue(value, fallback = 'לא מאומת') {
         const text = String(value || '').trim();
-        return text || fallback;
+        return text || '';
     }
 
     function checkedVersionDataBasisLabel(value) {
@@ -1897,9 +1897,9 @@
             case 'ai_inference':
                 return 'השלמת AI';
             case 'mixed':
-                return 'קלט משתמש + AI/מידע זמין';
+                return 'קלט משתמש + מחקר ממוקד';
             default:
-                return 'לא ידוע / לבדיקה';
+                return '';
         }
     }
 
@@ -1937,8 +1937,8 @@
                                     <div><dt class="inline text-slate-400">דגם:</dt> <dd class="inline">${escapeHtml(checkedVersionValue(version.model, carsSelected?.[ck]?.model || 'לא מאומת'))}</dd></div>
                                     <div><dt class="inline text-slate-400">שנתון:</dt> <dd class="inline">${escapeHtml(checkedVersionValue(version.year))}</dd></div>
                                     <div><dt class="inline text-slate-400">רמת גימור:</dt> <dd class="inline">${escapeHtml(checkedVersionValue(version.trim))}</dd></div>
-                                    <div><dt class="inline text-slate-400">מנוע:</dt> <dd class="inline">${escapeHtml(checkedVersionValue(version.engine_type, 'לא ידוע / לבדיקה'))}</dd></div>
-                                    <div><dt class="inline text-slate-400">תיבת הילוכים:</dt> <dd class="inline">${escapeHtml(checkedVersionValue(version.transmission, 'לא ידוע / לבדיקה'))}</dd></div>
+                                    <div><dt class="inline text-slate-400">מנוע:</dt> <dd class="inline">${escapeHtml(checkedVersionValue(version.engine_type))}</dd></div>
+                                    <div><dt class="inline text-slate-400">תיבת הילוכים:</dt> <dd class="inline">${escapeHtml(checkedVersionValue(version.transmission))}</dd></div>
                                     <div><dt class="inline text-slate-400">הנעה:</dt> <dd class="inline">${escapeHtml(checkedVersionValue(version.drivetrain))}</dd></div>
                                     <div><dt class="inline text-slate-400">מושבים:</dt> <dd class="inline">${escapeHtml(checkedVersionValue(version.seats))}</dd></div>
                                     <div><dt class="inline text-slate-400">בסיס נתונים:</dt> <dd class="inline">${escapeHtml(checkedVersionDataBasisLabel(version.data_basis))}</dd></div>
@@ -1964,7 +1964,7 @@
                 <div class="inline-flex items-center rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-bold text-primary">תקציר החלטה פרקטי</div>
                 <h4 class="text-2xl md:text-3xl font-black text-white">${escapeHtml(title.replace('מנצח', 'עדיפות אפשרית'))}</h4>
                 ${selectedName ? `<div class="text-lg font-bold text-slate-100">${escapeHtml(selectedName)}</div>` : ''}
-                <p class="text-slate-300 leading-7">${escapeHtml(overall.text || 'אין הכרעה חד משמעית בלי בדיקה של מצב הרכב בפועל.')}</p>
+                <p class="text-slate-300 leading-7">${escapeHtml(overall.text || '')}</p>
             </div>
         `;
     }
@@ -2051,30 +2051,52 @@
                                 ${diff.meaning_for_buyer ? `<div class="text-xs text-slate-400 border-t border-slate-700/40 pt-2 mt-1"><span class="font-medium text-slate-300">משמעות לרוכש:</span> ${escapeHtml(diff.meaning_for_buyer)}</div>` : ''}
                             </div>
                         </div>
-                    `).join('') : '<p class="text-sm text-slate-400">אין פערים מרכזיים מנוסחים במידע הזמין.</p>'}
+                    `).join('') : '<p class="text-sm text-slate-400">המחקר לא החזיר פערים מבוססי מקור להצגה.</p>'}
                 </div>
             </section>
             <section class="rounded-2xl border border-primary/30 bg-primary/10 p-4 md:p-5">
                 <h4 class="text-lg font-bold text-white mb-2">תקציר החלטה פרקטי</h4>
-                <p class="text-sm md:text-base leading-8 text-slate-200">${escapeHtml(decision?.practical_summary || 'אין סיכום זמין כרגע.')}</p>
+                <p class="text-sm md:text-base leading-8 text-slate-200">${escapeHtml(decision?.practical_summary || '')}</p>
             </section>
             <section class="yr-compare-category-grid">
                 ${[
                     ['pricing_and_value', 'מחיר ותמורה'],
-                    ['license_fee_and_running_cost', 'עלות אחזקה ושימוש'],
+                    ['ownership_cost', 'עלות בעלות ואחזקה'],
                     ['powertrain_and_performance', 'מנוע/גיר/ביצועים'],
                     ['fuel_consumption', 'צריכת דלק/חשמל'],
                     ['official_safety', 'בטיחות'],
                     ['reliability_and_risk', 'אמינות וסיכונים'],
-                    ['daily_family_use', 'שימוש יומי/משפחתי'],
+                    ['family_daily_use', 'שימוש יומי/משפחתי'],
                     ['resale_and_market_confidence', 'סחירות ושוק'],
                 ].map(([key, title]) => renderCategoryDecisionCard(decision, key, title, carsSelected, carKeys)).join('')}
             </section>
             <section class="rounded-2xl border border-slate-700/70 bg-white p-4 md:p-5">
                 <h4 class="text-lg font-bold text-white mb-3">מקורות / מגבלות מידע</h4>
-                <p class="text-sm leading-7 text-slate-300">ההשוואה מבוססת על המידע שהוזן ועל מקורות זמינים. נתונים חסרים מסומנים כלא זמין, מידע חלקי או דורש בדיקה.</p>
+                <p class="text-sm leading-7 text-slate-300">ההשוואה מבוססת על המידע שהוזן ועל מקורות זמינים. נתונים שלא אומתו אינם מוצגים כעובדה; מגבלות מחקר מופיעות כאן במפורש.</p>
             </section>
         `;
+    }
+
+
+    function renderComparePartialResearch(result) {
+        const ai = result?.ai || result?.computed_result?.ai || {};
+        const requestId = result?.request_id || ai.request_id || '';
+        const reason = ai.reason || ai.error || 'partial_research';
+        return `
+            <section class="rounded-3xl border border-amber-400/35 bg-amber-400/10 p-5 md:p-6 text-right">
+                <div class="inline-flex items-center rounded-full border border-amber-300/40 bg-amber-300/10 px-3 py-1 text-xs font-bold text-amber-200 mb-3">מחקר חלקי</div>
+                <h4 class="text-2xl font-black text-white mb-2">לא נוצרה השוואה מלאה</h4>
+                <p class="text-sm leading-7 text-slate-300">אחד משלבי המחקר או הכתיבה לא החזיר מספיק ראיות, לכן המערכת לא מציגה כרטיסי השוואה רגילים ולא מייצרת העדפות מקטגוריות ריקות.</p>
+                <ul class="mt-4 space-y-2 text-sm text-slate-300">
+                    <li>• נבדקו זהות קטלוגית ומקורות זמינים לכל רכב שהוזן.</li>
+                    <li>• שדות פתוחים נשארים לא מוצגים במקום להופיע כטקסט מילוי.</li>
+                    <li>• מומלץ לנסות שוב או לצמצם גרסה/שנתון/מנוע.</li>
+                </ul>
+                <div class="mt-4 flex flex-wrap gap-2 text-xs text-slate-400">
+                    <span class="rounded-full border border-slate-600 px-3 py-1">reason: ${escapeHtml(reason)}</span>
+                    ${requestId ? `<span class="rounded-full border border-slate-600 px-3 py-1">request_id: ${escapeHtml(requestId)}</span>` : ''}
+                </div>
+            </section>`;
     }
 
     function renderResults(result, options = {}) {
@@ -2089,7 +2111,9 @@
             return carsSelected[carKey]?.display_name || carKey;
         };
 
-        const decision = result.decision_result || computed.decision_result || buildLegacyDecisionFallback(computed);
+        const aiStatus = result?.ai?.status || computed?.ai?.status || '';
+        const isPartialResearch = aiStatus === 'partial_fallback' || aiStatus === 'fallback';
+        const decision = isPartialResearch ? buildLegacyDecisionFallback(computed) : (result.decision_result || computed.decision_result || buildLegacyDecisionFallback(computed));
         renderDecisionResult(decision, carsSelected, carKeys, result);
         if (compareApiDisclaimers) {
             if (narrativeDisclaimers.length) {
@@ -2123,7 +2147,7 @@
         reasonsList.closest('div')?.classList.add('hidden');
 
         const categoriesSection = document.getElementById('categoriesSection');
-        categoriesSection.innerHTML = renderDecisionSections(decision, carsSelected, carKeys, result);
+        categoriesSection.innerHTML = isPartialResearch ? renderComparePartialResearch(result) : renderDecisionSections(decision, carsSelected, carKeys, result);
         isLoading = false;
         isResultReady = true;
         isResultOpen = false;

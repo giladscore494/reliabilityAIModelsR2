@@ -270,7 +270,7 @@ def build_single_car_prompt(car: Dict, region: str = "IL") -> str:
 
 You are a Stage A evidence collector for ONE Israeli-market car. Return compact grounded evidence only.
 Catalog-first rule: when match_type is exact, catalog_identity fields must come from LOCAL_VEHICLE_CATALOG_CONTEXT and web is used only for analytical claims. If web conflicts with catalog identity, report it in uncertainties/conflicts; do not rewrite identity.
-Google Search is mandatory for analytical sections.
+Google Search is mandatory for analytical sections. Run multiple targeted searches, not one generic query. Cover: Israeli trims/identity, official importer/manufacturer, recalls/service campaigns/safety defects, known common faults, Israeli used-market pricing/supply, ownership-cost sensitivity, real-world fuel/energy use, official safety rating, owner complaints as weak evidence only, and local alternatives. Source hierarchy: official importer/manufacturer; official safety/recall/government; credible Israeli automotive publications; major Israeli price/used-car platforms; reputable international reliability/safety; forums only weak support. Distinguish confirmed fact, likely pattern, weakly sourced claim, unavailable after search, source conflict, and catalog identity conflict.
 
 {bounded_car}
 Region: {region}
@@ -280,18 +280,19 @@ Return ONLY valid JSON:
   "car_name":"string",
   "catalog_identity":{{"match_type":"exact|ambiguous|unmatched","identity_basis":"catalog_exact|catalog_ambiguous|web_resolved|unmatched","make":"","model":"","canonical_model":null,"year":null,"version_or_trim":null,"body_type":null,"fuel_type":null,"engine":null,"engine_displacement_l":null,"horsepower_hp":null,"transmission":null,"drivetrain":null,"year_start":null,"year_end":null,"support_level":null}},
   "pricing":{{"new_price_range_ils":null,"used_price_range_ils":null,"notes":[],"sources":[]}},
-  "trim_equipment_summary":{{"trims":[],"summary":"לא ידוע / לבדיקה","sources":[]}},
-  "license_running_cost":{{"license_fee":"לא ידוע / לבדיקה","maintenance_cost_pressure":"unknown|low|medium|high","notes":[],"sources":[]}},
-  "fuel_energy":{{"official":"לא ידוע / לבדיקה","real_world":"לא ידוע / לבדיקה","notes":[],"sources":[]}},
+  "trim_equipment_summary":{{"trims":[],"summary":null,"sources":[]}},
+  "license_running_cost":{{"license_fee":null,"maintenance_cost_pressure":"unknown|low|medium|high","notes":[],"sources":[]}},
+  "fuel_energy":{{"official":null,"real_world":null,"notes":[],"sources":[]}},
   "official_safety":{{"rating":null,"organization":null,"test_year":null,"notes":[],"sources":[]}},
   "powertrain_performance":{{"engine":null,"gearbox":null,"drivetrain":null,"horsepower":null,"torque_nm":null,"zero_to_100_sec":null,"notes":[],"sources":[]}},
   "reliability_risks":{{"top_risks":[],"recalls":[],"maintenance_complexity":"unknown|low|medium|high","sources":[]}},
-  "practicality":{{"body_type":null,"space":"לא ידוע / לבדיקה","trunk_liters":null,"seats":null,"notes":[],"sources":[]}},
-  "resale_market":{{"supply":"לא ידוע / לבדיקה","depreciation_risk":"unknown|low|medium|high","notes":[],"sources":[]}},
-  "sources":["up to 5 urls"],
+  "practicality":{{"body_type":null,"space":null,"trunk_liters":null,"seats":null,"notes":[],"sources":[]}},
+  "resale_market":{{"supply":null,"depreciation_risk":"unknown|low|medium|high","notes":[],"sources":[]}},
+  "sources":["up to 8 urls"],
+  "research_status":{"status":"complete|partial","checked_areas":[],"sources_found":[],"open_fields":[{"field":"","missing_source_type":"","why_open":""}]},
   "uncertainties_conflicts":[]
 }}
-Rules: no comparison, no scores, no winner, no invented facts. Use "לא ידוע / לבדיקה" for unknown visible text. Return source URLs for analytical facts.
+Rules: no comparison, no scores, no winner, no invented facts. Do not fill unknown visible fields with generic placeholders. Use null/[] plus `research_status.open_fields` explaining the missing source type (for example: לא נמצא מקור יבואן רשמי, לא נמצא מחירון ישראלי עדכני, לא נמצאה קריאת שירות רשמית, לא נמצא מבחן בטיחות רשמי לדגם/שנה זו). Return source URLs for analytical facts.
 """.strip()
 
 
@@ -332,21 +333,22 @@ Return ONLY JSON:
     "car_1": {{
       "catalog_identity": {{"match_type":"exact|ambiguous|unmatched","identity_basis":"catalog_exact|catalog_ambiguous|web_resolved|unmatched","make":"","model":"","canonical_model":null,"year":null,"version_or_trim":null,"body_type":null,"fuel_type":null,"engine":null,"engine_displacement_l":null,"horsepower_hp":null,"transmission":null,"drivetrain":null,"year_start":null,"year_end":null,"support_level":null}},
       "pricing": {{"new_price_range_ils":null,"used_price_range_ils":null,"notes":[],"sources":[]}},
-      "trim_equipment_summary": {{"trims":[],"summary":"לא ידוע / לבדיקה","sources":[]}},
-      "license_running_cost": {{"license_fee":"לא ידוע / לבדיקה","maintenance_cost_pressure":"unknown|low|medium|high","notes":[],"sources":[]}},
-      "fuel_energy": {{"official":"לא ידוע / לבדיקה","real_world":"לא ידוע / לבדיקה","notes":[],"sources":[]}},
+      "trim_equipment_summary": {{"trims":[],"summary":null,"sources":[]}},
+      "license_running_cost": {{"license_fee":null,"maintenance_cost_pressure":"unknown|low|medium|high","notes":[],"sources":[]}},
+      "fuel_energy": {{"official":null,"real_world":null,"notes":[],"sources":[]}},
       "official_safety": {{"rating":null,"organization":null,"test_year":null,"notes":[],"sources":[]}},
       "powertrain_performance": {{"engine":null,"gearbox":null,"drivetrain":null,"horsepower":null,"torque_nm":null,"zero_to_100_sec":null,"notes":[],"sources":[]}},
       "reliability_risks": {{"top_risks":[],"recalls":[],"maintenance_complexity":"unknown|low|medium|high","sources":[]}},
-      "practicality": {{"body_type":null,"space":"לא ידוע / לבדיקה","trunk_liters":null,"seats":null,"notes":[],"sources":[]}},
-      "resale_market": {{"supply":"לא ידוע / לבדיקה","depreciation_risk":"unknown|low|medium|high","notes":[],"sources":[]}},
+      "practicality": {{"body_type":null,"space":null,"trunk_liters":null,"seats":null,"notes":[],"sources":[]}},
+      "resale_market": {{"supply":null,"depreciation_risk":"unknown|low|medium|high","notes":[],"sources":[]}},
       "sources": [],
       "uncertainties_conflicts": []
     }}
   }},
-  "sources": []
+  "sources": [],
+  "research_status": {"status":"complete|partial","checked_areas":[],"sources_found":[],"open_fields":[{"car_key":"car_1","field":"","missing_source_type":"","why_open":""}]}
 }}
-Rules: Include all selected car_N slots. Unknown visible fields: "לא ידוע / לבדיקה". No empty strings. Return source URLs for analytical claims.
+Rules: Include all selected car_N slots. Unknown visible analytical fields must be null/[] and explained in `research_status.open_fields`; never use generic filler as normal content. No invented strings. Return source URLs for analytical claims.
 """.strip()
 
 
@@ -513,18 +515,18 @@ HARD RULES:
 2. Do not say "המנצח", winner, or best. Use only soft decision language: "עדיפות קלה", "תלוי שימוש", "אין הכרעה חד משמעית", "דורש בדיקה נוספת".
 3. Do not use first person. Do not say "אני ממליץ", "הייתי קונה", "תקנה", or "אל תקנה".
 4. No direct purchase advice and no "הרכב הטוב ביותר".
-5. Google-grounded factual claims must keep source URLs. If official safety/prices/trims/fees/recalls/warranty are unavailable, use null/unknown or an explicit caveat.
-6. Fill all decision_categories from MODEL_PAYLOAD. Use preferred="unknown" or "depends" when evidence is insufficient.
+5. Google-grounded factual claims must keep source URLs. If official safety/prices/trims/fees/recalls/warranty are unavailable, use null plus an explicit missing source type; do not turn it into successful-card filler.
+6. Fill exactly the 8 decision_categories from MODEL_PAYLOAD: pricing_and_value, ownership_cost, powertrain_and_performance, fuel_consumption, official_safety, reliability_and_risk, family_daily_use, resale_and_market_confidence. Use preferred="unknown" or "depends" when evidence is insufficient.
 7. buyer_profile is preference context only; it may affect fit explanation only and never overrides car facts.
 8. For EVERY selected car, `choose_car_X_if` and `avoid_or_check_car_X_if` must contain 1-3 non-empty Hebrew strings whenever MODEL_PAYLOAD includes any usable evidence for that car.
-9. Never return [] for per-car arrays if `overall_decision`, `category_decisions`, `key_differences`, or the evidence snapshot can support safe fallback wording.
+9. Never return [] for per-car arrays if `overall_decision`, `category_decisions`, `key_differences`, or the evidence snapshot can support cautious partial-research wording.
 10. If evidence is thin, write cautious guidance about fit, trade-offs, and what to verify before purchase instead of leaving arrays empty.
 11. `checked_versions` is mandatory for every selected car. It must clearly state the representative version being discussed, including uncertainty when trim, transmission, engine, or year are not fully verified.
-12. In `checked_versions.transmission`, use general labels only: אוטומטית, רובוטית, רציפה, ידנית, לא ידוע / לבדיקה. Do not use DSG, DCT, DHT, or CVT as the visible default transmission label.
+12. In `checked_versions.transmission`, use general labels only: אוטומטית, רובוטית, רציפה, ידנית, או null עם הערת אימות. Do not use DSG, DCT, DHT, or CVT as the visible default transmission label.
 13. If the user selected a general engine/transmission value, do not present it as a fully verified exact specification. Use `notes` to explain that it still requires verification against the importer spec or vehicle license.
-14. CRITICAL — transmission/engine/year consistency: If the user selected a transmission type (e.g. automatic), you MUST NOT output a contradictory value (e.g. manual) in `checked_versions`. If you lack certainty, output `לא ידוע / לבדיקה` and explain in `notes`. Silently flipping automatic to manual (or vice versa) is a critical error.
-15. CRITICAL — required fields must never be empty: Every `checked_versions` slot must have non-empty values for `trim`, `engine_type`, `transmission`, `drivetrain`, `seats`, `year`, and `notes`. Use `לא ידוע / לבדיקה` as a safe fallback for any field you cannot verify — never leave them blank.
-16. CRITICAL — decision text fields must never be empty: `overall_decision.text`, every `category_decisions[].why`, every `choose_car_X_if`, every `avoid_or_check_car_X_if`, and `checked_versions.notes` must always contain non-empty Hebrew text. Use cautious fallback wording rather than returning empty strings or empty arrays.
+14. CRITICAL — transmission/engine/year consistency: If the user selected a transmission type (e.g. automatic), you MUST NOT output a contradictory value (e.g. manual) in `checked_versions`. If you lack certainty, keep the user-selected general label when available or set null and explain the missing official source in `notes`. Silently flipping automatic to manual (or vice versa) is a critical error.
+15. CRITICAL — required fields must never be empty: Every `checked_versions` slot must have non-empty values for `trim`, `engine_type`, `transmission`, `drivetrain`, `seats`, `year`, and `notes`. Use null/explicit verification notes for fields you cannot verify; never invent a visible generic placeholder.
+16. CRITICAL — decision text fields must never be empty: `overall_decision.text`, every `category_decisions[].why`, every `choose_car_X_if`, every `avoid_or_check_car_X_if`, and `checked_versions.notes` must always contain non-empty Hebrew text. Use cautious partial-research wording rather than inventing facts.
 """
     return prompt
 

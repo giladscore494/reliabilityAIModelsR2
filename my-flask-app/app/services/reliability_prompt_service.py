@@ -102,17 +102,18 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
 {catalog_block}
 
 אתה אוסף ראיות ומנתח אמינות לרכב בישראל. אינך פותר זהות טכנית כאשר המאגר המקומי סיפק התאמה מדויקת.
-חובה להשתמש ב-Google Search לכל טענה אנליטית: אמינות, תקלות, ריקולים, מחירים, רמות גימור, אגרה, בטיחות, אחריות, היצע יד שנייה, ביקורות ועלויות בעלות.
+חובה להשתמש ב-Google Search לכל טענה אנליטית ולבצע כמה חיפושים ממוקדים, לא שאילתה כללית אחת: זהות ושיווק בישראל, מקור יבואן/יצרן, תקלות נפוצות, recalls/קריאות שירות/ליקויי בטיחות, מחירון והיצע יד שנייה בישראל, רגישות עלויות אחזקה, צריכת דלק/אנרגיה אמיתית או ממקור אמין, דירוג בטיחות רשמי, תלונות בעלים כתבנית חלשה בלבד, וחלופות רלוונטיות בישראל.
+היררכיית מקורות: יבואן/יצרן רשמי; מאגרי בטיחות/recall/ממשלה; פרסומי רכב ישראליים אמינים; מחירונים/לוחות ישראליים גדולים; מקורות אמינות/בטיחות בינלאומיים מוכרים; פורומים רק כתמיכה חלשה ולעולם לא כהוכחה יחידה.
 
 כללי זהות:
 - match_type=exact: השתמש בזהות הטכנית מהקטלוג בלבד. אל תחליף make/model/canonical_model/year range/version/body/fuel/engine/hp/transmission/drivetrain/support_level לפי טקסט מהאינטרנט. אם מקור אינטרנט סותר — הוסף conflict.
 - match_type=ambiguous: הקטלוג הוא מועמד. אמת בזהירות ודווח אי-ודאות/סתירה.
-- match_type=unmatched: מותר לזהות דרך web, אך label identity_basis כ-web_resolved או unmatched והסבר אי-ודאות.
+- match_type=unmatched: מותר לזהות דרך web, אך label identity_basis כ-web_resolved או unmatched והסבר אי-ודאות. אם המחקר אינו מספיק, החזר research_status.status=partial ואל תמלא כרטיסים בטקסט גנרי.
 
 חוקי כתיבה:
 - עברית בלבד, JSON תקני בלבד, בלי Markdown.
 - אין verdict, ציון, purchase recommendation, "מומלץ לקנות", "כדאי לקנות", או שפה מוחלטת.
-- אל תמציא מספרים. עלויות רק כטווחים או מספרים שמופיעים במקור.
+- אל תמציא מספרים או טקסט מילוי. אם מקור חסר, ציין ב-research_status.open_fields את סוג המקור החסר: לא נמצא מקור יבואן רשמי / לא נמצא מחירון ישראלי עדכני / לא נמצאה קריאת שירות רשמית / לא נמצא מבחן בטיחות רשמי לדגם/שנה זו.
 - מתחרים: החזר 3–5 חלופות קומפקטיות רק בתוך market_context.competitors; לא לשכפל במקום אחר.
 - final_line חייב להיות בדיוק המשפט האנגלי שבסכימה.
 
@@ -135,10 +136,11 @@ def build_combined_prompt(payload: dict, missing_info: list[str]) -> str:
     "drivetrain": null, "year_start": null, "year_end": null, "support_level": null,
     "profile_confidence": null, "source_summary": [], "missing_grounded_fields": [], "notes": []
   }},
+  "research_status": {"status":"complete|partial|technical_error","checked_areas":[],"sources_found":[],"open_fields":[{"field":"","missing_source_type":"","why_open":""}]},
   "overview": {{
     "based_on_available_information": "",
     "plain_summary": "",
-    "decision_readiness": "מספיק לבדיקה ראשונית|דורש בדיקה נוספת|מידע חלש",
+    "decision_readiness": "מספיק לבדיקה ראשונית|מחקר חלקי|דורש בדיקה נוספת|מידע חלש",
     "data_quality_label": "high|medium|low",
     "weakly_sourced": false
   }},
