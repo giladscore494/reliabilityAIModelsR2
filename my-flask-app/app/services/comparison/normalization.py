@@ -4,6 +4,8 @@
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.services.vehicle_catalog_service import build_vehicle_identity_snapshot
+
 from app.services.comparison.constants import (
     CHECKED_VERSION_CONFIDENCE_ALLOWED,
     CHECKED_VERSION_DATA_BASIS_ALLOWED,
@@ -33,9 +35,9 @@ def _normalize_general_transmission_label(value: Any) -> str:
     lowered = text.lower()
     if any(
         token in lowered
-        for token in ("dsg", "dct", "dual clutch", "dual-clutch", "robot", "רובוט")
+        for token in ("dsg", "dct", "dual clutch", "dual-clutch", "dual_clutch", "robot", "רובוט")
     ):
-        return "רובוטית"
+        return "רובוטית כפולת מצמדים"
     if any(token in lowered for token in ("cvt", "רציפ", "continuously variable")):
         return "רציפה"
     if any(token in lowered for token in ("manual", "ידני", "ידנית")):
@@ -52,6 +54,8 @@ def _normalize_general_transmission_label(value: Any) -> str:
         )
     ):
         return CHECKED_VERSION_UNKNOWN_HE
+    if "single_speed" in lowered or "single-speed" in lowered or "single speed" in lowered:
+        return "הילוך יחיד"
     if any(
         token in lowered
         for token in ("automatic", "auto", "אוטומט", "planetary", "פלנטר")
@@ -127,6 +131,8 @@ def build_checked_versions(
 
     for slot_key in slot_keys:
         selection = (cars_selected_slots or {}).get(slot_key, {}) or {}
+        catalog_snapshot = build_vehicle_identity_snapshot(selection)
+        catalog_exact = catalog_snapshot.get("match_type") == "exact"
         grounded_car = (
             grounded_cars.get(slot_key, {})
             if isinstance(grounded_cars.get(slot_key, {}), dict)
@@ -158,27 +164,30 @@ def build_checked_versions(
             else []
         )
 
+        identity_source = catalog_snapshot if catalog_exact else identity
+        powertrain_source = catalog_snapshot if catalog_exact else powertrain
+
         make = _normalize_checked_version_text(
-            identity.get("make")
+            identity_source.get("make")
         ) or _normalize_checked_version_text(selection.get("make"))
         model = _normalize_checked_version_text(
-            identity.get("model")
+            identity_source.get("model")
         ) or _normalize_checked_version_text(selection.get("model"))
         year = (
-            _normalize_checked_version_text(identity.get("year"))
+            _normalize_checked_version_text(identity_source.get("selected_year") or identity.get("year"))
             or _normalize_checked_version_text(selection.get("year"))
             or _normalize_checked_version_text(selection.get("year_start"))
         )
 
         trim_confidence = str(recommended_trim.get("confidence") or "").strip().lower()
-        trim = _normalize_checked_version_text(recommended_trim.get("trim_name"))
+        trim = _normalize_checked_version_text((catalog_snapshot.get("version_or_trim") if catalog_exact else recommended_trim.get("trim_name")))
         if not trim and len(trims) == 1 and isinstance(trims[0], dict):
             trim = _normalize_checked_version_text(trims[0].get("trim_name"))
         if not trim or trim_confidence == "low":
             trim = CHECKED_VERSION_NOT_VERIFIED_HE
 
         engine_type = (
-            _normalize_checked_version_text(powertrain.get("engine"))
+            _normalize_checked_version_text(powertrain_source.get("engine"))
             or _normalize_checked_version_text(selection.get("engine_type"))
             or _normalize_checked_version_text(
                 (grounded_car.get("facts") or {}).get("fuel_type")
@@ -186,10 +195,10 @@ def build_checked_versions(
             or CHECKED_VERSION_UNKNOWN_HE
         )
         transmission = _normalize_general_transmission_label(
-            powertrain.get("gearbox") or selection.get("gearbox")
+            powertrain_source.get("transmission") or powertrain.get("gearbox") or selection.get("gearbox")
         )
         drivetrain = _normalize_checked_version_text(
-            powertrain.get("drivetrain"),
+            powertrain_source.get("drivetrain") or powertrain.get("drivetrain"),
             CHECKED_VERSION_NOT_VERIFIED_HE,
         )
         seats_value = powertrain.get("seats")
@@ -214,7 +223,9 @@ def build_checked_versions(
             or selection.get("gearbox")
         )
 
-        if has_sources and has_user_specific:
+        if catalog_exact:
+            data_basis = "verified_source"
+        elif has_sources and has_user_specific:
             data_basis = "mixed"
         elif has_sources:
             data_basis = "verified_source"
@@ -225,7 +236,9 @@ def build_checked_versions(
         else:
             data_basis = "user_input"
 
-        if has_sources and year and trim != CHECKED_VERSION_NOT_VERIFIED_HE:
+        if catalog_exact:
+            confidence = "high"
+        elif has_sources and year and trim != CHECKED_VERSION_NOT_VERIFIED_HE:
             confidence = "high"
         elif has_sources and year:
             confidence = "medium"
@@ -246,7 +259,9 @@ def build_checked_versions(
             note_parts.append("רמת הגימור לא אומתה במידע הזמין.")
         if not year:
             note_parts.append("השנתון המדויק לא אומת.")
-        if data_basis in {"mixed", "ai_inference"}:
+        if catalog_exact:
+            note_parts.append("הגרסה נבנתה דטרמיניסטית מתוך התאמת קטלוג מקומית מדויקת; יש עדיין לאמת רישיון רכב ומצב בפועל.")
+        elif data_basis in {"mixed", "ai_inference"}:
             note_parts.append(
                 "ההשוואה מתייחסת לגרסה מייצגת לפי המידע הזמין "
                 "וייתכנו הבדלים בין רמות גימור, מנועים ותיבות הילוכים."

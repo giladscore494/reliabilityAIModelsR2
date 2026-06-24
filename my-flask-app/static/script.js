@@ -798,15 +798,19 @@
     const FUEL_LABEL_MAP = {
         'petrol': 'בנזין',
         'diesel': 'דיזל',
-        'hybrid': 'היברידי (רגיל/פלאג-אין)',
-        'plug_in_hybrid': 'היברידי (רגיל/פלאג-אין)',
-        'electric': 'חשמלי מלא (BEV)',
+        'hybrid': 'היברידי',
+        'mild_hybrid': 'מיקרו-היברידי / mild hybrid',
+        'plug_in_hybrid': 'פלאג-אין',
+        'electric': 'חשמלי',
     };
     const TRANS_LABEL_MAP = {
         'automatic': 'אוטומטית',
         'manual': 'ידנית',
-        'robotic': 'רובוטית',
+        'robotic': 'רובוטית כפולת מצמדים',
+        'dual_clutch': 'רובוטית כפולת מצמדים',
+        'dct': 'רובוטית כפולת מצמדים',
         'cvt': 'רציפה',
+        'single_speed': 'הילוך יחיד',
     };
 
     const variantSelect = document.getElementById('variant');
@@ -924,14 +928,17 @@
             if (heLabel) setSelectByText(fuelSelect, heLabel);
         }
         if (transSelect && sel.dataset.trans) {
-            const heLabel = TRANS_LABEL_MAP[sel.dataset.trans.toLowerCase()] || '';
+            const heLabel = normalizeTransmissionForSelect(sel.dataset.trans);
             if (heLabel) setSelectByText(transSelect, heLabel);
         }
 
         // Show variant summary
         const parts = [];
+        parts.push('גרסה שנבחרה');
+        if (sel.dataset.fuel) parts.push('דלק: ' + (FUEL_LABEL_MAP[sel.dataset.fuel.toLowerCase()] || sel.dataset.fuel));
         if (sel.dataset.engine) parts.push('מנוע: ' + sel.dataset.engine);
-        if (sel.dataset.hp) parts.push('כ"ס: ' + sel.dataset.hp);
+        if (sel.dataset.hp) parts.push('הספק: ' + sel.dataset.hp + ' כ״ס');
+        if (sel.dataset.trans) parts.push('גיר: ' + (normalizeTransmissionForSelect(sel.dataset.trans) || sel.dataset.trans));
         if (sel.dataset.body) parts.push('מרכב: ' + sel.dataset.body);
         if (sel.dataset.drivetrain) parts.push('הנעה: ' + sel.dataset.drivetrain);
         if (sel.dataset.trim) parts.push('גרסה: ' + sel.dataset.trim);
@@ -939,6 +946,17 @@
             variantSummary.innerHTML = parts.map(p => '<div>' + escapeHtml(p) + '</div>').join('');
             variantSummary.classList.remove('hidden');
         }
+    }
+
+    function normalizeTransmissionForSelect(value) {
+        const raw = String(value || '').toLowerCase().replace(/-/g, '_').trim();
+        if (!raw) return '';
+        if (raw.includes('dual_clutch') || raw.includes('dct')) return 'רובוטית כפולת מצמדים';
+        if (raw.includes('cvt')) return 'רציפה';
+        if (raw.includes('manual')) return 'ידנית';
+        if (raw.includes('single_speed')) return 'הילוך יחיד';
+        if (raw.includes('automatic')) return 'אוטומטית';
+        return TRANS_LABEL_MAP[raw] || '';
     }
 
     function setSelectByText(selectEl, text) {
