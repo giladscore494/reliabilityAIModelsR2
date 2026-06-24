@@ -51,6 +51,10 @@
     let isResultReady = false;
     let isResultOpen = false;
     let currentHistoryId = null;
+    // Run 2: latest advisor result kept in frontend state for the internal
+    // compare / details flows. Original car objects are preserved intact.
+    let latestAdvisorResponse = null;
+    let latestAdvisorCars = [];
     let researchCardVisible = false;
     let researchFormOpen = false;
     let legalAccepted = false;
@@ -755,6 +759,84 @@
         return f.includes('חשמל') || f.includes('electric') || f.includes('ev');
     }
 
+    // === Run 2 helpers — shared by results / compare / details flows ===
+    // All return plain values; callers are responsible for HTML-escaping.
+    const ADVISOR_MISSING = 'לא זמין';
+    const ADVISOR_NEEDS_CHECK = 'דורש בדיקה';
+
+    function numOrNull(value) {
+        if (value === null || value === undefined || value === '') return null;
+        const n = Number(value);
+        return Number.isNaN(n) ? null : n;
+    }
+
+    function getCarTitle(car) {
+        if (!car) return 'דגם לא ידוע';
+        const title = `${car.brand || ''} ${car.model || ''}`.trim();
+        return title || 'דגם לא ידוע';
+    }
+
+    function getFitScore(car) {
+        return car ? numOrNull(car.fit_score) : null;
+    }
+
+    function getAnnualCost(car) {
+        return car ? numOrNull(car.total_annual_cost) : null;
+    }
+
+    // Prefer EV energy cost, fall back to fuel cost (never invents a value).
+    function getFuelEnergyAnnual(car) {
+        if (!car) return null;
+        const energy = numOrNull(car.annual_energy_cost);
+        if (energy !== null) return energy;
+        return numOrNull(car.annual_fuel_cost);
+    }
+
+    // Sum of the known annual cost components (fuel/energy, insurance,
+    // maintenance, license). Returns { sum, count } so callers can label partials.
+    function sumKnownAnnualComponents(car) {
+        const parts = [
+            getFuelEnergyAnnual(car),
+            numOrNull(car && car.insurance_cost),
+            numOrNull(car && car.maintenance_cost),
+            numOrNull(car && car.annual_fee)
+        ];
+        let sum = 0;
+        let count = 0;
+        parts.forEach((p) => { if (p !== null) { sum += p; count += 1; } });
+        return { sum, count };
+    }
+
+    // Monthly estimate: full total/12 when total_annual_cost exists, otherwise a
+    // partial estimate from known components / 12. Returns null when nothing known.
+    function getMonthlyCost(car) {
+        const annual = getAnnualCost(car);
+        if (annual !== null) return annual / 12;
+        const known = sumKnownAnnualComponents(car);
+        return known.count > 0 ? known.sum / 12 : null;
+    }
+
+    function formatCurrency(value) {
+        const n = numOrNull(value);
+        if (n === null) return ADVISOR_MISSING;
+        return Math.round(n).toLocaleString('he-IL') + ' ₪';
+    }
+
+    function formatMaybe(value, fallback) {
+        const fb = fallback === undefined ? ADVISOR_MISSING : fallback;
+        if (value === null || value === undefined || String(value).trim() === '') return fb;
+        return value;
+    }
+
+    function getAvgConsumptionText(car) {
+        if (!car) return ADVISOR_MISSING;
+        const n = numOrNull(car.avg_fuel_consumption);
+        if (n === null) return ADVISOR_MISSING;
+        return isEVFuel(car.fuel)
+            ? `${safeNum(n, 1)} קוט״ש ל-100 ק״מ`
+            : `${safeNum(n, 1)} ק״מ לליטר`;
+    }
+
     // --- סיכום פרופיל משתמש אחרי קבלת התוצאות ---
     function renderProfileSummary() {
         if (!profileSummaryEl) return;
@@ -831,7 +913,13 @@
         return null;
     }
 
-    function getReliabilityGrade(score) {
+    function getReliabilityGrade(scoreOrCar) {
+        // Accepts either a numeric reliability score (legacy callers) or a full
+        // car object (Run 2 helper form: getReliabilityGrade(car)).
+        let score = scoreOrCar;
+        if (scoreOrCar !== null && typeof scoreOrCar === 'object') {
+            score = getReliabilityScore(scoreOrCar);
+        }
         if (score == null || Number.isNaN(Number(score))) {
             return { label: 'לא ידוע', className: 'yr-grade yr-grade--unknown' };
         }
@@ -1155,6 +1243,13 @@
                             ${safeNotRecommendedReason}
                         </div>
                     </div>
+
+                    <!-- Per-car internal action: open the same-page details view -->
+                    <div style="display:flex;justify-content:flex-end;margin-top:16px">
+                        <button type="button" class="yr-btn--chrome yr-card-details-btn" data-car-index="${index}">
+                            פרטים מלאים
+                        </button>
+                    </div>
                 </div>
             </article>
         `;
@@ -1163,6 +1258,15 @@
     // --- תצוגת תוצאות מלאה (כרטיסיות + טבלאות) ---
     function renderResults(data, options = {}) {
         if (!resultsSection || !tableWrapper) return;
+
+        // Run 2: keep the full latest response + normalized car list in state.
+        // Backend fields are never stripped or renamed — original objects are kept.
+        latestAdvisorResponse = data || null;
+        latestAdvisorCars = Array.isArray(data && data.recommended_cars)
+            ? data.recommended_cars
+            : [];
+        // Always start sub-views collapsed when a fresh result renders.
+        backToResultsFromFlow({ silent: true });
 
         const queries = Array.isArray(data.search_queries) ? data.search_queries : [];
         if (queriesEl) {
@@ -1277,8 +1381,25 @@
 
         const cardsHtml = cars.map((car, idx) => renderCarCard(car, idx)).join('');
 
+        // Result CTAs — compare top recommendations / back to preferences.
+        const canCompare = cars.length >= 2;
+        const compareCount = Math.min(3, cars.length);
+        const compareLabel = canCompare ? `השווה ${compareCount} מובילים` : 'השווה 3 מובילים';
+        const actionsHtml = `
+            <div class="yr-result-actions">
+                <button type="button" class="yr-btn yr-compare-cta"${canCompare ? '' : ' disabled aria-disabled="true"'}>
+                    ${escapeHtml(compareLabel)}
+                </button>
+                <button type="button" class="yr-btn--chrome yr-back-to-prefs">חזור להעדפות</button>
+                ${canCompare
+                    ? ''
+                    : '<p class="yr-result-actions__note">נדרשים לפחות שני דגמים כדי להפעיל השוואה. התקבל דגם אחד בלבד.</p>'}
+            </div>
+        `;
+
         // Safe innerHTML: renderCarCard escapes all dynamic values.
         tableWrapper.innerHTML = `
+            ${actionsHtml}
             ${heroHtml}
             <div style="font-size:12px;color:var(--yr-muted);margin-bottom:12px;line-height:1.5">
                 לכל רכב מוצגת כרטיסייה נפרדת עם התאמת העדפות לצד סיכונים והסתייגויות נפרדים. התאמת העדפות אינה מדד לאמינות ואינה אישור קנייה.
@@ -1302,6 +1423,529 @@
             flow_type: 'advisor',
             advisor_history_id: currentHistoryId,
             recommended_count: cars.length
+        });
+    }
+
+    // ============================================================
+    // Run 2 — internal same-page compare / details flow
+    // ============================================================
+    const flowView = document.getElementById('advisor-flow-view');
+    const resultsMain = document.getElementById('advisor-results-main');
+
+    const BACK_CHEVRON_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
+
+    function showFlowView(html) {
+        if (!flowView || !resultsMain) return;
+        flowView.innerHTML = html;
+        resultsMain.classList.add('hidden');
+        flowView.classList.remove('yr-flow-hidden');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function backToResultsFromFlow(options) {
+        options = options || {};
+        if (flowView) {
+            flowView.classList.add('yr-flow-hidden');
+            flowView.innerHTML = '';
+        }
+        if (resultsMain) resultsMain.classList.remove('hidden');
+        if (!options.silent) {
+            setAdvisorStep('results');
+            scrollToAdvisorResult();
+        }
+    }
+
+    function goBackToPreferences() {
+        backToResultsFromFlow({ silent: true });
+        closeAdvisorResult();
+        showPreferenceSummary();
+    }
+
+    // --- Winner detection (only when safely comparable) ---
+    function assignCompareWinner(cells, better) {
+        // If any car has a value that is not safely comparable (partial estimate,
+        // mixed units, free text), do not force a winner for the whole row.
+        const hasIncomparable = cells.some((c) => c.num !== null && c.comparable === false);
+        const vals = cells.filter((c) => c.num !== null && c.comparable).map((c) => c.num);
+        if (hasIncomparable || vals.length < 2) return;
+        const best = better === 'high' ? Math.max.apply(null, vals) : Math.min.apply(null, vals);
+        if (vals.every((v) => v === best)) return; // no variation → no winner
+        cells.forEach((c) => { if (c.comparable && c.num === best) c.winner = true; });
+    }
+
+    function numericRow(label, iconPath, cars, accessor, formatter, better) {
+        const cells = cars.map((c) => {
+            const n = accessor(c);
+            return {
+                display: n !== null ? formatter(n, c) : ADVISOR_MISSING,
+                num: n,
+                comparable: n !== null,
+                winner: false
+            };
+        });
+        assignCompareWinner(cells, better);
+        return { label, iconPath, cells };
+    }
+
+    function buildCompareRows(cars) {
+        const rows = [];
+
+        // 1. התאמת AI (higher better)
+        rows.push(numericRow('התאמת AI', 'M12 3l1.8 4.7L18.5 9.5 13.8 11.3 12 16l-1.8-4.7L5.5 9.5l4.7-1.8z',
+            cars, (c) => getFitScore(c), (n) => Math.round(n) + '%', 'high'));
+
+        // 2. טווח מחיר (text range — no forced winner)
+        rows.push({
+            label: 'טווח מחיר',
+            iconPath: 'M3 8.5A2.5 2.5 0 0 1 5.5 6H18a1 1 0 0 1 1 1H6 M3 8.5V18a2 2 0 0 0 2 2h13v-4 M20 11h-3a2 2 0 0 0 0 4h3z',
+            cells: cars.map((c) => ({
+                display: formatMaybe(formatPriceRange(c.price_range_nis)),
+                num: null, comparable: false, winner: false
+            }))
+        });
+
+        // 3. עלות שנתית כוללת (lower better)
+        rows.push(numericRow('עלות שנתית כוללת', 'M3 8.5A2.5 2.5 0 0 1 5.5 6H18a1 1 0 0 1 1 1H6 M3 8.5V18a2 2 0 0 0 2 2h13v-4 M20 11h-3a2 2 0 0 0 0 4h3z',
+            cars, (c) => getAnnualCost(c), (n) => formatCurrency(n), 'low'));
+
+        // 4. עלות חודשית משוערת (lower better; partial estimates are not comparable)
+        const monthlyCells = cars.map((c) => {
+            const annual = getAnnualCost(c);
+            const m = getMonthlyCost(c);
+            const partial = annual === null && m !== null;
+            let disp = m !== null ? formatCurrency(m) : ADVISOR_MISSING;
+            if (partial) disp += ' · חלקי';
+            return { display: disp, num: m, comparable: (m !== null && !partial), winner: false };
+        });
+        assignCompareWinner(monthlyCells, 'low');
+        rows.push({ label: 'עלות חודשית משוערת', iconPath: 'M12 1v22 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6', cells: monthlyCells });
+
+        // 5. צריכת דלק / חשמל (units differ by fuel type → winner only when uniform)
+        const evFlags = cars.map((c) => isEVFuel(c.fuel));
+        const allEv = evFlags.every(Boolean);
+        const noneEv = evFlags.every((f) => !f);
+        const uniformFuel = allEv || noneEv;
+        const fuelCells = cars.map((c) => {
+            const n = numOrNull(c.avg_fuel_consumption);
+            return { display: getAvgConsumptionText(c), num: n, comparable: (n !== null && uniformFuel), winner: false };
+        });
+        if (uniformFuel) assignCompareWinner(fuelCells, allEv ? 'low' : 'high');
+        rows.push({ label: 'צריכת דלק / חשמל', iconPath: 'M12 3c4 5 6 8 6 11a6 6 0 0 1-12 0c0-3 2-6 6-11z', cells: fuelCells });
+
+        // 6. סיכון תחזוקה / אמינות (higher score = lower risk → higher better)
+        const relCells = cars.map((c) => {
+            const s = getReliabilityScore(c);
+            return { display: getReliabilityGrade(c).label, num: s, comparable: (s !== null), winner: false };
+        });
+        assignCompareWinner(relCells, 'high');
+        rows.push({ label: 'סיכון תחזוקה / אמינות', iconPath: 'M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z', cells: relCells });
+
+        // 7. ביטוח שנתי (lower better)
+        rows.push(numericRow('ביטוח שנתי', 'M12 3v2 M3.5 11a8.5 8.5 0 0 1 17 0z M12 11v8a2 2 0 0 1-4 0',
+            cars, (c) => numOrNull(c.insurance_cost), (n) => formatCurrency(n), 'low'));
+
+        // 8. אגרת רישוי שנתית (lower better)
+        rows.push(numericRow('אגרת רישוי שנתית', 'M5 11l1.5-4.2A2 2 0 0 1 8.4 5.4h7.2a2 2 0 0 1 1.9 1.4L19 11 M5 11h14v5H5z',
+            cars, (c) => numOrNull(c.annual_fee), (n) => formatCurrency(n), 'low'));
+
+        // 9. בטיחות (higher better)
+        rows.push(numericRow('בטיחות', 'M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z M9 12l2 2 4-4',
+            cars, (c) => numOrNull(c.safety_rating), (n) => safeNum(n, 1), 'high'));
+
+        // 10. שמירת ערך (higher better)
+        rows.push(numericRow('שמירת ערך', 'M4 17l5-5 3 3 8-8 M21 7v4h-4',
+            cars, (c) => numOrNull(c.resale_value), (n) => safeNum(n, 1), 'high'));
+
+        // 11. ביצועים (higher better)
+        rows.push(numericRow('ביצועים', 'M13 3 4 14h6l-1 7 9-11h-6z',
+            cars, (c) => numOrNull(c.performance_score), (n) => safeNum(n, 1), 'high'));
+
+        // 12. נוחות ואבזור (higher better)
+        rows.push(numericRow('נוחות ואבזור', 'M5 19c0-7 5-12 14-13 1 9-4 15-13 14',
+            cars, (c) => numOrNull(c.comfort_features), (n) => safeNum(n, 1), 'high'));
+
+        // 13. היצע בשוק (numeric/scored → higher better; otherwise text, no winner)
+        const supplyCells = cars.map((c) => {
+            const n = numOrNull(c.market_supply);
+            if (n !== null) return { display: String(n), num: n, comparable: true, winner: false };
+            return { display: formatMaybe(c.market_supply), num: null, comparable: false, winner: false };
+        });
+        assignCompareWinner(supplyCells, 'high');
+        rows.push({ label: 'היצע בשוק', iconPath: 'M3 3v18h18 M7 14l3-3 3 3 5-6', cells: supplyCells });
+
+        return rows;
+    }
+
+    function renderCompareView(cars) {
+        const cols = cars.length;
+        const winnerBadge = '<span class="yr-compare-winner__badge"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>מוביל</span>';
+
+        // Header row: one column per car (gauge, identity, chips, price, details).
+        const headCells = cars.map((car) => {
+            const idx = latestAdvisorCars.indexOf(car);
+            const fit = getFitScore(car);
+            const gauge = fit !== null ? buildScoreGaugeSvg(Math.round(fit), 66, 'התאמת AI') : '<div style="font-size:13px;color:var(--yr-muted)">?</div>';
+            const title = escapeHtml(getCarTitle(car));
+            const year = car.year ? escapeHtml(car.year) : '';
+            const trim = (car.trim !== undefined && String(car.trim).trim() !== '')
+                ? `<div class="yr-compare-cell__sub">${escapeHtml(car.trim)}</div>` : '';
+            const chips = `
+                <div class="yr-compare-cell__chips">
+                    <span class="yr-spec-chip">${escapeHtml(formatMaybe(car.fuel))}</span>
+                    <span class="yr-spec-chip">${escapeHtml(formatMaybe(car.gear))}</span>
+                </div>`;
+            const price = `<div class="yr-compare-cell__sub">${escapeHtml(formatMaybe(formatPriceRange(car.price_range_nis)))}</div>`;
+            const btn = `<button type="button" class="yr-btn--chrome yr-compare-details-btn" data-car-index="${idx}" style="margin-top:6px;padding:7px 14px;font-size:12.5px">פרטים מלאים</button>`;
+            return `
+                <div class="yr-compare-cell yr-compare-cell--head">
+                    <div class="yr-score-gauge">${gauge}</div>
+                    <div class="yr-compare-cell__title">${title}${year ? ' · ' + year : ''}</div>
+                    ${trim}
+                    ${chips}
+                    ${price}
+                    ${btn}
+                </div>`;
+        }).join('');
+
+        const headRow = `
+            <div class="yr-compare-row yr-compare-row--head">
+                <div class="yr-compare-rowlabel">דגם</div>
+                ${headCells}
+            </div>`;
+
+        const rowsHtml = buildCompareRows(cars).map((row) => {
+            const icon = row.iconPath
+                ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9aa3af" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${row.iconPath}"/></svg>`
+                : '';
+            const cells = row.cells.map((cell) => `
+                <div class="yr-compare-cell${cell.winner ? ' yr-compare-winner' : ''}">
+                    <span class="yr-compare-cell__val">${escapeHtml(cell.display)}</span>
+                    ${cell.winner ? winnerBadge : ''}
+                </div>`).join('');
+            return `
+                <div class="yr-compare-row">
+                    <div class="yr-compare-rowlabel">${icon}<span>${escapeHtml(row.label)}</span></div>
+                    ${cells}
+                </div>`;
+        }).join('');
+
+        const html = `
+            <section class="yr-compare-view yr-rise">
+                <div class="yr-flow-header">
+                    <button type="button" class="yr-flow-back" aria-label="חזרה להמלצות">${BACK_CHEVRON_SVG}</button>
+                    <div>
+                        <h2 class="yr-flow-title">השוואת דגמים</h2>
+                        <p class="yr-flow-subtitle">${cols} הדגמים המובילים לפי התאמת העדפות · מודגש = המוביל בקטגוריה (רק כשההשוואה בטוחה)</p>
+                    </div>
+                </div>
+                <div class="yr-disclaimer yr-disclaimer--neutral" style="margin-bottom:14px">
+                    ההשוואה מבוססת על התאמת העדפות ונתונים כלליים בלבד, ואינה מדד לאמינות בפועל או אישור קנייה. שדות חסרים מסומנים כ-${escapeHtml(ADVISOR_MISSING)}.
+                </div>
+                <div class="yr-compare-scroll">
+                    <div class="yr-compare-table" style="--yr-compare-cols:${cols}">
+                        ${headRow}
+                        ${rowsHtml}
+                    </div>
+                </div>
+                <div class="yr-flow-footer">
+                    <button type="button" class="yr-btn yr-flow-back">חזרה להמלצות</button>
+                </div>
+            </section>`;
+
+        showFlowView(html);
+    }
+
+    function openCompareView() {
+        const cars = latestAdvisorCars || [];
+        if (cars.length < 2) return;
+        const top = cars.slice(0, Math.min(3, cars.length));
+        renderCompareView(top);
+        setAdvisorStep('compare');
+        trackAnalytics('advisor_compare_opened', {
+            flow_type: 'advisor',
+            advisor_history_id: currentHistoryId,
+            compared_count: top.length
+        });
+    }
+
+    // --- Cost breakdown — uses only fields returned by the advisor response ---
+    function computeCostBreakdown(car) {
+        const compDefs = [
+            { key: 'energy', label: 'דלק / חשמל', color: '#16c8e6', amount: getFuelEnergyAnnual(car) },
+            { key: 'insurance', label: 'ביטוח', color: '#9aa6b6', amount: numOrNull(car.insurance_cost) },
+            { key: 'maintenance', label: 'תחזוקה', color: '#c4ccd6', amount: numOrNull(car.maintenance_cost) },
+            { key: 'license', label: 'אגרת רישוי', color: '#6b7686', amount: numOrNull(car.annual_fee) }
+        ];
+        const components = compDefs.filter((c) => c.amount !== null);
+        const knownSum = components.reduce((acc, c) => acc + c.amount, 0);
+        const total = getAnnualCost(car);
+        const hasFullTotal = total !== null;
+        const annualTotal = hasFullTotal ? total : (components.length ? knownSum : null);
+        const annualPartial = !hasFullTotal && components.length > 0;
+
+        // Depreciation / residual: only when a real total exists and known
+        // components exist. Never invented. Negative/suspicious → flagged, not shown.
+        let residual = null;
+        let residualSuspicious = false;
+        if (hasFullTotal && components.length > 0) {
+            const r = total - knownSum;
+            if (r < 0) residualSuspicious = true;
+            else residual = r;
+        }
+
+        const segDefs = components.slice();
+        if (residual !== null && residual > 0) {
+            segDefs.push({ key: 'residual', label: 'פחת / שונות משוערת', color: '#1f57e6', amount: residual });
+        }
+        const denom = (hasFullTotal && residual !== null) ? total : knownSum;
+        const segments = denom > 0
+            ? segDefs.map((s) => ({ label: s.label, color: s.color, amount: s.amount, pct: Math.round(s.amount / denom * 100) }))
+            : [];
+
+        return {
+            components,
+            total,
+            hasFullTotal,
+            annualTotal,
+            annualPartial,
+            residual,
+            residualSuspicious,
+            segments,
+            monthly: annualTotal !== null ? annualTotal / 12 : null,
+            monthlyPartial: annualPartial,
+            threeYear: annualTotal !== null ? annualTotal * 3 : null,
+            threeYearPartial: annualPartial,
+            hasAny: components.length > 0 || hasFullTotal
+        };
+    }
+
+    function buildMissingDataList(car) {
+        const checks = [
+            ['טווח מחיר', formatPriceRange(car.price_range_nis)],
+            ['צריכת דלק / חשמל', numOrNull(car.avg_fuel_consumption)],
+            ['עלות דלק / אנרגיה שנתית', getFuelEnergyAnnual(car)],
+            ['אגרת רישוי שנתית', numOrNull(car.annual_fee)],
+            ['אינדיקציית תחזוקה / אמינות', getReliabilityScore(car)],
+            ['עלות אחזקה שנתית', numOrNull(car.maintenance_cost)],
+            ['בטיחות', numOrNull(car.safety_rating)],
+            ['עלות ביטוח שנתית', numOrNull(car.insurance_cost)],
+            ['שמירת ערך', numOrNull(car.resale_value)],
+            ['ביצועים', numOrNull(car.performance_score)],
+            ['נוחות ואבזור', numOrNull(car.comfort_features)],
+            ['היצע בשוק', numOrNull(car.market_supply) !== null ? 1 : (String(car.market_supply || '').trim() || null)],
+            ['עלות שנתית כוללת', getAnnualCost(car)]
+        ];
+        return checks.filter((pair) => pair[1] === null || pair[1] === undefined || pair[1] === '').map((pair) => pair[0]);
+    }
+
+    function renderRiskNotes(car) {
+        const proText = car.comparison_comment || advisorCopy.fitFallback;
+        const warnText = car.not_recommended_reason || advisorCopy.caveatFallback;
+        const missing = buildMissingDataList(car);
+        const dueDiligence = [
+            'בדיקת רכב לפני קנייה אצל גורם מקצועי מוסמך',
+            'היסטוריית טיפולים ותחזוקה של הרכב הספציפי',
+            'בדיקת עבר ביטוחי ותביעות',
+            'אימות קילומטראז\' ומספר בעלים קודמים',
+            'בדיקת מצב מכני, מתלים ומערכות בטיחות בפועל',
+            'השוואת המחיר המבוקש למחירון בפועל'
+        ];
+
+        const noteIcons = {
+            success: 'M5 13l4 4L19 7',
+            warning: 'M12 4l9 16H3z M12 10v4 M12 16.5h.01',
+            info: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M12 8h.01 M11 12h1v4h1',
+            neutral: 'M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11'
+        };
+        function note(type, title, bodyHtml) {
+            const icon = `<span class="yr-risk-note__icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="${noteIcons[type]}"/></svg></span>`;
+            return `
+                <div class="yr-risk-note yr-risk-note--${type}">
+                    ${icon}
+                    <div>
+                        <div class="yr-risk-note__title">${escapeHtml(title)}</div>
+                        ${bodyHtml}
+                    </div>
+                </div>`;
+        }
+
+        const missingBody = missing.length
+            ? `<div>נתונים חסרים שיש לאמת (${escapeHtml(ADVISOR_MISSING)} / ${escapeHtml(ADVISOR_NEEDS_CHECK)}):</div><ul>${missing.map((m) => `<li>${escapeHtml(m)}</li>`).join('')}</ul>`
+            : '<div>לא זוהו שדות חסרים מהותיים בתשובת המנוע עבור דגם זה.</div>';
+
+        return `
+            <div class="yr-risk-stack">
+                ${note('success', 'למה זה מתאים למה שביקשת', escapeHtml(proText))}
+                ${note('warning', 'סיכונים / הסתייגויות שכדאי לבדוק', escapeHtml(warnText))}
+                ${note('info', 'מידע חסר או לא מאומת', missingBody)}
+                ${note('neutral', 'בדיקות נאותות לפני קנייה', `<ul>${dueDiligence.map((d) => `<li>${escapeHtml(d)}</li>`).join('')}</ul>`)}
+            </div>`;
+    }
+
+    function buildMethodologyHtml(car) {
+        const rows = Object.keys(methodLabelMap)
+            .filter((key) => car[key])
+            .map((key) => `
+                <div class="yr-method-row">
+                    <div class="yr-method-row__label">${escapeHtml(methodLabelMap[key])}</div>
+                    <div class="yr-method-row__value">${escapeHtml(car[key])}</div>
+                </div>`).join('');
+        const body = rows
+            ? `<div class="yr-data-grid">${rows}</div>`
+            : `<p style="font-size:13px;color:var(--yr-muted);margin:0">פירוט מקורות ושיטות חישוב אינו זמין עבור דגם זה.</p>`;
+        return `
+            <div class="yr-chrome-card yr-details-section" style="padding:20px 22px;border-radius:18px">
+                <h3 class="yr-section-header" style="margin-bottom:10px">מתודולוגיה ומקורות</h3>
+                <p style="font-size:12.5px;color:var(--yr-muted);line-height:1.6;margin:0 0 12px">
+                    הנתונים מבוססים על הצלבת מאגרי מידע כלליים ודגמיים, ואינם מהווים בדיקה של הרכב הספציפי. ערכים שלא אומתו מסומנים כ-${escapeHtml(ADVISOR_MISSING)}.
+                </p>
+                ${body}
+            </div>`;
+    }
+
+    function renderDetailsView(car) {
+        const fit = getFitScore(car);
+        const gauge = fit !== null ? buildScoreGaugeSvg(Math.round(fit), 56, 'התאמת AI') : '';
+        const title = escapeHtml(getCarTitle(car));
+        const year = car.year ? escapeHtml(car.year) : '';
+
+        // Key facts chips
+        const facts = [];
+        if (year) facts.push(year);
+        if (car.trim !== undefined && String(car.trim).trim() !== '') facts.push(escapeHtml(car.trim));
+        facts.push(escapeHtml(formatMaybe(car.fuel)));
+        facts.push(escapeHtml(formatMaybe(car.gear)));
+        if (car.turbo !== undefined && car.turbo !== null && String(car.turbo) !== '') facts.push('טורבו: ' + escapeHtml(String(car.turbo)));
+        if (numOrNull(car.engine_cc) !== null) facts.push(escapeHtml(safeNum(car.engine_cc)) + ' סמ״ק');
+        facts.push(escapeHtml(formatMaybe(formatPriceRange(car.price_range_nis))));
+        const factsChips = facts.map((f) => `<span class="yr-spec-chip">${f}</span>`).join('');
+
+        const cb = computeCostBreakdown(car);
+
+        const partialTag = cb.annualPartial
+            ? `<div><span class="yr-cost-partial-tag">אומדן חלקי — מבוסס על רכיבים זמינים בלבד</span></div>`
+            : '';
+        const residualWarn = cb.residualSuspicious
+            ? `<div class="yr-risk-note yr-risk-note--warning" style="margin-top:14px"><div>נתוני העלות אינם עקביים: רכיב הפחת/שונות יצא שלילי. ${escapeHtml(ADVISOR_NEEDS_CHECK)}.</div></div>`
+            : '';
+
+        let costBody;
+        if (cb.segments.length) {
+            const bar = `<div class="yr-cost-segment-bar">${cb.segments.map((s) => `<div class="yr-cost-segment-bar__seg" style="width:${s.pct}%;background:${s.color}"></div>`).join('')}</div>`;
+            const segRows = cb.segments.map((s) => `
+                <div class="yr-cost-segment-row">
+                    <span class="yr-cost-segment-row__swatch" style="background:${s.color}"></span>
+                    <span class="yr-cost-segment-row__label">${escapeHtml(s.label)}</span>
+                    <span class="yr-cost-segment-row__pct">${s.pct}%</span>
+                    <span class="yr-cost-segment-row__amt">${escapeHtml(formatCurrency(s.amount))}</span>
+                </div>`).join('');
+            const totalRow = `
+                <div class="yr-cost-segment-row">
+                    <span class="yr-cost-segment-row__swatch" style="background:transparent"></span>
+                    <span class="yr-cost-segment-row__label" style="font-weight:700">סך עלות שנתית${cb.annualPartial ? ' (חלקי)' : ''}</span>
+                    <span class="yr-cost-segment-row__pct"></span>
+                    <span class="yr-cost-segment-row__amt">${escapeHtml(formatCurrency(cb.annualTotal))}</span>
+                </div>`;
+            costBody = bar + segRows + totalRow;
+        } else {
+            costBody = `<div class="yr-disclaimer yr-disclaimer--neutral">פירוט רכיבי העלות אינו זמין עבור דגם זה (${escapeHtml(ADVISOR_MISSING)}).</div>`;
+        }
+
+        const costPanel = `
+            <div class="yr-cost-panel">
+                <div class="yr-cost-panel__head">
+                    <div>
+                        <div class="yr-cost-panel__caption">עלות בעלות חודשית משוערת</div>
+                        <div>
+                            <span class="yr-cost-total">${escapeHtml(cb.monthly !== null ? formatCurrency(cb.monthly) : ADVISOR_MISSING)}</span>
+                            <span class="yr-cost-total__unit">/ חודש</span>
+                        </div>
+                        ${partialTag}
+                    </div>
+                    <div class="yr-cost-panel__aside">
+                        <div class="yr-cost-panel__aside-label">אומדן שנתי${cb.annualPartial ? ' (חלקי)' : ''}</div>
+                        <div class="yr-cost-panel__aside-val">${escapeHtml(cb.annualTotal !== null ? formatCurrency(cb.annualTotal) : ADVISOR_MISSING)}</div>
+                        <div class="yr-cost-panel__aside-label" style="margin-top:8px">אומדן ל-3 שנים${cb.threeYearPartial ? ' (חלקי)' : ''}</div>
+                        <div class="yr-cost-panel__aside-val">${escapeHtml(cb.threeYear !== null ? formatCurrency(cb.threeYear) : ADVISOR_MISSING)}</div>
+                    </div>
+                </div>
+                ${costBody}
+                ${residualWarn}
+            </div>`;
+
+        const riskPanel = `
+            <div class="yr-cost-panel">
+                <h3 class="yr-section-header" style="margin-bottom:14px">הערות סיכון ובדיקות נאותות</h3>
+                ${renderRiskNotes(car)}
+            </div>`;
+
+        const canCompare = (latestAdvisorCars || []).length >= 2;
+        const html = `
+            <section class="yr-details-view yr-rise">
+                <div class="yr-flow-header">
+                    <button type="button" class="yr-flow-back" aria-label="חזרה להמלצות">${BACK_CHEVRON_SVG}</button>
+                    <div style="display:flex;align-items:center;gap:14px">
+                        ${gauge ? '<div class="yr-score-gauge">' + gauge + '</div>' : ''}
+                        <div>
+                            <h2 class="yr-flow-title">${title}${year ? ' · ' + year : ''}</h2>
+                            <p class="yr-flow-subtitle">עלויות בעלות, סיכונים ובדיקות נאותות · התאמת העדפות בלבד</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="yr-chrome-card" style="padding:16px 18px;border-radius:16px;margin-bottom:18px">
+                    <div style="font-size:12px;font-weight:600;color:var(--yr-muted);margin-bottom:8px">נתוני מפתח</div>
+                    <div class="yr-spec-chips">${factsChips}</div>
+                </div>
+
+                <div class="yr-details-grid">
+                    ${costPanel}
+                    ${riskPanel}
+                </div>
+
+                ${buildMethodologyHtml(car)}
+
+                <div class="yr-flow-footer">
+                    ${canCompare ? '<button type="button" class="yr-btn--chrome yr-details-compare-btn">השווה לדגמים אחרים</button>' : ''}
+                    <button type="button" class="yr-btn yr-flow-back">חזרה להמלצות</button>
+                </div>
+            </section>`;
+
+        showFlowView(html);
+    }
+
+    function openDetailsView(carIndex) {
+        const cars = latestAdvisorCars || [];
+        const car = cars[carIndex];
+        if (!car) return;
+        renderDetailsView(car);
+        setAdvisorStep('details');
+        trackAnalytics('advisor_details_opened', {
+            flow_type: 'advisor',
+            advisor_history_id: currentHistoryId,
+            car_index: carIndex
+        });
+    }
+
+    // Event delegation for the internal flow actions.
+    if (tableWrapper) {
+        tableWrapper.addEventListener('click', function (e) {
+            const compareBtn = e.target.closest('.yr-compare-cta');
+            if (compareBtn) { if (!compareBtn.disabled) openCompareView(); return; }
+            const prefsBtn = e.target.closest('.yr-back-to-prefs');
+            if (prefsBtn) { goBackToPreferences(); return; }
+            const detailsBtn = e.target.closest('.yr-card-details-btn');
+            if (detailsBtn) { openDetailsView(parseInt(detailsBtn.getAttribute('data-car-index'), 10)); return; }
+        });
+    }
+    if (flowView) {
+        flowView.addEventListener('click', function (e) {
+            const detailsBtn = e.target.closest('.yr-compare-details-btn');
+            if (detailsBtn) { openDetailsView(parseInt(detailsBtn.getAttribute('data-car-index'), 10)); return; }
+            const compareBtn = e.target.closest('.yr-details-compare-btn');
+            if (compareBtn) { openCompareView(); return; }
+            const backBtn = e.target.closest('.yr-flow-back');
+            if (backBtn) { backToResultsFromFlow(); return; }
         });
     }
 
