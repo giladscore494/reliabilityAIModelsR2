@@ -11,3 +11,5 @@ services:
     envVars:
       - key: FLASK_APP
         value: main:create_app
+      - key: LEGAL_IP_HASH_SALT
+        generateValue: true

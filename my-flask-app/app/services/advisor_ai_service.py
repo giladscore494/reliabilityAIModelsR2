@@ -3,6 +3,7 @@
 
 import json
 import logging
+import os
 import time as pytime
 
 from google.genai import types as genai_types
@@ -10,7 +11,8 @@ from google.genai import types as genai_types
 import app.extensions as extensions
 from app.config import AI_CALL_TIMEOUT_SEC
 from app.extensions import GEMINI_RECOMMENDER_MODEL_ID
-from app.services.reliability_model_service import _execute_with_timeout, extract_grounding_meta
+from app.services.reliability_model_service import _execute_with_timeout
+from app.services.gemini_grounding_client import call_grounded_model, GROUNDING_FAILED_CODE
 from app.utils.prompt_defense import (
     create_data_only_instruction,
     escape_prompt_input,
@@ -211,36 +213,22 @@ IMPORTANT MARKET REALITY:
 Return ONLY raw JSON. Do not add any backticks or explanation text.
 """
 
-        search_tool = genai_types.Tool(
-            google_search=genai_types.GoogleSearch()
+        result = call_grounded_model(
+            GEMINI_RECOMMENDER_MODEL_ID,
+            prompt,
+            timeout_sec=AI_CALL_TIMEOUT_SEC,
         )
-
-        config = genai_types.GenerateContentConfig(
-            temperature=0.3,
-            top_p=0.9,
-            top_k=40,
-            tools=[search_tool],
-            response_mime_type="application/json",
-        )
-
-        def _invoke():
-            return extensions.advisor_client.models.generate_content(
-                model=GEMINI_RECOMMENDER_MODEL_ID,
-                contents=prompt,
-                config=config,
-            )
-        resp, err = _execute_with_timeout(_invoke, AI_CALL_TIMEOUT_SEC)
+        err = result.get("error_code")
         if err == "EXECUTOR_SATURATED":
             return {"_error": "SERVER_BUSY"}
         if err == "CALL_TIMEOUT":
             return {"_error": "CALL_TIMEOUT"}
-        if isinstance(err, Exception):
-            return {"_error": f"Gemini Car Advisor call failed: {err}"}
-        if resp is None:
-            return {"_error": "Gemini Car Advisor call failed: EMPTY"}
-        grounding_meta = extract_grounding_meta(resp)
-        text = getattr(resp, "text", "") or ""
-        text = text.strip()
+        if err:
+            return {"_error": err}
+        grounding_meta = result.get("grounding_meta") or {}
+        if not grounding_meta.get("grounding_successful") and os.environ.get("ALLOW_UNGROUNDED_FALLBACK", "").lower() != "true":
+            return {"_error": GROUNDING_FAILED_CODE}
+        text = (result.get("text") or "").strip()
         try:
             result = json.loads(text)
         except json.JSONDecodeError:

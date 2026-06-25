@@ -30,6 +30,7 @@ def register_blueprints(app: "Flask") -> None:
     from app.routes.feedback_routes import bp as feedback_bp
     from app.routes.owner_routes import bp as owner_bp
     from app.routes.owner_profile_routes import owner_profile_bp
+    from app.routes.admin_routes import bp as admin_bp
 
     app.register_blueprint(public_bp)
     app.register_blueprint(analyze_bp)
@@ -41,3 +42,4 @@ def register_blueprints(app: "Flask") -> None:
     app.register_blueprint(feedback_bp)
     app.register_blueprint(owner_bp)
     app.register_blueprint(owner_profile_bp)
+    app.register_blueprint(admin_bp)
