@@ -115,17 +115,65 @@ def call_model_with_retry(prompt: str) -> dict:
     raise RuntimeError(error_msg)
 
 
+def _strip_code_fences(text: str) -> str:
+    stripped = (text or "").strip()
+    if stripped.startswith("```"):
+        stripped = _re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", stripped, count=1)
+        stripped = _re.sub(r"\s*```$", "", stripped, count=1)
+    return stripped.strip()
+
+
+def _extract_first_json_object(text: str) -> Optional[str]:
+    raw = text or ""
+    start = raw.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    in_str = False
+    escaped = False
+    for idx in range(start, len(raw)):
+        ch = raw[idx]
+        if in_str:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return raw[start : idx + 1]
+    return None
+
+
 def parse_model_json(raw: str) -> Tuple[Optional[dict], Optional[str]]:
     if not raw:
         return None, "EMPTY_RESPONSE"
-    try:
-        return json.loads(raw), None
-    except Exception:
+    cleaned = _strip_code_fences(raw)
+    candidate = _extract_first_json_object(cleaned)
+    for text in (candidate, cleaned):
+        if not text:
+            continue
         try:
-            repaired = repair_json(raw)
-            return json.loads(repaired), None
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                return parsed, None
         except Exception:
-            return None, "MODEL_JSON_INVALID"
+            pass
+        try:
+            repaired = repair_json(text)
+            parsed = json.loads(repaired)
+            if isinstance(parsed, dict):
+                return parsed, None
+        except Exception:
+            pass
+    return None, "MODEL_JSON_INVALID"
 
 
 def _execute_with_timeout(fn, timeout_sec: int):
@@ -175,6 +223,52 @@ def extract_grounding_meta(resp) -> dict:
     return meta
 
 
+def _json_format_repair(raw_text: str, model_id: str, timeout_sec: int = 30) -> Tuple[Optional[dict], Optional[str]]:
+    """Non-grounded JSON formatter/repair call.
+
+    Uses response_mime_type="application/json" and only the facts already
+    present in *raw_text*. Never adds new facts or performs web search.
+    """
+    if extensions.ai_client is None:
+        return None, "CLIENT_NOT_INITIALIZED"
+    truncated = (raw_text or "")[:8000]
+    repair_prompt = (
+        "Convert the following model response into valid JSON.\n"
+        "Use ONLY facts present in the text. Do not add new facts or search the web.\n"
+        "The response must be a single JSON object starting with '{' and ending with '}'.\n"
+        "No markdown, no code fences, no explanation.\n\n"
+        f"MODEL RESPONSE:\n{truncated}"
+    )
+    config_kwargs = {
+        "temperature": 0.0,
+        "max_output_tokens": 4096,
+        "tools": [],
+        "response_mime_type": "application/json",
+    }
+    try:
+        config = genai_types.GenerateContentConfig(**config_kwargs)
+    except TypeError:
+        config_kwargs.pop("response_mime_type", None)
+        config = genai_types.GenerateContentConfig(**config_kwargs)
+
+    def _invoke():
+        return extensions.ai_client.models.generate_content(
+            model=model_id,
+            contents=repair_prompt,
+            config=config,
+        )
+    resp, err = _execute_with_timeout(_invoke, timeout_sec)
+    if err:
+        code = "CALL_TIMEOUT" if err == "CALL_TIMEOUT" else (
+            "SERVER_BUSY" if err == "EXECUTOR_SATURATED" else f"REPAIR_FAILED:{err}"
+        )
+        return None, code
+    if resp is None:
+        return None, "REPAIR_EMPTY"
+    text = (getattr(resp, "text", "") or "").strip()
+    return parse_model_json(text)
+
+
 def call_gemini_grounded_once(prompt: str) -> Tuple[Optional[dict], Optional[str]]:
     """Single grounded reliability call.
 
@@ -185,6 +279,7 @@ def call_gemini_grounded_once(prompt: str) -> Tuple[Optional[dict], Optional[str
     """
     start_time = pytime.perf_counter()
     grounding_meta = {"grounding_successful": False, "source_count": 0, "search_queries": []}
+    repair_used = False
     try:
         if extensions.ai_client is None:
             return None, "CLIENT_NOT_INITIALIZED"
@@ -212,17 +307,22 @@ def call_gemini_grounded_once(prompt: str) -> Tuple[Optional[dict], Optional[str
             return None, "CALL_FAILED:EMPTY"
         grounding_meta = extract_grounding_meta(resp)
         text = (getattr(resp, "text", "") or "").strip()
-        parsed, err = parse_model_json(text)
+        parsed, parse_err = parse_model_json(text)
+        if parse_err and text:
+            logger.info("[AI] reliability JSON parse failed, attempting format repair")
+            repair_used = True
+            parsed, parse_err = _json_format_repair(text, GEMINI_RELIABILITY_MODEL_ID)
         if isinstance(parsed, dict):
             parsed["_grounding_meta"] = grounding_meta
-        return parsed, err
+        return parsed, parse_err
     finally:
         duration_ms = (pytime.perf_counter() - start_time) * 1000
         logger.info(
-            "[AI] feature=reliability model=%s duration_ms=%.2f tools_enabled=%s grounding_successful=%s source_count=%s",
+            "[AI] feature=reliability model=%s duration_ms=%.2f tools_enabled=%s grounding_successful=%s source_count=%s repair_used=%s",
             GEMINI_RELIABILITY_MODEL_ID,
             duration_ms,
             True,
             grounding_meta.get("grounding_successful"),
             grounding_meta.get("source_count"),
+            repair_used,
         )
