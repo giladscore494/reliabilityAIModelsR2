@@ -52,6 +52,8 @@ def index():
     )
 
 
+# TODO: car_models_data (~2.6 MB) is embedded in HTML. Move to a cacheable
+# /api/vehicle-catalog endpoint and fetch lazily from JS to cut page weight.
 @bp.route('/app')
 def app_page():
     reliability_results_acknowledged = False
@@ -76,35 +78,50 @@ def app_page():
 def login():
     for key in [k for k in session.keys() if k.startswith("google_oauth")]:
         session.pop(key, None)
-    session.pop("authlib_oidc_nonce", None)
     redirect_uri = get_redirect_uri()
     return oauth.google.authorize_redirect(redirect_uri)
 
 
 @bp.route('/auth')
 def auth():
+    request_id = get_request_id()
     try:
-        oauth.google.authorize_access_token()
-        userinfo = oauth.google.get('userinfo').json()
-        user = User.query.filter_by(google_id=userinfo['id']).first()
+        token = oauth.google.authorize_access_token()
+        resp = oauth.google.get("userinfo", token=token)
+        if not resp.ok:
+            current_app.logger.error(
+                "[AUTH] userinfo failed request_id=%s status=%s body=%s",
+                request_id, resp.status_code, resp.text[:200],
+            )
+            flash("שגיאת התחברות, נסה שוב מאוחר יותר.", "error")
+            return redirect(url_for('public.index'))
+        userinfo = resp.json()
+        google_id = userinfo.get("id") or userinfo.get("sub")
+        email = userinfo.get("email", "")
+        if not google_id or not email:
+            current_app.logger.error(
+                "[AUTH] missing google_id or email request_id=%s", request_id,
+            )
+            flash("שגיאת התחברות, נסה שוב מאוחר יותר.", "error")
+            return redirect(url_for('public.index'))
+        user = User.query.filter_by(google_id=google_id).first()
         is_new_user = False
         if not user:
             is_new_user = True
             user = User(
-                google_id=userinfo['id'],
-                email=userinfo.get('email', ''),
-                name=userinfo.get('name', '')
+                google_id=google_id,
+                email=email,
+                name=userinfo.get('name', ''),
             )
             db.session.add(user)
             db.session.commit()
-        # SECURITY: Regenerate session to prevent session fixation attacks
         session.clear()
         login_user(user)
         if is_new_user:
             track_event(
                 str(user.id),
                 "signup_completed",
-                {"request_id": get_request_id()},
+                {"request_id": request_id},
             )
         return redirect(url_for('public.app_page'))
     except MismatchingStateError:
