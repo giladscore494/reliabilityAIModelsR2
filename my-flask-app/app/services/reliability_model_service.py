@@ -20,6 +20,7 @@ except Exception:
 import app.extensions as extensions
 from app.config import AI_CALL_TIMEOUT_SEC, AI_EXECUTOR, AI_EXECUTOR_WORKERS
 from app.extensions import GEMINI_RELIABILITY_MODEL_ID
+from app.services.gemini_grounding_client import call_grounded_model, GROUNDING_FAILED_CODE
 
 logger = logging.getLogger(__name__)
 
@@ -270,43 +271,21 @@ def _json_format_repair(raw_text: str, model_id: str, timeout_sec: int = 30) -> 
 
 
 def call_gemini_grounded_once(prompt: str) -> Tuple[Optional[dict], Optional[str]]:
-    """Single grounded reliability call.
-
-    Google Search grounding is mandatory. The grounding tool and a forced JSON
-    mime type are mutually exclusive in the Gemini API, so we enable the tool
-    and parse JSON defensively from text. Real grounding signals are attached
-    to the parsed payload under ``_grounding_meta`` for honest research_status.
-    """
+    """Single grounded reliability call via Gemini Interactions Google Search."""
     start_time = pytime.perf_counter()
-    grounding_meta = {"grounding_successful": False, "source_count": 0, "search_queries": []}
+    grounding_meta = {"grounding_successful": False, "source_count": 0, "search_queries": [], "sources": []}
     repair_used = False
     try:
         if extensions.ai_client is None:
             return None, "CLIENT_NOT_INITIALIZED"
-        search_tool = genai_types.Tool(google_search=genai_types.GoogleSearch())
-        config = genai_types.GenerateContentConfig(
-            temperature=0.3,
-            top_p=0.9,
-            top_k=40,
-            tools=[search_tool],
-        )
-        def _invoke():
-            return extensions.ai_client.models.generate_content(
-                model=GEMINI_RELIABILITY_MODEL_ID,
-                contents=prompt,
-                config=config,
-            )
-        resp, err = _execute_with_timeout(_invoke, AI_CALL_TIMEOUT_SEC)
-        if err == "EXECUTOR_SATURATED":
-            return None, "SERVER_BUSY"
-        if err == "CALL_TIMEOUT":
-            return None, "CALL_TIMEOUT"
-        if isinstance(err, Exception):
-            return None, f"CALL_FAILED:{type(err).__name__}"
-        if resp is None:
-            return None, "CALL_FAILED:EMPTY"
-        grounding_meta = extract_grounding_meta(resp)
-        text = (getattr(resp, "text", "") or "").strip()
+        result = call_grounded_model(GEMINI_RELIABILITY_MODEL_ID, prompt, timeout_sec=AI_CALL_TIMEOUT_SEC)
+        grounding_meta = result.get("grounding_meta") or grounding_meta
+        err = result.get("error_code")
+        if err:
+            return None, err
+        if not grounding_meta.get("grounding_successful") and os.environ.get("ALLOW_UNGROUNDED_FALLBACK", "").lower() != "true":
+            return None, GROUNDING_FAILED_CODE
+        text = (result.get("text") or "").strip()
         parsed, parse_err = parse_model_json(text)
         if parse_err and text:
             logger.info("[AI] reliability JSON parse failed, attempting format repair")
