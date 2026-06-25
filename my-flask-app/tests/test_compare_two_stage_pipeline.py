@@ -1052,8 +1052,8 @@ def test_stage_a_config_is_bounded_and_grounding_enabled(app, monkeypatch):
     # Google Search grounding tool must be present.
     tools = getattr(cfg, "tools", None) or []
     assert any(getattr(t, "google_search", None) is not None for t in tools)
-    # JSON mime type must NOT be combined with grounding tools.
-    assert getattr(cfg, "response_mime_type", None) in (None, "")
+    # JSON mime type may be combined with grounding tools when SDK allows it.
+    assert getattr(cfg, "response_mime_type", None) in (None, "", "application/json")
     assert "3.1-pro" in captured["model"].lower()
 
 

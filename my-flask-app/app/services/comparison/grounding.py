@@ -328,16 +328,24 @@ def _call_gemini_single_car_raw(
                 "finish_reason": None,
             }
 
-        # Google Search grounding is mandatory for Stage A evidence. The
-        # grounding tool and a forced JSON mime type are mutually exclusive in
-        # the Gemini API, so we enable the tool and parse JSON from text.
-        config = genai_types.GenerateContentConfig(
-            temperature=COMPARE_STAGE_A_TEMPERATURE,
-            top_p=0.8,
-            top_k=20,
-            max_output_tokens=COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
-            tools=[_google_search_tool()],
-        )
+        # Google Search grounding is mandatory for Stage A evidence. Try
+        # tools + response_mime_type="application/json" first; if the SDK
+        # rejects the combination, fall back to tools-only and parse from text.
+        json_mime_used = False
+        config_kwargs = {
+            "temperature": COMPARE_STAGE_A_TEMPERATURE,
+            "top_p": 0.8,
+            "top_k": 20,
+            "max_output_tokens": COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
+            "tools": [_google_search_tool()],
+            "response_mime_type": "application/json",
+        }
+        try:
+            config = genai_types.GenerateContentConfig(**config_kwargs)
+            json_mime_used = True
+        except (TypeError, ValueError):
+            config_kwargs.pop("response_mime_type", None)
+            config = genai_types.GenerateContentConfig(**config_kwargs)
 
         # Direct SDK call — no nested executor submission. This function
         # is already running inside the Stage A parallel worker thread.
@@ -469,7 +477,7 @@ def _call_gemini_single_car_raw(
     finally:
         duration_ms = (pytime.perf_counter() - start_time) * 1000
         worker_logger.info(
-            "[AI] feature=comparison_stage_a_per_car model=%s car=%s duration_ms=%.2f prompt_chars=%s prompt_tokens_est=%s max_output_tokens=%s timeout_ms=%s tools_enabled=%s grounding_successful=%s source_count=%s outcome=%s reason=%s",
+            "[AI] feature=comparison_stage_a_per_car model=%s car=%s duration_ms=%.2f prompt_chars=%s prompt_tokens_est=%s max_output_tokens=%s timeout_ms=%s tools_enabled=%s json_mime=%s grounding_successful=%s source_count=%s outcome=%s reason=%s",
             model_used,
             car_label,
             duration_ms,
@@ -478,6 +486,7 @@ def _call_gemini_single_car_raw(
             COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
             int(timeout_sec * 1000),
             True,
+            json_mime_used,
             grounding_meta.get("grounding_successful"),
             grounding_meta.get("source_count"),
             outcome,

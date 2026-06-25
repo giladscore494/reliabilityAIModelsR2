@@ -10,7 +10,7 @@ from google.genai import types as genai_types
 import app.extensions as extensions
 from app.config import AI_CALL_TIMEOUT_SEC
 from app.extensions import GEMINI_RECOMMENDER_MODEL_ID
-from app.services.reliability_model_service import _execute_with_timeout
+from app.services.reliability_model_service import _execute_with_timeout, extract_grounding_meta
 from app.utils.prompt_defense import (
     create_data_only_instruction,
     escape_prompt_input,
@@ -238,13 +238,22 @@ Return ONLY raw JSON. Do not add any backticks or explanation text.
             return {"_error": f"Gemini Car Advisor call failed: {err}"}
         if resp is None:
             return {"_error": "Gemini Car Advisor call failed: EMPTY"}
+        grounding_meta = extract_grounding_meta(resp)
         text = getattr(resp, "text", "") or ""
         text = text.strip()
         try:
-            return json.loads(text)
+            result = json.loads(text)
         except json.JSONDecodeError:
             logger.warning("[AI] Car Advisor JSON decode error, raw length=%d", len(text) if text else 0)
             return {"_error": "JSON decode error from Gemini Car Advisor"}
+        if isinstance(result, dict):
+            result["_grounding_meta"] = grounding_meta
+            model_claimed = result.get("search_performed")
+            if model_claimed and not grounding_meta.get("grounding_successful"):
+                logger.warning(
+                    "[AI] advisor model claims search_performed=true but no real grounding metadata found"
+                )
+        return result
     finally:
         duration_ms = (pytime.perf_counter() - start_time) * 1000
         logger.info(
@@ -261,11 +270,17 @@ def car_advisor_postprocess(profile: dict, parsed: dict) -> dict:
     """
     recommended = parsed.get("recommended_cars") or []
     if not isinstance(recommended, list) or not recommended:
-        return {
+        early = {
             "search_performed": parsed.get("search_performed", False),
             "search_queries": parsed.get("search_queries", []),
             "recommended_cars": [],
         }
+        grounding_meta = parsed.get("_grounding_meta")
+        if isinstance(grounding_meta, dict):
+            early["_grounding_meta"] = grounding_meta
+            if not grounding_meta.get("grounding_successful"):
+                early["grounding_confidence"] = "unverified"
+        return early
 
     annual_km = profile.get("annual_km", 15000)
     fuel_price = profile.get("fuel_price_nis_per_liter", 7.0)
@@ -339,8 +354,14 @@ def car_advisor_postprocess(profile: dict, parsed: dict) -> dict:
 
         processed.append(car)
 
-    return {
+    grounding_meta = parsed.get("_grounding_meta")
+    result = {
         "search_performed": parsed.get("search_performed", False),
         "search_queries": parsed.get("search_queries", []),
         "recommended_cars": processed,
     }
+    if isinstance(grounding_meta, dict):
+        result["_grounding_meta"] = grounding_meta
+        if not grounding_meta.get("grounding_successful"):
+            result["grounding_confidence"] = "unverified"
+    return result

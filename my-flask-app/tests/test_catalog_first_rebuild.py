@@ -313,7 +313,7 @@ def test_stage_a_uses_pro_and_search(app, monkeypatch):
     assert err is None
     assert "3.1-pro" in fake.models.last_model.lower()
     assert _config_has_search_tool(fake.models.last_config)
-    assert getattr(fake.models.last_config, "response_mime_type", None) in (None, "")
+    assert getattr(fake.models.last_config, "response_mime_type", None) in (None, "", "application/json")
     assert parsed["_grounding_meta"]["grounding_successful"] is True
 
 
