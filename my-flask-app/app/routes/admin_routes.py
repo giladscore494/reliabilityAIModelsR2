@@ -2,8 +2,10 @@
 """Admin-only operational health endpoints."""
 
 import hashlib
+import logging
 import os
 import sys
+import time
 import uuid
 
 from flask import Blueprint
@@ -28,11 +30,18 @@ from app.services.gemini_grounding_client import (
     call_grounded_model,
     call_plain_model,
 )
+from app.services.gemini_health_verdict import (
+    classify_gemini_health,
+    log_health_verdict,
+    set_last_health_root_cause,
+)
 from app.utils.auth_helpers import owner_required
 from app.utils.http_helpers import api_ok
 import app.extensions as extensions
 from google import genai as genai3
 from google.genai import types as genai_types
+
+logger = logging.getLogger(__name__)
 
 bp = Blueprint("admin", __name__)
 
@@ -75,8 +84,19 @@ def _sdk_info() -> dict:
     }
 
 
-def _run_check(fn, label: str) -> dict:
-    """Run a single health check callable; return safe check result dict."""
+def _run_check(fn, label: str, *, api_method: str, endpoint_family: str, tools: list, diagnostic_only: bool = False) -> dict:
+    """Run a single health check callable; return safe check result dict.
+
+    Records the method/endpoint/tools used and the call duration so the matrix
+    is self-describing. Never includes secrets.
+    """
+    meta = {
+        "method_name": api_method,
+        "endpoint_family": endpoint_family,
+        "tools": tools,
+        "diagnostic_only": diagnostic_only,
+    }
+    start = time.perf_counter()
     try:
         result = fn()
         err = result.get("error_code") if isinstance(result, dict) else "EMPTY_RESULT"
@@ -84,6 +104,7 @@ def _run_check(fn, label: str) -> dict:
         ok = not err and bool(text.strip())
         details = result.get("error_details") if isinstance(result, dict) else None
         check: dict = {"ok": ok}
+        check.update(meta)
         if not ok:
             status_code = None
             if isinstance(details, dict):
@@ -98,15 +119,19 @@ def _run_check(fn, label: str) -> dict:
             check["status_code"] = None
             check["error_type"] = None
             check["error_summary"] = None
+        check["duration_ms"] = int((time.perf_counter() - start) * 1000)
         return check
     except Exception as exc:
-        details = _safe_gemini_error_details(exc)
-        return {
+        _safe_gemini_error_details(exc)
+        check = {
             "ok": False,
             "status_code": None,
             "error_type": type(exc).__name__,
             "error_summary": str(exc)[:200],
+            "duration_ms": int((time.perf_counter() - start) * 1000),
         }
+        check.update(meta)
+        return check
 
 
 def _run_generate_content_grounded_legacy(model_id: str, prompt: str) -> dict:
@@ -219,12 +244,18 @@ def gemini_health():
             request_id=f"{req_id}-a",
         ),
         "generate_content_plain",
+        api_method="generate_content_plain",
+        endpoint_family="models.generateContent",
+        tools=[],
     )
 
     # Check B: interactions plain
     check_int_plain = _run_check(
         lambda: _run_interactions_plain(model_id, _HEALTH_CHECK_PROMPT_PLAIN),
         "interactions_plain",
+        api_method="interactions_plain",
+        endpoint_family="interactions",
+        tools=[],
     )
 
     # Check C: interactions grounded
@@ -237,12 +268,19 @@ def gemini_health():
             request_id=f"{req_id}-c",
         ),
         "interactions_grounded",
+        api_method="interactions_grounded",
+        endpoint_family="interactions",
+        tools=["google_search"],
     )
 
     # Check D: legacy generateContent grounded (diagnostic_only, not product path)
     check_gc_grounded_legacy = _run_check(
         lambda: _run_generate_content_grounded_legacy(model_id, _HEALTH_CHECK_PROMPT_GROUNDED),
         "generate_content_grounded_legacy",
+        api_method="generate_content_grounded_legacy",
+        endpoint_family="models.generateContent",
+        tools=["google_search"],
+        diagnostic_only=True,
     )
 
     checks = {
@@ -255,10 +293,20 @@ def gemini_health():
     overall_ok = all(c.get("ok") for c in checks.values())
     diagnosis = _determine_diagnosis(checks)
 
+    key_info = _key_info_safe()
+    verdict = classify_gemini_health(checks, key_info)
+    set_last_health_root_cause(verdict.get("root_cause_class"))
+    log_health_verdict(
+        request_id=req_id,
+        verdict=verdict,
+        key_info=key_info,
+        checks=checks,
+    )
+
     return api_ok(
         {
             "ok": overall_ok,
-            "key": _key_info_safe(),
+            "key": key_info,
             "sdk": _sdk_info(),
             "models": {
                 "reliability": GEMINI_RELIABILITY_MODEL_ID,
@@ -270,6 +318,7 @@ def gemini_health():
                 "low_cost_model": comparison_low_cost_model_id(),
             },
             "checks": checks,
+            "verdict": verdict,
             "diagnosis": diagnosis,
             "ops_note": (
                 "Check Render env vars for GOOGLE_API_KEY and GEMINI_API_KEY. "
