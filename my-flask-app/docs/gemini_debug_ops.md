@@ -31,7 +31,7 @@ HTTP 403 Forbidden or other errors.
 
 Set `GEMINI_DEBUG_VERBOSE=true` in Render environment variables to include:
 
-- Full response body preview (up to 1 200 chars) in logs.
+- Full response body preview (up to 1200 chars) in logs.
 - Safe response headers (non-sensitive only) in error details.
 - Detailed error summaries in `/api/admin/gemini-health` output.
 

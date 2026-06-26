@@ -46,9 +46,11 @@ def _key_info_safe() -> dict:
     google_key = os.environ.get("GOOGLE_API_KEY") or ""
     if gemini_key:
         source = "GEMINI_API_KEY"
+        # SHA256 used as a non-reversible diagnostic fingerprint only — not for password storage.
         fingerprint = "sha256:" + hashlib.sha256(gemini_key.encode()).hexdigest()[:16]
     elif google_key:
         source = "GOOGLE_API_KEY"
+        # SHA256 used as a non-reversible diagnostic fingerprint only — not for password storage.
         fingerprint = "sha256:" + hashlib.sha256(google_key.encode()).hexdigest()[:16]
     else:
         source = "none"

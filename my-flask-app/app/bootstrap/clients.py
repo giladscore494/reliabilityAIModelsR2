@@ -33,7 +33,13 @@ _DEFAULT_LOGGER = logging.getLogger("app.bootstrap.clients")
 
 
 def _key_fingerprint(key: str) -> str:
-    """Return sha256 hex prefix of *key* — never the raw key."""
+    """Return sha256 hex prefix of *key* — never the raw key.
+
+    SHA256 is used here solely as a short diagnostic fingerprint to identify
+    which key is active without ever logging the key itself.  This is not
+    password storage — the hash is intentionally non-reversible and the raw
+    key is never persisted.
+    """
     if not key:
         return "none"
     digest = hashlib.sha256(key.encode()).hexdigest()

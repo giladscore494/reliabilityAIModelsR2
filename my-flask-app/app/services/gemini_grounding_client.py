@@ -61,7 +61,7 @@ _SAFE_RESPONSE_HEADERS = frozenset(
 )
 
 # Controls verbose debug output; never logs secrets even when true.
-_VERBOSE = os.environ.get("GEMINI_DEBUG_VERBOSE", "false").strip().lower() == "true"
+# Note: _VERBOSE is not used directly; _is_verbose() re-reads at call time to support tests.
 
 
 def _is_verbose() -> bool:
@@ -144,6 +144,7 @@ def _safe_gemini_error_details(err: Any) -> Dict[str, Any]:
 
 
 # Backward-compat alias — existing callers that use _safe_error_details continue to work.
+# Deprecated: prefer _safe_gemini_error_details in new code.
 _safe_error_details = _safe_gemini_error_details
 
 
@@ -161,6 +162,7 @@ def _gemini_key_info() -> Dict[str, Any]:
         source = "none"
         key = ""
     if key:
+        # SHA256 used as a non-reversible diagnostic fingerprint only — not for password storage.
         fingerprint = "sha256:" + hashlib.sha256(key.encode()).hexdigest()[:16]
     else:
         fingerprint = "none"
