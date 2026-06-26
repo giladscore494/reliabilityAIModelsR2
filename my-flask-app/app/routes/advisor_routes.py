@@ -20,10 +20,12 @@ from app.quota import (
     get_client_ip,
     log_access_decision,
 )
-from app.utils.http_helpers import _utcnow, api_error, is_owner_user
+from app.utils.http_helpers import _utcnow, api_error, get_request_id, is_owner_user
 from app.utils.validation import ValidationError, validate_analyze_request
 from app.models import AdvisorHistory
 from app.services import advisor_service
+from app.services.gemini_health_verdict import log_product_call_verdict_input
+from app.extensions import GEMINI_RECOMMENDER_MODEL_ID
 
 bp = Blueprint('advisor', __name__)
 
@@ -163,4 +165,12 @@ def advisor_api():
         )
         return api_error("validation_error", e.message, status=400, details={"field": e.field})
 
+    log_product_call_verdict_input(
+        request_id=get_request_id(),
+        feature="recommendations",
+        model=GEMINI_RECOMMENDER_MODEL_ID,
+        api_method="interactions_grounded",
+        endpoint_family="interactions",
+        tools=["google_search"],
+    )
     return advisor_service.handle_advisor_logic(validated, current_user, user_id)

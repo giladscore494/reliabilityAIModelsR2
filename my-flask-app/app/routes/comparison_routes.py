@@ -30,6 +30,8 @@ from app.legal import (
 from app.models import LegalAcceptance, QuotaReservation
 from app.utils.http_helpers import api_error, api_ok, is_owner_user, get_request_id, _utcnow
 from app.services import comparison_service
+from app.services.gemini_health_verdict import log_product_call_verdict_input
+from app.services.comparison.model_config import comparison_stage_a_model_id
 from app.utils.analytics import track_event
 
 bp = Blueprint('comparison', __name__)
@@ -191,6 +193,14 @@ def compare_api():
 
     # Process comparison
     try:
+        log_product_call_verdict_input(
+            request_id=request_id,
+            feature="compare",
+            model=comparison_stage_a_model_id(),
+            api_method="interactions_grounded",
+            endpoint_family="interactions",
+            tools=["google_search"],
+        )
         resp = comparison_service.handle_comparison_request(data, user_id, session_id, owner_bypass=owner_bypass)
         current_app.logger.info("[QUOTA] method=POST path=/api/compare uid=%s cache_hit=%s quota_bypass_reason=%s limit=%s request_id=%s status=%s", user_id, False, "owner/admin" if owner_bypass else "none", daily_limit, request_id, resp.status_code)
         if reservation_id and not idempotent_retry:

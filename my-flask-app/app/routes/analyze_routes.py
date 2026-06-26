@@ -12,8 +12,10 @@ from flask_login import login_required, current_user
 from app.extensions import db
 from app.models import SearchHistory
 from app.quota import check_and_increment_ip_rate_limit, get_client_ip, log_access_decision, PER_IP_PER_MIN_LIMIT
-from app.utils.http_helpers import api_error, api_ok, is_owner_user, _utcnow
+from app.utils.http_helpers import api_error, api_ok, get_request_id, is_owner_user, _utcnow
 from app.services import analyze_service
+from app.services.gemini_health_verdict import log_product_call_verdict_input
+from app.extensions import GEMINI_RELIABILITY_MODEL_ID
 from app.factory import QUOTA_RESERVATION_TTL_SECONDS
 
 bp = Blueprint('analyze', __name__)
@@ -78,6 +80,14 @@ def analyze_car():
         return api_error("validation_error", "שגיאת קלט (שלב 0): בקשת JSON לא תקינה.", status=400, details={"field": "payload"})
 
     bypass_owner = owner_bypass_quota and is_owner_user()
+    log_product_call_verdict_input(
+        request_id=get_request_id(),
+        feature="analyze",
+        model=GEMINI_RELIABILITY_MODEL_ID,
+        api_method="interactions_grounded",
+        endpoint_family="interactions",
+        tools=["google_search"],
+    )
     return analyze_service.handle_analyze_request(
         data,
         app_tz=app_tz,
