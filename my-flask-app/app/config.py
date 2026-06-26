@@ -20,6 +20,8 @@ AI_CALL_TIMEOUT_SEC = max(1, int(os.environ.get("RELIABILITY_AI_TIMEOUT_MS", "17
 AI_EXECUTOR_WORKERS = int(os.environ.get("AI_EXECUTOR_WORKERS", "8"))
 AI_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=AI_EXECUTOR_WORKERS)
 atexit.register(lambda: AI_EXECUTOR.shutdown(wait=True))
+WEB_GROUNDING_PROVIDER = os.environ.get("WEB_GROUNDING_PROVIDER", "gemini_search")
+ALLOW_EXTERNAL_SEARCH_GROUNDING = os.environ.get("ALLOW_EXTERNAL_SEARCH_GROUNDING", "false").lower() == "true"
 
 # --- Quota / rate-limit ---
 GLOBAL_DAILY_LIMIT = 1000
@@ -37,6 +39,8 @@ __all__ = [
     "AI_CALL_TIMEOUT_SEC",
     "AI_EXECUTOR_WORKERS",
     "AI_EXECUTOR",
+    "WEB_GROUNDING_PROVIDER",
+    "ALLOW_EXTERNAL_SEARCH_GROUNDING",
     "GLOBAL_DAILY_LIMIT",
     "USER_DAILY_LIMIT",
     "MAX_CACHE_DAYS",
