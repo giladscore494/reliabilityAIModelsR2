@@ -2,7 +2,6 @@
 
 import json
 import logging
-import os
 import time as pytime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -50,7 +49,6 @@ from app.services.comparison.parsing import (
 from app.services.comparison.prompts import build_single_car_prompt
 from app.services.comparison.schemas import validate_grounding
 from app.services.comparison.fallbacks import _empty_stage_a_output
-from app.services.gemini_grounding_client import call_grounded_model, GROUNDING_FAILED_CODE
 from app.utils.http_helpers import get_request_id
 
 logger = logging.getLogger(__name__)
@@ -92,6 +90,18 @@ def _generate_content_with_404_fallback(
             )
             return resp, safe_model, "model_fallback_due_to_404"
         raise
+
+
+def _google_search_tool() -> "genai_types.Tool":
+    """Build the Google Search grounding tool for Stage A calls."""
+    return genai_types.Tool(google_search=genai_types.GoogleSearch())
+
+
+def _extract_stage_a_grounding(resp) -> Dict[str, Any]:
+    """Detect real Google Search grounding signals on a Stage A response."""
+    from app.services.reliability_model_service import extract_grounding_meta
+
+    return extract_grounding_meta(resp)
 
 
 def parse_single_car_json(raw_text: str) -> Tuple[Optional[Dict], Optional[str]]:
@@ -178,9 +188,12 @@ def call_gemini_comparison(
     prompt: str, timeout_sec: int = COMPARE_STAGE_A_TIMEOUT_SEC
 ) -> Tuple[Optional[Dict], Optional[str]]:
     """
-    Call Gemini with web grounding for comparison data.
+    Call Gemini 3 Flash with web grounding for comparison data.
     Returns (parsed_output, error_string).
     """
+    import concurrent.futures
+    from app.factory import AI_EXECUTOR, AI_EXECUTOR_WORKERS
+
     start_time = pytime.perf_counter()
     prompt_chars = len(prompt or "")
     outcome = "ok"
@@ -193,28 +206,62 @@ def call_gemini_comparison(
             outcome_reason = "CLIENT_NOT_INITIALIZED"
             return None, "CLIENT_NOT_INITIALIZED"
 
-        result = call_grounded_model(
-            comparison_stage_a_model_id(),
-            prompt,
-            timeout_sec=timeout_sec,
+        config = genai_types.GenerateContentConfig(
+            temperature=COMPARE_STAGE_A_TEMPERATURE,
+            top_p=0.8,
+            top_k=20,
+            max_output_tokens=COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
+            tools=[_google_search_tool()],
         )
-        if not result or result.get("error_code"):
-            outcome = "error"
-            outcome_reason = (result or {}).get("error_code") or "CALL_FAILED_EMPTY"
-            if outcome_reason == "CALL_TIMEOUT":
-                _inc_compare_metric("compare_ai_failures_total", reason="timeout")
-                _inc_compare_metric("compare_stage_a_timeout_total")
-            else:
-                _inc_compare_metric("compare_stage_a_error_total")
-            return None, outcome_reason
 
-        grounding_meta = result.get("grounding_meta") or {}
-        if not grounding_meta.get("grounding_successful") and os.environ.get("ALLOW_UNGROUNDED_FALLBACK", "").lower() != "true":
-            outcome = "error"
-            outcome_reason = GROUNDING_FAILED_CODE
-            return None, GROUNDING_FAILED_CODE
+        def _invoke():
+            return _generate_content_with_404_fallback(
+                feature="comparison_stage_a",
+                model=comparison_stage_a_model_id(),
+                contents=prompt,
+                config=config,
+            )
 
-        text = (result.get("text") or "").strip()
+        # Check executor availability
+        work_queue = getattr(AI_EXECUTOR, "_work_queue", None)
+        if work_queue is not None:
+            queued = work_queue.qsize()
+            if queued >= AI_EXECUTOR_WORKERS:
+                outcome = "error"
+                outcome_reason = "SERVER_BUSY"
+                return None, "SERVER_BUSY"
+
+        try:
+            future = AI_EXECUTOR.submit(_invoke)
+        except Exception:
+            outcome = "error"
+            outcome_reason = "EXECUTOR_SATURATED"
+            return None, "EXECUTOR_SATURATED"
+
+        try:
+            resp, model_used, fallback_reason = future.result(timeout=timeout_sec)
+        except concurrent.futures.TimeoutError:
+            future.cancel()
+            _inc_compare_metric("compare_ai_failures_total", reason="timeout")
+            _inc_compare_metric("compare_stage_a_timeout_total")
+            outcome = "timeout"
+            outcome_reason = "CALL_TIMEOUT"
+            return None, "CALL_TIMEOUT"
+        except Exception as e:
+            _log_ai_client_error("comparison_stage_a", e)
+            _inc_compare_metric("compare_stage_a_error_total")
+            outcome = "error"
+            outcome_reason = type(e).__name__
+            if _is_output_too_long_error(str(e)):
+                return None, "CALL_FAILED_OUTPUT_TOO_LONG"
+            return None, f"CALL_FAILED:{type(e).__name__}"
+
+        if resp is None:
+            outcome = "error"
+            outcome_reason = "CALL_FAILED_EMPTY"
+            return None, "CALL_FAILED:EMPTY"
+
+        text = (getattr(resp, "text", "") or "").strip()
         if not text:
             outcome = "error"
             outcome_reason = "EMPTY_RESPONSE"
@@ -243,6 +290,7 @@ def call_gemini_comparison(
             outcome,
             fallback_reason or outcome_reason,
         )
+
 
 def _call_gemini_single_car_raw(
     prompt: str,
@@ -280,19 +328,35 @@ def _call_gemini_single_car_raw(
                 "finish_reason": None,
             }
 
-        # Google Search grounding is mandatory for Stage A evidence. Grounded
-        # calls use the Gemini Interactions API and intentionally do not set
-        # response_mime_type; prompts require raw JSON and parsing is defensive.
+        # Google Search grounding is mandatory for Stage A evidence. Try
+        # tools + response_mime_type="application/json" first; if the SDK
+        # rejects the combination, fall back to tools-only and parse from text.
         json_mime_used = False
+        config_kwargs = {
+            "temperature": COMPARE_STAGE_A_TEMPERATURE,
+            "top_p": 0.8,
+            "top_k": 20,
+            "max_output_tokens": COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
+            "tools": [_google_search_tool()],
+            "response_mime_type": "application/json",
+        }
+        try:
+            config = genai_types.GenerateContentConfig(**config_kwargs)
+            json_mime_used = True
+        except (TypeError, ValueError):
+            config_kwargs.pop("response_mime_type", None)
+            config = genai_types.GenerateContentConfig(**config_kwargs)
 
         # Direct SDK call — no nested executor submission. This function
         # is already running inside the Stage A parallel worker thread.
         try:
-            result = call_grounded_model(
-                comparison_stage_a_model_id(),
-                prompt,
-                timeout_sec=timeout_sec,
-                use_executor=False,
+            resp, model_used, fallback_reason = _generate_content_with_404_fallback(
+                feature="comparison_stage_a_single_car",
+                model=comparison_stage_a_model_id(),
+                contents=prompt,
+                config=config,
+                request_id=request_id,
+                log=worker_logger,
             )
         except Exception as e:
             elapsed = pytime.perf_counter() - start_time
@@ -334,26 +398,25 @@ def _call_gemini_single_car_raw(
                 timeout_sec,
             )
 
-        if not result or result.get("error_code"):
+        if resp is None:
             outcome = "error"
-            outcome_reason = (result or {}).get("error_code") or "CALL_FAILED_EMPTY"
+            outcome_reason = "CALL_FAILED_EMPTY"
             return {
-                "parsed": None, "error": outcome_reason,
+                "parsed": None, "error": "CALL_FAILED:EMPTY",
                 "raw_text": None, "grounding_meta": grounding_meta,
                 "finish_reason": None,
             }
 
-        grounding_meta = result.get("grounding_meta") or grounding_meta
-        if not grounding_meta.get("grounding_successful") and os.environ.get("ALLOW_UNGROUNDED_FALLBACK", "").lower() != "true":
-            outcome = "error"
-            outcome_reason = GROUNDING_FAILED_CODE
-            return {
-                "parsed": None, "error": GROUNDING_FAILED_CODE,
-                "raw_text": None, "grounding_meta": grounding_meta,
-                "finish_reason": None,
-            }
+        # Extract finish_reason if available
+        try:
+            candidates = getattr(resp, "candidates", None)
+            if candidates and len(candidates) > 0:
+                finish_reason = getattr(candidates[0], "finish_reason", None)
+        except Exception:
+            pass
 
-        raw_text = (result.get("text") or "").strip()
+        grounding_meta = _extract_stage_a_grounding(resp)
+        raw_text = (getattr(resp, "text", "") or "").strip()
         if not raw_text:
             outcome = "error"
             outcome_reason = "EMPTY_RESPONSE"
