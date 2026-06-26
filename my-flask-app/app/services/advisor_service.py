@@ -11,7 +11,12 @@ from app.extensions import db
 from app.models import AdvisorHistory
 from app.quota import log_access_decision
 from app.utils.http_helpers import api_ok, api_error, get_request_id
-from app.services.gemini_grounding_client import GROUNDING_FAILED_CODE, GROUNDING_HE_MESSAGE
+from app.services.gemini_grounding_client import (
+    GROUNDING_FAILED_CODE,
+    GROUNDING_HE_MESSAGE,
+    GROUNDING_PERMISSION_DENIED_CODE,
+    GROUNDING_PERMISSION_DENIED_HE_MESSAGE,
+)
 from app.utils.ai_guardrails import apply_feature_guardrails
 from app.utils.sanitization import sanitize_advisor_response, sanitize_profile_for_storage
 from app.factory import (
@@ -169,6 +174,13 @@ def handle_advisor_logic(payload, user, user_id):
             )
         if error_reason == GROUNDING_FAILED_CODE:
             return api_error(GROUNDING_FAILED_CODE, GROUNDING_HE_MESSAGE, status=503)
+        if error_reason == GROUNDING_PERMISSION_DENIED_CODE:
+            return api_error(
+                GROUNDING_PERMISSION_DENIED_CODE,
+                GROUNDING_PERMISSION_DENIED_HE_MESSAGE,
+                status=503,
+                request_id=get_request_id(),
+            )
         return api_error(
             "advisor_ai_error",
             "שגיאת AI במנוע ההמלצות. נסה שוב מאוחר יותר.",
