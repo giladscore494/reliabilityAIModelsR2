@@ -157,7 +157,7 @@ def _determine_diagnosis(checks: dict) -> str:
     int_grounded_ok = int_grounded.get("ok", False)
     gc_grounded_legacy_ok = gc_grounded_legacy.get("ok", False)
 
-    if not gc_plain_ok and not int_plain_ok and not int_grounded_ok and not gc_grounded_legacy_ok:
+    if not gc_plain_ok:
         return "GEMINI_KEY_OR_PROJECT_ACCESS_FAILED"
     if gc_plain_ok and not int_plain_ok:
         return "INTERACTIONS_ENDPOINT_PERMISSION_OR_SDK_ISSUE"
