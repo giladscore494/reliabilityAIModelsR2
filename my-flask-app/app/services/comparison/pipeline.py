@@ -44,7 +44,12 @@ from app.services.comparison.writer import (
 )
 from app.utils.ai_guardrails import apply_feature_guardrails
 from app.utils.http_helpers import _utcnow, api_error, api_ok, get_request_id
-from app.services.gemini_grounding_client import GROUNDING_FAILED_CODE, GROUNDING_HE_MESSAGE
+from app.services.gemini_grounding_client import (
+    GROUNDING_FAILED_CODE,
+    GROUNDING_HE_MESSAGE,
+    GROUNDING_PERMISSION_DENIED_CODE,
+    GROUNDING_PERMISSION_DENIED_HE_MESSAGE,
+)
 from app.utils.production_observability import log_slow_operation
 from app.utils.sanitization import sanitize_comparison_narrative
 
@@ -324,6 +329,13 @@ def handle_comparison_request(
         log_slow_operation(logger, feature="vehicle_comparison", stage="total", duration_ms=total_ms, request_id=request_id)
         if all(GROUNDING_FAILED_CODE in e for e in stage_a_errors):
             return api_error(GROUNDING_FAILED_CODE, GROUNDING_HE_MESSAGE, status=503)
+        if all(GROUNDING_PERMISSION_DENIED_CODE in e for e in stage_a_errors):
+            return api_error(
+                GROUNDING_PERMISSION_DENIED_CODE,
+                GROUNDING_PERMISSION_DENIED_HE_MESSAGE,
+                status=503,
+                request_id=request_id,
+            )
         return api_error(
             "comparison_ai_unavailable",
             "לא הצלחנו להשלים את ההשוואה כרגע. אפשר לנסות שוב או לדייק שנתון, מנוע ורמת גימור.",

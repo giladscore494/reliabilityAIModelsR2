@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import concurrent.futures
+import hashlib
 import json
 import logging
 import os
+import uuid
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -27,7 +29,7 @@ GROUNDING_FAILED_CODE = "GEMINI_GROUNDING_FAILED"
 GROUNDING_PERMISSION_DENIED_CODE = "GEMINI_GROUNDING_PERMISSION_DENIED"
 PROVIDER_FAILED_CODE = "GEMINI_PROVIDER_FAILED"
 GROUNDING_HE_MESSAGE = "החיפוש האינטרנטי של ספק ה-AI לא זמין כרגע. נסה שוב מאוחר יותר."
-GROUNDING_PERMISSION_DENIED_HE_MESSAGE = "המודל פעיל, אבל Google Search grounding אינו מורשה בפרויקט הנוכחי."
+GROUNDING_PERMISSION_DENIED_HE_MESSAGE = "החיפוש האינטרנטי של ספק ה-AI לא מורשה או לא זמין בפרויקט הנוכחי."
 PROVIDER_HE_MESSAGE = "שירות ה-AI לא זמין כרגע."
 
 _SENSITIVE_KEY_PARTS = (
@@ -37,14 +39,40 @@ _SENSITIVE_KEY_PARTS = (
     "cookie",
     "key",
     "password",
+    "proxy-authorization",
     "secret",
+    "set-cookie",
     "token",
 )
+
+# Headers safe to include in diagnostics (exact lowercase match required).
+_SAFE_RESPONSE_HEADERS = frozenset(
+    {
+        "content-type",
+        "content-length",
+        "x-request-id",
+        "x-goog-request-id",
+        "server",
+        "date",
+        "grpc-status",
+        "grpc-message",
+        "grpc-status-details-bin",
+    }
+)
+
+# Controls verbose debug output; never logs secrets even when true.
+# Note: _VERBOSE is not used directly; _is_verbose() re-reads at call time to support tests.
+
+
+def _is_verbose() -> bool:
+    """Re-read env var at call time to support runtime changes in tests."""
+    return os.environ.get("GEMINI_DEBUG_VERBOSE", "false").strip().lower() == "true"
 
 
 def _redact_safe(value: Any, key: str = "") -> Any:
     """Bound and redact diagnostic values before they reach logs or health output."""
-    if any(part in key.lower() for part in _SENSITIVE_KEY_PARTS):
+    key_lower = key.lower()
+    if any(part in key_lower for part in _SENSITIVE_KEY_PARTS):
         return "[REDACTED]"
     if isinstance(value, dict):
         return {str(k): _redact_safe(v, str(k)) for k, v in list(value.items())[:25]}
@@ -56,13 +84,30 @@ def _redact_safe(value: Any, key: str = "") -> Any:
     return text[:800]
 
 
-def _safe_error_details(err: Any) -> Dict[str, Any]:
-    """Return safe provider diagnostics without API keys, auth headers, cookies, or payloads."""
+def _safe_response_headers(response: Any) -> Dict[str, str]:
+    """Return only safe, non-sensitive response headers."""
+    raw_headers = getattr(response, "headers", None)
+    if not raw_headers:
+        return {}
+    out: Dict[str, str] = {}
+    try:
+        items = raw_headers.items() if hasattr(raw_headers, "items") else raw_headers
+        for k, v in items:
+            k_lower = k.lower()
+            if k_lower in _SAFE_RESPONSE_HEADERS:
+                out[k_lower] = str(v)[:200]
+    except Exception:
+        pass
+    return out
+
+
+def _safe_gemini_error_details(err: Any) -> Dict[str, Any]:
+    """Return safe Gemini provider diagnostics without API keys, auth headers, cookies, or payloads."""
     if err is None:
         return {"type": "None"}
     details: Dict[str, Any] = {
         "type": type(err).__name__,
-        "message": str(err)[:800],
+        "message": str(err)[:1200],
     }
     for attr in ("code", "status_code"):
         val = getattr(err, attr, None)
@@ -73,22 +118,101 @@ def _safe_error_details(err: Any) -> Dict[str, Any]:
         status_code = getattr(response, "status_code", None)
         if status_code is not None:
             details["response_status_code"] = status_code
-        text = getattr(response, "text", None)
-        if text:
-            details["response_text"] = str(text)[:800]
-        body = getattr(response, "body", None)
-        if body:
-            details["response_body"] = str(body)[:800]
+        if _is_verbose():
+            text = getattr(response, "text", None)
+            if text:
+                details["response_text"] = str(text)[:1200]
+            body = getattr(response, "body", None)
+            if body:
+                details["response_body"] = str(body)[:1200]
+            details["response_headers"] = _safe_response_headers(response)
+        else:
+            # Even in compact mode include text truncated to 300 chars for triage.
+            text = getattr(response, "text", None)
+            if text:
+                details["response_text"] = str(text)[:300]
         try:
             response_json = response.json()
         except Exception:
             response_json = None
         if response_json is not None:
-            details["response_json"] = response_json
+            details["response_json"] = _redact_safe(response_json)
     body = getattr(err, "body", None)
     if body:
-        details["body"] = body
+        details["body"] = str(body)[:1200] if _is_verbose() else str(body)[:300]
     return _redact_safe(details)
+
+
+# Backward-compat alias — existing callers that use _safe_error_details continue to work.
+# Deprecated: prefer _safe_gemini_error_details in new code.
+_safe_error_details = _safe_gemini_error_details
+
+
+def _gemini_key_info() -> Dict[str, Any]:
+    """Return safe key-source info; never the raw key."""
+    gemini_key = os.environ.get("GEMINI_API_KEY") or ""
+    google_key = os.environ.get("GOOGLE_API_KEY") or ""
+    if gemini_key:
+        source = "GEMINI_API_KEY"
+        key = gemini_key
+    elif google_key:
+        source = "GOOGLE_API_KEY"
+        key = google_key
+    else:
+        source = "none"
+        key = ""
+    if key:
+        # SHA256 used as a non-reversible diagnostic fingerprint only — not for password storage.
+        fingerprint = "sha256:" + hashlib.sha256(key.encode()).hexdigest()[:16]
+    else:
+        fingerprint = "none"
+    return {"source": source, "fingerprint": fingerprint}
+
+
+def _sdk_version() -> str:
+    try:
+        import importlib.metadata
+        return importlib.metadata.version("google-genai")
+    except Exception:
+        return "unknown"
+
+
+def _log_request_config(
+    *,
+    request_id: str,
+    feature: str,
+    model: str,
+    api_method: str,
+    endpoint_family: str,
+    tools: List[str],
+    response_mime_type: Optional[str],
+    temperature: Optional[float],
+    max_output_tokens: Optional[int],
+    prompt: str,
+) -> None:
+    """Log a safe [AI_DEBUG] gemini_request_config event before each Gemini call."""
+    key_info = _gemini_key_info()
+    prompt_sha = hashlib.sha256(prompt.encode()).hexdigest()[:16]
+    log_data: Dict[str, Any] = {
+        "request_id": request_id,
+        "feature": feature,
+        "model": model,
+        "api_method": api_method,
+        "endpoint_family": endpoint_family,
+        "tools": tools,
+        "response_mime_type": response_mime_type,
+        "temperature": temperature,
+        "max_output_tokens": max_output_tokens,
+        "prompt_chars": len(prompt),
+        "prompt_sha256_prefix": prompt_sha,
+        "selected_key_source": key_info["source"],
+        "selected_key_fingerprint": key_info["fingerprint"],
+        "sdk_version": _sdk_version(),
+    }
+    logger.info(
+        "[AI_DEBUG] gemini_request_config %s",
+        json.dumps(log_data, ensure_ascii=False, sort_keys=True),
+    )
 
 
 def _default_meta() -> Dict[str, Any]:
@@ -286,12 +410,25 @@ def _call_external_search_grounded_model(model_id: str, prompt: str, *, timeout_
     return result
 
 
-def call_plain_model(model_id: str, prompt: str, *, timeout_sec: int = AI_CALL_TIMEOUT_SEC, use_executor: bool = True, **config_kwargs) -> Dict[str, Any]:
+def call_plain_model(model_id: str, prompt: str, *, timeout_sec: int = AI_CALL_TIMEOUT_SEC, use_executor: bool = True, feature: str = "unknown", request_id: Optional[str] = None, **config_kwargs) -> Dict[str, Any]:
     if extensions.ai_client is None:
         return {"text": "", "grounding_meta": _default_meta(), "error_code": "CLIENT_NOT_INITIALIZED", "error_details": {"type": "ClientNotInitialized"}}
     config_kwargs.pop("tools", None)
     config_kwargs.setdefault("temperature", 0.0)
     config = genai_types.GenerateContentConfig(**config_kwargs)
+
+    _log_request_config(
+        request_id=request_id or str(uuid.uuid4())[:8],
+        feature=feature,
+        model=model_id,
+        api_method="generate_content_plain",
+        endpoint_family="models.generateContent",
+        tools=[],
+        response_mime_type=getattr(config, "response_mime_type", None),
+        temperature=config_kwargs.get("temperature"),
+        max_output_tokens=config_kwargs.get("max_output_tokens"),
+        prompt=prompt,
+    )
 
     def _invoke():
         return extensions.ai_client.models.generate_content(model=model_id, contents=prompt, config=config)
@@ -304,11 +441,14 @@ def call_plain_model(model_id: str, prompt: str, *, timeout_sec: int = AI_CALL_T
         except Exception as exc:
             resp, err = None, exc
     if err or resp is None:
-        return {"text": "", "grounding_meta": _default_meta(), "error_code": _error_code(err or "EMPTY", False), "error_details": _safe_error_details(err or "EMPTY")}
+        details = _safe_gemini_error_details(err or "EMPTY")
+        if _is_verbose():
+            logger.info("[AI_DEBUG] generate_content_plain error request_id=%s details=%s", request_id, json.dumps(details, ensure_ascii=False, sort_keys=True))
+        return {"text": "", "grounding_meta": _default_meta(), "error_code": _error_code(err or "EMPTY", False), "error_details": details}
     return {"text": _get_text(resp), "grounding_meta": _default_meta(), "error_code": None, "error_details": None}
 
 
-def call_grounded_model(model_id: str, prompt: str, *, timeout_sec: int = AI_CALL_TIMEOUT_SEC, use_executor: bool = True) -> Dict[str, Any]:
+def call_grounded_model(model_id: str, prompt: str, *, timeout_sec: int = AI_CALL_TIMEOUT_SEC, use_executor: bool = True, feature: str = "unknown", request_id: Optional[str] = None) -> Dict[str, Any]:
     """Call Gemini with mandatory web grounding; never fall back silently."""
     provider = (os.environ.get("WEB_GROUNDING_PROVIDER") or WEB_GROUNDING_PROVIDER).strip().lower()
     allow_external = (os.environ.get("ALLOW_EXTERNAL_SEARCH_GROUNDING") or str(ALLOW_EXTERNAL_SEARCH_GROUNDING)).strip().lower() == "true"
@@ -324,6 +464,19 @@ def call_grounded_model(model_id: str, prompt: str, *, timeout_sec: int = AI_CAL
         logger.error("[AI] Gemini Interactions API unavailable on installed SDK/client")
         return {"text": "", "grounding_meta": _default_meta(), "error_code": GROUNDING_FAILED_CODE, "error_details": {"type": "InteractionsUnavailable"}}
 
+    _log_request_config(
+        request_id=request_id or str(uuid.uuid4())[:8],
+        feature=feature,
+        model=model_id,
+        api_method="interactions_grounded",
+        endpoint_family="interactions",
+        tools=["google_search"],
+        response_mime_type=None,
+        temperature=None,
+        max_output_tokens=None,
+        prompt=prompt,
+    )
+
     def _invoke():
         return create(model=model_id, input=prompt, tools=[{"type": "google_search"}], store=False)
 
@@ -335,8 +488,10 @@ def call_grounded_model(model_id: str, prompt: str, *, timeout_sec: int = AI_CAL
         except Exception as exc:
             resp, err = None, exc
     if err or resp is None:
-        details = _safe_error_details(err or "EMPTY")
+        details = _safe_gemini_error_details(err or "EMPTY")
         logger.warning("[AI] grounded Gemini interaction failed details=%s", json.dumps(details, ensure_ascii=False, sort_keys=True))
+        if _is_verbose():
+            logger.info("[AI_DEBUG] interactions_grounded error request_id=%s details=%s", request_id, json.dumps(details, ensure_ascii=False, sort_keys=True))
         return {"text": "", "grounding_meta": _default_meta(), "error_code": _error_code(err or "EMPTY", True), "error_details": details}
     meta = _collect_interaction_grounding(resp)
     return {"text": _get_text(resp), "grounding_meta": meta, "error_code": None, "error_details": None}

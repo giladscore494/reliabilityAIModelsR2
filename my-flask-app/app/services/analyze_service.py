@@ -46,7 +46,12 @@ from app.factory import (
     normalize_text,
 )
 from app.utils.production_observability import log_slow_operation
-from app.services.gemini_grounding_client import GROUNDING_FAILED_CODE, GROUNDING_HE_MESSAGE
+from app.services.gemini_grounding_client import (
+    GROUNDING_FAILED_CODE,
+    GROUNDING_HE_MESSAGE,
+    GROUNDING_PERMISSION_DENIED_CODE,
+    GROUNDING_PERMISSION_DENIED_HE_MESSAGE,
+)
 from app.services.vehicle_catalog_service import (
     CatalogUnavailableError,
     catalog_is_available,
@@ -532,6 +537,15 @@ def handle_analyze_request(
             if not bypass_owner:
                 release_quota_reservation(reservation_id, user_id, day_key)
             return api_error(GROUNDING_FAILED_CODE, GROUNDING_HE_MESSAGE, status=503)
+        if ai_error == GROUNDING_PERMISSION_DENIED_CODE:
+            if not bypass_owner:
+                release_quota_reservation(reservation_id, user_id, day_key)
+            return api_error(
+                GROUNDING_PERMISSION_DENIED_CODE,
+                GROUNDING_PERMISSION_DENIED_HE_MESSAGE,
+                status=503,
+                request_id=get_request_id(),
+            )
         if model_output is None:
             raise ModelOutputInvalidError(ai_error or "MODEL_JSON_INVALID")
         if not isinstance(model_output, dict):
