@@ -330,6 +330,11 @@ def test_single_pass_second_identical_request_is_cached(
     assert payload["decision_result"]["overall_decision"]["label"] == "car_1"
 
 
+
+def test_single_pass_timeout_default_is_cloudflare_safe():
+    assert comparison_service.COMPARE_SINGLE_PASS_TIMEOUT_SEC == 105
+    assert comparison_service.COMPARE_SINGLE_PASS_MAX_REMOTE_CALLS == 8
+
 def test_single_pass_timeout_constant_is_used(monkeypatch):
     seen = {}
     monkeypatch.setattr(comparison_service, "COMPARE_STAGE_A_TIMEOUT_SEC", 7)
@@ -373,3 +378,16 @@ def test_active_compare_pipeline_does_not_call_legacy_scoring():
     pipeline = Path("app/services/comparison/pipeline.py").read_text(encoding="utf-8")
     assert "compute_comparison_results(" not in pipeline
     assert "compute_overall_score(" not in pipeline
+
+
+def test_single_pass_timeout_env_override(monkeypatch):
+    import importlib
+    import app.services.comparison.constants as constants
+
+    monkeypatch.setenv("COMPARE_SINGLE_PASS_TIMEOUT_SEC", "97")
+    reloaded = importlib.reload(constants)
+    try:
+        assert reloaded.COMPARE_SINGLE_PASS_TIMEOUT_SEC == 97
+    finally:
+        monkeypatch.delenv("COMPARE_SINGLE_PASS_TIMEOUT_SEC", raising=False)
+        importlib.reload(constants)
