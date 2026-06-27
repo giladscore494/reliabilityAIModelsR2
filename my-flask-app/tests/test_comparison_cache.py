@@ -396,3 +396,32 @@ class TestTimingEstimateCompare:
         assert data["data"]["source"] == "default"
         # Default estimate for compare is 70000ms
         assert data["data"]["estimate_ms"] == 70000
+
+    def test_timing_estimate_operational_error_disposes_retries_and_defaults(
+        self, app, logged_in_client, monkeypatch
+    ):
+        """OperationalError during timing stats is retried once then defaults."""
+        from sqlalchemy.exc import OperationalError
+        import app.routes.analyze_routes as analyze_routes
+
+        client, _ = logged_in_client
+        calls = {"query": 0, "dispose": 0, "remove": 0}
+
+        def raise_operational_error(*_args, **_kwargs):
+            calls["query"] += 1
+            raise OperationalError("SELECT duration_ms", {}, Exception("SSL error"))
+
+        monkeypatch.setattr(analyze_routes.db.session, "query", raise_operational_error)
+        monkeypatch.setattr(analyze_routes.db.session, "remove", lambda: calls.__setitem__("remove", calls["remove"] + 1))
+        with app.app_context():
+            monkeypatch.setattr(analyze_routes.db.engine, "dispose", lambda: calls.__setitem__("dispose", calls["dispose"] + 1))
+
+        resp = client.get("/api/timing/estimate?kind=compare")
+
+        assert resp.status_code == 200
+        data = resp.get_json()["data"]
+        assert data["source"] == "default"
+        assert data["estimate_ms"] == 70000
+        assert calls["query"] >= 2
+        assert calls["dispose"] >= 1
+        assert calls["remove"] >= 1

@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from flask import Blueprint, current_app, request
 from flask_login import login_required, current_user
+from sqlalchemy.exc import OperationalError
 
 from app.extensions import db
 from app.models import SearchHistory
@@ -164,15 +165,58 @@ def timing_estimate():
             "sample_size": len(durations_sorted),
         }
 
+    def _reset_timing_db_connection(scope_kind: str):
+        try:
+            db.session.rollback()
+        except Exception:
+            current_app.logger.warning("[TIMING] rollback failed scope=%s", scope_kind)
+        try:
+            db.session.remove()
+        except Exception:
+            try:
+                db.session.close()
+            except Exception:
+                current_app.logger.warning("[TIMING] session close failed scope=%s", scope_kind)
+        try:
+            db.engine.dispose()
+        except Exception:
+            current_app.logger.warning("[TIMING] engine dispose failed scope=%s", scope_kind)
+
     def _safe_query(fetch_fn, scope_kind: str):
         try:
             return fetch_fn()
+        except OperationalError:
+            _reset_timing_db_connection(scope_kind)
+            try:
+                return fetch_fn()
+            except OperationalError:
+                _reset_timing_db_connection(scope_kind)
+                current_app.logger.warning(
+                    "Timing estimate query failed kind=%s scope=%s retry_attempted=true",
+                    kind,
+                    scope_kind,
+                )
+                return []
+            except Exception as retry_error:
+                _reset_timing_db_connection(scope_kind)
+                current_app.logger.warning(
+                    "Timing estimate query failed kind=%s scope=%s retry_attempted=true error_type=%s",
+                    kind,
+                    scope_kind,
+                    type(retry_error).__name__,
+                )
+                return []
         except Exception as e:
             try:
                 db.session.rollback()
             except Exception:
-                current_app.logger.exception("[TIMING] rollback failed for %s", scope_kind)
-            current_app.logger.warning("Timing estimate query failed for %s: %s", scope_kind, e)
+                current_app.logger.warning("[TIMING] rollback failed scope=%s", scope_kind)
+            current_app.logger.warning(
+                "Timing estimate query failed kind=%s scope=%s retry_attempted=false error_type=%s",
+                kind,
+                scope_kind,
+                type(e).__name__,
+            )
             return []
 
     # Determine the correct timestamp column for ordering

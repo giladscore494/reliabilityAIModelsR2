@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import time as pytime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -54,6 +55,9 @@ from app.services.comparison.fallbacks import _empty_stage_a_output
 from app.utils.http_helpers import get_request_id
 
 logger = logging.getLogger(__name__)
+
+_SINGLE_PASS_LABELS = {"car_1", "car_2", "car_3", "tie", "depends", "unknown"}
+_UNKNOWN_DECISION_TEXT = "לא ניתן להשלים השוואה אמינה כרגע. אפשר לנסות שוב בעוד רגע או לדייק שנתון, מנוע ורמת גימור."
 
 
 def _generate_content_with_404_fallback(
@@ -212,6 +216,124 @@ def _unwrap_single_pass_payload(parsed: Any) -> Any:
     return parsed
 
 
+def _normalize_single_pass_compare_payload(parsed: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply server-side defaults for optional single-pass fields."""
+    decision = parsed.get("decision_result")
+    if not isinstance(decision, dict):
+        decision = {}
+        parsed["decision_result"] = decision
+    overall = decision.get("overall_decision")
+    if not isinstance(overall, dict):
+        overall = {}
+        decision["overall_decision"] = overall
+    if overall.get("label") not in _SINGLE_PASS_LABELS:
+        overall["label"] = "unknown"
+    if not isinstance(overall.get("text"), str):
+        overall["text"] = _UNKNOWN_DECISION_TEXT if overall["label"] == "unknown" else ""
+    for key in (
+        "category_decisions",
+        "key_differences",
+        "choose_car_1_if",
+        "choose_car_2_if",
+        "choose_car_3_if",
+        "avoid_or_check_car_1_if",
+        "avoid_or_check_car_2_if",
+        "avoid_or_check_car_3_if",
+        "competitors_to_consider",
+    ):
+        if not isinstance(decision.get(key), list):
+            decision[key] = []
+    if not isinstance(decision.get("practical_summary"), str):
+        decision["practical_summary"] = ""
+    if not isinstance(parsed.get("checked_versions"), dict):
+        parsed["checked_versions"] = {}
+    if not isinstance(parsed.get("sources"), list):
+        parsed["sources"] = []
+    parsed["sources"] = [s for s in parsed["sources"] if isinstance(s, str) and s.strip()]
+    return parsed
+
+
+def _extract_json_string_field(text: str, field_name: str) -> Optional[str]:
+    match = re.search(rf'"{re.escape(field_name)}"\s*:\s*"((?:\\.|[^"\\])*)"', text or "", re.DOTALL)
+    if not match:
+        return None
+    try:
+        return json.loads(f'"{match.group(1)}"')
+    except json.JSONDecodeError:
+        return None
+
+
+def _extract_complete_objects_from_array(raw_text: str, array_name: str, limit: int) -> List[Dict[str, Any]]:
+    marker = re.search(rf'"{re.escape(array_name)}"\s*:\s*\[', raw_text or "")
+    if not marker:
+        return []
+    idx = marker.end()
+    objects: List[Dict[str, Any]] = []
+    depth = 0
+    in_string = False
+    escape = False
+    obj_start: Optional[int] = None
+    for pos in range(idx, len(raw_text)):
+        ch = raw_text[pos]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+            continue
+        if ch == "{":
+            if depth == 0:
+                obj_start = pos
+            depth += 1
+        elif ch == "}":
+            if depth:
+                depth -= 1
+                if depth == 0 and obj_start is not None:
+                    try:
+                        item = json.loads(raw_text[obj_start : pos + 1])
+                    except json.JSONDecodeError:
+                        obj_start = None
+                        continue
+                    if isinstance(item, dict):
+                        objects.append(item)
+                        if len(objects) >= limit:
+                            break
+                    obj_start = None
+        elif ch == "]" and depth == 0:
+            break
+    return objects
+
+
+def salvage_single_pass_compare_json(raw_text: str) -> Optional[Dict[str, Any]]:
+    """Deterministically salvage a safe short decision from truncated JSON."""
+    stripped = _strip_json_code_fences(raw_text or "").strip()
+    if not stripped.startswith("{") or '"decision_result"' not in stripped or '"overall_decision"' not in stripped:
+        return None
+    label = _extract_json_string_field(stripped, "label")
+    if label not in _SINGLE_PASS_LABELS:
+        return None
+    text = _extract_json_string_field(stripped, "text")
+    if not text:
+        return None
+    categories = _extract_complete_objects_from_array(stripped, "category_decisions", 4)
+    sources = re.findall(r'https?://[^\s"\\,\]\}]+', stripped)
+    return _normalize_single_pass_compare_payload(
+        {
+            "decision_result": {
+                "overall_decision": {"label": label, "text": text[:240]},
+                "category_decisions": categories,
+            },
+            "checked_versions": {},
+            "sources": list(dict.fromkeys(sources)),
+        }
+    )
+
+
 def _extract_finish_reason(resp: Any) -> Optional[str]:
     try:
         candidates = getattr(resp, "candidates", None)
@@ -282,9 +404,7 @@ def parse_single_pass_compare_json(
             logger.warning("[COMPARISON] single_pass_json_rejected reason=scoring_output")
             continue
         if isinstance(parsed, dict) and isinstance(parsed.get("decision_result"), dict):
-            parsed.setdefault("checked_versions", {})
-            parsed.setdefault("sources", [])
-            return parsed, None
+            return _normalize_single_pass_compare_payload(parsed), None
         top_keys = list(parsed.keys())[:20] if isinstance(parsed, dict) else None
         reason = "missing_decision_result"
         if isinstance(parsed, dict) and "decision_result" in parsed:
@@ -294,6 +414,10 @@ def parse_single_pass_compare_json(
             reason,
             top_keys,
         )
+    salvaged = salvage_single_pass_compare_json(raw_text)
+    if salvaged is not None:
+        logger.warning("[COMPARISON] single_pass_json_salvaged locally=true")
+        return salvaged, None
     return None, "MODEL_JSON_INVALID"
 
 
@@ -319,13 +443,16 @@ def _build_single_pass_config(*, include_json_mime: bool = True) -> Tuple["genai
 
 def _build_single_pass_repair_prompt(raw_text: str) -> str:
     truncated = (raw_text or "")[:COMPARE_STAGE_A_REPAIR_MAX_INPUT_CHARS]
-    return f"""Convert only the existing model response into one valid JSON object for the active vehicle comparison single-pass schema.
-Do not add facts. Do not create a winner. Do not invent sources. Do not add scores, category winners, metric winners, or narrative fallback.
-Preserve checked_versions and sources if present. If a decision cannot be safely recovered, output label "unknown" with a clean Hebrew summary.
-For 3-car comparisons, preserve/add choose_car_3_if and avoid_or_check_car_3_if only if car_3 content exists; otherwise omit them.
-The first character must be {{ and the last must be }}. No markdown, no prose outside JSON.
+    return f"""Return one compact valid JSON object only. No markdown. No tools. No new facts. Do not invent sources.
+Extract only safely visible fields from the broken response:
+- overall_decision.label
+- overall_decision.text
+- up to 2 fully complete category_decisions objects
+- visible URLs
+Do not preserve the full broken JSON. Do not add scores, category winners, metric winners, or invented sources.
+If extraction is unsafe, output the clean unknown decision below. First char {{, last char }}.
 
-Required top-level schema:
+Schema:
 {{
 "decision_result": {{
 "overall_decision": {{"label": "car_1|car_2|car_3|tie|depends|unknown", "text": "Hebrew clean summary"}},
@@ -342,14 +469,14 @@ Required top-level schema:
 "sources": []
 }}
 
-MODEL RESPONSE:
+BROKEN RESPONSE:
 {truncated}"""
 
 
 def _attempt_single_pass_json_repair(raw_text: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     config = genai_types.GenerateContentConfig(
         temperature=0.0,
-        max_output_tokens=COMPARE_STAGE_A_REPAIR_MAX_OUTPUT_TOKENS,
+        max_output_tokens=min(max(1000, COMPARE_STAGE_A_REPAIR_MAX_OUTPUT_TOKENS), 1200),
         tools=[],
         response_mime_type="application/json",
     )
@@ -361,6 +488,24 @@ def _attempt_single_pass_json_repair(raw_text: str) -> Tuple[Optional[Dict[str, 
         timeout_sec=max(20, COMPARE_STAGE_A_REPAIR_TIMEOUT_SEC),
     )
     text = (getattr(resp, "text", "") or "").strip() if resp is not None else ""
+    state = _json_balance_state(text)
+    repair_top_keys = None
+    candidate = _extract_first_json_object(_strip_json_code_fences(text))
+    if candidate:
+        try:
+            maybe = json.loads(candidate)
+            if isinstance(maybe, dict):
+                repair_top_keys = list(maybe.keys())[:20]
+        except json.JSONDecodeError:
+            pass
+    logger.warning(
+        "[COMPARISON] single_pass_json_repair_diagnostics repair_raw_len=%s repair_starts_with_json=%s repair_unbalanced=%s repair_first_300=%.300s repair_top_keys=%s",
+        len(text),
+        text.lstrip().startswith("{"),
+        state.get("unbalanced"),
+        _sanitize_log_snippet(text, 300),
+        repair_top_keys,
+    )
     if not text:
         return None, "REPAIR_EMPTY_TEXT"
     parsed, error = parse_single_pass_compare_json(text)

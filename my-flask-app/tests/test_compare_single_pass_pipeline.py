@@ -160,9 +160,8 @@ def test_single_pass_decision_arrays_backfilled_when_model_omits_them(
     resp = _post(client)
     assert resp.status_code == 200
     decision = resp.get_json()["data"]["decision_result"]
-    # sanitize_decision_result backfills from the deterministic fallback.
-    assert decision["choose_car_1_if"], "choose arrays must be backfilled"
-    assert decision["avoid_or_check_car_1_if"]
+    assert decision["choose_car_1_if"] == []
+    assert decision["avoid_or_check_car_1_if"] == []
 
 
 def test_single_pass_transmission_mismatch_is_corrected(
@@ -504,6 +503,48 @@ def test_single_pass_repair_prompt_forbids_invention():
     from app.services.comparison.grounding import _build_single_pass_repair_prompt
 
     prompt = _build_single_pass_repair_prompt("raw response")
-    assert "Do not add facts" in prompt
+    assert "No new facts" in prompt
     assert "Do not invent sources" in prompt
-    assert "Do not create a winner" in prompt
+    assert "Do not preserve the full broken JSON" in prompt
+
+
+def test_single_pass_prompt_is_compact_no_legacy_hints():
+    from app.services.comparison.prompts import build_single_pass_compare_prompt
+
+    prompt = build_single_pass_compare_prompt(_two_cars())
+    assert "deterministic_preference_hints" not in prompt
+    assert "legacy_category_winners" not in prompt
+    assert "Fill exactly the 9" not in prompt
+    assert "category_decisions may be []" in prompt
+    assert "[1.1.1]" in prompt
+
+
+def test_single_pass_parser_accepts_compact_schema_and_defaults_missing_arrays():
+    import json
+    from app.services.comparison.grounding import parse_single_pass_compare_json
+
+    payload = {
+        "decision_result": {
+            "overall_decision": {"label": "depends", "text": "בחירה תלויה בשימוש ובמצב הרכב."}
+        },
+        "sources": ["https://example.com"],
+    }
+    parsed, error = parse_single_pass_compare_json(json.dumps(payload, ensure_ascii=False))
+    assert error is None
+    decision = parsed["decision_result"]
+    assert decision["category_decisions"] == []
+    assert decision["key_differences"] == []
+    assert decision["choose_car_1_if"] == []
+    assert decision["avoid_or_check_car_2_if"] == []
+    assert decision["competitors_to_consider"] == []
+    assert decision["practical_summary"] == ""
+
+
+def test_single_pass_local_salvage_drops_incomplete_category():
+    from app.services.comparison.grounding import salvage_single_pass_compare_json
+
+    broken = '''{"decision_result":{"overall_decision":{"label":"car_1","text":"עדיפות קלה לרכב הראשון לפי הנתונים."},"category_decisions":[{"category_key":"pricing_and_value","category_name_he":"מחיר ותמורה","preferred":"car_1","why":"זול יותר במקורות."},{"category_key":"official_safety","category_name_he":"בטיחות רשמית","preferred":"'''
+    parsed = salvage_single_pass_compare_json(broken)
+    assert parsed is not None
+    assert parsed["decision_result"]["overall_decision"]["label"] == "car_1"
+    assert len(parsed["decision_result"]["category_decisions"]) == 1
