@@ -391,3 +391,119 @@ def test_single_pass_timeout_env_override(monkeypatch):
     finally:
         monkeypatch.delenv("COMPARE_SINGLE_PASS_TIMEOUT_SEC", raising=False)
         importlib.reload(constants)
+
+
+def test_single_pass_config_uses_json_mime():
+    from app.services.comparison import grounding
+
+    config, used = grounding._build_single_pass_config(include_json_mime=True)
+    assert used is True
+    assert getattr(config, "response_mime_type", None) == "application/json"
+    assert getattr(config, "tools", None)
+
+
+def test_single_pass_parser_unwraps_result_wrapper():
+    import json
+    from app.services.comparison.grounding import parse_single_pass_compare_json
+
+    payload = _single_pass_result()[0]
+    parsed, error = parse_single_pass_compare_json(json.dumps({"result": payload}, ensure_ascii=False))
+    assert error is None
+    assert parsed["decision_result"]["overall_decision"]["label"] == "car_1"
+
+
+def test_single_pass_parser_rejects_scoring_only_output():
+    import json
+    from app.services.comparison.grounding import parse_single_pass_compare_json
+
+    parsed, error = parse_single_pass_compare_json(
+        json.dumps({"overall_score": {"car_1": 90}, "category_winners": {}}, ensure_ascii=False)
+    )
+    assert parsed is None
+    assert error == "MODEL_JSON_INVALID"
+
+
+def test_single_pass_repair_config_is_non_grounded_json(monkeypatch):
+    import json
+    from app.services.comparison import grounding
+
+    seen = {}
+    repaired = _single_pass_result(label="unknown", sources=[])[0]
+
+    def fake_generate(**kwargs):
+        config = kwargs["config"]
+        seen["tools"] = getattr(config, "tools", None)
+        seen["mime"] = getattr(config, "response_mime_type", None)
+        seen["temperature"] = getattr(config, "temperature", None)
+
+        class Resp:
+            text = json.dumps(repaired, ensure_ascii=False)
+
+        return Resp(), kwargs["model"], None
+
+    monkeypatch.setattr(grounding, "_generate_content_with_404_fallback", fake_generate)
+    parsed, error = grounding._attempt_single_pass_json_repair("prose with embedded facts")
+    assert error is None
+    assert parsed["decision_result"]["overall_decision"]["label"] == "unknown"
+    assert seen["tools"] == []
+    assert seen["mime"] == "application/json"
+    assert seen["temperature"] == 0.0
+
+
+def test_single_pass_json_invalid_triggers_repair(monkeypatch, app):
+    import json
+    from app.services.comparison import grounding
+
+    class Resp:
+        text = "Here is the comparison: not json"
+        candidates = []
+
+    repaired = _single_pass_result(label="unknown", sources=[])[0]
+    monkeypatch.setattr(grounding.extensions, "ai_client", object())
+    monkeypatch.setattr(grounding, "_extract_stage_a_grounding", lambda _resp: {"grounding_successful": True, "source_count": 1})
+    monkeypatch.setattr(grounding, "_generate_content_with_404_fallback", lambda **_kwargs: (Resp(), "model", None))
+    monkeypatch.setattr(grounding, "_attempt_single_pass_json_repair", lambda _raw: (repaired, None))
+
+    with app.app_context():
+        parsed, error, meta = grounding.call_gemini_single_pass_compare("prompt", timeout_sec=5)
+    assert error is None
+    assert parsed["decision_result"]["overall_decision"]["label"] == "unknown"
+    assert meta["grounding_successful"] is True
+
+
+def test_single_pass_json_invalid_repair_failure_returns_error(monkeypatch, app):
+    from app.services.comparison import grounding
+
+    class Resp:
+        text = "not json"
+        candidates = []
+
+    monkeypatch.setattr(grounding.extensions, "ai_client", object())
+    monkeypatch.setattr(grounding, "_extract_stage_a_grounding", lambda _resp: {"grounding_successful": True, "source_count": 1})
+    monkeypatch.setattr(grounding, "_generate_content_with_404_fallback", lambda **_kwargs: (Resp(), "model", None))
+    monkeypatch.setattr(grounding, "_attempt_single_pass_json_repair", lambda _raw: (None, "REPAIR_MODEL_JSON_INVALID"))
+
+    with app.app_context():
+        parsed, error, _meta = grounding.call_gemini_single_pass_compare("prompt", timeout_sec=5)
+    assert parsed is None
+    assert error == "MODEL_JSON_INVALID"
+
+
+def test_ungrounded_empty_sources_forces_unknown_decision(app, logged_in_client, monkeypatch):
+    client, _user_id = logged_in_client
+    client.post("/api/legal/accept", json={"legal_confirm": True})
+    _patch_single_pass(monkeypatch, _single_pass_result(label="car_1", sources=[], grounding=False))
+
+    resp = _post(client)
+    assert resp.status_code == 200
+    decision = resp.get_json()["data"]["decision_result"]
+    assert decision["overall_decision"]["label"] == "unknown"
+
+
+def test_single_pass_repair_prompt_forbids_invention():
+    from app.services.comparison.grounding import _build_single_pass_repair_prompt
+
+    prompt = _build_single_pass_repair_prompt("raw response")
+    assert "Do not add facts" in prompt
+    assert "Do not invent sources" in prompt
+    assert "Do not create a winner" in prompt

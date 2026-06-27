@@ -345,6 +345,26 @@ def handle_comparison_request(
     )
     sources_list = [s for s in sources_list if isinstance(s, str) and s.strip()]
 
+    if not grounding_successful and not sources_list and isinstance(parsed_output, dict):
+        decision = parsed_output.get("decision_result")
+        if isinstance(decision, dict):
+            overall = decision.get("overall_decision")
+            if not isinstance(overall, dict):
+                overall = {}
+                decision["overall_decision"] = overall
+            if overall.get("label") in {"car_1", "car_2", "car_3"}:
+                logger.warning(
+                    "[COMPARISON] single_pass_confident_decision_blocked request_id=%s reason=ungrounded_empty_sources original_label=%s",
+                    request_id,
+                    overall.get("label"),
+                )
+            overall["label"] = "unknown"
+            overall["text"] = "לא ניתן להשלים השוואה אמינה כרגע. אפשר לנסות שוב בעוד רגע או לדייק שנתון, מנוע ורמת גימור."
+            decision["category_decisions"] = []
+            decision["key_differences"] = []
+            decision["competitors_to_consider"] = []
+            decision["practical_summary"] = ""
+
     # Minimal, scoreless model_output for storage and source indexing.
     model_output = {
         "cars": {slot_key: {} for slot_key in cars_selected_slots},
