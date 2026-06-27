@@ -220,23 +220,28 @@ def test_stage_a_invalid_repair_valid_returns_200(app, logged_in_client, monkeyp
         headers={"Content-Type": "application/json", "Origin": "http://localhost"},
     )
 
-    def fake_stage_a_parallel(_validated_cars, cars_selected_slots):
-        merged = comparison_service._empty_stage_a_output(cars_selected_slots)
-        for slot_key in cars_selected_slots:
-            merged["cars"][slot_key] = VALID_SINGLE_CAR.copy()
-            merged["sources"].append({"title": "Test", "url": "https://example.com"})
-        sources_index = comparison_service.build_sources_index_from_flat(merged)
-        return merged, sources_index, []
-
-    def fake_writer(*args, **kwargs):
-        return {
-            "narrative_summary": "Test comparison",
+    decision_payload = {
+        "decision_result": {
+            "overall_decision": {"label": "car_1", "text": "עדיפות קלה לרכב הראשון."},
+            "category_decisions": [],
             "key_differences": [],
-            "final_verdict": {"winner": "car_1", "reason": "better"},
-        }, None
+            "choose_car_1_if": ["מי שמחפש אמינות."],
+            "choose_car_2_if": ["מי שמחפש ביצועים."],
+            "avoid_or_check_car_1_if": ["בדקו היסטוריית טיפולים."],
+            "avoid_or_check_car_2_if": ["בדקו עלויות ביטוח."],
+            "competitors_to_consider": [],
+            "practical_summary": "שתי אפשרויות סבירות.",
+        },
+        "checked_versions": {},
+        "sources": ["https://example.com"],
+    }
 
-    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", fake_stage_a_parallel)
-    monkeypatch.setattr(comparison_service, "call_gemini_compare_writer", fake_writer)
+    def fake_single_pass(*args, **kwargs):
+        return decision_payload, None, {"grounding_successful": True, "source_count": 1}
+
+    monkeypatch.setattr(
+        comparison_service, "call_gemini_single_pass_compare", fake_single_pass
+    )
 
     resp = client.post(
         "/api/compare",

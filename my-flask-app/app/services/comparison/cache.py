@@ -5,9 +5,11 @@ import hashlib
 import json
 from typing import Any, Dict, List, Optional, Tuple
 
-COMPARISON_PROMPT_VERSION = "v4"
+COMPARISON_PROMPT_VERSION = "v5_single_pass"
 DECISION_CATEGORY_VERSION = "decision_categories_v2_9"
-SCORING_CONTRACT_VERSION = "scoring_compact_v2"
+# Single-pass grounded compare replaces the two-stage scoring engine. Bumping
+# this guarantees old scored cache rows can never be reused (PART 5).
+SCORING_CONTRACT_VERSION = "single_pass_grounded_v1"
 
 
 def _safe_json_obj(value, default):

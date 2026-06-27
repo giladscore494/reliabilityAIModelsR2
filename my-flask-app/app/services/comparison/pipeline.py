@@ -9,15 +9,10 @@ from flask import current_app
 from app.extensions import db
 from app.models import ComparisonHistory
 from app.services.comparison.cache import compute_request_hash, _safe_parse_json_cached
-from app.services.comparison.fallbacks import (
-    build_deterministic_fallback_narrative,
-    mark_partial_comparison_narrative,
-)
-from app.services.comparison.grounding import call_stage_a_parallel
+from app.services.comparison.grounding import call_gemini_single_pass_compare
 from app.services.comparison.normalization import build_checked_versions, map_cars_to_slots
-from app.services.comparison.prompts import build_compare_writer_prompt, build_compare_writer_retry_prompt
+from app.services.comparison.prompts import build_single_pass_compare_prompt
 from app.services.comparison.schemas import validate_buyer_profile, validate_comparison_request
-from app.services.comparison.computation import compute_comparison_results
 from app.services.comparison.constants import COMPARISON_PROMPT_VERSION
 from app.services.comparison.model_config import (
     comparison_stage_a_model_id,
@@ -29,16 +24,11 @@ from app.services.comparison.decision import build_deterministic_decision_result
 from app.services.comparison.metrics import _inc_compare_metric
 from app.services.comparison.parsing import _extract_stage_a_error_code, _sanitize_stage_a_errors
 from app.services.comparison.writer import (
-    _salvage_partial_writer_output,
-    _summarize_compare_writer_payload,
     _summarize_comparison_narrative_shape,
-    _validate_compare_writer_response,
     _validate_decision_writer_response,
     build_ai_payload,
     build_stored_comparison_ai_payload,
-    call_gemini_compare_writer,
     convert_decision_result_to_narrative,
-    convert_writer_response_to_narrative,
     resolve_comparison_narrative,
     sanitize_decision_result,
 )
@@ -288,34 +278,32 @@ def handle_comparison_request(
                     )
                     db.session.rollback()
 
-    # Stage A: parallel per-car Gemini calls
-    stage_a_start = pytime.perf_counter()
-    model_output, sources_index, stage_a_errors = call_stage_a_parallel(
-        validated_cars, cars_selected_slots
+    # Single grounded pass: collect source-verified evidence AND decide in ONE
+    # Google-grounded Pro call. There is no scoring engine — the model's
+    # reasoning IS the decision (decision_result schema).
+    single_pass_start = pytime.perf_counter()
+    single_pass_prompt = build_single_pass_compare_prompt(validated_cars, buyer_profile)
+    parsed_output, single_pass_error, grounding_meta = call_gemini_single_pass_compare(
+        single_pass_prompt
     )
-    duration_ms = int((pytime.perf_counter() - stage_a_start) * 1000)
+    duration_ms = int((pytime.perf_counter() - single_pass_start) * 1000)
     ai_ms += duration_ms
-    logger.info("[COMPARE_TIMING] request_id=%s stage=stage_a duration_ms=%s", request_id, duration_ms)
-    log_slow_operation(logger, feature="vehicle_comparison", stage="stage_a", duration_ms=duration_ms, request_id=request_id)
-    stage_a_error_code = None
-    stage_a_partial = False
+    logger.info(
+        "[COMPARE_TIMING] request_id=%s stage=single_pass duration_ms=%s", request_id, duration_ms
+    )
+    log_slow_operation(
+        logger, feature="vehicle_comparison", stage="single_pass", duration_ms=duration_ms, request_id=request_id
+    )
 
-    if len(stage_a_errors) == len(validated_cars):
-        stage_a_error_code = _extract_stage_a_error_code(stage_a_errors)
-        sanitized_errors = _sanitize_stage_a_errors(stage_a_errors)
-        # Determine specific all-failed error code
-        timeout_count = sum(1 for e in stage_a_errors if "CALL_TIMEOUT" in e)
-        json_invalid_count = sum(1 for e in stage_a_errors if "MODEL_JSON_INVALID" in e or "REPAIR_" in e)
-        if timeout_count == len(stage_a_errors):
-            stage_a_error_code = "STAGE_A_ALL_FAILED_TIMEOUT"
-        elif json_invalid_count == len(stage_a_errors):
-            stage_a_error_code = "STAGE_A_ALL_FAILED_JSON_INVALID"
-        else:
-            stage_a_error_code = "STAGE_A_ALL_FAILED_MIXED"
+    # Total AI failure: the single grounded call produced no decision at all.
+    # There is no scoring fallback to lean on, so return a clean retryable
+    # error (mirrors the previous all-failed → 503 behavior). Internal error
+    # codes are never exposed to users.
+    if single_pass_error or not isinstance(parsed_output, dict):
         logger.warning(
-            "[COMPARISON] stage_a_all_failed request_id=%s errors=%s",
+            "[COMPARISON] single_pass_unavailable request_id=%s error=%s",
             request_id,
-            sanitized_errors,
+            single_pass_error,
         )
         total_ms = int((pytime.perf_counter() - total_start) * 1000)
         logger.info(
@@ -327,242 +315,110 @@ def handle_comparison_request(
             db_ms,
         )
         log_slow_operation(logger, feature="vehicle_comparison", stage="total", duration_ms=total_ms, request_id=request_id)
-        if all(GROUNDING_FAILED_CODE in e for e in stage_a_errors):
-            return api_error(GROUNDING_FAILED_CODE, GROUNDING_HE_MESSAGE, status=503)
-        if all(GROUNDING_PERMISSION_DENIED_CODE in e for e in stage_a_errors):
+        if GROUNDING_PERMISSION_DENIED_CODE in (single_pass_error or ""):
             return api_error(
                 GROUNDING_PERMISSION_DENIED_CODE,
                 GROUNDING_PERMISSION_DENIED_HE_MESSAGE,
                 status=503,
                 request_id=request_id,
             )
+        if GROUNDING_FAILED_CODE in (single_pass_error or ""):
+            return api_error(GROUNDING_FAILED_CODE, GROUNDING_HE_MESSAGE, status=503)
         return api_error(
             "comparison_ai_unavailable",
             "לא הצלחנו להשלים את ההשוואה כרגע. אפשר לנסות שוב או לדייק שנתון, מנוע ורמת גימור.",
             status=503,
-        )
-    elif stage_a_errors:
-        # Partial failure — log but continue with available data
-        stage_a_partial = True
-        logger.warning(
-            "[COMPARISON] partial_stage_a request_id=%s errors=%s",
-            request_id,
-            _sanitize_stage_a_errors(stage_a_errors),
+            details={
+                "stage": "stage_a",
+                "error_code": "stage_a_unavailable",
+                "retryable": True,
+            },
         )
 
-    # Compute scores deterministically (server-side source of truth)
-    scoring_start = pytime.perf_counter()
-    server_computed_result = compute_comparison_results(model_output)
-    deterministic_ms = int((pytime.perf_counter() - scoring_start) * 1000)
+    grounding_successful = bool(grounding_meta.get("grounding_successful"))
+    source_count = int(grounding_meta.get("source_count") or 0)
+    sources_list = (
+        parsed_output.get("sources")
+        if isinstance(parsed_output, dict) and isinstance(parsed_output.get("sources"), list)
+        else []
+    )
+    sources_list = [s for s in sources_list if isinstance(s, str) and s.strip()]
 
-    # Stage B: non-grounded writer call (full schema + narrative around server results)
-    stage_b_output = None
-    stage_b_error = None
-    narrative = None
-    stage_b_reason = None
+    # Minimal, scoreless model_output for storage and source indexing.
+    model_output = {
+        "cars": {slot_key: {} for slot_key in cars_selected_slots},
+        "sources": sources_list,
+        "assumptions": {},
+        "grounding_successful": grounding_successful,
+        "research_status": {
+            "web_search_required": True,
+            "web_search_performed": grounding_successful,
+            "grounding_successful": grounding_successful,
+            "source_count": source_count,
+        },
+    }
+    sources_index = {"all_sources": sources_list}
+
     validated_decision = None
     decision_validation_reason = None
-    writer_prompt = build_compare_writer_prompt(
-        cars_selected_slots, server_computed_result, model_output, buyer_profile
-    )
-    stage_b_start = pytime.perf_counter()
-    stage_b_output, stage_b_error = call_gemini_compare_writer(writer_prompt)
-    stage_b_ms = int((pytime.perf_counter() - stage_b_start) * 1000)
-    ai_ms += stage_b_ms
-    logger.info("[COMPARE_TIMING] request_id=%s stage=stage_b duration_ms=%s", request_id, stage_b_ms)
-    log_slow_operation(logger, feature="vehicle_comparison", stage="stage_b", duration_ms=stage_b_ms, request_id=request_id)
-    logger.info(
-        "[COMPARISON] stage_b payload request_id=%s partial_stage_a=%s payload_shape=%s",
-        request_id,
-        stage_a_partial,
-        _summarize_compare_writer_payload(stage_b_output),
-    )
-    if isinstance(stage_b_output, dict):
+    if isinstance(parsed_output, dict):
         validated_decision, decision_validation_reason = (
             _validate_decision_writer_response(
-                stage_b_output,
-                cars_selected_slots,
-                server_computed_result,
+                parsed_output, cars_selected_slots, {}
             )
-        )
-    if stage_b_error:
-        logger.warning(
-            f"[COMPARISON] stage_b call failed request_id={request_id} error={stage_b_error}"
-        )
-        stage_b_reason = "stage_b_error"
-        retry_prompt = build_compare_writer_retry_prompt(
-            cars_selected_slots, server_computed_result
-        )
-        retry_output, retry_error = call_gemini_compare_writer(retry_prompt)
-        logger.info(
-            "[COMPARISON] stage_b retry payload request_id=%s partial_stage_a=%s payload_shape=%s",
-            request_id,
-            stage_a_partial,
-            _summarize_compare_writer_payload(retry_output),
-        )
-        if retry_error:
-            logger.warning(
-                f"[COMPARISON] stage_b retry failed request_id={request_id} error={retry_error}"
-            )
-            _inc_compare_metric("compare_ai_fallback_used_total")
-            narrative = build_deterministic_fallback_narrative(
-                cars_selected_slots, server_computed_result
-            )
-        else:
-            validated_retry, retry_reason = _validate_compare_writer_response(
-                retry_output
-            )
-            if validated_retry:
-                narrative = sanitize_comparison_narrative(
-                    convert_writer_response_to_narrative(
-                        validated_retry, cars_selected_slots
-                    )
-                )
-                stage_b_reason = None
-                logger.info(
-                    "[COMPARISON] stage_b retry accepted request_id=%s narrative_shape=%s",
-                    request_id,
-                    _summarize_comparison_narrative_shape(narrative),
-                )
-            else:
-                raw_retry_narrative = (
-                    retry_output.get("narrative")
-                    if isinstance(retry_output, dict)
-                    else None
-                )
-                salvaged_narrative = _salvage_partial_writer_output(
-                    retry_output,
-                    cars_selected_slots,
-                    server_computed_result,
-                )
-                logger.warning(
-                    "[COMPARISON] stage_b retry validation failed request_id=%s reason=%s payload_shape=%s",
-                    request_id,
-                    retry_reason,
-                    _summarize_compare_writer_payload(retry_output),
-                )
-                if salvaged_narrative:
-                    narrative = sanitize_comparison_narrative(salvaged_narrative)
-                    stage_b_reason = None
-                    logger.info(
-                        "[COMPARISON] narrative salvaged from partial writer output request_id=%s narrative_shape=%s",
-                        request_id,
-                        _summarize_comparison_narrative_shape(narrative),
-                    )
-                elif raw_retry_narrative:
-                    narrative = sanitize_comparison_narrative(raw_retry_narrative)
-                    stage_b_reason = None
-                    logger.info(
-                        "[COMPARISON] stage_b retry legacy narrative used request_id=%s narrative_shape=%s",
-                        request_id,
-                        _summarize_comparison_narrative_shape(narrative),
-                    )
-                else:
-                    _inc_compare_metric("compare_ai_fallback_used_total")
-                    narrative = build_deterministic_fallback_narrative(
-                        cars_selected_slots, server_computed_result
-                    )
-    elif isinstance(stage_b_output, dict):
-        if validated_decision:
-            narrative = sanitize_comparison_narrative(
-                convert_decision_result_to_narrative(
-                    validated_decision, cars_selected_slots
-                )
-            )
-            logger.info(
-                "[COMPARISON] narrative generated request_id=%s narrative_shape=%s",
-                request_id,
-                _summarize_comparison_narrative_shape(narrative),
-            )
-            stage_b_reason = None
-        else:
-            validated_writer, validation_reason = _validate_compare_writer_response(
-                stage_b_output
-            )
-            if validated_writer:
-                narrative = sanitize_comparison_narrative(
-                    convert_writer_response_to_narrative(
-                        validated_writer, cars_selected_slots
-                    )
-                )
-                logger.info(
-                    "[COMPARISON] legacy narrative generated request_id=%s narrative_shape=%s",
-                    request_id,
-                    _summarize_comparison_narrative_shape(narrative),
-                )
-                stage_b_reason = None
-            else:
-                raw_narrative = stage_b_output.get("narrative")
-                salvaged_narrative = _salvage_partial_writer_output(
-                    stage_b_output,
-                    cars_selected_slots,
-                    server_computed_result,
-                )
-                logger.warning(
-                    "[COMPARISON] stage_b validation failed request_id=%s reason=%s payload_shape=%s",
-                    request_id,
-                    validation_reason,
-                    _summarize_compare_writer_payload(stage_b_output),
-                )
-                if salvaged_narrative:
-                    narrative = sanitize_comparison_narrative(salvaged_narrative)
-                    logger.info(
-                        "[COMPARISON] narrative salvaged from partial writer output request_id=%s narrative_shape=%s",
-                        request_id,
-                        _summarize_comparison_narrative_shape(narrative),
-                    )
-                    stage_b_reason = None
-                elif raw_narrative:
-                    narrative = sanitize_comparison_narrative(raw_narrative)
-                    logger.info(
-                        "[COMPARISON] narrative generated request_id=%s mode=legacy_deprecated narrative_shape=%s",
-                        request_id,
-                        _summarize_comparison_narrative_shape(narrative),
-                    )
-                    stage_b_reason = None
-                else:
-                    stage_b_reason = "stage_b_error"
-                    _inc_compare_metric("compare_ai_fallback_used_total")
-                    narrative = build_deterministic_fallback_narrative(
-                        cars_selected_slots, server_computed_result
-                    )
-
-    if stage_a_partial:
-        narrative = mark_partial_comparison_narrative(narrative)
-        logger.info(
-            "[COMPARISON] partial_stage_a fallback path used request_id=%s narrative_shape=%s",
-            request_id,
-            _summarize_comparison_narrative_shape(narrative),
         )
 
-    computed_result = enforce_authoritative_numbers(
-        server_computed_result, stage_b_output, request_id
-    )
+    stage_a_error_code = None
+    ai_status = "ok"
+    ai_reason = None
     if validated_decision:
         decision_result = validated_decision["decision_result"]
+        ai_checked_versions = validated_decision.get("checked_versions")
     else:
-        if decision_validation_reason:
-            logger.warning(
-                "[COMPARISON] decision_result fallback request_id=%s reason=%s",
-                request_id,
-                decision_validation_reason,
-            )
-        decision_result = build_deterministic_decision_result(
-            cars_selected_slots, computed_result, stage_b_output
+        ai_status = "fallback"
+        ai_reason = single_pass_error or decision_validation_reason or "single_pass_no_decision"
+        stage_a_error_code = single_pass_error or decision_validation_reason
+        logger.warning(
+            "[COMPARISON] single_pass_decision_fallback request_id=%s reason=%s",
+            request_id,
+            ai_reason,
         )
+        _inc_compare_metric("compare_ai_fallback_used_total")
+        decision_result = build_deterministic_decision_result(
+            cars_selected_slots, {}, parsed_output
+        )
+        ai_checked_versions = None
+
+    # computed_result is now a thin, scoreless container: the decision IS the result.
+    computed_result = {
+        "cars": model_output["cars"],
+        "decision_result": decision_result,
+        "comparison_status": {
+            "requested_cars": len(validated_cars),
+            "cars_with_evidence": len(validated_cars) if grounding_successful else 0,
+            "balanced": True,
+        },
+        "sources": sources_list,
+    }
+
+    narrative = sanitize_comparison_narrative(
+        convert_decision_result_to_narrative(
+            {"decision_result": decision_result}, cars_selected_slots
+        )
+    )
+    logger.info(
+        "[COMPARISON] single_pass narrative request_id=%s grounding_successful=%s source_count=%s narrative_shape=%s",
+        request_id,
+        grounding_successful,
+        source_count,
+        _summarize_comparison_narrative_shape(narrative),
+    )
+
     checked_versions = build_checked_versions(
         cars_selected_slots,
         model_output,
-        validated_decision.get("checked_versions") if validated_decision else None,
+        ai_checked_versions,
     )
-    ai_status = "ok"
-    ai_reason = None
-    if stage_a_partial:
-        ai_status = "partial_fallback"
-        ai_reason = "stage_a_partial"
-    elif stage_b_reason:
-        ai_status = "fallback"
-        ai_reason = stage_b_reason
     ai_payload = build_ai_payload(computed_result, narrative, ai_status, ai_reason)
     comparison_guarded, _ = apply_feature_guardrails(
         "vehicle_comparison",
@@ -684,7 +540,6 @@ __all__ = [
     "handle_comparison_request",
     "build_ai_payload",
     "build_stored_comparison_ai_payload",
-    "convert_writer_response_to_narrative",
     "convert_decision_result_to_narrative",
     "resolve_comparison_narrative",
     "enforce_authoritative_numbers",

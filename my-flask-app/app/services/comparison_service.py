@@ -26,8 +26,10 @@ from app.services.comparison.grounding import (
     build_sources_index_from_flat as _build_sources_index_from_flat_impl,
     call_gemini_comparison as _ground_call_gemini_comparison,
     call_gemini_single_car as _ground_call_gemini_single_car,
+    call_gemini_single_pass_compare as _ground_call_gemini_single_pass_compare,
     call_stage_a_parallel as _call_stage_a_parallel_impl,
     parse_single_car_json,
+    parse_single_pass_compare_json,
     parse_stage_a_json,
 )
 from app.services.comparison import history as _history
@@ -82,16 +84,18 @@ def call_stage_a_parallel(validated_cars, cars_selected_slots):
         grounding.call_gemini_single_car = original
 
 
+def call_gemini_single_pass_compare(prompt, timeout_sec=COMPARE_STAGE_A_TIMEOUT_SEC):  # noqa: F405
+    """Compatibility wrapper so tests can monkeypatch the single grounded call."""
+    return _ground_call_gemini_single_pass_compare(prompt, timeout_sec)
+
+
 def handle_comparison_request(data, user_id, session_id, owner_bypass=False):
-    original_stage_a = _pipeline.call_stage_a_parallel
-    original_stage_b = _pipeline.call_gemini_compare_writer
-    _pipeline.call_stage_a_parallel = call_stage_a_parallel
-    _pipeline.call_gemini_compare_writer = call_gemini_compare_writer
+    original_single_pass = _pipeline.call_gemini_single_pass_compare
+    _pipeline.call_gemini_single_pass_compare = call_gemini_single_pass_compare
     try:
         return _pipeline.handle_comparison_request(data, user_id, session_id, owner_bypass)
     finally:
-        _pipeline.call_stage_a_parallel = original_stage_a
-        _pipeline.call_gemini_compare_writer = original_stage_b
+        _pipeline.call_gemini_single_pass_compare = original_single_pass
 
 
 def get_comparison_history(user_id, limit=10):

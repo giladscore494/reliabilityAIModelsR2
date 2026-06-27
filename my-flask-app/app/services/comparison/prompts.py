@@ -332,13 +332,219 @@ def build_single_car_prompt(car: Dict, region: str = "IL") -> str:
         "Task: Stage A evidence collection for one Israeli-market car.\n"
         "Catalog-first: exact catalog identity fields must come from LOCAL_VEHICLE_CATALOG_CONTEXT. "
         "Web evidence is only for analytical claims; conflicts go in uncertainties_conflicts.\n"
-        "Ground analytical claims with official/safety/importer/credible automotive/price sources.\n\n"
+        "Use Google Search grounding for analytical claims; ground them with "
+        "official/safety/importer/credible automotive/price sources.\n\n"
         f"{bounded_car}\n"
         f"Region: {region}\n\n"
         f"JSON schema shape:\n{schema_json}\n\n"
         "Do not output placeholder enums like 'high|medium|low'. "
         "Fill car_profile.evidence, compact scoring sections only when supported, top-level facts, and URL sources. "
         "No comparison, scores, winner, or invented facts."
+    )
+
+
+# Single-pass grounded compare prompt body (collect → reason → decide in ONE
+# grounded call). Kept as a plain string (not an f-string) so the embedded JSON
+# braces need no escaping. Runtime inputs are appended below.
+SINGLE_PASS_COMPARE_PROMPT_BODY = r"""ROLE
+You are a senior used-car analyst for the Israeli second-hand market (יד-שנייה).
+In ONE grounded response you do two jobs:
+  1. COLLECT — gather source-verified evidence for each car.
+  2. DECIDE  — reason over that evidence and output a clean Hebrew decision.
+There is NO scoring engine behind you. Your reasoning IS the decision.
+An unsupported claim is worse than an omitted one. When unsure, omit.
+
+INPUTS (below)
+- locked_catalog[]: dry technical identity per car from the catalog.
+  When match_type == "exact", these fields are FACTS — not suggestions.
+- buyer_profile: preference context ONLY. It shapes fit explanations.
+  It never changes a car's facts and never overrides catalog identity.
+- region: IL.
+
+GROUNDING & SOURCE DISCIPLINE
+- Use Google grounding for EVERY non-catalog factual claim:
+  prices, אגרה, recalls/תקלות, צריכה, safety ratings, resale/סחירות.
+- Source tiers (prefer top, distrust bottom):
+    Tier 1 — יבואן רשמי, יצרן, משרד התחבורה, רשות המסים, Euro/Global NCAP.
+    Tier 2 — עיתונות רכב מקצועית, מבחני דרך מוכרים.
+    Tier 3 — לוחות / אגרגטורים (autoboom, yad2). Use ONLY for asking-price
+             ranges. NEVER for reliability, safety, specs, recalls.
+- Attach a source URL to every grounded claim.
+- VERIFICATION GATE: keep a fact only if it is (a) catalog-backed, OR
+  (b) backed by a Tier-1/Tier-2 source. Otherwise drop it silently.
+
+CATALOG IDENTITY LOCK
+- For any car with match_type == "exact", NEVER alter:
+  make, model, year, version_or_trim/trim, engine_type, transmission,
+  drivetrain, seats.
+- If grounded evidence contradicts locked identity: KEEP the catalog identity.
+  Record the discrepancy ONLY inside checked_versions[slot].notes as a neutral
+  verification note. Never surface it as a user-facing caveat card.
+
+OMISSION RULE (the heart of this design)
+- Missing/unverified information is removed at the source.
+- You NEVER output, in any user-facing field:
+  מידע חסר, חסר מידע, לא מאומת, לא אומת, דורש אימות, מחקר חלקי, איכות מידע,
+  אין מספיק מידע, לא נמצא מידע, ייתכן, אולי, לא בטוח, unknown, unavailable,
+  not verified, insufficient data, missing data, partial research —
+  or any equivalent.
+- The signal for "we don't know" is the ABSENCE of the field, not a sentence
+  about absence. Drop the field / item / category entirely.
+- ONLY exception: checked_versions[slot].notes may use neutral bookkeeping
+  wording (e.g. "מומלץ לאמת מול רישיון הרכב"), because that block is identity
+  accounting — not a content card.
+
+REASONING (per category, then overall)
+- Cover up to 9 categories:
+  pricing_and_value, trim_and_equipment, license_fee_and_running_cost,
+  fuel_consumption, official_safety, powertrain_and_performance,
+  reliability_and_risk, family_daily_use, resale_and_market_confidence.
+- For each category, compare using ONLY verified evidence + locked catalog
+  facts. Put the actual reasoning in `why` (concrete, not generic).
+  Pick preferred ∈ {car_1, car_2, tie, depends}.
+    - "depends" when the answer hinges on buyer_profile — explain on what.
+- If a category has no Tier-1/2 evidence on EITHER side, OMIT the whole
+  category object. Do not emit it with empty/uncertain reasoning.
+- Overall: synthesize only the categories that survived into one judgment.
+  Soft language only.
+
+DECISION FLOOR (anti over-omission — Israeli long-tail data is thin)
+- Count distinct grounded facts that survived the verification gate across
+  both cars.
+- If FEWER THAN 4 facts survived in total, OR neither car has any Tier-1/2
+  evidence in BOTH official_safety AND reliability_and_risk:
+    → Do NOT manufacture a decision.
+    → overall_decision.label = "unknown"
+    → overall_decision.text  = the clean neutral fallback (below)
+    → return whatever verified category_decisions exist (may be empty)
+    → fill checked_versions honestly. Do NOT pad arrays.
+- Above the floor: produce a real, reasoned decision.
+
+CLEAN NEUTRAL FALLBACK (Hebrew, use verbatim when the floor is not met):
+  overall_decision.text:
+    "לא ניתן לתת עדיפות ברורה בין הרכבים על בסיס המידע המאומת הזמין.
+     כדאי לדייק שנתון, מנוע ורמת גימור כדי לקבל השוואה חדה יותר."
+
+HARD OUTPUT RULES
+1. No /100, /10, scores, ציון, ניקוד, weights, winner formulas.
+2. No "המנצח" / best. Soft only: "עדיפות קלה", "תלוי שימוש",
+   "אין הכרעה חד-משמעית".
+3. No first person. No "אני ממליץ", "הייתי קונה", "תקנה", "אל תקנה".
+4. No direct purchase command, no "הרכב הטוב ביותר".
+5. Transmission/engine/year consistency: never flip a catalog/user-stated
+   transmission. Keep the locked label, or null + a note. Silently flipping
+   אוטומטית↔ידנית is a critical error.
+6. Transmission labels in checked_versions: general only — אוטומטית, רובוטית,
+   רציפה, ידנית, או null. Never DSG/DCT/DHT/CVT as the visible default.
+7. Hebrew for all user-facing text. Neutral, practical, no marketing tone.
+
+OUTPUT — return ONLY valid JSON, EXACTLY this top-level schema. No prose,
+no markdown fences:
+
+{
+  "decision_result": {
+    "overall_decision": { "label": "car_1|car_2|tie|depends|unknown",
+                          "text": "Hebrew practical summary, no scores" },
+    "category_decisions": [
+      { "category_key": "pricing_and_value",
+        "category_name_he": "מחיר ותמורה",
+        "preferred": "car_1|car_2|tie|depends",
+        "why": "Hebrew reasoning grounded in verified evidence",
+        "important_caveat": "string|null" }
+    ],
+    "key_differences": [
+      { "title": "string",
+        "car_1": "string", "car_2": "string",
+        "meaning_for_buyer": "string" }
+    ],
+    "choose_car_1_if": ["Hebrew string"],
+    "choose_car_2_if": ["Hebrew string"],
+    "avoid_or_check_car_1_if": ["Hebrew string"],
+    "avoid_or_check_car_2_if": ["Hebrew string"],
+    "competitors_to_consider": [
+      { "model": "string", "why_consider": "string",
+        "confidence": "high|medium|low" }
+    ],
+    "practical_summary": "Hebrew paragraph. Neutral. No first person. No buy/don't-buy command."
+  },
+  "checked_versions": {
+    "car_1": { "make":"", "model":"", "year":"", "trim":"", "engine_type":"",
+               "transmission":"", "drivetrain":"", "seats":"",
+               "data_basis":"user_input|verified_source|catalog|mixed",
+               "confidence":"high|medium|low",
+               "notes":"Hebrew verification note" },
+    "car_2": { }
+  },
+  "sources": ["url"]
+}
+
+FIELD RULES
+- category_decisions: include ONLY categories that passed the verification
+  gate. An omitted category is correct behavior, not a defect.
+- choose_/avoid_ arrays: 1-3 grounded Hebrew strings per car ONLY when that
+  car has usable verified evidence. If it doesn't, return [] — do not invent.
+- sources: deduplicated list of every URL actually used. If empty, the floor
+  was not met and label must be "unknown".
+- checked_versions: mandatory for every car; mirror locked catalog identity
+  exactly for exact matches.
+"""
+
+
+def build_single_pass_compare_prompt(
+    cars: List[Dict[str, str]],
+    buyer_profile: Optional[Dict[str, Any]] = None,
+    region: str = "IL",
+) -> str:
+    """Build the ONE grounded compare call (collect + reason + decide).
+
+    Drop-in replacement for the Stage A grounding + Stage B writer pair: a
+    single Google-grounded Pro call that returns the existing decision_result
+    schema (plus checked_versions + sources). The locked catalog identity for
+    each car is injected so the model treats exact matches as facts.
+    """
+    sanitized_cars: List[Dict[str, Any]] = []
+    catalog_blocks: List[str] = []
+    for i, car in enumerate(cars):
+        sanitized_car = {
+            "slot": f"car_{i + 1}",
+            "make": escape_prompt_input(car.get("make", ""), max_length=50),
+            "model": escape_prompt_input(car.get("model", ""), max_length=100),
+        }
+        if car.get("year"):
+            sanitized_car["year"] = int(car.get("year"))
+        if car.get("engine_type"):
+            sanitized_car["engine_type"] = escape_prompt_input(
+                car.get("engine_type", ""), max_length=50
+            )
+        if car.get("gearbox"):
+            sanitized_car["gearbox"] = escape_prompt_input(
+                car.get("gearbox", ""), max_length=50
+            )
+        sanitized_cars.append(sanitized_car)
+        catalog_blocks.append(
+            f"[car_{i + 1}] {build_vehicle_catalog_context(car)['prompt_block']}"
+        )
+
+    slot_mapping_text = "\n".join(
+        f"  car_{i + 1}: {build_display_name(car)}" for i, car in enumerate(cars)
+    )
+    bounded_cars = wrap_user_input_in_boundary(
+        json.dumps(sanitized_cars, ensure_ascii=False), boundary_tag="cars_input"
+    )
+    buyer_profile_json = json.dumps(buyer_profile or {}, ensure_ascii=False)
+    data_instruction = create_data_only_instruction()
+
+    return (
+        f"{SINGLE_PASS_COMPARE_PROMPT_BODY}\n\n"
+        "================ INPUTS ================\n"
+        f"region: {region}\n\n"
+        f"{data_instruction}\n\n"
+        "locked_catalog[] (per-car catalog identity — exact matches are FACTS):\n"
+        f"{chr(10).join(catalog_blocks)}\n\n"
+        "Slot keys to use (do not rename):\n"
+        f"{slot_mapping_text}\n\n"
+        f"User-selected cars:\n{bounded_cars}\n\n"
+        f"buyer_profile (preference context only):\n{buyer_profile_json}\n"
     )
 
 

@@ -184,6 +184,143 @@ def parse_stage_a_json(raw_text: str) -> Tuple[Optional[Dict[str, Any]], Optiona
     return None, "MODEL_JSON_INVALID"
 
 
+def parse_single_pass_compare_json(
+    raw_text: str,
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Parse the single-pass compare JSON: {decision_result, checked_versions, sources}."""
+    candidate = _extract_first_json_object(_strip_json_code_fences(raw_text))
+    for current in (candidate, _repair_json_once(candidate) if candidate else None):
+        if not current:
+            continue
+        try:
+            parsed = json.loads(current)
+        except json.JSONDecodeError:
+            snippet = (current or "")[:500].replace("\n", " ")
+            logger.warning(
+                "[COMPARISON] single_pass_json_rejected reason=json_decode_error snippet=%.500s",
+                snippet,
+            )
+            continue
+        if isinstance(parsed, dict) and isinstance(parsed.get("decision_result"), dict):
+            return parsed, None
+        top_keys = list(parsed.keys())[:20] if isinstance(parsed, dict) else None
+        logger.warning(
+            "[COMPARISON] single_pass_json_rejected reason=validation_failed top_keys=%s",
+            top_keys,
+        )
+    return None, "MODEL_JSON_INVALID"
+
+
+def call_gemini_single_pass_compare(
+    prompt: str, timeout_sec: int = COMPARE_STAGE_A_TIMEOUT_SEC
+) -> Tuple[Optional[Dict], Optional[str], Dict[str, Any]]:
+    """Single grounded Pro call that collects evidence AND decides in one pass.
+
+    Returns (parsed_output, error_string, grounding_meta). The grounding meta
+    is server-owned (derived from real Google Search signals on the response),
+    never model-asserted.
+    """
+    import concurrent.futures
+    from app.factory import AI_EXECUTOR, AI_EXECUTOR_WORKERS
+
+    start_time = pytime.perf_counter()
+    prompt_chars = len(prompt or "")
+    outcome = "ok"
+    outcome_reason = None
+    model_used = comparison_stage_a_model_id()
+    fallback_reason = None
+    grounding_meta: Dict[str, Any] = {"grounding_successful": False, "source_count": 0}
+    try:
+        if extensions.ai_client is None:
+            outcome = "error"
+            outcome_reason = "CLIENT_NOT_INITIALIZED"
+            return None, "CLIENT_NOT_INITIALIZED", grounding_meta
+
+        config = genai_types.GenerateContentConfig(
+            temperature=COMPARE_STAGE_A_TEMPERATURE,
+            top_p=0.8,
+            top_k=20,
+            max_output_tokens=COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
+            tools=[_google_search_tool()],
+        )
+
+        def _invoke():
+            return _generate_content_with_404_fallback(
+                feature="comparison_single_pass",
+                model=comparison_stage_a_model_id(),
+                contents=prompt,
+                config=config,
+            )
+
+        work_queue = getattr(AI_EXECUTOR, "_work_queue", None)
+        if work_queue is not None and work_queue.qsize() >= AI_EXECUTOR_WORKERS:
+            outcome = "error"
+            outcome_reason = "SERVER_BUSY"
+            return None, "SERVER_BUSY", grounding_meta
+
+        try:
+            future = AI_EXECUTOR.submit(_invoke)
+        except Exception:
+            outcome = "error"
+            outcome_reason = "EXECUTOR_SATURATED"
+            return None, "EXECUTOR_SATURATED", grounding_meta
+
+        try:
+            resp, model_used, fallback_reason = future.result(timeout=timeout_sec)
+        except concurrent.futures.TimeoutError:
+            future.cancel()
+            _inc_compare_metric("compare_ai_failures_total", reason="timeout")
+            _inc_compare_metric("compare_stage_a_timeout_total")
+            outcome = "timeout"
+            outcome_reason = "CALL_TIMEOUT"
+            return None, "CALL_TIMEOUT", grounding_meta
+        except Exception as e:
+            _log_ai_client_error("comparison_single_pass", e)
+            _inc_compare_metric("compare_stage_a_error_total")
+            outcome = "error"
+            outcome_reason = type(e).__name__
+            if _is_output_too_long_error(str(e)):
+                return None, "CALL_FAILED_OUTPUT_TOO_LONG", grounding_meta
+            return None, f"CALL_FAILED:{type(e).__name__}", grounding_meta
+
+        if resp is None:
+            outcome = "error"
+            outcome_reason = "CALL_FAILED_EMPTY"
+            return None, "CALL_FAILED:EMPTY", grounding_meta
+
+        grounding_meta = _extract_stage_a_grounding(resp)
+        text = (getattr(resp, "text", "") or "").strip()
+        if not text:
+            outcome = "error"
+            outcome_reason = "EMPTY_RESPONSE"
+            return None, "EMPTY_RESPONSE", grounding_meta
+
+        parsed, parse_error = parse_single_pass_compare_json(text)
+        if parse_error:
+            outcome = "error"
+            outcome_reason = parse_error
+            _inc_compare_metric("compare_stage_a_json_invalid_total")
+            return None, parse_error, grounding_meta
+        return parsed, None, grounding_meta
+
+    finally:
+        duration_ms = (pytime.perf_counter() - start_time) * 1000
+        current_app.logger.info(
+            "[AI] feature=comparison_single_pass model=%s duration_ms=%.2f prompt_chars=%s prompt_tokens_est=%s max_output_tokens=%s timeout_ms=%s tools_enabled=%s grounding_successful=%s source_count=%s outcome=%s reason=%s",
+            model_used,
+            duration_ms,
+            prompt_chars,
+            _estimate_token_count(prompt),
+            COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
+            int(timeout_sec * 1000),
+            True,
+            grounding_meta.get("grounding_successful"),
+            grounding_meta.get("source_count"),
+            outcome,
+            fallback_reason or outcome_reason,
+        )
+
+
 def call_gemini_comparison(
     prompt: str, timeout_sec: int = COMPARE_STAGE_A_TIMEOUT_SEC
 ) -> Tuple[Optional[Dict], Optional[str]]:
@@ -964,6 +1101,8 @@ def build_sources_index_from_flat(merged_output: Dict) -> Dict:
 
 __all__ = [
     "call_gemini_comparison",
+    "call_gemini_single_pass_compare",
+    "parse_single_pass_compare_json",
     "call_gemini_single_car",
     "_call_gemini_single_car_raw",
     "call_stage_a_parallel",

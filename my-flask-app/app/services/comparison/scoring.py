@@ -361,8 +361,11 @@ def determine_winner(
 ) -> Optional[str]:
     """Determine winner from a dict of car_id -> score. Returns 'tie' if scores are close."""
     valid_scores = {k: v for k, v in scores.items() if v is not None}
-    if len(valid_scores) < 2:
+    if not valid_scores:
         return None
+    if len(valid_scores) == 1:
+        # A single car with a usable score is the only candidate.
+        return next(iter(valid_scores))
     sorted_scores = sorted(valid_scores.items(), key=lambda x: x[1], reverse=True)
     top_score = sorted_scores[0][1]
     second_score = sorted_scores[1][1]
