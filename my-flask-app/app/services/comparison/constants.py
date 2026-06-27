@@ -14,7 +14,7 @@ CHECKED_VERSION_DATA_BASIS_ALLOWED = {
 }
 CHECKED_VERSION_CONFIDENCE_ALLOWED = {"high", "medium", "low", "unverified"}
 
-COMPARISON_PROMPT_VERSION = "v4"
+COMPARISON_PROMPT_VERSION = "v5_single_pass"
 COMPARISON_MODEL_ID = (
     os.environ.get("COMPARISON_STAGE_A_MODEL")
     or os.environ.get("GEMINI_COMPARE_MODEL_ID")
@@ -95,6 +95,12 @@ DECISION_CATEGORY_DEFINITIONS = [
 DECISION_ALLOWED_LABELS = {"car_1", "car_2", "car_3", "tie", "depends", "unknown"}
 DECISION_TEXT_FALLBACK_HE = (
     "המערכת לא הצליחה לנסח סיכום ניטרלי, לכן יש להסתמך על פירוט הקטגוריות."
+)
+# Clean neutral fallback used by the single-pass compare flow when the
+# decision floor is not met (too little verified evidence). No invented winner.
+DECISION_NEUTRAL_FALLBACK_HE = (
+    "לא ניתן לתת עדיפות ברורה בין הרכבים על בסיס המידע המאומת הזמין. "
+    "כדאי לדייק שנתון, מנוע ורמת גימור כדי לקבל השוואה חדה יותר."
 )
 DECISION_FORBIDDEN_TEXT_RE = re.compile(
     r"(\d+\s*/\s*100|\d+\s*/\s*10|winnerScore|overall_score|category_score|ציון|ניקוד|מתוך 100|נקודות מתוך|אני ממליץ|הייתי קונה|תקנה|אל תקנה|המנצח הברור|הרכב הטוב ביותר)",

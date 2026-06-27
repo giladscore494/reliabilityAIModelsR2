@@ -10,6 +10,7 @@ from app.services.comparison.constants import (
     CATEGORY_LABELS_HE,
     DECISION_CATEGORY_DEFINITIONS,
     DECISION_FORBIDDEN_TEXT_RE,
+    DECISION_NEUTRAL_FALLBACK_HE,
     DECISION_TEXT_FALLBACK_HE,
 )
 from app.services.comparison.parsing import (
@@ -170,18 +171,6 @@ def _build_slot_guidance_lists(
         if caveat:
             _append_unique_text(shared_caveats, caveat, max_items=1)
 
-    for category_key, winner in (
-        (computed_result.get("category_winners") or {}).items()
-        if isinstance(computed_result, dict)
-        else []
-    ):
-        normalized_winner = _normalize_compare_writer_winner(winner, slot_keys)
-        category_name = _decision_category_name_he(category_key)
-        if normalized_winner == slot_key:
-            _append_unique_text(category_advantages, category_name)
-        elif normalized_winner not in {None, "unknown", "depends", "tie"}:
-            _append_unique_text(category_tradeoffs, category_name)
-
     diff_insight = ""
     for item in key_differences:
         if not isinstance(item, dict):
@@ -248,18 +237,13 @@ def build_deterministic_decision_result(
         computed_result.get("cars") or {},
         _extract_decision_slot_keys(source_decision_result),
     )
-    winner = _normalize_compare_writer_winner(
-        computed_result.get("overall_winner"), slot_keys
-    )
-    if winner in slot_keys:
-        label = winner
-        text = "קיימת עדיפות קלה לפי המידע הזמין, אך ההחלטה תלויה בבדיקת מצב הרכב בפועל ובהתאמה לשימוש."
-    elif winner == "tie":
-        label = "tie"
-        text = "אין הכרעה חד משמעית על בסיס המידע הזמין; חשוב להשוות מצב, היסטוריית טיפולים ועלויות צפויות."
-    else:
-        label = "unknown"
-        text = "אין מספיק מידע מאומת כדי לקבוע עדיפות ברורה בין הרכבים."
+    # Single-pass design: there is no scoring engine and therefore no
+    # overall_winner to lean on. When the grounded model output cannot be
+    # parsed, we never manufacture a winner — we return a clean neutral
+    # "unknown" decision and let the model's own reasoning (when present)
+    # drive the result via sanitize_decision_result.
+    label = "unknown"
+    text = DECISION_NEUTRAL_FALLBACK_HE
 
     category_decisions = []
     for key, name in DECISION_CATEGORY_DEFINITIONS:
@@ -268,7 +252,7 @@ def build_deterministic_decision_result(
                 "category_key": key,
                 "category_name_he": name,
                 "preferred": "unknown",
-                "why": "אין מספיק מידע מנוסח ללא ציונים בקטגוריה זו.",
+                "why": "אין מספיק מידע מאומת מנוסח בקטגוריה זו.",
                 "important_caveat": "יש לאמת נתונים מול מקורות רשמיים ובדיקת רכב בפועל.",
             }
         )
