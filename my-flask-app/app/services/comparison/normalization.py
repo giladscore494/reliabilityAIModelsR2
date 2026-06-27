@@ -105,7 +105,7 @@ def _sanitize_checked_versions(
 
 
 _PUBLIC_FORBIDDEN_RE = re.compile(
-    r"(לא מאומת|לא אומת|יש לאמת|דורש אימות|מידע חסר|אין מספיק מידע|מחקר חלקי|דטרמיניסטית|קטלוג מקומי|התאמת קטלוג|מקור מאומת|בסיס נתונים|generated|deterministic|catalog fallback|confidence|data_basis)",
+    r"(לא ידוע|לבדיקה|לא מאומת|לא אומת|יש לאמת|דורש אימות|מידע חסר|אין מספיק מידע|מחקר חלקי|דטרמיניסטית|קטלוג מקומי|התאמת קטלוג|מקור מאומת|בסיס נתונים|generated|deterministic|catalog fallback|confidence|data_basis)",
     re.IGNORECASE,
 )
 
@@ -237,13 +237,13 @@ def build_checked_versions(
                 or selection.get("gearbox")
             )
         else:
-            # Honor the user's general transmission choice over a more specific
-            # grounded gearbox (keep "רובוטית" rather than expanding a grounded
-            # DSG to "רובוטית כפולת מצמדים"); see Stage B writer HARD RULE 14.
+            # Prefer precise grounded/catalog gearbox facts over generic user
+            # selections so public output does not show misleading "אוטומטית"
+            # when a robotized/single-clutch fact is known.
             transmission = _normalize_general_transmission_label(
-                selection.get("gearbox")
-                or powertrain.get("transmission")
+                powertrain.get("transmission")
                 or powertrain.get("gearbox")
+                or selection.get("gearbox")
             )
         drivetrain = _normalize_checked_version_text(
             powertrain_source.get("drivetrain") or powertrain.get("drivetrain"),
