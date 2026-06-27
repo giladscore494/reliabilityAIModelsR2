@@ -22,6 +22,8 @@ COMPARISON_MODEL_ID = (
 )
 AI_CALL_TIMEOUT_SEC = int(os.environ.get("AI_CALL_TIMEOUT_SEC", "170"))
 COMPARE_STAGE_A_TIMEOUT_SEC = max(1, int(os.environ.get("COMPARISON_STAGE_A_TIMEOUT_MS", "60000")) // 1000) if os.environ.get("COMPARISON_STAGE_A_TIMEOUT_MS") else int(os.environ.get("COMPARE_STAGE_A_TIMEOUT_SEC", "60"))
+COMPARE_SINGLE_PASS_TIMEOUT_SEC = int(os.environ.get("COMPARE_SINGLE_PASS_TIMEOUT_SEC", "120"))
+COMPARE_SINGLE_PASS_MAX_REMOTE_CALLS = int(os.environ.get("COMPARE_SINGLE_PASS_MAX_REMOTE_CALLS", "8"))
 COMPARE_STAGE_A_REPAIR_TIMEOUT_SEC = int(os.environ.get("COMPARE_STAGE_A_REPAIR_TIMEOUT_SEC", "15"))
 COMPARE_STAGE_A_REPAIR_MAX_OUTPUT_TOKENS = int(os.environ.get("COMPARE_STAGE_A_REPAIR_MAX_OUTPUT_TOKENS", "1200"))
 COMPARE_STAGE_A_REPAIR_MAX_INPUT_CHARS = int(os.environ.get("COMPARE_STAGE_A_REPAIR_MAX_INPUT_CHARS", "4000"))
@@ -99,8 +101,7 @@ DECISION_TEXT_FALLBACK_HE = (
 # Clean neutral fallback used by the single-pass compare flow when the
 # decision floor is not met (too little verified evidence). No invented winner.
 DECISION_NEUTRAL_FALLBACK_HE = (
-    "לא ניתן לתת עדיפות ברורה בין הרכבים על בסיס המידע המאומת הזמין. "
-    "כדאי לדייק שנתון, מנוע ורמת גימור כדי לקבל השוואה חדה יותר."
+    "לא ניתן להשלים השוואה אמינה כרגע. אפשר לנסות שוב בעוד רגע או לדייק שנתון, מנוע ורמת גימור."
 )
 DECISION_FORBIDDEN_TEXT_RE = re.compile(
     r"(\d+\s*/\s*100|\d+\s*/\s*10|winnerScore|overall_score|category_score|ציון|ניקוד|מתוך 100|נקודות מתוך|אני ממליץ|הייתי קונה|תקנה|אל תקנה|המנצח הברור|הרכב הטוב ביותר)",

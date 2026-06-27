@@ -109,7 +109,7 @@ def _patch_single_pass(monkeypatch, result):
     monkeypatch.setattr(
         comparison_service,
         "call_gemini_single_pass_compare",
-        lambda _prompt, timeout_sec=comparison_service.COMPARE_STAGE_A_TIMEOUT_SEC: result,
+        lambda _prompt, timeout_sec=comparison_service.COMPARE_SINGLE_PASS_TIMEOUT_SEC: result,
     )
 
 
@@ -219,8 +219,7 @@ def test_single_pass_unknown_floor_returns_neutral_fallback(
         label="unknown", sources=[], grounding=False, fill_arrays=False
     )
     result[0]["decision_result"]["overall_decision"]["text"] = (
-        "לא ניתן לתת עדיפות ברורה בין הרכבים על בסיס המידע המאומת הזמין. "
-        "כדאי לדייק שנתון, מנוע ורמת גימור כדי לקבל השוואה חדה יותר."
+        "לא ניתן להשלים השוואה אמינה כרגע. אפשר לנסות שוב בעוד רגע או לדייק שנתון, מנוע ורמת גימור."
     )
     _patch_single_pass(monkeypatch, result)
 
@@ -228,7 +227,7 @@ def test_single_pass_unknown_floor_returns_neutral_fallback(
     assert resp.status_code == 200
     decision = resp.get_json()["data"]["decision_result"]
     assert decision["overall_decision"]["label"] == "unknown"
-    assert "לא ניתן לתת עדיפות ברורה" in decision["overall_decision"]["text"]
+    assert "לא ניתן להשלים השוואה אמינה" in decision["overall_decision"]["text"]
 
 
 def test_single_pass_total_failure_returns_503_without_persisting(
@@ -249,8 +248,8 @@ def test_single_pass_total_failure_returns_503_without_persisting(
     assert body["ok"] is False
     assert body["error"]["code"] == "comparison_ai_unavailable"
     details = body["error"]["details"]
-    assert details["stage"] == "stage_a"
-    assert details["error_code"] == "stage_a_unavailable"
+    assert details["stage"] == "single_pass"
+    assert details["error_code"] == "single_pass_unavailable"
     assert details["retryable"] is True
     with app.app_context():
         assert ComparisonHistory.query.count() == 0
@@ -329,3 +328,48 @@ def test_single_pass_second_identical_request_is_cached(
     payload = second.get_json()["data"]
     assert payload["cached"] is True
     assert payload["decision_result"]["overall_decision"]["label"] == "car_1"
+
+
+def test_single_pass_timeout_constant_is_used(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(comparison_service, "COMPARE_STAGE_A_TIMEOUT_SEC", 7)
+    monkeypatch.setattr(comparison_service, "COMPARE_SINGLE_PASS_TIMEOUT_SEC", 123)
+    monkeypatch.setattr(
+        comparison_service,
+        "_ground_call_gemini_single_pass_compare",
+        lambda _prompt, timeout_sec: seen.setdefault("timeout", timeout_sec) or ({}, None, {}),
+    )
+    comparison_service.call_gemini_single_pass_compare("prompt")
+    assert seen["timeout"] == 123
+
+
+def test_fallback_decision_has_no_forbidden_placeholder_text():
+    decision = comparison_service.build_deterministic_decision_result(
+        {"car_1": {"display_name": "A"}, "car_2": {"display_name": "B"}}, {}, None
+    )
+    text = str(decision)
+    assert decision["category_decisions"] == []
+    assert "אין מספיק מידע מאומת" not in text
+    assert "יש לאמת" not in text
+
+
+def test_compare_catalog_lazy_endpoint(client):
+    resp = client.get("/api/compare/catalog")
+    assert resp.status_code == 200
+    assert "max-age=3600" in resp.headers.get("Cache-Control", "")
+    assert isinstance(resp.get_json()["data"]["catalog"], dict)
+
+
+def test_compare_frontend_keeps_decision_result_for_fallback_ai_status():
+    from pathlib import Path
+    template = Path("templates/compare.html").read_text(encoding="utf-8")
+    assert "const decision = result.decision_result || computed.decision_result || null;" in template
+    assert "isPartialResearch ? buildLegacyDecisionFallback" not in template
+    assert "categoriesSection.innerHTML = hasUsableDecision ? renderDecisionSections" in template
+
+
+def test_active_compare_pipeline_does_not_call_legacy_scoring():
+    from pathlib import Path
+    pipeline = Path("app/services/comparison/pipeline.py").read_text(encoding="utf-8")
+    assert "compute_comparison_results(" not in pipeline
+    assert "compute_overall_score(" not in pipeline

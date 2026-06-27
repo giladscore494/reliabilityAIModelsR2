@@ -3,7 +3,7 @@
 
 import re
 from datetime import datetime, timedelta
-from flask import Blueprint, render_template, request, current_app, session
+from flask import Blueprint, render_template, request, current_app, session, make_response
 from flask_login import current_user, login_required
 
 from app.services.vehicle_catalog_service import get_vehicle_catalog_ui_data, get_flat_vehicle_catalog
@@ -46,7 +46,8 @@ def compare_page():
             user=current_user,
             user_email="",
             is_owner=False,
-            car_models_data=get_vehicle_catalog_ui_data(),
+            car_models_data={},
+            compare_catalog_url='/api/compare/catalog',
             legal_accepted=False,
             compare_results_acknowledged=False,
             accepted_terms=False,
@@ -74,7 +75,8 @@ def compare_page():
         user=current_user,
         user_email=user_email,
         is_owner=is_owner_user(),
-        car_models_data=get_vehicle_catalog_ui_data(),
+        car_models_data={},
+        compare_catalog_url='/api/compare/catalog',
         legal_accepted=legal_accepted,
         compare_results_acknowledged=compare_results_acknowledged,
         accepted_terms=legal_accepted,
@@ -84,6 +86,14 @@ def compare_page():
         compare_result_ack_key=COMPARE_RESULT_ACK_KEY,
         compare_result_ack_version=COMPARE_RESULT_ACK_VERSION,
     )
+
+
+@bp.route('/api/compare/catalog', methods=['GET'])
+def compare_catalog():
+    """Cacheable catalog payload for the compare-page autocomplete."""
+    resp = make_response(api_ok({"catalog": get_vehicle_catalog_ui_data()}))
+    resp.headers["Cache-Control"] = "public, max-age=3600"
+    return resp
 
 
 @bp.route('/api/compare', methods=['POST'])

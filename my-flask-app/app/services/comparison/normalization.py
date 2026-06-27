@@ -304,9 +304,20 @@ def build_checked_versions(
 
         merged = dict(fallback)
         ai_version = ai_checked_versions.get(slot_key) or {}
+        locked_identity_keys = {
+            "make", "model", "year", "trim", "version_or_trim", "engine",
+            "engine_type", "transmission", "drivetrain", "seats",
+            "data_basis", "confidence",
+        }
         for key, value in ai_version.items():
-            if value:
-                merged[key] = value
+            if not value:
+                continue
+            if catalog_exact and key in locked_identity_keys:
+                continue
+            if catalog_exact and key == "notes":
+                merged[key] = " ".join(part for part in [merged.get("notes"), value] if part)
+                continue
+            merged[key] = value
         if not merged.get("transmission"):
             merged["transmission"] = CHECKED_VERSION_UNKNOWN_HE
         merged["transmission"] = _normalize_general_transmission_label(

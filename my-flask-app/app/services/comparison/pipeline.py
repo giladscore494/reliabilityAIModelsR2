@@ -307,12 +307,13 @@ def handle_comparison_request(
         )
         total_ms = int((pytime.perf_counter() - total_start) * 1000)
         logger.info(
-            "[COMPARE_TIMING] request_id=%s total_ms=%s deterministic_ms=%s ai_ms=%s db_ms=%s",
+            "[COMPARE_TIMING] request_id=%s total_ms=%s deterministic_ms=%s ai_ms=%s db_ms=%s single_pass_ms=%s",
             request_id,
             total_ms,
             deterministic_ms,
             ai_ms,
             db_ms,
+            duration_ms,
         )
         log_slow_operation(logger, feature="vehicle_comparison", stage="total", duration_ms=total_ms, request_id=request_id)
         if GROUNDING_PERMISSION_DENIED_CODE in (single_pass_error or ""):
@@ -326,11 +327,11 @@ def handle_comparison_request(
             return api_error(GROUNDING_FAILED_CODE, GROUNDING_HE_MESSAGE, status=503)
         return api_error(
             "comparison_ai_unavailable",
-            "לא הצלחנו להשלים את ההשוואה כרגע. אפשר לנסות שוב או לדייק שנתון, מנוע ורמת גימור.",
+            "לא ניתן להשלים השוואה אמינה כרגע. אפשר לנסות שוב בעוד רגע או לדייק שנתון, מנוע ורמת גימור.",
             status=503,
             details={
-                "stage": "stage_a",
-                "error_code": "stage_a_unavailable",
+                "stage": "single_pass",
+                "error_code": "single_pass_unavailable",
                 "retryable": True,
             },
         )
@@ -375,19 +376,19 @@ def handle_comparison_request(
         decision_result = validated_decision["decision_result"]
         ai_checked_versions = validated_decision.get("checked_versions")
     else:
-        ai_status = "fallback"
         ai_reason = single_pass_error or decision_validation_reason or "single_pass_no_decision"
-        stage_a_error_code = single_pass_error or decision_validation_reason
         logger.warning(
-            "[COMPARISON] single_pass_decision_fallback request_id=%s reason=%s",
+            "[COMPARISON] single_pass_no_usable_decision request_id=%s reason=%s",
             request_id,
             ai_reason,
         )
         _inc_compare_metric("compare_ai_fallback_used_total")
-        decision_result = build_deterministic_decision_result(
-            cars_selected_slots, {}, parsed_output
+        return api_error(
+            "comparison_ai_unavailable",
+            "לא ניתן להשלים השוואה אמינה כרגע. אפשר לנסות שוב בעוד רגע או לדייק שנתון, מנוע ורמת גימור.",
+            status=503,
+            details={"stage": "single_pass", "error_code": "single_pass_no_decision", "retryable": True},
         )
-        ai_checked_versions = None
 
     # computed_result is now a thin, scoreless container: the decision IS the result.
     computed_result = {
@@ -468,6 +469,7 @@ def handle_comparison_request(
     stored_computed["guardrail_meta"] = comparison_guarded.get("guardrail_meta", {})
 
     # Save to database
+    total_ms = int((pytime.perf_counter() - total_start) * 1000)
     try:
         db_start = pytime.perf_counter()
         comparison_record = ComparisonHistory(
@@ -487,7 +489,7 @@ def handle_comparison_request(
             grounding_enabled=bool(model_output.get("grounding_successful")),
             prompt_version=COMPARISON_PROMPT_VERSION,
             request_hash=request_hash,
-            duration_ms=duration_ms,
+            duration_ms=total_ms,
         )
         db.session.add(comparison_record)
         db.session.commit()
@@ -503,12 +505,13 @@ def handle_comparison_request(
     finally:
         total_ms = int((pytime.perf_counter() - total_start) * 1000)
         logger.info(
-            "[COMPARE_TIMING] request_id=%s total_ms=%s deterministic_ms=%s ai_ms=%s db_ms=%s",
+            "[COMPARE_TIMING] request_id=%s total_ms=%s deterministic_ms=%s ai_ms=%s db_ms=%s single_pass_ms=%s",
             request_id,
             total_ms,
             deterministic_ms,
             ai_ms,
             db_ms,
+            duration_ms,
         )
         log_slow_operation(logger, feature="vehicle_comparison", stage="total", duration_ms=total_ms, request_id=request_id)
 

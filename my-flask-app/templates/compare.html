@@ -610,11 +610,8 @@
     {% endif %}
 </main>
 
-<!-- TODO(production-hardening): car catalog JSON is currently embedded in HTML; move to a cacheable lazy catalog endpoint/static versioned JSON to reduce /app and /compare payload size. Runtime response_bytes logging measures impact. -->
-<!-- Car data JSON -->
-<script type="application/json" id="car-data">
-    {{ car_models_data | tojson }}
-</script>
+<!-- Compare catalog is loaded lazily from a cacheable endpoint to keep /compare HTML small. -->
+<script type="application/json" id="car-data">{}</script>
 {% include '_research_consent_modal.html' %}
 
 <script src="{{ url_for('static', filename='research.js') }}"></script>
@@ -640,6 +637,7 @@
     // ============================================================
     
     const carDataScript = document.getElementById('car-data');
+    const compareCatalogUrl = "{{ compare_catalog_url|default('/api/compare/catalog') }}";
     let CAR_DATA = {};
     if (carDataScript) {
         try {
@@ -665,6 +663,7 @@
     // Build flat list for autocomplete
     const FLAT_CARS_LIST = [];
     function buildFlatCarsList() {
+        FLAT_CARS_LIST.length = 0;
         Object.entries(CAR_DATA || {}).forEach(([make, models]) => {
             if (!models || typeof models !== 'object' || Array.isArray(models)) return;
             Object.entries(models).forEach(([modelName, info]) => {
@@ -679,6 +678,27 @@
         });
     }
     buildFlatCarsList();
+
+    async function loadCompareCatalog() {
+        if (Object.keys(CAR_DATA || {}).length) return true;
+        try {
+            const resp = await fetch(compareCatalogUrl, { headers: { 'Accept': 'application/json' }, cache: 'force-cache' });
+            if (!resp.ok) throw new Error(`catalog ${resp.status}`);
+            const payload = await resp.json();
+            CAR_DATA = payload?.data?.catalog || payload?.catalog || {};
+            buildFlatCarsList();
+            console.log('[COMPARE] Catalog loaded with', Object.keys(CAR_DATA).length, 'manufacturers');
+            return true;
+        } catch (e) {
+            console.error('[CAR-DATA] lazy load failed', e);
+            CAR_DATA = {};
+            buildFlatCarsList();
+            document.querySelectorAll('.autocomplete-input').forEach(input => {
+                input.placeholder = 'לא ניתן לטעון קטלוג כרגע. נסו לרענן את הדף.';
+            });
+            return false;
+        }
+    }
 
     function populateCompareVariants(slotSuffix) {
         const container = document.getElementById(`variant_container_${slotSuffix}`);
@@ -1247,6 +1267,7 @@
         let filteredItems = [];
 
         function filterCars(query) {
+            if (!FLAT_CARS_LIST.length) { loadCompareCatalog(); return []; }
             if (!query || query.length < 1) return [];
             const q = query.toLowerCase().trim();
             return FLAT_CARS_LIST.filter(car => {
@@ -2085,9 +2106,13 @@
         };
 
         const aiStatus = result?.ai?.status || computed?.ai?.status || '';
-        const isPartialResearch = aiStatus === 'partial_fallback' || aiStatus === 'fallback';
-        const decision = isPartialResearch ? buildLegacyDecisionFallback(computed) : (result.decision_result || computed.decision_result || buildLegacyDecisionFallback(computed));
-        renderDecisionResult(decision, carsSelected, carKeys, result);
+        const decision = result.decision_result || computed.decision_result || null;
+        const hasUsableDecision = !!(decision && decision.overall_decision);
+        if (hasUsableDecision) {
+            renderDecisionResult(decision, carsSelected, carKeys, result);
+        } else {
+            renderDecisionResult(buildLegacyDecisionFallback({}), carsSelected, carKeys, result);
+        }
         if (compareApiDisclaimers) {
             if (narrativeDisclaimers.length) {
                 compareApiDisclaimers.innerHTML = `
@@ -2120,7 +2145,7 @@
         reasonsList.closest('div')?.classList.add('hidden');
 
         const categoriesSection = document.getElementById('categoriesSection');
-        categoriesSection.innerHTML = isPartialResearch ? renderComparePartialResearch(result) : renderDecisionSections(decision, carsSelected, carKeys, result);
+        categoriesSection.innerHTML = hasUsableDecision ? renderDecisionSections(decision, carsSelected, carKeys, result) : renderComparePartialResearch(result);
         isLoading = false;
         isResultReady = true;
         isResultOpen = false;
@@ -2300,7 +2325,8 @@
     initAutoComplete(2);
     initAutoComplete(3);
     
-    console.log('[COMPARE] Initialized with', Object.keys(CAR_DATA).length, 'manufacturers');
+    loadCompareCatalog();
+    console.log('[COMPARE] Initialized; catalog lazy-loading from', compareCatalogUrl);
     
     // Check for history load parameter
     const loadId = getLoadIdFromQuery();

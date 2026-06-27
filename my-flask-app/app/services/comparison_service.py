@@ -84,8 +84,10 @@ def call_stage_a_parallel(validated_cars, cars_selected_slots):
         grounding.call_gemini_single_car = original
 
 
-def call_gemini_single_pass_compare(prompt, timeout_sec=COMPARE_STAGE_A_TIMEOUT_SEC):  # noqa: F405
+def call_gemini_single_pass_compare(prompt, timeout_sec=None):  # noqa: F405
     """Compatibility wrapper so tests can monkeypatch the single grounded call."""
+    if timeout_sec is None:
+        timeout_sec = COMPARE_SINGLE_PASS_TIMEOUT_SEC
     return _ground_call_gemini_single_pass_compare(prompt, timeout_sec)
 
 
