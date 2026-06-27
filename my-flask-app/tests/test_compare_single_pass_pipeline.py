@@ -15,14 +15,14 @@ from main import db
 
 DECISION_CATEGORIES = [
     ("pricing_and_value", "מחיר ותמורה"),
-    ("trim_and_equipment", "רמות גימור ואבזור"),
-    ("license_fee_and_running_cost", "אגרה ועלויות שוטפות"),
-    ("fuel_consumption", "צריכת דלק/חשמל"),
-    ("official_safety", "בטיחות רשמית"),
-    ("powertrain_and_performance", "מכלולים וביצועים"),
-    ("reliability_and_risk", "אמינות וסיכונים"),
-    ("family_daily_use", "שימוש יומי ומשפחתי"),
-    ("resale_and_market_confidence", "סחירות וירידת ערך"),
+    ("fuel_consumption", "צריכת דלק"),
+    ("official_safety", "בטיחות"),
+    ("powertrain_and_performance", "מנוע וביצועים"),
+    ("reliability_and_risk", "אמינות וסיכון"),
+    ("family_daily_use", "שימוש יומי/משפחתי"),
+    ("resale_and_market_confidence", "סחירות ושוק"),
+    ("ownership_cost", "עלויות אחזקה שוטפות"),
+    ("comfort_practicality", "נוחות ושימושיות"),
 ]
 
 
@@ -548,3 +548,71 @@ def test_single_pass_local_salvage_drops_incomplete_category():
     assert parsed is not None
     assert parsed["decision_result"]["overall_decision"]["label"] == "car_1"
     assert len(parsed["decision_result"]["category_decisions"]) == 1
+
+
+def test_checked_versions_omit_placeholder_seats():
+    from app.services.comparison.normalization import public_checked_versions
+
+    checked = public_checked_versions({
+        "car_1": {"make": "Fiat", "model": "500", "seats": "לא ידוע / לבדיקה"},
+        "car_2": {"make": "Fiat", "model": "Panda", "seats": "לא מאומת"},
+    })
+
+    assert "seats" not in checked["car_1"]
+    assert "seats" not in checked["car_2"]
+
+
+def test_checked_versions_normalize_robotized_transmission_and_omit_generic_auto():
+    from app.services.comparison.normalization import public_checked_versions
+
+    checked = public_checked_versions({
+        "car_1": {"make": "Fiat", "model": "500", "transmission": "Dualogic robotized automated manual"},
+        "car_2": {"make": "Toyota", "model": "Yaris", "transmission": "אוטומטית"},
+    })
+
+    assert checked["car_1"]["transmission"] == "רובוטית חד-מצמדית"
+    assert "transmission" not in checked["car_2"]
+    assert "אוטומטית" not in str(checked["car_1"])
+
+
+def test_compare_result_template_copy_sections_and_primary_color():
+    from pathlib import Path
+
+    template = Path("templates/compare.html").read_text(encoding="utf-8")
+    result_block = template[template.index("function renderCheckedVersions"):template.index("function renderComparePartialResearch")]
+
+    assert "ההשוואה מבוססת על הגרסאות הבאות:" in result_block
+    assert "הקטע מציג" not in result_block
+    assert "מה לבדוק לפני החלטה" not in result_block
+    assert "פחות מתאים אם" in result_block
+    assert "מה לבדוק לפני קנייה" not in result_block or "avoid_or_check" not in result_block
+    assert "text-primary" in result_block
+    assert "text-white" not in result_block
+
+
+def test_ownership_category_insurance_claim_is_sanitized():
+    from app.services.comparison.decision import sanitize_decision_result
+
+    decision = _decision_payload()
+    for item in decision["category_decisions"]:
+        if item["category_key"] == "ownership_cost":
+            item["why"] = "עלויות הדלק, הביטוח והטיפולים נמוכות יותר ברכב הראשון."
+
+    cleaned = sanitize_decision_result(decision, {"car_1": {}, "car_2": {}}, request_id="req")
+    ownership = next(item for item in cleaned["category_decisions"] if item["category_key"] == "ownership_cost")
+    assert "ביטוח" not in ownership["why"]
+    assert "הטיפולים" in ownership["why"] or "אחזקה שוטפת" in ownership["why"]
+
+
+def test_nine_clean_category_decisions_still_render_in_template_contract():
+    decision = _decision_payload()
+    assert len(decision["category_decisions"]) == 9
+    assert [item["category_key"] for item in decision["category_decisions"]]
+
+
+def test_single_pass_prompt_preserves_nine_categories_and_no_scoring():
+    from app.services.comparison.prompts import SINGLE_PASS_COMPARE_PROMPT_BODY
+
+    assert "exactly these 9 category_decisions" in SINGLE_PASS_COMPARE_PROMPT_BODY
+    assert "pricing_and_value, fuel_consumption, official_safety, powertrain_and_performance, reliability_and_risk, family_daily_use, resale_and_market_confidence, ownership_cost, comfort_practicality" in SINGLE_PASS_COMPARE_PROMPT_BODY
+    assert "No scoring" in SINGLE_PASS_COMPARE_PROMPT_BODY

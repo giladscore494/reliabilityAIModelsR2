@@ -361,6 +361,7 @@ OUTPUT RULES
 - choose/avoid arrays may be [] and must contain only useful short Hebrew strings. For salvage/repair output, category_decisions may be [] or fewer than 9. key_differences maximum 4 real items. competitors_to_consider maximum 3.
 - Do not output useless category text such as: תלוי שימוש ומצב בפועל, אין מספיק מידע, לא מאומת, דורש אימות, מחקר חלקי, לא נמצא מידע.
 - Forbidden user-facing phrases anywhere: מידע חסר, חסר מידע, לא מאומת, לא אומת, דורש אימות, יש לאמת, מחקר חלקי, אין מספיק מידע, לא נמצא מידע, unknown, unavailable, not verified, missing data, insufficient data.
+- In ownership_cost text, do not claim insurance-cost advantages unless directly source-backed; prefer עלויות הדלק והטיפולים הבסיסיים or cautious ongoing-maintenance wording.
 - Use preferred="depends" only with real reasoning, e.g. "תלוי אם מעדיפים חיסכון וחניה קלה או מרווח וביצועים עדיפים."
 
 REQUIRED JSON SCHEMA
@@ -671,13 +672,13 @@ HARD RULES:
 3. Do not use first person. Do not say "אני ממליץ", "הייתי קונה", "תקנה", or "אל תקנה".
 4. No direct purchase advice and no "הרכב הטוב ביותר".
 5. Google-grounded factual claims must keep source URLs. If official safety/prices/trims/fees/recalls/warranty are unavailable, use null plus an explicit missing source type; do not turn it into successful-card filler.
-6. Fill exactly the 9 decision_categories from MODEL_PAYLOAD: pricing_and_value, trim_and_equipment, license_fee_and_running_cost, fuel_consumption, official_safety, powertrain_and_performance, reliability_and_risk, family_daily_use, resale_and_market_confidence. Use preferred="unknown" or "depends" when evidence is insufficient.
+6. Fill exactly the 9 decision_categories from MODEL_PAYLOAD: pricing_and_value, fuel_consumption, official_safety, powertrain_and_performance, reliability_and_risk, family_daily_use, resale_and_market_confidence, ownership_cost, comfort_practicality. Use preferred="unknown" or "depends" when evidence is insufficient.
 7. buyer_profile is preference context only; it may affect fit explanation only and never overrides car facts.
 8. For EVERY selected car, `choose_car_X_if` and `avoid_or_check_car_X_if` must contain 1-3 non-empty Hebrew strings whenever MODEL_PAYLOAD includes any usable evidence for that car.
 9. Never return [] for per-car arrays if `overall_decision`, `category_decisions`, `key_differences`, or the evidence snapshot can support cautious partial-research wording.
 10. If evidence is thin, write cautious guidance about fit, trade-offs, and what to verify before purchase instead of leaving arrays empty.
 11. `checked_versions` is mandatory for every selected car. It must clearly state the representative version being discussed, including uncertainty when trim, transmission, engine, or year are not fully verified.
-12. In `checked_versions.transmission`, use general labels only: אוטומטית, רובוטית, רציפה, ידנית, או null עם הערת אימות. Do not use DSG, DCT, DHT, or CVT as the visible default transmission label.
+12. In `checked_versions.transmission`, use precise public labels when known: רובוטית חד-מצמדית, אוטומטית פלנטרית, רציפה CVT, דו-מצמדית, ידנית. If not precise enough, use null rather than generic אוטומטית.
 13. If the user selected a general engine/transmission value, do not present it as a fully verified exact specification. Use `notes` to explain that it still requires verification against the importer spec or vehicle license.
 14. CRITICAL — transmission/engine/year consistency: If the user selected a transmission type (e.g. automatic), you MUST NOT output a contradictory value (e.g. manual) in `checked_versions`. If you lack certainty, keep the user-selected general label when available or set null and explain the missing official source in `notes`. Silently flipping automatic to manual (or vice versa) is a critical error.
 15. CRITICAL — required fields must never be empty: Every `checked_versions` slot must have non-empty values for `trim`, `engine_type`, `transmission`, `drivetrain`, `seats`, `year`, and `notes`. Use null/explicit verification notes for fields you cannot verify; never invent a visible generic placeholder.

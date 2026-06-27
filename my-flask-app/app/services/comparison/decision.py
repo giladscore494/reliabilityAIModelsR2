@@ -329,6 +329,8 @@ def sanitize_decision_result(
             continue
         name = allowed_names.get(key, item.get("category_name_he") or key)
         why = _sanitize_decision_text(item.get("why"), request_id, f"category_decisions.{key}.why")
+        if key == "ownership_cost" and "ביטוח" in why:
+            why = "רכב קטן ופשוט יותר עשוי להיות זול יותר לאחזקה שוטפת; מצב הרכב בפועל חשוב מאוד."
         if not why:
             continue
         sanitized["category_decisions"].append(

@@ -1920,7 +1920,7 @@
         return `
             <section class="rounded-2xl border border-slate-200 bg-white p-4 md:p-5 yr-compare-result-card">
                 <div class="inline-flex items-center rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-bold text-primary mb-3">גרסה שנבדקה</div>
-                <p class="text-primary/80 mb-4">הקטע מציג את הגרסה המייצגת שלפיה נוסחה ההשוואה.</p>
+                <p class="text-primary/80 mb-4">ההשוואה מבוססת על הגרסאות הבאות:</p>
                 <div class="grid grid-cols-1 ${gridCols} gap-4">
                     ${carKeys.map((ck, index) => {
                         const version = checkedVersions?.[ck] || {};
@@ -2004,7 +2004,7 @@
             ${renderCheckedVersions(result, carsSelected, carKeys)}
             ${(chooseBlocks || avoidBlocks) ? `<section class="grid grid-cols-1 ${gridCols} gap-4">
                 ${chooseBlocks ? `<article class="rounded-2xl border border-slate-200 bg-white p-4 yr-compare-result-card"><h4 class="text-lg font-bold text-primary mb-3">למי כל רכב מתאים</h4>${chooseBlocks}</article>` : ''}
-                ${avoidBlocks ? `<article class="rounded-2xl border border-slate-200 bg-white p-4 yr-compare-result-card"><h4 class="text-lg font-bold text-primary mb-3">מה לבדוק לפני החלטה</h4>${avoidBlocks}</article>` : ''}
+                ${avoidBlocks ? `<article class="rounded-2xl border border-slate-200 bg-white p-4 yr-compare-result-card"><h4 class="text-lg font-bold text-primary mb-3">פחות מתאים אם</h4>${avoidBlocks}</article>` : ''}
             </section>` : ''}
             ${keyDiffs.length ? `<section class="rounded-2xl border border-slate-200 bg-white p-4 md:p-5 yr-compare-result-card"><h4 class="text-lg font-bold text-primary mb-3">הבדלים מרכזיים</h4><div class="space-y-3">
                 ${keyDiffs.map(diff => `<div class="rounded-xl bg-white border border-slate-200 p-3"><div class="font-bold text-primary mb-2">${escapeHtml(diff.title || 'פער שחשוב להבין')}</div><div class="space-y-2">${carKeys.map((ck, index) => diff[`car_${index + 1}`] ? `<div class="flex items-start gap-2 text-sm text-primary"><span class="car-result-chip car-chip-${index + 1} shrink-0">${escapeHtml(carName(carsSelected, ck))}</span><span>${escapeHtml(diff[`car_${index + 1}`])}</span></div>` : '').filter(Boolean).join('')}${diff.meaning_for_buyer ? `<div class="text-xs text-primary/80 border-t border-slate-200 pt-2 mt-1"><span class="font-medium text-primary">משמעות לרוכש:</span> ${escapeHtml(diff.meaning_for_buyer)}</div>` : ''}</div></div>`).join('')}
@@ -2048,8 +2048,8 @@
         if (compareApiDisclaimers) {
             if (narrativeDisclaimers.length) {
                 compareApiDisclaimers.innerHTML = `
-                    <p class="font-semibold text-white mb-2">הבהרות נוספות לתוצאה:</p>
-                    <ul class="list-disc list-inside space-y-1 text-slate-200">
+                    <p class="font-semibold text-primary mb-2">הבהרות נוספות לתוצאה:</p>
+                    <ul class="list-disc list-inside space-y-1 text-primary/80">
                         ${narrativeDisclaimers.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
                     </ul>
                 `;
