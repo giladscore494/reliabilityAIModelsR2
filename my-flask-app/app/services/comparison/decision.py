@@ -52,7 +52,7 @@ def _sanitize_decision_text(
             request_id or "unknown",
             field_path,
         )
-        return DECISION_TEXT_FALLBACK_HE
+        return ""
     return text[:700]
 
 
@@ -321,13 +321,16 @@ def sanitize_decision_result(
         else []
     )
     allowed_names = dict(DECISION_CATEGORY_DEFINITIONS)
-    for item in raw_categories[:4]:
+    for item in raw_categories:
         if not isinstance(item, dict):
             continue
         key = str(item.get("category_key") or "").strip()
         if not key:
             continue
         name = allowed_names.get(key, item.get("category_name_he") or key)
+        why = _sanitize_decision_text(item.get("why"), request_id, f"category_decisions.{key}.why")
+        if not why:
+            continue
         sanitized["category_decisions"].append(
             {
                 "category_key": key,
@@ -338,9 +341,7 @@ def sanitize_decision_result(
                 )
                 or name,
                 "preferred": _decision_label(item.get("preferred"), slot_keys),
-                "why": _sanitize_decision_text(
-                    item.get("why"), request_id, f"category_decisions.{key}.why"
-                ),
+                "why": why[:160],
             }
         )
     raw_diffs = (
@@ -365,7 +366,8 @@ def sanitize_decision_result(
             cleaned_diff[slot_key] = _sanitize_decision_text(
                 item.get(slot_key), request_id, f"key_differences.{idx}.{slot_key}"
             )
-        sanitized["key_differences"].append(cleaned_diff)
+        if cleaned_diff.get("title") and cleaned_diff.get("meaning_for_buyer") and any(cleaned_diff.get(slot_key) for slot_key in slot_keys):
+            sanitized["key_differences"].append(cleaned_diff)
     raw_competitors = (
         decision_result.get("competitors_to_consider")
         if isinstance(decision_result.get("competitors_to_consider"), list)
@@ -384,4 +386,7 @@ def sanitize_decision_result(
             sanitized["competitors_to_consider"].append(
                 {"model": model, "why_consider": why, "confidence": item.get("confidence") if item.get("confidence") in {"high", "medium", "low"} else "medium"}
             )
+    overall_text = sanitized.get("overall_decision", {}).get("text")
+    if sanitized.get("practical_summary") == overall_text:
+        sanitized["practical_summary"] = ""
     return sanitized
