@@ -32,21 +32,15 @@ def build_display_name(car: Dict[str, Any]) -> str:
 def _normalize_general_transmission_label(value: Any) -> str:
     text = str(value or "").strip()
     if not text:
-        return CHECKED_VERSION_UNKNOWN_HE
+        return ""
 
     lowered = text.lower()
-    # Only genuine dual-clutch indicators expand to the dual-clutch label.
-    # A plain general "robotic"/"רובוטית" the user selected must stay "רובוטית"
-    # (do not over-specify a general choice into dual-clutch).
-    if any(
-        token in lowered
-        for token in ("dsg", "dct", "dual clutch", "dual-clutch", "dual_clutch", "כפולת מצמדים")
-    ):
-        return "רובוטית כפולת מצמדים"
-    if any(token in lowered for token in ("robot", "רובוט", "amt", "automated manual")):
-        return "רובוטית"
+    if any(token in lowered for token in ("dsg", "dct", "dual clutch", "dual-clutch", "dual_clutch", "דו-מצמד", "כפולת מצמדים")):
+        return "דו-מצמדית"
+    if any(token in lowered for token in ("robot", "רובוט", "amt", "automated manual", "dualogic", "חד-מצמד")):
+        return "רובוטית חד-מצמדית"
     if any(token in lowered for token in ("cvt", "רציפ", "continuously variable")):
-        return "רציפה"
+        return "רציפה CVT"
     if any(token in lowered for token in ("manual", "ידני", "ידנית")):
         return "ידנית"
     if any(
@@ -60,14 +54,13 @@ def _normalize_general_transmission_label(value: Any) -> str:
             "לא מאומת",
         )
     ):
-        return CHECKED_VERSION_UNKNOWN_HE
+        return ""
     if "single_speed" in lowered or "single-speed" in lowered or "single speed" in lowered:
         return "הילוך יחיד"
-    if any(
-        token in lowered
-        for token in ("automatic", "auto", "אוטומט", "planetary", "פלנטר")
-    ):
-        return "אוטומטית"
+    if any(token in lowered for token in ("planetary", "torque converter", "פלנטר")):
+        return "אוטומטית פלנטרית"
+    if any(token in lowered for token in ("automatic", "auto", "אוטומט")):
+        return ""
     return text[:80]
 
 
@@ -110,6 +103,42 @@ def _sanitize_checked_versions(
         }
     return sanitized
 
+
+_PUBLIC_FORBIDDEN_RE = re.compile(
+    r"(לא מאומת|לא אומת|יש לאמת|דורש אימות|מידע חסר|אין מספיק מידע|מחקר חלקי|דטרמיניסטית|קטלוג מקומי|התאמת קטלוג|מקור מאומת|בסיס נתונים|generated|deterministic|catalog fallback|confidence|data_basis)",
+    re.IGNORECASE,
+)
+
+def _is_public_checked_value(value: Any, *, seats: bool = False) -> bool:
+    text = " ".join(str(value or "").split()).strip()
+    if not text or _PUBLIC_FORBIDDEN_RE.search(text):
+        return False
+    if seats and not re.fullmatch(r"\d{1,2}", text):
+        return False
+    return True
+
+def public_checked_versions(payload: Any) -> Dict[str, Dict[str, str]]:
+    if not isinstance(payload, dict):
+        return {}
+    aliases = {"trim": "version_or_trim", "version_or_trim": "version_or_trim"}
+    allowed = ["make", "model", "year", "trim", "version_or_trim", "engine_type", "transmission", "drivetrain", "seats"]
+    cleaned: Dict[str, Dict[str, str]] = {}
+    for slot_key, raw in payload.items():
+        if not isinstance(raw, dict) or not _COMPARE_SLOT_RE.match(str(slot_key)):
+            continue
+        slot: Dict[str, str] = {}
+        for key in allowed:
+            out_key = aliases.get(key, key)
+            if out_key in slot:
+                continue
+            value = raw.get(key)
+            if key == "transmission":
+                value = _normalize_general_transmission_label(value)
+            if _is_public_checked_value(value, seats=(key == "seats")):
+                slot[out_key] = " ".join(str(value).split()).strip()[:180]
+        if slot:
+            cleaned[str(slot_key)] = slot
+    return cleaned
 
 def _normalize_grounded_cars_format(grounded_output: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     grounded_cars_raw = (
@@ -267,26 +296,10 @@ def build_checked_versions(
             confidence = "unverified"
 
         note_parts: List[str] = []
-        if has_user_specific and (
-            selection.get("engine_type") or selection.get("gearbox")
-        ):
+        if data_basis in {"mixed", "ai_inference"}:
             note_parts.append(
-                "סוג המנוע או התיבה נבחרו כערכים כלליים בטופס "
-                "ויש לאמת מול מפרט היבואן או רישיון הרכב."
+                "ההשוואה מתייחסת לגרסה מייצגת וייתכנו הבדלים בין רמות גימור, מנועים ותיבות הילוכים."
             )
-        if trim == CHECKED_VERSION_NOT_VERIFIED_HE:
-            note_parts.append("רמת הגימור לא אומתה במידע הזמין.")
-        if not year:
-            note_parts.append("השנתון המדויק לא אומת.")
-        if catalog_exact:
-            note_parts.append("הגרסה נבנתה דטרמיניסטית מתוך התאמת קטלוג מקומית מדויקת; יש עדיין לאמת רישיון רכב ומצב בפועל.")
-        elif data_basis in {"mixed", "ai_inference"}:
-            note_parts.append(
-                "ההשוואה מתייחסת לגרסה מייצגת לפי המידע הזמין "
-                "וייתכנו הבדלים בין רמות גימור, מנועים ותיבות הילוכים."
-            )
-        if not note_parts:
-            note_parts.append("יש לאמת את המפרט מול מקור רשמי לפני החלטת רכישה.")
 
         fallback = {
             "make": make,
@@ -318,14 +331,10 @@ def build_checked_versions(
                 merged[key] = " ".join(part for part in [merged.get("notes"), value] if part)
                 continue
             merged[key] = value
-        if not merged.get("transmission"):
-            merged["transmission"] = CHECKED_VERSION_UNKNOWN_HE
-        merged["transmission"] = _normalize_general_transmission_label(
-            merged.get("transmission")
-        )
+        merged["transmission"] = _normalize_general_transmission_label(merged.get("transmission"))
         result[slot_key] = merged
 
-    return result
+    return public_checked_versions(result)
 
 
 def map_cars_to_slots(validated_cars: List[Dict]) -> Dict[str, Dict]:

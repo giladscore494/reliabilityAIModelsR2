@@ -1180,3 +1180,17 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
   outline: 3px solid rgba(47, 107, 255, 0.25);
   outline-offset: 2px;
 }
+
+/* Scoped compare-result color guard: keep generated comparison answer text on system primary blue. */
+#resultsSection .yr-compare-result-card,
+#resultsSection .yr-compare-result-card :where(h1,h2,h3,h4,h5,h6,p,span,dt,dd,li,div),
+#winnerDisplay :where(h1,h2,h3,h4,h5,h6,p,div),
+#categoriesSection :where(h1,h2,h3,h4,h5,h6,p,dt,dd,li) {
+  color: var(--yr-accent, #2f6bff);
+}
+#resultsSection .car-result-chip,
+#resultsSection .car-result-chip *,
+#resultsSection button,
+#resultsSection button * {
+  color: inherit;
+}

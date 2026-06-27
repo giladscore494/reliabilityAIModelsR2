@@ -347,39 +347,42 @@ def build_single_car_prompt(car: Dict, region: str = "IL") -> str:
 # grounded call). Kept as a plain string (not an f-string) so the embedded JSON
 # braces need no escaping. Runtime inputs are appended below.
 SINGLE_PASS_COMPARE_PROMPT_BODY = r"""ROLE
-You are a senior Israeli used-car comparison analyst. Return commercial-quality, practical Hebrew in a SHORT JSON object.
-Catalog identity is locked: exact local catalog fields are facts. Use Google Search grounding for non-catalog facts. If a fact is not catalog-backed or source-backed, omit it.
+You are a senior Israeli used-car comparison analyst. Return commercial-quality, practical Hebrew in one SHORT JSON object.
+Catalog identity is locked: exact local catalog fields are facts. Use Google Search grounding for non-catalog facts. If web evidence is weak for a category, use catalog technical facts and safe logical comparison without mentioning weak/missing evidence.
 
 OUTPUT RULES
 - Return one valid JSON object only. No markdown. No prose outside JSON. No comments. No trailing commas.
 - Short valid JSON is better than long broken JSON.
-- No scoring, no /100, no category_winners, no metric_winners, no legacy/scoring hint fields, no important_caveat.
-- Do not require exactly 9 categories. category_decisions may be []. Maximum 4 items.
-- choose/avoid arrays may be []. Maximum 3 short strings per car.
-- key_differences maximum 4 items. competitors_to_consider maximum 3.
-- overall_decision.text max 240 Hebrew chars. category_decisions[].why max 180 Hebrew chars. practical_summary max 300 Hebrew chars.
-- Do not put citations like [1.1.1] in text fields. Sources only in top-level sources array.
-- Do not output these phrases anywhere: מידע חסר, לא מאומת, דורש אימות, מחקר חלקי, אין מספיק מידע, לא נמצא מידע, unknown, unavailable, not verified, missing data, insufficient data.
-- If sources is empty and there is no strong catalog-only basis: set label "unknown" and text "לא ניתן להשלים השוואה אמינה כרגע. אפשר לנסות שוב בעוד רגע או לדייק שנתון, מנוע ורמת גימור."
+- No source citations like [1.1.1] inside text fields. Sources only in top-level sources array.
+- No scoring: no scores, no /100, no weights, no overall_score, no category_winners, no metric_winners, no "ציון", no "המנצח", no winner, no best, no "תקנה", no "אל תקנה".
+- Normal successful output must include exactly these 9 category_decisions, in this order: pricing_and_value, fuel_consumption, official_safety, powertrain_and_performance, reliability_and_risk, family_daily_use, resale_and_market_confidence, ownership_cost, comfort_practicality.
+- Each category_decisions item must include category_key, category_name_he, preferred, why. why max 160 Hebrew characters and must be useful.
+- overall_decision.text max 240 Hebrew characters. practical_summary max 280 Hebrew characters.
+- choose/avoid arrays may be [] and must contain only useful short Hebrew strings. For salvage/repair output, category_decisions may be [] or fewer than 9. key_differences maximum 4 real items. competitors_to_consider maximum 3.
+- Do not output useless category text such as: תלוי שימוש ומצב בפועל, אין מספיק מידע, לא מאומת, דורש אימות, מחקר חלקי, לא נמצא מידע.
+- Forbidden user-facing phrases anywhere: מידע חסר, חסר מידע, לא מאומת, לא אומת, דורש אימות, יש לאמת, מחקר חלקי, אין מספיק מידע, לא נמצא מידע, unknown, unavailable, not verified, missing data, insufficient data.
+- Use preferred="depends" only with real reasoning, e.g. "תלוי אם מעדיפים חיסכון וחניה קלה או מרווח וביצועים עדיפים."
 
-ALLOWED JSON SHAPE
+REQUIRED JSON SCHEMA
 {
   "decision_result": {
-    "overall_decision": {"label": "car_1|car_2|car_3|tie|depends|unknown", "text": "short Hebrew decision summary"},
+    "overall_decision": {"label": "car_1|car_2|car_3|tie|depends|unknown", "text": "short Hebrew practical summary, max 240 chars"},
     "category_decisions": [
-      {"category_key": "pricing_and_value|fuel_consumption|official_safety|powertrain_and_performance|reliability_and_risk|family_daily_use|resale_and_market_confidence|ownership_cost|comfort_practicality", "category_name_he": "string", "preferred": "car_1|car_2|car_3|tie|depends|unknown", "why": "short Hebrew evidence-based explanation"}
+      {"category_key": "pricing_and_value", "category_name_he": "מחיר ותמורה", "preferred": "car_1|car_2|car_3|tie|depends|unknown", "why": "max 160 chars"},
+      {"category_key": "fuel_consumption", "category_name_he": "צריכת דלק", "preferred": "car_1|car_2|car_3|tie|depends|unknown", "why": "max 160 chars"},
+      {"category_key": "official_safety", "category_name_he": "בטיחות", "preferred": "car_1|car_2|car_3|tie|depends|unknown", "why": "max 160 chars"},
+      {"category_key": "powertrain_and_performance", "category_name_he": "מנוע וביצועים", "preferred": "car_1|car_2|car_3|tie|depends|unknown", "why": "max 160 chars"},
+      {"category_key": "reliability_and_risk", "category_name_he": "אמינות וסיכון", "preferred": "car_1|car_2|car_3|tie|depends|unknown", "why": "max 160 chars"},
+      {"category_key": "family_daily_use", "category_name_he": "שימוש יומי/משפחתי", "preferred": "car_1|car_2|car_3|tie|depends|unknown", "why": "max 160 chars"},
+      {"category_key": "resale_and_market_confidence", "category_name_he": "סחירות ושוק", "preferred": "car_1|car_2|car_3|tie|depends|unknown", "why": "max 160 chars"},
+      {"category_key": "ownership_cost", "category_name_he": "עלויות אחזקה שוטפות", "preferred": "car_1|car_2|car_3|tie|depends|unknown", "why": "max 160 chars"},
+      {"category_key": "comfort_practicality", "category_name_he": "נוחות ושימושיות", "preferred": "car_1|car_2|car_3|tie|depends|unknown", "why": "max 160 chars"}
     ],
-    "key_differences": [
-      {"title": "short Hebrew title", "car_1": "short value", "car_2": "short value", "car_3": "short value or null", "meaning_for_buyer": "short Hebrew meaning"}
-    ],
-    "choose_car_1_if": [],
-    "choose_car_2_if": [],
-    "choose_car_3_if": [],
-    "avoid_or_check_car_1_if": [],
-    "avoid_or_check_car_2_if": [],
-    "avoid_or_check_car_3_if": [],
+    "key_differences": [{"title": "short Hebrew title", "car_1": "short value", "car_2": "short value", "car_3": "short value or null", "meaning_for_buyer": "short Hebrew meaning"}],
+    "choose_car_1_if": [], "choose_car_2_if": [], "choose_car_3_if": [],
+    "avoid_or_check_car_1_if": [], "avoid_or_check_car_2_if": [], "avoid_or_check_car_3_if": [],
     "competitors_to_consider": [{"model": "string", "why_consider": "short Hebrew reason", "confidence": "high|medium|low"}],
-    "practical_summary": "short Hebrew paragraph"
+    "practical_summary": "short Hebrew paragraph, max 280 chars"
   },
   "checked_versions": {
     "car_1": {"make": "string|null", "model": "string|null", "year": "string|null", "version_or_trim": "string|null", "engine_type": "string|null", "transmission": "string|null", "drivetrain": "string|null", "seats": "string|null", "notes": "string|null"},
@@ -387,8 +390,8 @@ ALLOWED JSON SHAPE
   },
   "sources": ["url"]
 }
+For 3-car comparisons, include car_3 fields and arrays.
 """
-
 def build_single_pass_compare_prompt(
     cars: List[Dict[str, str]],
     buyer_profile: Optional[Dict[str, Any]] = None,

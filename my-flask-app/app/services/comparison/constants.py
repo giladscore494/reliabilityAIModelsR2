@@ -85,14 +85,14 @@ _MAX_STAGE_A_SOURCES = 5
 COMPARE_CATEGORY_NAMES = tuple(CATEGORY_LABELS_HE.keys())
 DECISION_CATEGORY_DEFINITIONS = [
     ("pricing_and_value", "מחיר ותמורה"),
-    ("trim_and_equipment", "רמות גימור ואבזור"),
-    ("license_fee_and_running_cost", "אגרה ועלויות שוטפות"),
-    ("fuel_consumption", "צריכת דלק/חשמל"),
-    ("official_safety", "בטיחות רשמית"),
-    ("powertrain_and_performance", "מכלולים וביצועים"),
-    ("reliability_and_risk", "אמינות וסיכונים"),
-    ("family_daily_use", "שימוש יומי ומשפחתי"),
-    ("resale_and_market_confidence", "סחירות וירידת ערך"),
+    ("fuel_consumption", "צריכת דלק"),
+    ("official_safety", "בטיחות"),
+    ("powertrain_and_performance", "מנוע וביצועים"),
+    ("reliability_and_risk", "אמינות וסיכון"),
+    ("family_daily_use", "שימוש יומי/משפחתי"),
+    ("resale_and_market_confidence", "סחירות ושוק"),
+    ("ownership_cost", "עלויות אחזקה שוטפות"),
+    ("comfort_practicality", "נוחות ושימושיות"),
 ]
 DECISION_ALLOWED_LABELS = {"car_1", "car_2", "car_3", "tie", "depends", "unknown"}
 DECISION_TEXT_FALLBACK_HE = (
@@ -104,7 +104,7 @@ DECISION_NEUTRAL_FALLBACK_HE = (
     "לא ניתן להשלים השוואה אמינה כרגע. אפשר לנסות שוב בעוד רגע או לדייק שנתון, מנוע ורמת גימור."
 )
 DECISION_FORBIDDEN_TEXT_RE = re.compile(
-    r"(\d+\s*/\s*100|\d+\s*/\s*10|winnerScore|overall_score|category_score|ציון|ניקוד|מתוך 100|נקודות מתוך|אני ממליץ|הייתי קונה|תקנה|אל תקנה|המנצח הברור|הרכב הטוב ביותר)",
+    r"(\d+\s*/\s*100|\d+\s*/\s*10|winnerScore|overall_score|category_score|ציון|ניקוד|מתוך 100|נקודות מתוך|אני ממליץ|הייתי קונה|תקנה|אל תקנה|המנצח הברור|הרכב הטוב ביותר|לא מאומת|לא אומת|יש לאמת|דורש אימות|מידע חסר|חסר מידע|אין מספיק מידע|מחקר חלקי|המחקר לא החזיר|דטרמיניסטית|קטלוג מקומי|מקור מאומת|בסיס נתונים|confidence|data_basis|תלוי שימוש ומצב בפועל|unknown|unavailable|not verified|missing data|insufficient data)",
     re.IGNORECASE,
 )
 

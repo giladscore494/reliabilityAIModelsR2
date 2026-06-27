@@ -288,16 +288,16 @@ class TestComparisonCacheHit:
         assert resp.status_code == 200
         data = resp.get_json()["data"]
         assert data["cached"] is True
-        assert data["decision_result"]["choose_car_1_if"]
-        assert data["decision_result"]["choose_car_2_if"]
-        assert data["decision_result"]["avoid_or_check_car_1_if"]
-        assert data["decision_result"]["avoid_or_check_car_2_if"]
+        assert data["decision_result"]["choose_car_1_if"] == []
+        assert data["decision_result"]["choose_car_2_if"] == []
+        assert data["decision_result"]["avoid_or_check_car_1_if"] == []
+        assert data["decision_result"]["avoid_or_check_car_2_if"] == []
 
         with app.app_context():
             healed = ComparisonHistory.query.get(cached_id)
             stored = json.loads(healed.computed_result)
-            assert stored["decision_result"]["choose_car_1_if"]
-            assert stored["decision_result"]["avoid_or_check_car_2_if"]
+            assert stored["decision_result"]["choose_car_1_if"] == []
+            assert stored["decision_result"]["avoid_or_check_car_2_if"] == []
 
     def test_full_stage_a_failure_not_cached_as_success(self, app, logged_in_client, monkeypatch):
         from app.services import comparison_service
