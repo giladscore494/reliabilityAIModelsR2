@@ -1147,3 +1147,11 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
 .yr-compare-result-card .text-slate-100,.yr-compare-result-card .text-slate-200,.yr-compare-result-card .text-slate-300,
 .yr-result-section .text-slate-100,.yr-result-section .text-slate-200,.yr-result-section .text-slate-300{color:var(--yr-ink-2)!important}
 .yr-result-card .text-slate-400,.yr-compare-result-card .text-slate-400,.yr-result-section .text-slate-400{color:var(--yr-muted)!important}
+
+#compareLegalConfirm,
+#legal-confirm,
+.legal-consent-checkbox {
+  accent-color: var(--yr-accent, #2f6bff) !important;
+  border-color: var(--yr-accent, #2f6bff) !important;
+  background-color: #ffffff !important;
+}
