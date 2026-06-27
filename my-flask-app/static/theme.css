@@ -1151,7 +1151,32 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,
 #compareLegalConfirm,
 #legal-confirm,
 .legal-consent-checkbox {
-  accent-color: var(--yr-accent, #2f6bff) !important;
-  border-color: var(--yr-accent, #2f6bff) !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: 0 0 auto;
+  display: inline-block;
+  border: 2px solid var(--yr-accent, #2f6bff) !important;
+  border-radius: 0.375rem;
   background-color: #ffffff !important;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 82% 82%;
+  cursor: pointer;
+}
+
+#compareLegalConfirm:checked,
+#legal-confirm:checked,
+.legal-consent-checkbox:checked {
+  background-color: #ffffff !important;
+  border-color: var(--yr-accent, #2f6bff) !important;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 20 20' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 10.5L8.2 14.5L16 5.5' stroke='%232f6bff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C%2Fsvg%3E") !important;
+}
+
+#compareLegalConfirm:focus-visible,
+#legal-confirm:focus-visible,
+.legal-consent-checkbox:focus-visible {
+  outline: 3px solid rgba(47, 107, 255, 0.25);
+  outline-offset: 2px;
 }
