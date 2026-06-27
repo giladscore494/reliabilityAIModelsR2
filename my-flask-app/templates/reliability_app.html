@@ -370,7 +370,7 @@
                         class="flex items-start gap-4 p-4 rounded-xl bg-white/20 border border-slate-700/50 cursor-pointer group hover:bg-white/40 transition-colors">
                         <input type="checkbox" id="legal-confirm" name="legal-confirm" required
                                class="mt-1 w-6 h-6 rounded border-2 border-slate-600 text-primary focus:ring-offset-0 focus:ring-primary bg-white checked:bg-primary transition-colors">
-                        <span class="text-sm text-slate-300 leading-relaxed">
+                        <span class="text-sm text-primary font-semibold leading-relaxed">
                             אני מאשר/ת כי אני מעל גיל 18, וקראתי והסכמתי
                             <a href="{{ url_for('public.terms') }}" target="_blank" rel="noopener noreferrer"
                                class="text-primary font-bold hover:underline underline-offset-4">לתנאי השימוש</a>
@@ -436,7 +436,7 @@
                 <div class="relative w-32 h-32">
                     <!-- SVG Circular Progress Ring -->
                     <svg class="w-32 h-32 transform -rotate-90" viewBox="0 0 120 120">
-                        <circle cx="60" cy="60" r="54" fill="none" stroke="#ffffff" stroke-width="8"></circle>
+                        <circle cx="60" cy="60" r="54" fill="none" stroke="rgba(47,107,255,.18)" stroke-width="8"></circle>
                         <circle id="progressRing" cx="60" cy="60" r="54" fill="none" stroke="url(#rainbowGradient)" stroke-width="8" 
                                 stroke-linecap="round" stroke-dasharray="339.292" stroke-dashoffset="339.292"
                                 style="transition: stroke-dashoffset 0.3s ease, stroke 0.5s ease;"></circle>
@@ -454,12 +454,12 @@
                     </svg>
                     <!-- Center Text (elapsed time) -->
                     <div class="absolute inset-0 flex items-center justify-center">
-                        <span id="elapsedTime" class="text-3xl font-black text-white">0</span>
+                        <span id="elapsedTime" class="text-3xl font-black text-primary">0</span>
                     </div>
                 </div>
                 <div class="text-center">
-                    <div id="etaText" class="text-sm text-slate-300 font-medium"></div>
-                    <div id="statusText" class="text-xs text-slate-400 mt-1">מעבד...</div>
+                    <div id="etaText" class="text-sm text-primary font-semibold"></div>
+                    <div id="statusText" class="text-xs text-primary/80 font-medium mt-1">מעבד...</div>
                 </div>
             </div>
         </div>
