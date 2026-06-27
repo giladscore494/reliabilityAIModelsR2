@@ -189,6 +189,77 @@ def parse_stage_a_json(raw_text: str) -> Tuple[Optional[Dict[str, Any]], Optiona
     return None, "MODEL_JSON_INVALID"
 
 
+
+def _sanitize_log_snippet(value: str, limit: int) -> str:
+    return " ".join((value or "").split())[:limit]
+
+
+def _single_pass_forbidden_scoring(parsed: Any) -> bool:
+    text = json.dumps(parsed, ensure_ascii=False) if isinstance(parsed, (dict, list)) else str(parsed or "")
+    forbidden = ("overall_score", "category_winners", "metric_winners", "/100")
+    return any(item in text for item in forbidden)
+
+
+def _unwrap_single_pass_payload(parsed: Any) -> Any:
+    if not isinstance(parsed, dict):
+        return parsed
+    if isinstance(parsed.get("decision_result"), dict):
+        return parsed
+    for key in ("result", "data", "response", "comparison"):
+        wrapped = parsed.get(key)
+        if isinstance(wrapped, dict) and isinstance(wrapped.get("decision_result"), dict):
+            return wrapped
+    return parsed
+
+
+def _extract_finish_reason(resp: Any) -> Optional[str]:
+    try:
+        candidates = getattr(resp, "candidates", None)
+        if candidates and len(candidates) > 0:
+            value = getattr(candidates[0], "finish_reason", None)
+            return str(value) if value is not None else None
+    except Exception:
+        pass
+    return None
+
+
+def _log_single_pass_json_invalid_diagnostics(
+    raw_text: str,
+    *,
+    finish_reason: Optional[str],
+    json_mime_used: bool,
+    reason: str = "MODEL_JSON_INVALID",
+) -> None:
+    stripped = _strip_json_code_fences(raw_text or "")
+    candidate = _extract_first_json_object(stripped)
+    starts_json = stripped.lstrip().startswith("{")
+    top_keys = None
+    parsed_type = None
+    if candidate:
+        try:
+            parsed = json.loads(candidate)
+            parsed_type = type(parsed).__name__
+            if isinstance(parsed, dict):
+                top_keys = list(parsed.keys())[:20]
+        except json.JSONDecodeError:
+            parsed_type = "json_decode_error"
+    state = _json_balance_state(stripped) if starts_json else {}
+    logger.warning(
+        "[COMPARISON] single_pass_model_json_invalid reason=%s raw_len=%s starts_with_json=%s extract_first_json_object=%s top_keys=%s parsed_type=%s finish_reason=%s schema_echo=%s json_mime_used=%s unbalanced=%s first_500=%.500s last_300=%.300s",
+        reason,
+        len(raw_text or ""),
+        starts_json,
+        candidate is not None,
+        top_keys,
+        parsed_type,
+        finish_reason,
+        _is_schema_echo_text(raw_text or ""),
+        json_mime_used,
+        state.get("unbalanced"),
+        _sanitize_log_snippet(raw_text or "", 500),
+        _sanitize_log_snippet((raw_text or "")[-300:], 300),
+    )
+
 def parse_single_pass_compare_json(
     raw_text: str,
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
@@ -206,25 +277,102 @@ def parse_single_pass_compare_json(
                 snippet,
             )
             continue
+        parsed = _unwrap_single_pass_payload(parsed)
+        if _single_pass_forbidden_scoring(parsed):
+            logger.warning("[COMPARISON] single_pass_json_rejected reason=scoring_output")
+            continue
         if isinstance(parsed, dict) and isinstance(parsed.get("decision_result"), dict):
+            parsed.setdefault("checked_versions", {})
+            parsed.setdefault("sources", [])
             return parsed, None
         top_keys = list(parsed.keys())[:20] if isinstance(parsed, dict) else None
+        reason = "missing_decision_result"
+        if isinstance(parsed, dict) and "decision_result" in parsed:
+            reason = "decision_result_not_dict"
         logger.warning(
-            "[COMPARISON] single_pass_json_rejected reason=validation_failed top_keys=%s",
+            "[COMPARISON] single_pass_json_rejected reason=%s top_keys=%s",
+            reason,
             top_keys,
         )
     return None, "MODEL_JSON_INVALID"
 
 
+def _build_single_pass_config(*, include_json_mime: bool = True) -> Tuple["genai_types.GenerateContentConfig", bool]:
+    config_kwargs = {
+        "temperature": COMPARE_STAGE_A_TEMPERATURE,
+        "top_p": 0.8,
+        "top_k": 20,
+        "max_output_tokens": COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
+        "tools": [_google_search_tool()],
+        "automatic_function_calling": genai_types.AutomaticFunctionCallingConfig(
+            maximum_remote_calls=COMPARE_SINGLE_PASS_MAX_REMOTE_CALLS
+        ),
+    }
+    if include_json_mime:
+        config_kwargs["response_mime_type"] = "application/json"
+    try:
+        return genai_types.GenerateContentConfig(**config_kwargs), include_json_mime
+    except (TypeError, ValueError):
+        config_kwargs.pop("response_mime_type", None)
+        return genai_types.GenerateContentConfig(**config_kwargs), False
+
+
+def _build_single_pass_repair_prompt(raw_text: str) -> str:
+    truncated = (raw_text or "")[:COMPARE_STAGE_A_REPAIR_MAX_INPUT_CHARS]
+    return f"""Convert only the existing model response into one valid JSON object for the active vehicle comparison single-pass schema.
+Do not add facts. Do not create a winner. Do not invent sources. Do not add scores, category winners, metric winners, or narrative fallback.
+Preserve checked_versions and sources if present. If a decision cannot be safely recovered, output label "unknown" with a clean Hebrew summary.
+For 3-car comparisons, preserve/add choose_car_3_if and avoid_or_check_car_3_if only if car_3 content exists; otherwise omit them.
+The first character must be {{ and the last must be }}. No markdown, no prose outside JSON.
+
+Required top-level schema:
+{{
+"decision_result": {{
+"overall_decision": {{"label": "car_1|car_2|car_3|tie|depends|unknown", "text": "Hebrew clean summary"}},
+"category_decisions": [],
+"key_differences": [],
+"choose_car_1_if": [],
+"choose_car_2_if": [],
+"avoid_or_check_car_1_if": [],
+"avoid_or_check_car_2_if": [],
+"competitors_to_consider": [],
+"practical_summary": ""
+}},
+"checked_versions": {{}},
+"sources": []
+}}
+
+MODEL RESPONSE:
+{truncated}"""
+
+
+def _attempt_single_pass_json_repair(raw_text: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    config = genai_types.GenerateContentConfig(
+        temperature=0.0,
+        max_output_tokens=COMPARE_STAGE_A_REPAIR_MAX_OUTPUT_TOKENS,
+        tools=[],
+        response_mime_type="application/json",
+    )
+    resp, _, _ = _generate_content_with_404_fallback(
+        feature="comparison_single_pass_json_repair",
+        model=comparison_stage_a_repair_model_id(),
+        contents=_build_single_pass_repair_prompt(raw_text),
+        config=config,
+        timeout_sec=max(20, COMPARE_STAGE_A_REPAIR_TIMEOUT_SEC),
+    )
+    text = (getattr(resp, "text", "") or "").strip() if resp is not None else ""
+    if not text:
+        return None, "REPAIR_EMPTY_TEXT"
+    parsed, error = parse_single_pass_compare_json(text)
+    if error:
+        return None, f"REPAIR_{error}"
+    return parsed, None
+
+
 def call_gemini_single_pass_compare(
     prompt: str, timeout_sec: int = COMPARE_SINGLE_PASS_TIMEOUT_SEC
 ) -> Tuple[Optional[Dict], Optional[str], Dict[str, Any]]:
-    """Single grounded Pro call that collects evidence AND decides in one pass.
-
-    Returns (parsed_output, error_string, grounding_meta). The grounding meta
-    is server-owned (derived from real Google Search signals on the response),
-    never model-asserted.
-    """
+    """Single grounded Pro call that collects evidence AND decides in one pass."""
     import concurrent.futures
     from app.factory import AI_EXECUTOR, AI_EXECUTOR_WORKERS
 
@@ -235,29 +383,25 @@ def call_gemini_single_pass_compare(
     model_used = comparison_stage_a_model_id()
     fallback_reason = None
     grounding_meta: Dict[str, Any] = {"grounding_successful": False, "source_count": 0}
+    json_mime_used = False
+    json_mime_disabled_reason = None
+    finish_reason = None
     try:
         if extensions.ai_client is None:
             outcome = "error"
             outcome_reason = "CLIENT_NOT_INITIALIZED"
             return None, "CLIENT_NOT_INITIALIZED", grounding_meta
 
-        config = genai_types.GenerateContentConfig(
-            temperature=COMPARE_STAGE_A_TEMPERATURE,
-            top_p=0.8,
-            top_k=20,
-            max_output_tokens=COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
-            tools=[_google_search_tool()],
-            automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(
-                maximum_remote_calls=COMPARE_SINGLE_PASS_MAX_REMOTE_CALLS
-            ),
-        )
+        config, json_mime_used = _build_single_pass_config(include_json_mime=True)
+        if not json_mime_used:
+            json_mime_disabled_reason = "sdk_config_rejected"
 
-        def _invoke():
+        def _invoke(active_config):
             return _generate_content_with_404_fallback(
                 feature="comparison_single_pass",
                 model=comparison_stage_a_model_id(),
                 contents=prompt,
-                config=config,
+                config=active_config,
                 timeout_sec=timeout_sec,
             )
 
@@ -268,7 +412,7 @@ def call_gemini_single_pass_compare(
             return None, "SERVER_BUSY", grounding_meta
 
         try:
-            future = AI_EXECUTOR.submit(_invoke)
+            future = AI_EXECUTOR.submit(_invoke, config)
         except Exception:
             outcome = "error"
             outcome_reason = "EXECUTOR_SATURATED"
@@ -284,19 +428,39 @@ def call_gemini_single_pass_compare(
             outcome_reason = "LOCAL_WRAPPER_TIMEOUT"
             return None, "LOCAL_WRAPPER_TIMEOUT", grounding_meta
         except Exception as e:
-            _log_ai_client_error("comparison_single_pass", e)
-            _inc_compare_metric("compare_stage_a_error_total")
-            outcome = "error"
-            outcome_reason = type(e).__name__
-            if _is_output_too_long_error(str(e)):
-                return None, "CALL_FAILED_OUTPUT_TOO_LONG", grounding_meta
-            return None, f"CALL_FAILED:{type(e).__name__}", grounding_meta
+            if json_mime_used:
+                json_mime_disabled_reason = f"api_rejected:{type(e).__name__}"
+                current_app.logger.warning(
+                    "[COMPARISON] single_pass_json_mime_api_rejected retry=tools_only reason=%s",
+                    _truncate_error_message(e),
+                )
+                config, json_mime_used = _build_single_pass_config(include_json_mime=False)
+                try:
+                    future = AI_EXECUTOR.submit(_invoke, config)
+                    resp, model_used, fallback_reason = future.result(timeout=timeout_sec)
+                except Exception as retry_exc:
+                    _log_ai_client_error("comparison_single_pass", retry_exc)
+                    _inc_compare_metric("compare_stage_a_error_total")
+                    outcome = "error"
+                    outcome_reason = type(retry_exc).__name__
+                    if _is_output_too_long_error(str(retry_exc)):
+                        return None, "CALL_FAILED_OUTPUT_TOO_LONG", grounding_meta
+                    return None, f"CALL_FAILED:{type(retry_exc).__name__}", grounding_meta
+            else:
+                _log_ai_client_error("comparison_single_pass", e)
+                _inc_compare_metric("compare_stage_a_error_total")
+                outcome = "error"
+                outcome_reason = type(e).__name__
+                if _is_output_too_long_error(str(e)):
+                    return None, "CALL_FAILED_OUTPUT_TOO_LONG", grounding_meta
+                return None, f"CALL_FAILED:{type(e).__name__}", grounding_meta
 
         if resp is None:
             outcome = "error"
             outcome_reason = "CALL_FAILED_EMPTY"
             return None, "CALL_FAILED:EMPTY", grounding_meta
 
+        finish_reason = _extract_finish_reason(resp)
         grounding_meta = _extract_stage_a_grounding(resp)
         text = (getattr(resp, "text", "") or "").strip()
         if not text:
@@ -306,16 +470,30 @@ def call_gemini_single_pass_compare(
 
         parsed, parse_error = parse_single_pass_compare_json(text)
         if parse_error:
+            _log_single_pass_json_invalid_diagnostics(
+                text, finish_reason=finish_reason, json_mime_used=json_mime_used, reason=parse_error
+            )
+            try:
+                repaired, repair_error = _attempt_single_pass_json_repair(text)
+            except Exception as repair_exc:
+                repaired, repair_error = None, f"REPAIR_FAILED:{type(repair_exc).__name__}"
+            if repaired is not None:
+                outcome_reason = "MODEL_JSON_INVALID_REPAIRED"
+                return repaired, None, grounding_meta
             outcome = "error"
             outcome_reason = parse_error
             _inc_compare_metric("compare_stage_a_json_invalid_total")
+            current_app.logger.warning(
+                "[COMPARISON] single_pass_json_repair_failed reason=%s tools_enabled=false response_mime_type=application/json",
+                repair_error,
+            )
             return None, parse_error, grounding_meta
         return parsed, None, grounding_meta
 
     finally:
         duration_ms = (pytime.perf_counter() - start_time) * 1000
         current_app.logger.info(
-            "[AI] feature=comparison_single_pass model=%s duration_ms=%.2f prompt_chars=%s prompt_tokens_est=%s max_output_tokens=%s timeout_ms=%s tools_enabled=%s max_remote_calls=%s grounding_successful=%s source_count=%s outcome=%s reason=%s timeout_origin=%s",
+            "[AI] feature=comparison_single_pass model=%s duration_ms=%.2f prompt_chars=%s prompt_tokens_est=%s max_output_tokens=%s timeout_ms=%s tools_enabled=%s max_remote_calls=%s response_mime_type=%s json_mime_used=%s json_mime_disabled_reason=%s grounding_successful=%s source_count=%s outcome=%s reason=%s timeout_origin=%s finish_reason=%s",
             model_used,
             duration_ms,
             prompt_chars,
@@ -324,11 +502,15 @@ def call_gemini_single_pass_compare(
             int(timeout_sec * 1000),
             True,
             COMPARE_SINGLE_PASS_MAX_REMOTE_CALLS,
+            "application/json" if json_mime_used else None,
+            json_mime_used,
+            json_mime_disabled_reason,
             grounding_meta.get("grounding_successful"),
             grounding_meta.get("source_count"),
             outcome,
             (fallback_reason or outcome_reason),
             ("provider_client" if outcome_reason and ("Timeout" in outcome_reason or "timeout" in outcome_reason) and outcome_reason != "LOCAL_WRAPPER_TIMEOUT" else ("local_wrapper" if outcome_reason == "LOCAL_WRAPPER_TIMEOUT" else "none")),
+            finish_reason,
         )
 
 

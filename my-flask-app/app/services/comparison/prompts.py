@@ -406,7 +406,7 @@ REASONING (per category, then overall)
 - If a category has no Tier-1/2 evidence on EITHER side, OMIT the whole
   category object. Do not emit it with empty/uncertain reasoning.
 - Overall: synthesize only the categories that survived into one judgment.
-  Soft language only.
+  Soft language only. Shorter valid JSON is better than a long incomplete response.
 
 DECISION FLOOR (anti over-omission — Israeli long-tail data is thin)
 - Count distinct grounded facts that survived the verification gate across
@@ -479,9 +479,11 @@ no markdown fences:
 
 FIELD RULES
 - category_decisions: include ONLY categories that passed the verification
-  gate. An omitted category is correct behavior, not a defect.
+  gate. An omitted category is correct behavior, not a defect. Keep each `why` concise.
+- key_differences: return 3-5 items maximum.
 - choose_/avoid_ arrays: 1-3 grounded Hebrew strings per car ONLY when that
   car has usable verified evidence. If it doesn't, return [] — do not invent.
+- competitors_to_consider: max 3 items.
 - sources: deduplicated list of every URL actually used. If empty, the floor
   was not met and label must be "unknown".
 - checked_versions: mandatory for every car; mirror locked catalog identity
