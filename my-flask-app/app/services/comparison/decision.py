@@ -246,16 +246,6 @@ def build_deterministic_decision_result(
     text = DECISION_NEUTRAL_FALLBACK_HE
 
     category_decisions = []
-    for key, name in DECISION_CATEGORY_DEFINITIONS:
-        category_decisions.append(
-            {
-                "category_key": key,
-                "category_name_he": name,
-                "preferred": "unknown",
-                "why": "אין מספיק מידע מאומת מנוסח בקטגוריה זו.",
-                "important_caveat": "יש לאמת נתונים מול מקורות רשמיים ובדיקת רכב בפועל.",
-            }
-        )
 
     result: Dict[str, Any] = {
         "overall_decision": {"label": label, "text": text},
@@ -351,8 +341,7 @@ def sanitize_decision_result(
                 "preferred": _decision_label(item.get("preferred"), slot_keys),
                 "why": _sanitize_decision_text(
                     item.get("why"), request_id, f"category_decisions.{key}.why"
-                )
-                or "אין מספיק מידע מאומת בקטגוריה זו.",
+                ),
                 "important_caveat": _sanitize_optional_decision_text(
                     item.get("important_caveat"),
                     request_id,

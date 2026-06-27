@@ -422,8 +422,7 @@ DECISION FLOOR (anti over-omission — Israeli long-tail data is thin)
 
 CLEAN NEUTRAL FALLBACK (Hebrew, use verbatim when the floor is not met):
   overall_decision.text:
-    "לא ניתן לתת עדיפות ברורה בין הרכבים על בסיס המידע המאומת הזמין.
-     כדאי לדייק שנתון, מנוע ורמת גימור כדי לקבל השוואה חדה יותר."
+    "לא ניתן להשלים השוואה אמינה כרגע. אפשר לנסות שוב בעוד רגע או לדייק שנתון, מנוע ורמת גימור."
 
 HARD OUTPUT RULES
 1. No /100, /10, scores, ציון, ניקוד, weights, winner formulas.

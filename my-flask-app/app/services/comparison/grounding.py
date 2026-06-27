@@ -17,6 +17,8 @@ from app.services.comparison.constants import (
     COMPARE_STAGE_A_REPAIR_TIMEOUT_SEC,
     COMPARE_STAGE_A_TEMPERATURE,
     COMPARE_STAGE_A_TIMEOUT_SEC,
+    COMPARE_SINGLE_PASS_TIMEOUT_SEC,
+    COMPARE_SINGLE_PASS_MAX_REMOTE_CALLS,
     PARALLEL_GRACE_SEC,
     _MAX_STAGE_A_SOURCES,
 )
@@ -60,12 +62,15 @@ def _generate_content_with_404_fallback(
     model: str,
     contents: str,
     config: "genai_types.GenerateContentConfig",
+    timeout_sec: Optional[int] = None,
     request_id: Optional[str] = None,
     log: Optional[logging.Logger] = None,
 ) -> Tuple[Any, str, Optional[str]]:
     """Call Gemini once, falling back once to the safe model on model 404."""
     call_log = log or logger
     try:
+        if timeout_sec:
+            config.http_options = genai_types.HttpOptions(timeout=int(timeout_sec * 1000))
         resp = extensions.ai_client.models.generate_content(
             model=model,
             contents=contents,
@@ -212,7 +217,7 @@ def parse_single_pass_compare_json(
 
 
 def call_gemini_single_pass_compare(
-    prompt: str, timeout_sec: int = COMPARE_STAGE_A_TIMEOUT_SEC
+    prompt: str, timeout_sec: int = COMPARE_SINGLE_PASS_TIMEOUT_SEC
 ) -> Tuple[Optional[Dict], Optional[str], Dict[str, Any]]:
     """Single grounded Pro call that collects evidence AND decides in one pass.
 
@@ -242,6 +247,9 @@ def call_gemini_single_pass_compare(
             top_k=20,
             max_output_tokens=COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
             tools=[_google_search_tool()],
+            automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(
+                maximum_remote_calls=COMPARE_SINGLE_PASS_MAX_REMOTE_CALLS
+            ),
         )
 
         def _invoke():
@@ -250,6 +258,7 @@ def call_gemini_single_pass_compare(
                 model=comparison_stage_a_model_id(),
                 contents=prompt,
                 config=config,
+                timeout_sec=timeout_sec,
             )
 
         work_queue = getattr(AI_EXECUTOR, "_work_queue", None)
@@ -272,8 +281,8 @@ def call_gemini_single_pass_compare(
             _inc_compare_metric("compare_ai_failures_total", reason="timeout")
             _inc_compare_metric("compare_stage_a_timeout_total")
             outcome = "timeout"
-            outcome_reason = "CALL_TIMEOUT"
-            return None, "CALL_TIMEOUT", grounding_meta
+            outcome_reason = "LOCAL_WRAPPER_TIMEOUT"
+            return None, "LOCAL_WRAPPER_TIMEOUT", grounding_meta
         except Exception as e:
             _log_ai_client_error("comparison_single_pass", e)
             _inc_compare_metric("compare_stage_a_error_total")
@@ -306,7 +315,7 @@ def call_gemini_single_pass_compare(
     finally:
         duration_ms = (pytime.perf_counter() - start_time) * 1000
         current_app.logger.info(
-            "[AI] feature=comparison_single_pass model=%s duration_ms=%.2f prompt_chars=%s prompt_tokens_est=%s max_output_tokens=%s timeout_ms=%s tools_enabled=%s grounding_successful=%s source_count=%s outcome=%s reason=%s",
+            "[AI] feature=comparison_single_pass model=%s duration_ms=%.2f prompt_chars=%s prompt_tokens_est=%s max_output_tokens=%s timeout_ms=%s tools_enabled=%s max_remote_calls=%s grounding_successful=%s source_count=%s outcome=%s reason=%s timeout_origin=%s",
             model_used,
             duration_ms,
             prompt_chars,
@@ -314,10 +323,12 @@ def call_gemini_single_pass_compare(
             COMPARE_STAGE_A_MAX_OUTPUT_TOKENS,
             int(timeout_sec * 1000),
             True,
+            COMPARE_SINGLE_PASS_MAX_REMOTE_CALLS,
             grounding_meta.get("grounding_successful"),
             grounding_meta.get("source_count"),
             outcome,
-            fallback_reason or outcome_reason,
+            (fallback_reason or outcome_reason),
+            ("provider_client" if outcome_reason and ("Timeout" in outcome_reason or "timeout" in outcome_reason) and outcome_reason != "LOCAL_WRAPPER_TIMEOUT" else ("local_wrapper" if outcome_reason == "LOCAL_WRAPPER_TIMEOUT" else "none")),
         )
 
 
