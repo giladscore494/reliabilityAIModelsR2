@@ -290,8 +290,6 @@ def sanitize_decision_result(
         else {}
     )
     overall_label = _decision_label(overall.get("label"), slot_keys)
-    if overall_label == "unknown":
-        overall_label = fallback["overall_decision"]["label"]
     sanitized = {
         "overall_decision": {
             "label": overall_label,
@@ -306,29 +304,30 @@ def sanitize_decision_result(
         "practical_summary": _sanitize_decision_text(
             decision_result.get("practical_summary"), request_id, "practical_summary"
         )
-        or fallback["practical_summary"],
+        or "",
     }
     for slot_key in slot_keys:
         choose_key = f"choose_{slot_key}_if"
         avoid_key = f"avoid_or_check_{slot_key}_if"
         sanitized[choose_key] = _sanitize_decision_list(
             decision_result.get(choose_key), request_id, choose_key
-        ) or fallback.get(choose_key, [])
+        ) or []
         sanitized[avoid_key] = _sanitize_decision_list(
             decision_result.get(avoid_key), request_id, avoid_key
-        ) or fallback.get(avoid_key, [])
+        ) or []
     raw_categories = (
         decision_result.get("category_decisions")
         if isinstance(decision_result.get("category_decisions"), list)
         else []
     )
-    by_key = {
-        item.get("category_key"): item
-        for item in raw_categories
-        if isinstance(item, dict)
-    }
-    for key, name in DECISION_CATEGORY_DEFINITIONS:
-        item = by_key.get(key) or {}
+    allowed_names = dict(DECISION_CATEGORY_DEFINITIONS)
+    for item in raw_categories[:4]:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("category_key") or "").strip()
+        if not key:
+            continue
+        name = allowed_names.get(key, item.get("category_name_he") or key)
         sanitized["category_decisions"].append(
             {
                 "category_key": key,
@@ -342,11 +341,6 @@ def sanitize_decision_result(
                 "why": _sanitize_decision_text(
                     item.get("why"), request_id, f"category_decisions.{key}.why"
                 ),
-                "important_caveat": _sanitize_optional_decision_text(
-                    item.get("important_caveat"),
-                    request_id,
-                    f"category_decisions.{key}.important_caveat",
-                ),
             }
         )
     raw_diffs = (
@@ -354,7 +348,7 @@ def sanitize_decision_result(
         if isinstance(decision_result.get("key_differences"), list)
         else []
     )
-    for idx, item in enumerate(raw_diffs[:8]):
+    for idx, item in enumerate(raw_diffs[:4]):
         if not isinstance(item, dict):
             continue
         cleaned_diff = {
@@ -377,7 +371,7 @@ def sanitize_decision_result(
         if isinstance(decision_result.get("competitors_to_consider"), list)
         else []
     )
-    for idx, item in enumerate(raw_competitors[:5]):
+    for idx, item in enumerate(raw_competitors[:3]):
         if not isinstance(item, dict):
             continue
         model = _sanitize_decision_text(
@@ -388,7 +382,6 @@ def sanitize_decision_result(
         )
         if model or why:
             sanitized["competitors_to_consider"].append(
-                {"model": model, "why_consider": why}
+                {"model": model, "why_consider": why, "confidence": item.get("confidence") if item.get("confidence") in {"high", "medium", "low"} else "medium"}
             )
     return sanitized
-
