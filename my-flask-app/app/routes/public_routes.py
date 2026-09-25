@@ -197,6 +197,16 @@ def terms():
     )
 
 
+@bp.route('/accessibility')
+def accessibility():
+    """Public Hebrew accessibility statement."""
+    return render_template(
+        'accessibility.html',
+        user=current_user,
+        is_owner=is_owner_user(),
+    )
+
+
 @bp.route('/coming-soon')
 def coming_soon():
     return render_template(

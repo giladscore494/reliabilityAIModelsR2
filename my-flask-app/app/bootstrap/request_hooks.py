@@ -55,29 +55,6 @@ def register_request_hooks(
 ) -> None:
     """Register every request-lifecycle hook used by create_app."""
 
-    @app.before_request
-    def ensure_yrc_anon_cookie():
-        """Set a stable anonymous cookie for PostHog distinct_id on anonymous users."""
-        if hasattr(request, 'cookies') and not request.cookies.get('yrc_anon'):
-            g._set_yrc_anon = uuid.uuid4().hex
-        else:
-            g._set_yrc_anon = None
-
-    @app.after_request
-    def set_yrc_anon_cookie(response):
-        """Attach the yrc_anon cookie if it was flagged for creation."""
-        anon_val = getattr(g, '_set_yrc_anon', None)
-        if anon_val:
-            response.set_cookie(
-                'yrc_anon',
-                anon_val,
-                max_age=365 * 24 * 60 * 60,
-                httponly=True,
-                secure=True,
-                samesite='Lax',
-            )
-        return response
-
     @app.after_request
     def log_response_metadata(response):
         path = request.path or ""
@@ -174,6 +151,14 @@ def register_request_hooks(
             "current_user": current_user,
             "is_owner": is_owner(),
             "contact_email": app.config.get("CONTACT_EMAIL", CONTACT_EMAIL),
+            "legal_contact_email": app.config.get("LEGAL_CONTACT_EMAIL", ""),
+            "accessibility_contact_email": app.config.get("ACCESSIBILITY_CONTACT_EMAIL", ""),
+            "legal_operator_name": app.config.get("LEGAL_OPERATOR_NAME", ""),
+            "legal_operator_id": app.config.get("LEGAL_OPERATOR_ID", ""),
+            "legal_operator_address": app.config.get("LEGAL_OPERATOR_ADDRESS", ""),
+            "accessibility_coordinator_name": app.config.get("ACCESSIBILITY_COORDINATOR_NAME", ""),
+            "accessibility_coordinator_phone": app.config.get("ACCESSIBILITY_COORDINATOR_PHONE", ""),
+            "accessibility_review_date": app.config.get("ACCESSIBILITY_REVIEW_DATE", ""),
             "legal_accepted": legal_accepted,
             "research_consent_accepted": research_consent_accepted,
             "research_consent_type": app.config.get("RESEARCH_CONSENT_TYPE", RESEARCH_CONSENT_TYPE),

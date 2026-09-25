@@ -411,6 +411,7 @@
             resultReadyPanel.classList.remove('hidden');
         }
         scrollToReliabilityResult();
+        if (userInitiated) resultsContainer.focus({ preventScroll: true });
         if (userInitiated && !alreadyOpen) {
             trackAnalytics('result_opened', {
                 flow_type: 'reliability',
@@ -621,6 +622,7 @@
     let currentAnalyzeToken = 0;
     const isAuthenticated = window.__IS_AUTHENTICATED__ === true;
     let reliabilityResultAckAccepted = !isAuthenticated || RESULT_ACK_DATA.acknowledged === true;
+    let reliabilityAckReturnFocus = null;
     let pendingResultOpenOptions = null;
     const ANALYZE_DEBUG_MODE = (() => {
         try {
@@ -1309,13 +1311,18 @@
 
     function closeReliabilityResultAckModal() {
         reliabilityResultAckModal?.classList.add('hidden');
+        reliabilityResultAckModal?.setAttribute('aria-hidden', 'true');
         reliabilityResultAckError?.classList.add('hidden');
+        reliabilityAckReturnFocus?.focus?.();
     }
 
     function ensureReliabilityResultAcknowledgement(options = {}) {
         if (!isAuthenticated || reliabilityResultAckAccepted) return true;
         pendingResultOpenOptions = options;
+        reliabilityAckReturnFocus = document.activeElement;
         reliabilityResultAckModal?.classList.remove('hidden');
+        reliabilityResultAckModal?.setAttribute('aria-hidden', 'false');
+        reliabilityResultAckCheckbox?.focus();
         return false;
     }
 
@@ -1575,6 +1582,14 @@
             closeReliabilityResultAckModal();
         });
         reliabilityResultAckConfirm?.addEventListener('click', confirmReliabilityResultAcknowledgement);
+        reliabilityResultAckModal?.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') { event.preventDefault(); closeReliabilityResultAckModal(); return; }
+            if (event.key !== 'Tab') return;
+            const items = Array.from(reliabilityResultAckModal.querySelectorAll('button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+            const first = items[0], last = items[items.length - 1];
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+        });
         reliabilityOpenResultNow?.addEventListener('click', function () {
             closeReliabilityResearch({ reason: 'open_result_now', openResult: true });
         });

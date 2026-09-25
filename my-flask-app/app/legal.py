@@ -7,6 +7,22 @@ from ipaddress import ip_address, ip_network
 TERMS_VERSION = os.environ.get("TERMS_VERSION", "2026-04-25")
 PRIVACY_VERSION = os.environ.get("PRIVACY_VERSION", "2026-04-25")
 CONTACT_EMAIL = os.environ.get("CONTACT_EMAIL", "support@yedaarechev.com")
+LEGAL_CONTACT_EMAIL = os.environ.get("LEGAL_CONTACT_EMAIL", CONTACT_EMAIL).strip()
+ACCESSIBILITY_CONTACT_EMAIL = os.environ.get(
+    "ACCESSIBILITY_CONTACT_EMAIL", LEGAL_CONTACT_EMAIL
+).strip()
+LEGAL_OPERATOR_NAME = os.environ.get("LEGAL_OPERATOR_NAME", "").strip()
+LEGAL_OPERATOR_ID = os.environ.get("LEGAL_OPERATOR_ID", "").strip()
+LEGAL_OPERATOR_ADDRESS = os.environ.get("LEGAL_OPERATOR_ADDRESS", "").strip()
+ACCESSIBILITY_COORDINATOR_NAME = os.environ.get(
+    "ACCESSIBILITY_COORDINATOR_NAME", ""
+).strip()
+ACCESSIBILITY_COORDINATOR_PHONE = os.environ.get(
+    "ACCESSIBILITY_COORDINATOR_PHONE", ""
+).strip()
+ACCESSIBILITY_REVIEW_DATE = os.environ.get(
+    "ACCESSIBILITY_REVIEW_DATE", "2026-09-25"
+).strip()
 LEGAL_IP_HASH_SALT = os.environ.get("LEGAL_IP_HASH_SALT", "").strip()
 
 def validate_legal_ip_hash_salt_config(app_env: str | None = None, logger: logging.Logger | None = None) -> bool:

@@ -15,12 +15,15 @@ def init_posthog(app):
     global _posthog_client, _posthog_enabled
 
     api_key = os.environ.get("POSTHOG_API_KEY", "").strip()
+    server_enabled = os.environ.get("POSTHOG_SERVER_ENABLED", "false").lower() in (
+        "1", "true", "yes",
+    )
     host = os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com").strip()
 
-    if not api_key:
+    if not api_key or not server_enabled:
         _posthog_client = None
         _posthog_enabled = False
-        logger.info("[POSTHOG] No POSTHOG_API_KEY – analytics disabled (no-op mode)")
+        logger.info("[POSTHOG] Server analytics disabled (requires key and POSTHOG_SERVER_ENABLED=true)")
         logger.info(
             "[POSTHOG] server initialization status enabled=%s host=%s",
             False,

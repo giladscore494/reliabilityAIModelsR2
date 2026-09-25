@@ -82,7 +82,20 @@ from app.models import (
     ResearchConsent,
     Feedback,
 )
-from app.legal import CONTACT_EMAIL, TERMS_VERSION, PRIVACY_VERSION, parse_legal_confirm
+from app.legal import (
+    ACCESSIBILITY_CONTACT_EMAIL,
+    ACCESSIBILITY_COORDINATOR_NAME,
+    ACCESSIBILITY_COORDINATOR_PHONE,
+    ACCESSIBILITY_REVIEW_DATE,
+    CONTACT_EMAIL,
+    LEGAL_CONTACT_EMAIL,
+    LEGAL_OPERATOR_ADDRESS,
+    LEGAL_OPERATOR_ID,
+    LEGAL_OPERATOR_NAME,
+    PRIVACY_VERSION,
+    TERMS_VERSION,
+    parse_legal_confirm,
+)
 from app.research import (
     RESEARCH_CONSENT_TYPE,
     RESEARCH_NOTICE_VERSION,
@@ -438,6 +451,14 @@ def create_app():
     app.config["RESEARCH_CONSENT_TYPE"] = RESEARCH_CONSENT_TYPE
     app.config["RESEARCH_NOTICE_VERSION"] = RESEARCH_NOTICE_VERSION
     app.config["CONTACT_EMAIL"] = CONTACT_EMAIL
+    app.config["LEGAL_CONTACT_EMAIL"] = LEGAL_CONTACT_EMAIL
+    app.config["ACCESSIBILITY_CONTACT_EMAIL"] = ACCESSIBILITY_CONTACT_EMAIL
+    app.config["LEGAL_OPERATOR_NAME"] = LEGAL_OPERATOR_NAME
+    app.config["LEGAL_OPERATOR_ID"] = LEGAL_OPERATOR_ID
+    app.config["LEGAL_OPERATOR_ADDRESS"] = LEGAL_OPERATOR_ADDRESS
+    app.config["ACCESSIBILITY_COORDINATOR_NAME"] = ACCESSIBILITY_COORDINATOR_NAME
+    app.config["ACCESSIBILITY_COORDINATOR_PHONE"] = ACCESSIBILITY_COORDINATOR_PHONE
+    app.config["ACCESSIBILITY_REVIEW_DATE"] = ACCESSIBILITY_REVIEW_DATE
 
     # Helper functions (is_owner_user, api_ok, api_error, get_request_id, get_redirect_uri)
     # are now imported from app.utils.http_helpers and used throughout the code

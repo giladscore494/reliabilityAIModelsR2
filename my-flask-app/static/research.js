@@ -33,6 +33,7 @@
         let consentId = options.consentId || null;
         let inFlight = false;
         let pendingResolver = null;
+        let previousFocus = null;
 
         function showError(message) {
             if (!errorEl) return;
@@ -54,14 +55,24 @@
             }
             modal.classList.remove('hidden');
             modal.classList.add('flex');
+            modal.setAttribute('aria-hidden', 'false');
             document.body.classList.add('overflow-hidden');
+            previousFocus = document.activeElement;
+            (modal.querySelector('[tabindex="-1"]') || checkbox)?.focus();
         }
 
-        function closeModal() {
+        function closeModal(resolveValue = false) {
             if (!modal) return;
             modal.classList.add('hidden');
             modal.classList.remove('flex');
+            modal.setAttribute('aria-hidden', 'true');
             document.body.classList.remove('overflow-hidden');
+            previousFocus?.focus?.();
+            if (pendingResolver && !resolveValue) {
+                const resolver = pendingResolver;
+                pendingResolver = null;
+                resolver(false);
+            }
         }
 
         async function acceptConsent(source) {
@@ -91,7 +102,7 @@
                 if (typeof options.onConsentAccepted === 'function') {
                     try { options.onConsentAccepted({ consentId }); } catch (e) {}
                 }
-                closeModal();
+                closeModal(true);
                 return true;
             } catch (err) {
                 showError('שגיאת רשת בעת שמירת הסכמת המחקר.');
@@ -116,6 +127,17 @@
         if (checkbox) {
             checkbox.addEventListener('change', hideError);
         }
+
+        modal?.querySelector('[data-research-consent-close]')?.addEventListener('click', () => closeModal(false));
+        modal?.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') { event.preventDefault(); closeModal(false); return; }
+            if (event.key !== 'Tab') return;
+            const items = Array.from(modal.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),[tabindex]:not([tabindex="-1"])'));
+            if (!items.length) return;
+            const first = items[0], last = items[items.length - 1];
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+        });
 
         return {
             get accepted() {

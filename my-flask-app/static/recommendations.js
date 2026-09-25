@@ -606,6 +606,7 @@
             resultReadyPanel.classList.remove('hidden');
         }
         scrollToAdvisorResult();
+        if (userInitiated) resultsSection.focus({ preventScroll: true });
         if (userInitiated && !alreadyOpen) {
             trackAnalytics('result_opened', {
                 flow_type: 'advisor',
@@ -968,7 +969,7 @@
         var labelEl = labelText
             ? '<text x="' + (s/2) + '" y="' + (s/2 + 18) + '" text-anchor="middle" dominant-baseline="central" class="yr-score-gauge__label" font-size="11">' + escapeHtml(labelText) + '</text>'
             : '';
-        return '<svg class="yr-score-gauge__ring" width="' + s + '" height="' + s + '" viewBox="0 0 ' + s + ' ' + s + '">'
+        return '<svg aria-hidden="true" focusable="false" class="yr-score-gauge__ring" width="' + s + '" height="' + s + '" viewBox="0 0 ' + s + ' ' + s + '">'
             + '<circle cx="' + (s/2) + '" cy="' + (s/2) + '" r="' + r + '" class="yr-score-gauge__track" stroke-width="10"/>'
             + '<circle cx="' + (s/2) + '" cy="' + (s/2) + '" r="' + r + '" class="yr-score-gauge__progress" stroke-width="10"'
             + ' stroke-dasharray="' + circ.toFixed(2) + '" stroke-dashoffset="' + offset.toFixed(2) + '"'
@@ -1304,7 +1305,7 @@
                 queriesEl.innerHTML = `
                     <div>
                         <button type="button" class="yr-queries-toggle" aria-expanded="false" aria-controls="${qId}" data-queries-target="${qId}">
-                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 5l3 3 3-3"/></svg>
+                            <svg aria-hidden="true" focusable="false" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 5l3 3 3-3"/></svg>
                             שאילתות חיפוש שבוצעו (${queries.length})
                         </button>
                         <ul id="${qId}" class="yr-queries-list" style="display:none">
@@ -1325,7 +1326,7 @@
             tableWrapper.innerHTML = `
                 <div class="yr-empty-state">
                     <div class="yr-empty-state__icon">
-                        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3 M8 11h6"></path></svg>
+                        <svg aria-hidden="true" focusable="false" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3 M8 11h6"></path></svg>
                     </div>
                     <h3 class="yr-empty-state__title">לא נמצאו דגמים תואמים</h3>
                     <p class="yr-empty-state__text">המנוע לא החזיר דגמים עבור הסינון הנוכחי. ייתכן שטווח התקציב או טווח השנתון מצומצמים מדי, או שהדרישות (דלק / גיר / מושבים) נוקשות מדי. לא הוצגו נתונים משוערים כדי לא להציג מידע שאינו מבוסס.</p>
@@ -1472,7 +1473,7 @@
     const flowView = document.getElementById('advisor-flow-view');
     const resultsMain = document.getElementById('advisor-results-main');
 
-    const BACK_CHEVRON_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
+    const BACK_CHEVRON_SVG = '<svg aria-hidden="true" focusable="false" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
 
     function showFlowView(html) {
         if (!flowView || !resultsMain) return;
@@ -1618,7 +1619,7 @@
 
     function renderCompareView(cars) {
         const cols = cars.length;
-        const winnerBadge = '<span class="yr-compare-winner__badge"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>מוביל</span>';
+        const winnerBadge = '<span class="yr-compare-winner__badge"><svg aria-hidden="true" focusable="false" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>מוביל</span>';
 
         // Header row: one column per car (gauge, identity, chips, price, details).
         const headCells = cars.map((car) => {
@@ -1655,7 +1656,7 @@
 
         const rowsHtml = buildCompareRows(cars).map((row) => {
             const icon = row.iconPath
-                ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9aa3af" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${row.iconPath}"/></svg>`
+                ? `<svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9aa3af" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${row.iconPath}"/></svg>`
                 : '';
             const cells = row.cells.map((cell) => `
                 <div class="yr-compare-cell${cell.winner ? ' yr-compare-winner' : ''}">
@@ -1798,7 +1799,7 @@
             neutral: 'M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11'
         };
         function note(type, title, bodyHtml) {
-            const icon = `<span class="yr-risk-note__icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="${noteIcons[type]}"/></svg></span>`;
+            const icon = `<span class="yr-risk-note__icon"><svg aria-hidden="true" focusable="false" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="${noteIcons[type]}"/></svg></span>`;
             return `
                 <div class="yr-risk-note yr-risk-note--${type}">
                     ${icon}
@@ -2016,7 +2017,7 @@
         // Safe innerHTML: every interpolated value is escaped via escapeHtml().
         const card = (icon, label, value) => `
             <article class="yr-pref-card">
-                <div class="yr-pref-card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${icon}"></path></svg></div>
+                <div class="yr-pref-card__icon"><svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${icon}"></path></svg></div>
                 <div class="yr-pref-card__body">
                     <div class="yr-pref-card__label">${safe(label)}</div>
                     <div class="yr-pref-card__value">${safe(value)}</div>

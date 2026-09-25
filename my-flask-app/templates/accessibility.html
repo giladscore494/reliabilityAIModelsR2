@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>הצהרת נגישות – ידע רכב</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+  <script nonce="{{ csp_nonce }}">tailwind.config={theme:{extend:{colors:{slate:{50:'#0e1218',100:'#1c2530',200:'#2a313b',300:'#46505c',400:'#6b7480',500:'#9aa3af',600:'#c4ccd6',700:'#e3e8ef',800:'#eef1f6',900:'#ffffff',950:'#f7f9fc'},primary:'#2f6bff',secondary:'#1f57e6',dark:'#eef1f6','dark-lighter':'#ffffff'}}}};</script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
+</head>
+<body class="min-h-screen flex flex-col bg-dark text-slate-200 antialiased">
+  {% include '_navbar.html' %}
+  <main id="main-content" tabindex="-1" class="flex-grow container mx-auto px-4 py-12">
+    <article class="yr-chrome-card max-w-4xl mx-auto p-6 md:p-10 leading-8">
+      <h1 class="text-3xl md:text-4xl font-black mb-6">הצהרת נגישות</h1>
+      <p>ידע רכב מחויב לאפשר לאנשים עם מוגבלות שימוש שוויוני ונוח בשירות הדיגיטלי. עבודת הנגישות מכוונת להוראות הנגישות לשירותי אינטרנט בתקנות שוויון זכויות לאנשים עם מוגבלות (התאמות נגישות לשירות), לתקן הישראלי ת״י 5568 חלק 1 ולרמה AA, המבוססים על WCAG 2.0 בכפוף להתאמות התקן הישראלי.</p>
+
+      <h2 class="text-2xl font-bold mt-8 mb-3">התאמות שיושמו באתר</h2>
+      <ul class="list-disc pr-6 space-y-2">
+        <li>שפת מסמך עברית, כיוון כתיבה מימין לשמאל, כותרות ואזורים סמנטיים.</li>
+        <li>קישור דילוג לתוכן הראשי, ניווט באמצעות מקלדת וסימון מיקוד נראה.</li>
+        <li>תפריט נייד וחלונות דו־שיח עם שמות נגישים, ניהול מיקוד וסגירה במקש Escape כאשר הסגירה מותרת.</li>
+        <li>שמות והוראות מקושרים לשדות בזרימות המרכזיות, לרבות שדות בחירת רכב ופרופיל שימוש; נדרשת עדיין בדיקה ידנית של כל וריאציית טופס.</li>
+        <li>באזורי התוצאה המרכזיים נוספו הודעות מצב מתונות על טעינה, שגיאה וזמינות תוצאה, בלי להקריא את מלוא הדוח כאזור התראה.</li>
+        <li>פריסה רספונסיבית למכשירים ניידים, תמיכה בהגדלת טקסט וצמצום תנועה בהתאם להעדפת המכשיר.</li>
+        <li>סמלים דקורטיביים בממשקים המרכזיים הוסתרו מטכנולוגיה מסייעת, ומידע של ציונים ומדדים מוצג גם כטקסט. תוכן דינמי מגוון עדיין טעון בדיקה ידנית.</li>
+      </ul>
+
+      <h2 class="text-2xl font-bold mt-8 mb-3">שימוש במקלדת ובקורא מסך</h2>
+      <p>אפשר לעבור בין קישורים, כפתורים ושדות באמצעות Tab ו־Shift+Tab. ניתן להפעיל בקרה באמצעות Enter או מקש רווח, לסגור דו־שיח בר־סגירה באמצעות Escape, ולהשתמש בקישור „דלג לתוכן הראשי”. האתר כולל מבנה סמנטי, שמות נגישים ובקרות ARIA לתוכן דינמי. לא בוצעה במסגרת עדכון זה בדיקת קורא מסך ייעודי, והיא נותרה בדיקת שחרור ידנית.</p>
+
+      <h2 class="text-2xl font-bold mt-8 mb-3">מגבלות ידועות</h2>
+      <p>תוצאות AI עשויות לכלול תוכן ארוך ומבנה המשתנה לפי התוצאה. נעשה שימוש באזור תוצאה ניתן למיקוד ובהודעת מצב קצרה בזרימות המרכזיות, אולם נדרשת בדיקה ידנית מתמשכת של תוצאות מגוונות, כל וריאציות הטפסים וההודעות, זום גבוה וקוראי מסך. רכיבי צד שלישי, ובהם התחברות Google, עשויים להיות כפופים גם לנגישות הספק.</p>
+
+      <h2 class="text-2xl font-bold mt-8 mb-3">דיווח על בעיית נגישות</h2>
+      <p>נתקלתם בקושי, או שאתם זקוקים למידע בפורמט נגיש חלופי? כתבו ל־<a class="underline text-primary font-bold" href="mailto:{{ accessibility_contact_email }}">{{ accessibility_contact_email }}</a>. מומלץ לציין את העמוד, הפעולה שניסיתם לבצע, המכשיר והטכנולוגיה המסייעת. נעשה מאמץ להשיב ולטפל בפנייה בזמן סביר.</p>
+      {% if accessibility_coordinator_name %}
+      <section aria-labelledby="coordinator-heading" class="mt-6 rounded-xl border border-slate-600 p-4">
+        <h2 id="coordinator-heading" class="text-xl font-bold">רכז/ת נגישות</h2>
+        <p>{{ accessibility_coordinator_name }}{% if accessibility_coordinator_phone %}, טלפון: {{ accessibility_coordinator_phone }}{% endif %}</p>
+      </section>
+      {% endif %}
+      <p class="mt-8 text-sm text-slate-400"><strong>עדכון ובדיקת נגישות אחרונים:</strong> {{ accessibility_review_date }}</p>
+    </article>
+  </main>
+  {% include '_footer.html' %}
+</body>
+</html>

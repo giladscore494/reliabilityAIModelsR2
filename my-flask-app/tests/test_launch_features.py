@@ -47,6 +47,7 @@ def posthog_app(monkeypatch):
     monkeypatch.setenv("SECRET_KEY", "test-secret-key-for-pytest")
     monkeypatch.setenv("POSTHOG_API_KEY", "test-posthog-key")
     monkeypatch.setenv("POSTHOG_HOST", "https://eu.i.posthog.com")
+    monkeypatch.setenv("POSTHOG_SERVER_ENABLED", "true")
     monkeypatch.delenv("SKIP_CREATE_ALL", raising=False)
     from app.utils import analytics
 
@@ -210,6 +211,7 @@ class TestPostHogNoOp:
         )
         monkeypatch.setenv("POSTHOG_API_KEY", "server-key")
         monkeypatch.setenv("POSTHOG_HOST", "https://eu.i.posthog.com")
+        monkeypatch.setenv("POSTHOG_SERVER_ENABLED", "true")
         monkeypatch.setitem(sys.modules, "posthog", fake_posthog)
         monkeypatch.setattr(analytics, "_posthog_client", None)
         monkeypatch.setattr(analytics, "_posthog_enabled", False)
@@ -241,8 +243,11 @@ class TestPostHogSnippetAndCsp:
         for resp in responses:
             assert resp.status_code == 200
             html = resp.get_data(as_text=True)
-            assert '.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js"' in html
-            assert 's.api_host+"/static/array.js"' not in html
+            assert "static/analytics_privacy.js" in html
+            assert '.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js"' not in html
+
+        controller = (ROOT_DIR / "static" / "analytics_privacy.js").read_text(encoding="utf-8")
+        assert ".replace('.i.posthog.com','-assets.i.posthog.com')+'/static/array.js'" in controller
 
         csp = responses[0].headers["Content-Security-Policy"]
         csp_directives = {}

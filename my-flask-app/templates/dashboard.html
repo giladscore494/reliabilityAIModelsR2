@@ -3,13 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <title>yedaarechevAI – הדשבורד שלי</title>
-    <meta name="viewport"
-          content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio"></script>
     <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap"
           rel="stylesheet">
-    {% include "_posthog_snippet.html" %}
 
     <script nonce="{{ csp_nonce }}">
         tailwind.config = {
@@ -145,7 +143,7 @@
 {% set active_page = 'dashboard' %}
 {% include '_navbar.html' %}
 
-<main class="flex-grow relative container mx-auto max-w-6xl px-4 py-10 pb-24">
+<main id="main-content" tabindex="-1" class="flex-grow relative container mx-auto max-w-6xl px-4 py-10 pb-24">
 
     <section class="mb-10 space-y-5">
         <div class="space-y-3">
@@ -330,7 +328,7 @@
         <div class="bg-white/60 border border-red-300/50 rounded-xl p-6">
             <h3 class="text-lg font-bold text-white mb-2">מחיקת חשבון</h3>
             <p class="text-slate-400 text-sm mb-4">
-                מחיקת החשבון תסיר לצמיתות את כל הנתונים שלך, כולל היסטוריית חיפושים ושאלונים. פעולה זו אינה הפיכה.
+                מחיקת החשבון תסיר את החשבון והנתונים המשויכים אליו ממערכות התפעול. עותקים עשויים להישאר לזמן מוגבל בגיבויים או בלוגים, כמפורט במדיניות הפרטיות. הפעולה אינה הפיכה במערכת הפעילה.
             </p>
             <button 
                 id="open-delete-btn"
@@ -343,12 +341,12 @@
 </main>
 
 <!-- Delete Account Modal -->
-<div id="deleteModal" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white border-2 border-red-400/60 rounded-2xl p-8 max-w-md w-full overlay-open shadow-2xl">
-        <h3 class="text-2xl font-bold text-white mb-4">אישור מחיקת חשבון</h3>
-        <p class="text-slate-300 mb-6">
-            פעולה זו תמחק לצמיתות את החשבון שלך וכל הנתונים הקשורים אליו.
-            <strong class="text-red-400">אין דרך לשחזר את הנתונים לאחר המחיקה.</strong>
+<div id="deleteModal" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title" aria-describedby="delete-dialog-description" aria-hidden="true" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+    <div tabindex="-1" class="bg-white border-2 border-red-400/60 rounded-2xl p-8 max-w-md w-full overlay-open shadow-2xl">
+        <h3 id="delete-dialog-title" class="text-2xl font-bold text-slate-100 mb-4">אישור מחיקת חשבון</h3>
+        <p id="delete-dialog-description" class="text-slate-300 mb-6">
+            פעולה זו תמחק את החשבון והנתונים הקשורים אליו מן המערכת הפעילה.
+            <strong class="text-red-400">לא ניתן לשחזר את החשבון לאחר המחיקה.</strong> עותקים עשויים להישאר זמנית בגיבויים או בלוגים.
         </p>
         <p class="text-slate-300 mb-4">
             כדי לאשר, הקלד <strong class="text-red-400">DELETE</strong> בדיוק (באנגלית, באותיות גדולות):
@@ -356,10 +354,12 @@
         <input
             type="text"
             id="deleteConfirmInput"
+            aria-label="הקלדת DELETE לאישור מחיקת החשבון"
+            aria-describedby="deleteError"
             placeholder="הקלד DELETE"
             class="w-full px-4 py-3 bg-[#f7f9fc] border-2 border-[#cfd5dd] focus:border-red-500 rounded-lg text-white mb-2"
         />
-        <p id="deleteError" class="text-red-400 text-sm mb-4 hidden"></p>
+        <p id="deleteError" role="alert" class="text-red-400 text-sm mb-4 hidden"></p>
         
         <div class="flex gap-3">
             <button 
@@ -844,17 +844,25 @@
     }
 
     // Delete account modal functions
+    let deleteModalTrigger = null;
     function openDeleteModal() {
-        document.getElementById('deleteModal').classList.remove('hidden');
+        const modal = document.getElementById('deleteModal');
+        deleteModalTrigger = document.activeElement;
+        modal.classList.remove('hidden');
+        modal.setAttribute('aria-hidden', 'false');
         document.getElementById('deleteConfirmInput').value = '';
         document.getElementById('deleteError').classList.add('hidden');
         document.body.style.overflow = 'hidden';
+        document.getElementById('deleteConfirmInput').focus();
     }
 
     function closeDeleteModal(event) {
         if (event && event.target !== event.currentTarget) return;
-        document.getElementById('deleteModal').classList.add('hidden');
+        const modal = document.getElementById('deleteModal');
+        modal.classList.add('hidden');
+        modal.setAttribute('aria-hidden', 'true');
         document.body.style.overflow = '';
+        deleteModalTrigger?.focus?.();
     }
 
     async function confirmDelete() {
@@ -1019,6 +1027,9 @@
     if (deleteModal) {
         deleteModal.addEventListener('click', function(e) {
             if (e.target === deleteModal) closeDeleteModal(e);
+        });
+        deleteModal.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') { e.preventDefault(); closeDeleteModal(); }
         });
     }
 
