@@ -8,7 +8,6 @@
 
     <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
     <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
-    {% include "_posthog_snippet.html" %}
 
     <script nonce="{{ csp_nonce }}">
         tailwind.config = {
@@ -207,7 +206,7 @@
             <!-- Header -->
             <header class="text-center space-y-4 max-w-3xl mx-auto">
                 <div class="yr-chip inline-flex">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M5 4a1 1 0 00-2 0v7.268a2 2 0 000 3.464V16a1 1 0 102 0v-1.268a2 2 0 000-3.464V4zM11 4a1 1 0 10-2 0v1.268a2 2 0 000 3.464V16a1 1 0 102 0V8.732a2 2 0 000-3.464V4zM16 3a1 1 0 011 1v7.268a2 2 0 010 3.464V16a1 1 0 11-2 0v-1.268a2 2 0 010-3.464V4a1 1 0 011-1z"/></svg>
+                    <svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M5 4a1 1 0 00-2 0v7.268a2 2 0 000 3.464V16a1 1 0 102 0v-1.268a2 2 0 000-3.464V4zM11 4a1 1 0 10-2 0v1.268a2 2 0 000 3.464V16a1 1 0 102 0V8.732a2 2 0 000-3.464V4zM16 3a1 1 0 011 1v7.268a2 2 0 010 3.464V16a1 1 0 11-2 0v-1.268a2 2 0 010-3.464V4a1 1 0 011-1z"/></svg>
                     השוואת רכבים
                 </div>
                 <h1 class="text-4xl md:text-[3.2rem] font-extrabold" style="font-family:'Rubik','Heebo',sans-serif; letter-spacing:-.5px;">
@@ -234,8 +233,8 @@
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div class="autocomplete-container md:col-span-1">
                                 <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 block" for="car_search_1">חפש רכב</label>
-                                <input type="text" id="car_search_1" class="yr-input autocomplete-input w-full bg-white border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-primary focus:ring-primary focus:border-primary" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
-                                <div id="car_dropdown_1" class="autocomplete-dropdown"></div>
+                                <input type="text" id="car_search_1" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="car_dropdown_1" class="yr-input autocomplete-input w-full bg-white border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-primary focus:ring-primary focus:border-primary" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
+                                <div id="car_dropdown_1" role="listbox" aria-label="תוצאות חיפוש לרכב 1" class="autocomplete-dropdown"></div>
                                 <input type="hidden" id="car_make_1" name="make_1">
                                 <input type="hidden" id="car_model_1" name="model_1">
                                 <input type="hidden" id="car_year_start_1" name="year_start_1">
@@ -297,8 +296,8 @@
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div class="autocomplete-container md:col-span-1">
                                 <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 block" for="car_search_2">חפש רכב</label>
-                                <input type="text" id="car_search_2" class="yr-input autocomplete-input w-full bg-white border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-primary focus:ring-primary focus:border-primary" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
-                                <div id="car_dropdown_2" class="autocomplete-dropdown"></div>
+                                <input type="text" id="car_search_2" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="car_dropdown_2" class="yr-input autocomplete-input w-full bg-white border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-primary focus:ring-primary focus:border-primary" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
+                                <div id="car_dropdown_2" role="listbox" aria-label="תוצאות חיפוש לרכב 2" class="autocomplete-dropdown"></div>
                                 <input type="hidden" id="car_make_2" name="make_2">
                                 <input type="hidden" id="car_model_2" name="model_2">
                                 <input type="hidden" id="car_year_start_2" name="year_start_2">
@@ -360,8 +359,8 @@
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div class="autocomplete-container md:col-span-1">
                                 <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 block" for="car_search_3">חפש רכב</label>
-                                <input type="text" id="car_search_3" class="yr-input autocomplete-input w-full bg-white border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-primary focus:ring-primary focus:border-primary" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
-                                <div id="car_dropdown_3" class="autocomplete-dropdown"></div>
+                                <input type="text" id="car_search_3" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="car_dropdown_3" class="yr-input autocomplete-input w-full bg-white border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-primary focus:ring-primary focus:border-primary" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
+                                <div id="car_dropdown_3" role="listbox" aria-label="תוצאות חיפוש לרכב 3" class="autocomplete-dropdown"></div>
                                 <input type="hidden" id="car_make_3" name="make_3">
                                 <input type="hidden" id="car_model_3" name="model_3">
                                 <input type="hidden" id="car_year_start_3" name="year_start_3">
@@ -474,7 +473,7 @@
                     </label>
                     <p id="compareLegalError"
                        class="hidden show-flex items-center text-red-500 text-sm bg-red-50 border border-red-200 p-3 rounded-lg">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 ml-2" viewBox="0 0 20 20" fill="currentColor">
+                        <svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 ml-2" viewBox="0 0 20 20" fill="currentColor">
                             <path fill-rule="evenodd"
                                   d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
                                   clip-rule="evenodd" />
@@ -543,7 +542,7 @@
 
             <!-- Error Section -->
             <div id="errorSection" role="alert" class="hidden yr-chrome-card border-red-400/30 rounded-2xl p-6 text-center" style="border-color:rgba(239,68,68,.25);">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto text-red-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto text-red-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
                 <p id="errorMessage" class="text-red-300 font-medium"></p>
@@ -559,7 +558,7 @@
             <div class="flex flex-col items-center gap-3 sm:gap-4">
                 <div class="relative w-24 h-24 sm:w-32 sm:h-32">
                     <!-- SVG Circular Progress Ring -->
-                    <svg class="w-24 h-24 sm:w-32 sm:h-32 transform -rotate-90" viewBox="0 0 120 120">
+                    <svg aria-hidden="true" focusable="false" class="w-24 h-24 sm:w-32 sm:h-32 transform -rotate-90" viewBox="0 0 120 120">
                         <circle cx="60" cy="60" r="54" fill="none" stroke="rgba(47,107,255,.18)" stroke-width="8"></circle>
                         <circle id="compareProgressRing" cx="60" cy="60" r="54" fill="none" stroke="url(#compareRainbowGradient)" stroke-width="8" 
                                 stroke-linecap="round" stroke-dasharray="339.292" stroke-dashoffset="339.292"
@@ -587,7 +586,7 @@
                 </div>
             </div>
         </div>
-        <div id="compareResultAckModal" role="dialog" aria-modal="true" aria-labelledby="compare-ack-title" class="fixed inset-0 z-50 hidden">
+        <div id="compareResultAckModal" role="dialog" aria-modal="true" aria-labelledby="compare-ack-title" aria-hidden="true" class="fixed inset-0 z-50 hidden">
             <div class="absolute inset-0 bg-black/70"></div>
             <div class="absolute inset-0 flex items-center justify-center p-4">
                 <div class="w-full max-w-lg yr-chrome-card p-6 md:p-8">
@@ -904,6 +903,7 @@
             resultReadyPanel.classList.remove('hidden');
         }
         scrollToCompareResult();
+        if (userInitiated) resultsSection.focus({ preventScroll: true });
         if (userInitiated && !alreadyOpen) {
             trackEvent('result_opened', {
                 flow_type: 'compare',
@@ -1075,16 +1075,22 @@
     let resultReadyPanelTrackedForHistory = null;
     let compareResultAckAccepted = compareResultAckAcceptedInitial;
     let pendingCompareOpenOptions = null;
+    let compareAckReturnFocus = null;
 
     function closeCompareResultAckModal() {
         compareResultAckModal?.classList.add('hidden');
+        compareResultAckModal?.setAttribute('aria-hidden', 'true');
         compareResultAckError?.classList.add('hidden');
+        compareAckReturnFocus?.focus?.();
     }
 
     function ensureCompareResultAcknowledgement(options = {}) {
         if (!window.__IS_AUTHENTICATED__ || compareResultAckAccepted) return true;
         pendingCompareOpenOptions = options;
+        compareAckReturnFocus = document.activeElement;
         compareResultAckModal?.classList.remove('hidden');
+        compareResultAckModal?.setAttribute('aria-hidden', 'false');
+        compareResultAckCheckbox?.focus();
         return false;
     }
 
@@ -1282,16 +1288,19 @@
             if (items.length === 0) {
                 dropdown.classList.remove('open');
                 dropdown.innerHTML = '';
+                searchInput.setAttribute('aria-expanded', 'false');
+                searchInput.removeAttribute('aria-activedescendant');
                 return;
             }
             dropdown.innerHTML = items.map((car, idx) => {
                 const yearEndLabel = car.yearEnd != null ? car.yearEnd : 'עד היום';
                 const yearText = car.yearStart ? `(${car.yearStart}-${yearEndLabel})` : '';
-                return `<div class="autocomplete-item" data-index="${idx}">
+                return `<button type="button" role="option" id="car_option_${slotSuffix}_${idx}" class="autocomplete-item w-full text-right" data-index="${idx}" aria-selected="false">
                     <span class="item-make">${escapeHtml(car.make)}</span> ${escapeHtml(car.model)} <span class="item-years">${yearText}</span>
-                </div>`;
+                </button>`;
             }).join('');
             dropdown.classList.add('open');
+            searchInput.setAttribute('aria-expanded', 'true');
 
             dropdown.querySelectorAll('.autocomplete-item').forEach(item => {
                 item.addEventListener('mousedown', (e) => {
@@ -1329,6 +1338,8 @@
 
             dropdown.classList.remove('open');
             dropdown.innerHTML = '';
+            searchInput.setAttribute('aria-expanded', 'false');
+            searchInput.removeAttribute('aria-activedescendant');
             updateClearButton(slotSuffix);
             updateSlotTitle(slotSuffix, car.make, car.model);
             updateCompareButton();
@@ -1357,11 +1368,13 @@
             if (e.key === 'ArrowDown') {
                 e.preventDefault();
                 highlightIndex = Math.min(highlightIndex + 1, items.length - 1);
-                items.forEach((item, i) => item.classList.toggle('highlighted', i === highlightIndex));
+                items.forEach((item, i) => { item.classList.toggle('highlighted', i === highlightIndex); item.setAttribute('aria-selected', i === highlightIndex ? 'true' : 'false'); });
+                if (items[highlightIndex]) searchInput.setAttribute('aria-activedescendant', items[highlightIndex].id);
             } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
                 highlightIndex = Math.max(highlightIndex - 1, 0);
-                items.forEach((item, i) => item.classList.toggle('highlighted', i === highlightIndex));
+                items.forEach((item, i) => { item.classList.toggle('highlighted', i === highlightIndex); item.setAttribute('aria-selected', i === highlightIndex ? 'true' : 'false'); });
+                if (items[highlightIndex]) searchInput.setAttribute('aria-activedescendant', items[highlightIndex].id);
             } else if (e.key === 'Enter') {
                 e.preventDefault();
                 if (highlightIndex >= 0 && highlightIndex < filteredItems.length) {
@@ -1369,11 +1382,13 @@
                 }
             } else if (e.key === 'Escape') {
                 dropdown.classList.remove('open');
+                searchInput.setAttribute('aria-expanded', 'false');
+                searchInput.removeAttribute('aria-activedescendant');
             }
         });
 
         searchInput.addEventListener('blur', () => {
-            setTimeout(() => dropdown.classList.remove('open'), 200);
+            setTimeout(() => { dropdown.classList.remove('open'); searchInput.setAttribute('aria-expanded', 'false'); searchInput.removeAttribute('aria-activedescendant'); }, 200);
         });
         searchInput.addEventListener('focus', () => {
             if (searchInput.value.length >= 1) {
@@ -2137,6 +2152,14 @@
         closeCompareResultAckModal();
     });
     compareResultAckConfirm?.addEventListener('click', confirmCompareResultAcknowledgement);
+    compareResultAckModal?.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') { event.preventDefault(); closeCompareResultAckModal(); return; }
+        if (event.key !== 'Tab') return;
+        const items = Array.from(compareResultAckModal.querySelectorAll('button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+        const first = items[0], last = items[items.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    });
     compareOpenResultNow?.addEventListener('click', function () {
         closeCompareResearch({ reason: 'open_result_now', openResult: true });
     });

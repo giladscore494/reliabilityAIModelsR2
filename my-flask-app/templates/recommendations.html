@@ -7,7 +7,6 @@
 
     <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
     <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
-    {% include "_posthog_snippet.html" %}
 
     <script nonce="{{ csp_nonce }}">
         tailwind.config = {
@@ -66,7 +65,7 @@
                     <div class="yr-app-header__inner">
                         <div class="yr-app-header__brand">
                             <span class="yr-app-header__mark">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11l1.5-4.2A2 2 0 0 1 8.4 5.4h7.2a2 2 0 0 1 1.9 1.4L19 11 M5 11h14v5H5z M5 16v2 M19 16v2 M7.5 13.5h.01 M16.5 13.5h.01"></path></svg>
+                                <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11l1.5-4.2A2 2 0 0 1 8.4 5.4h7.2a2 2 0 0 1 1.9 1.4L19 11 M5 11h14v5H5z M5 16v2 M19 16v2 M7.5 13.5h.01 M16.5 13.5h.01"></path></svg>
                             </span>
                             <span class="yr-app-header__brand-text">
                                 <span class="yr-app-header__name">ידע רכב</span>
@@ -80,7 +79,7 @@
                                 <span class="yr-step-pill__label" id="advisorStepLabel">פרופיל נהג</span>
                             </div>
                             <button type="button" id="advisorRestartBtn" class="yr-step-restart">
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7 M3 4v4h4"></path></svg>
+                                <svg aria-hidden="true" focusable="false" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7 M3 4v4h4"></path></svg>
                                 <span>התחל מחדש</span>
                             </button>
                         </div>
@@ -301,27 +300,27 @@
                         </p>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div class="flex items-center justify-between gap-4">
-                                <span class="text-sm text-slate-200">פשטות תחזוקה לאורך זמן</span>
+                                <label for="w_reliability" class="text-sm text-slate-200">פשטות תחזוקה לאורך זמן</label>
                                 <input type="range" id="w_reliability" min="1" max="5" step="1" value="5"
                                        class="w-40 accent-primary">
                             </div>
                             <div class="flex items-center justify-between gap-4">
-                                <span class="text-sm text-slate-200">שווי מכירה עתידי</span>
+                                <label for="w_resale" class="text-sm text-slate-200">שווי מכירה עתידי</label>
                                 <input type="range" id="w_resale" min="1" max="5" step="1" value="3"
                                        class="w-40 accent-primary">
                             </div>
                             <div class="flex items-center justify-between gap-4">
-                                <span class="text-sm text-slate-200">צריכת דלק / חשמל</span>
+                                <label for="w_fuel" class="text-sm text-slate-200">צריכת דלק / חשמל</label>
                                 <input type="range" id="w_fuel" min="1" max="5" step="1" value="4"
                                        class="w-40 accent-primary">
                             </div>
                             <div class="flex items-center justify-between gap-4">
-                                <span class="text-sm text-slate-200">ביצועים</span>
+                                <label for="w_performance" class="text-sm text-slate-200">ביצועים</label>
                                 <input type="range" id="w_performance" min="1" max="5" step="1" value="2"
                                        class="w-40 accent-primary">
                             </div>
                             <div class="flex items-center justify-between gap-4">
-                                <span class="text-sm text-slate-200">נוחות ואבזור</span>
+                                <label for="w_comfort" class="text-sm text-slate-200">נוחות ואבזור</label>
                                 <input type="range" id="w_comfort" min="1" max="5" step="1" value="3"
                                        class="w-40 accent-primary">
                             </div>
@@ -496,7 +495,7 @@
                 <section id="advisorAnalyzingScreen" class="yr-flow-hidden yr-analyzing-panel yr-rise">
                     <div class="yr-analyzing-ring">
                         <div class="yr-analyzing-ring__halo"></div>
-                        <svg viewBox="0 0 200 200" class="yr-analyzing-ring__svg" aria-hidden="true">
+                        <svg aria-hidden="true" focusable="false" viewBox="0 0 200 200" class="yr-analyzing-ring__svg">
                             <circle cx="100" cy="100" r="80" class="yr-analyzing-ring__track"></circle>
                             <circle cx="100" cy="100" r="80" id="advisorAnalyzeRing" class="yr-analyzing-ring__progress"></circle>
                             <defs>
@@ -527,7 +526,7 @@
                     <div class="flex flex-col items-center gap-4">
                         <div class="relative w-32 h-32">
                             <!-- SVG Circular Progress Ring -->
-                            <svg class="w-32 h-32 transform -rotate-90" viewBox="0 0 120 120">
+                            <svg aria-hidden="true" focusable="false" class="w-32 h-32 transform -rotate-90" viewBox="0 0 120 120">
                                 <circle cx="60" cy="60" r="54" fill="none" stroke="#ffffff" stroke-width="8"></circle>
                                 <circle id="advisorProgressRing" cx="60" cy="60" r="54" fill="none" stroke="url(#advisorRainbowGradient)" stroke-width="8" 
                                         stroke-linecap="round" stroke-dasharray="339.292" stroke-dashoffset="339.292"
@@ -573,7 +572,7 @@
                 <!-- תוצאות המנוע -->
                 <section id="advisor-results" tabindex="-1" class="relative z-10 max-w-5xl mx-auto mt-8 hidden yr-rise">
                     <!-- Shared SVG gradient for all score gauges -->
-                    <svg width="0" height="0" style="position:absolute"><defs>
+                    <svg aria-hidden="true" focusable="false" width="0" height="0" style="position:absolute"><defs>
                         <linearGradient id="yr-gauge-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
                             <stop offset="0%" stop-color="#3b7bff"/>
                             <stop offset="55%" stop-color="#2f6bff"/>
