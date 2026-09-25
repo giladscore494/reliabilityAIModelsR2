@@ -262,7 +262,7 @@ def test_stage_a_invalid_repair_valid_returns_200(app, logged_in_client, monkeyp
 
 # Test 6: both cars failing unrecoverably → clean retryable error
 def test_both_cars_fail_unrecoverably_returns_clean_error(app, logged_in_client, monkeypatch):
-    """When all Stage A calls fail, the endpoint returns a clean retryable error."""
+    """When the single-pass AI call fails, the endpoint returns a clean retryable error."""
     client, user_id = logged_in_client
     client.post(
         "/api/legal/accept",
@@ -270,16 +270,11 @@ def test_both_cars_fail_unrecoverably_returns_clean_error(app, logged_in_client,
         headers={"Content-Type": "application/json", "Origin": "http://localhost"},
     )
 
-    def fake_stage_a_parallel(_validated_cars, cars_selected_slots):
-        merged = comparison_service._empty_stage_a_output(cars_selected_slots)
-        sources_index = comparison_service.build_sources_index_from_flat(merged)
-        errors = [f"{k}: CALL_TIMEOUT" for k in cars_selected_slots]
-        return merged, sources_index, errors
-
-    monkeypatch.setattr(comparison_service, "call_stage_a_parallel", fake_stage_a_parallel)
+    # The two-stage (Stage A + writer) pipeline was replaced by a single
+    # grounded call in 48c1a50; fail that call instead of the retired stages.
     monkeypatch.setattr(
-        comparison_service, "call_gemini_compare_writer",
-        lambda *a, **kw: (None, "CALL_TIMEOUT"),
+        comparison_service, "call_gemini_single_pass_compare",
+        lambda *a, **kw: (None, "CALL_TIMEOUT", {"grounding_successful": False, "source_count": 0}),
     )
 
     resp = client.post(
@@ -302,4 +297,5 @@ def test_both_cars_fail_unrecoverably_returns_clean_error(app, logged_in_client,
     assert "STAGE_A_ALL_FAILED" not in error_code, (
         "Internal error codes must not be exposed to users"
     )
-    assert error_code == "stage_a_unavailable"
+    assert error_code == "single_pass_unavailable"
+    assert details.get("stage") == "single_pass"

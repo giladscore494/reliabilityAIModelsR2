@@ -352,7 +352,13 @@ class TestCompareDetailAPI:
 
         assert resp.status_code == 200
         decision = resp.get_json()["data"]["decision_result"]
-        assert decision["choose_car_1_if"]
-        assert decision["choose_car_2_if"]
-        assert decision["avoid_or_check_car_1_if"]
-        assert decision["avoid_or_check_car_2_if"]
+        assert decision["overall_decision"]["label"] == "car_1"
+        assert decision["category_decisions"][0]["category_key"] == "pricing_and_value"
+        assert decision["category_decisions"][0]["preferred"] == "car_1"
+        assert decision["practical_summary"] == "בדקו מצב ועלויות לפני החלטה."
+        # Since da49824 missing choose/avoid arrays normalize to [] instead of
+        # being backfilled with generic filler (see test_comparison_cache.py).
+        assert decision["choose_car_1_if"] == []
+        assert decision["choose_car_2_if"] == []
+        assert decision["avoid_or_check_car_1_if"] == []
+        assert decision["avoid_or_check_car_2_if"] == []
