@@ -9,6 +9,8 @@ Tests for the Car Comparison refactor:
 """
 
 import json
+from pathlib import Path
+
 import pytest
 
 from app.models import ComparisonHistory
@@ -29,6 +31,8 @@ from app.services.comparison_service import (
 )
 from app.utils.sanitization import sanitize_comparison_narrative
 from main import create_app, db, User
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 # ============================================================
@@ -1000,18 +1004,16 @@ def test_compare_decision_result_has_no_visible_numeric_scores():
 
 
 def test_compare_template_does_not_render_score_markers():
-    from pathlib import Path
-
-    text = Path("templates/compare.html").read_text(encoding="utf-8")
+    text = (ROOT / "templates" / "compare.html").read_text(encoding="utf-8")
     forbidden = ["/100", "מהציון", "winnerScore", "category score", "overall score"]
     assert not any(token in text for token in forbidden)
 
 
 def test_compare_category_decisions_render_preference_labels():
-    from pathlib import Path
-
-    text = Path("templates/compare.html").read_text(encoding="utf-8")
-    for token in ["עדיפות", "למה זה משנה", "מה לבדוק"]:
+    text = (ROOT / "templates" / "compare.html").read_text(encoding="utf-8")
+    # "מה לבדוק לפני החלטה" was intentionally renamed to "פחות מתאים אם" in
+    # d84189f (see test_compare_result_template_copy_sections_and_primary_color).
+    for token in ["עדיפות", "למה זה משנה", "פחות מתאים אם"]:
         assert token in text
 
 
