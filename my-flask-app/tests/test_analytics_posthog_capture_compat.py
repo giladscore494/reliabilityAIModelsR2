@@ -15,6 +15,16 @@ class PositionalClient:
         self.calls.append((distinct_id, event, properties))
 
 
+class KeywordRejectingClient:
+    """Legacy SDK shape: keyword distinct_id/event raise TypeError."""
+    def __init__(self):
+        self.calls = []
+    def capture(self, *args, **kwargs):
+        if "distinct_id" in kwargs or "event" in kwargs:
+            raise TypeError("capture() got an unexpected keyword argument 'distinct_id'")
+        self.calls.append((args, kwargs))
+
+
 class BrokenClient:
     def capture(self, *args, **kwargs):
         raise RuntimeError("boom")
@@ -37,6 +47,13 @@ def test_track_event_old_sdk_positional_style(monkeypatch):
     _enable(monkeypatch, client)
     analytics.track_event("u1", "compare_completed", {"request_id": "r2"})
     assert client.calls == [("u1", "compare_completed", {"request_id": "r2"})]
+
+
+def test_track_event_falls_back_to_positional_when_keywords_rejected(monkeypatch):
+    client = KeywordRejectingClient()
+    _enable(monkeypatch, client)
+    analytics.track_event("u1", "compare_completed", {"request_id": "r3"})
+    assert client.calls == [(("u1", "compare_completed"), {"properties": {"request_id": "r3"}})]
 
 
 def test_track_event_never_raises(monkeypatch):

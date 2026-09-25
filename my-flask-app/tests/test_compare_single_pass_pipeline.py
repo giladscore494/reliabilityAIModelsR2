@@ -6,11 +6,14 @@ There is no scoring engine anymore: a single Google-grounded call returns the
 decision_result schema and the server only sanitizes / guards it.
 """
 import time
+from pathlib import Path
 
 from app.services import comparison_service
 from app.quota import compute_quota_window, resolve_app_timezone
 from app.models import DailyQuotaUsage, ComparisonHistory
 from main import db
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 DECISION_CATEGORIES = [
@@ -365,16 +368,14 @@ def test_compare_catalog_lazy_endpoint(client):
 
 
 def test_compare_frontend_keeps_decision_result_for_fallback_ai_status():
-    from pathlib import Path
-    template = Path("templates/compare.html").read_text(encoding="utf-8")
+    template = (ROOT / "templates" / "compare.html").read_text(encoding="utf-8")
     assert "const decision = result.decision_result || computed.decision_result || null;" in template
     assert "isPartialResearch ? buildLegacyDecisionFallback" not in template
     assert "categoriesSection.innerHTML = hasUsableDecision ? renderDecisionSections" in template
 
 
 def test_active_compare_pipeline_does_not_call_legacy_scoring():
-    from pathlib import Path
-    pipeline = Path("app/services/comparison/pipeline.py").read_text(encoding="utf-8")
+    pipeline = (ROOT / "app" / "services" / "comparison" / "pipeline.py").read_text(encoding="utf-8")
     assert "compute_comparison_results(" not in pipeline
     assert "compute_overall_score(" not in pipeline
 
@@ -576,9 +577,7 @@ def test_checked_versions_normalize_robotized_transmission_and_omit_generic_auto
 
 
 def test_compare_result_template_copy_sections_and_primary_color():
-    from pathlib import Path
-
-    template = Path("templates/compare.html").read_text(encoding="utf-8")
+    template = (ROOT / "templates" / "compare.html").read_text(encoding="utf-8")
     result_block = template[template.index("function renderCheckedVersions"):template.index("function renderComparePartialResearch")]
 
     assert "ההשוואה מבוססת על הגרסאות הבאות:" in result_block
