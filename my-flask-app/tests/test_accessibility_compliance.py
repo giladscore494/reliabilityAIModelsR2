@@ -51,6 +51,13 @@ def test_every_ordinary_footer_page_gets_shared_analytics_controller(app, client
         ).group(0)
 
 
+def test_public_pages_do_not_disable_browser_zoom():
+    for filename in PUBLIC_PAGES:
+        page = (TEMPLATES / filename).read_text()
+        assert "user-scalable=no" not in page
+        assert "maximum-scale=1.0" not in page
+
+
 def test_shared_accessibility_contracts_are_present():
     navbar = (TEMPLATES / "_navbar.html").read_text()
     footer = (TEMPLATES / "_footer.html").read_text()
