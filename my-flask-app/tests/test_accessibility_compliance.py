@@ -88,6 +88,11 @@ def test_dialog_keyboard_contracts_are_implemented():
     assert all(ref in ids for value in references for ref in value.split())
 
 
+def test_legacy_posthog_cookie_is_not_created():
+    hooks = (TEMPLATES.parent / "app" / "bootstrap" / "request_hooks.py").read_text()
+    assert "yrc_anon" not in hooks
+
+
 def test_posthog_requires_choice_and_disables_invasive_features():
     snippet = (TEMPLATES / "_posthog_snippet.html").read_text()
     controller = (TEMPLATES.parent / "static" / "analytics_privacy.js").read_text()

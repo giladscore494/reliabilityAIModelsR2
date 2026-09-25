@@ -55,29 +55,6 @@ def register_request_hooks(
 ) -> None:
     """Register every request-lifecycle hook used by create_app."""
 
-    @app.before_request
-    def ensure_yrc_anon_cookie():
-        """Set a stable anonymous cookie for PostHog distinct_id on anonymous users."""
-        if hasattr(request, 'cookies') and not request.cookies.get('yrc_anon'):
-            g._set_yrc_anon = uuid.uuid4().hex
-        else:
-            g._set_yrc_anon = None
-
-    @app.after_request
-    def set_yrc_anon_cookie(response):
-        """Attach the yrc_anon cookie if it was flagged for creation."""
-        anon_val = getattr(g, '_set_yrc_anon', None)
-        if anon_val:
-            response.set_cookie(
-                'yrc_anon',
-                anon_val,
-                max_age=365 * 24 * 60 * 60,
-                httponly=True,
-                secure=True,
-                samesite='Lax',
-            )
-        return response
-
     @app.after_request
     def log_response_metadata(response):
         path = request.path or ""
