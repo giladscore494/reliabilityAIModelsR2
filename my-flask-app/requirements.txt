@@ -6,6 +6,9 @@ gunicorn==23.0.0
 pandas==2.2.3
 json-repair==0.30.0
 Flask-SQLAlchemy==3.1.1
+# SQLAlchemy 2.1 defaults postgresql:// URLs to the psycopg (v3) driver, but
+# only psycopg2-binary is installed. Keep 2.0.x until the driver is migrated.
+SQLAlchemy==2.0.54
 Flask-Migrate==4.0.7
 alembic==1.14.0
 psycopg2-binary==2.9.10
