@@ -290,12 +290,14 @@ def test_competitors_rendered_separately_from_uncertainties():
     script_path = os.path.join(
         os.path.dirname(__file__), "..", "static", "script.js"
     )
-    assert os.path.exists(script_path)
-    size = os.path.getsize(script_path)
-    assert size > 0
     with open(script_path, encoding="utf-8") as f:
         content = f.read()
-    assert "vpCompetitors" in content
+    # ``vpCompetitors`` was folded into the normalized review view model in
+    # 4c49dbb; vehicle_profile.competitors still feeds a dedicated tab.
+    assert "asList(vp.competitors)" in content
+    assert "const validCompetitors = normalizedReview.competitors;" in content
+    assert "tabs.push({ key: 'competitors', label: 'מתחרים'" in content
+    assert "knownUncertainties.map" not in content
 
 
 # ---------------------------------------------------------------------------

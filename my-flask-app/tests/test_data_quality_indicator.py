@@ -7,9 +7,14 @@ strings) to stay robust against JS refactoring.
 """
 
 import json
+import re
+from pathlib import Path
+
 import pytest
 
 from app.utils.sanitization import sanitize_analyze_response, derive_information_status
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 # ---------------------------------------------------------------------------
@@ -244,37 +249,44 @@ class TestExampleTemplateScoreContainerId:
 
 
 # ---------------------------------------------------------------------------
-# 4. script.js contains the DataQualityIndicator function markers
+# 4. The visual Data Quality Indicator is retired from the review UI
 # ---------------------------------------------------------------------------
+# The meter (role="meter"/aria-valuenow), the "weakly sourced" chip and the
+# JS-built disclaimer were intentionally removed on main: the call site went
+# away with the tabbed review UI (bb3cc6f) and the body was stubbed in
+# 502940b ("Clean vehicle review and comparison UI"). ba313aa then pinned
+# "weaklySourced" as forbidden on the dashboard. The backend still emits the
+# fields (tests above) but the UI treats them as internal metadata.
 
-class TestScriptJsContainsDQIMarkers:
-    def test_build_data_quality_indicator_present(self, client):
+class TestDataQualityIndicatorRetiredFromUI:
+    def _script(self, client):
         resp = client.get("/static/script.js")
-        body = resp.get_data(as_text=True)
         assert resp.status_code == 200
-        assert "buildDataQualityIndicator" in body
+        return resp.get_data(as_text=True)
 
-    def test_aria_meter_role_present(self, client):
-        resp = client.get("/static/script.js")
-        body = resp.get_data(as_text=True)
-        assert "role" in body and "meter" in body
+    def test_build_data_quality_indicator_is_inert(self, client):
+        body = self._script(client)
+        assert re.search(
+            r"function buildDataQualityIndicator\([^)]*\)\s*\{\s*return document\.createDocumentFragment\(\);\s*\}",
+            body,
+        )
+        assert body.count("buildDataQualityIndicator(") == 1  # definition only, no caller
 
-    def test_aria_valuenow_present(self, client):
-        resp = client.get("/static/script.js")
-        body = resp.get_data(as_text=True)
-        assert "aria-valuenow" in body
+    def test_internal_source_quality_terms_are_filtered_from_visible_text(self, client):
+        body = self._script(client)
+        match = re.search(r"const INTERNAL_PATTERNS = \[(.*?)\];", body, re.S)
+        assert match, "INTERNAL_PATTERNS filter missing"
+        for term in ("weakly sourced", "source_count", "source_scope_label",
+                     "data quality", "decision readiness", "איכות מידע"):
+            assert f"'{term}'" in match.group(1)
 
-    def test_system_disclaimer_present(self, client):
-        # Intentionally checks the exact legal positioning disclaimer.
-        # If this wording changes, it must be a deliberate product decision.
-        resp = client.get("/static/script.js")
-        body = resp.get_data(as_text=True)
-        assert "המערכת לא קובעת אם לקנות את הרכב, אלא מציפה מה לבדוק" in body
-
-    def test_weakly_sourced_chip_logic_present(self, client):
-        resp = client.get("/static/script.js")
-        body = resp.get_data(as_text=True)
-        assert "weaklySourced" in body
+    def test_decision_support_disclaimer_present(self):
+        # The legal positioning disclaimer now lives in the templates rather
+        # than in JS-built indicator markup. Wording changes must be deliberate.
+        review = (ROOT / "templates" / "reliability_app.html").read_text(encoding="utf-8")
+        assert "התוצאה היא כלי תומך החלטה בלבד ואינה ייעוץ מקצועי" in review
+        dashboard = (ROOT / "templates" / "dashboard.html").read_text(encoding="utf-8")
+        assert "המערכת לא קובעת אם לקנות את הרכב, אלא מציפה נקודות לבדיקה" in dashboard
 
     def test_fallback_aria_busy_present(self, client):
         resp = client.get("/static/script.js")
