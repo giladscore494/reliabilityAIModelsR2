@@ -9,6 +9,8 @@ Tests for the Car Comparison refactor:
 """
 
 import json
+from pathlib import Path
+
 import pytest
 
 from app.models import ComparisonHistory
@@ -29,6 +31,8 @@ from app.services.comparison_service import (
 )
 from app.utils.sanitization import sanitize_comparison_narrative
 from main import create_app, db, User
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 # ============================================================
@@ -74,7 +78,7 @@ class TestBuildDisplayName:
 
 
 class TestBuildCheckedVersions:
-    def test_generalizes_transmission_and_exposes_uncertainty(self):
+    def test_prefers_grounded_transmission_and_hides_internal_fields(self):
         cars_selected = {
             "car_1": {
                 "make": "Volkswagen",
@@ -111,11 +115,13 @@ class TestBuildCheckedVersions:
 
         checked = build_checked_versions(cars_selected, grounded)
 
-        assert checked["car_1"]["transmission"] == "רובוטית"
-        assert checked["car_1"]["trim"] == "לא מאומת"
-        assert checked["car_1"]["data_basis"] == "mixed"
-        assert checked["car_1"]["confidence"] == "medium"
-        assert "ערכים כלליים" in checked["car_1"]["notes"]
+        # 629da44/d84189f: precise grounded gearbox facts (DSG → dual-clutch)
+        # win over generic user selections, and provenance/notes fields are
+        # internal and never exposed.
+        assert checked["car_1"]["transmission"] == "דו-מצמדית"
+        assert checked["car_1"]["engine_type"] == "1.5 TSI"
+        for internal_key in ("trim", "version_or_trim", "data_basis", "confidence", "notes"):
+            assert internal_key not in checked["car_1"]
 
 
 # ============================================================
@@ -1000,18 +1006,16 @@ def test_compare_decision_result_has_no_visible_numeric_scores():
 
 
 def test_compare_template_does_not_render_score_markers():
-    from pathlib import Path
-
-    text = Path("templates/compare.html").read_text(encoding="utf-8")
+    text = (ROOT / "templates" / "compare.html").read_text(encoding="utf-8")
     forbidden = ["/100", "מהציון", "winnerScore", "category score", "overall score"]
     assert not any(token in text for token in forbidden)
 
 
 def test_compare_category_decisions_render_preference_labels():
-    from pathlib import Path
-
-    text = Path("templates/compare.html").read_text(encoding="utf-8")
-    for token in ["עדיפות", "למה זה משנה", "מה לבדוק"]:
+    text = (ROOT / "templates" / "compare.html").read_text(encoding="utf-8")
+    # "מה לבדוק לפני החלטה" was intentionally renamed to "פחות מתאים אם" in
+    # d84189f (see test_compare_result_template_copy_sections_and_primary_color).
+    for token in ["עדיפות", "למה זה משנה", "פחות מתאים אם"]:
         assert token in text
 
 
@@ -1088,7 +1092,7 @@ def test_compare_stage_b_forbidden_score_text_is_sanitized():
     assert "תקנה" not in cleaned["practical_summary"]
 
 
-def test_sanitize_decision_result_fills_missing_per_car_arrays_from_structured_content():
+def test_sanitize_decision_result_keeps_structured_content_without_backfilling_arrays():
     from app.services.comparison_service import sanitize_decision_result
 
     slots = map_cars_to_slots(
@@ -1135,13 +1139,18 @@ def test_sanitize_decision_result_fills_missing_per_car_arrays_from_structured_c
         "req",
     )
 
-    assert cleaned["choose_car_1_if"]
-    assert cleaned["choose_car_2_if"]
-    assert cleaned["avoid_or_check_car_1_if"]
-    assert cleaned["avoid_or_check_car_2_if"]
+    # Since da49824 empty choose/avoid arrays stay empty (no generic filler);
+    # the structured content itself must be preserved.
+    assert cleaned["choose_car_1_if"] == []
+    assert cleaned["choose_car_2_if"] == []
+    assert cleaned["avoid_or_check_car_1_if"] == []
+    assert cleaned["avoid_or_check_car_2_if"] == []
+    assert cleaned["category_decisions"][0]["preferred"] == "car_1"
+    assert cleaned["key_differences"][0]["car_2"] == "מרגישה דינמית יותר."
+    assert cleaned["practical_summary"] == "בדקו שימוש, מצב ועלויות לפני החלטה."
 
 
-def test_sanitize_decision_result_populates_car_3_arrays():
+def test_sanitize_decision_result_exposes_car_3_slot_keys():
     from app.services.comparison_service import sanitize_decision_result
 
     slots = map_cars_to_slots(
@@ -1177,5 +1186,8 @@ def test_sanitize_decision_result_populates_car_3_arrays():
         "req",
     )
 
-    assert cleaned["choose_car_3_if"]
-    assert cleaned["avoid_or_check_car_3_if"]
+    assert cleaned["overall_decision"]["label"] == "car_3"
+    assert cleaned["category_decisions"][0]["preferred"] == "car_3"
+    # The car_3 slot keys exist; missing arrays normalize to [] since da49824.
+    assert cleaned["choose_car_3_if"] == []
+    assert cleaned["avoid_or_check_car_3_if"] == []

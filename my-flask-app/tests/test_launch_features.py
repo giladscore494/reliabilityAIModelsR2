@@ -179,8 +179,8 @@ class TestPostHogNoOp:
         analytics.track_event("user-1", "test_event", {"foo": "bar"})
 
         mock_client.capture.assert_called_once_with(
-            "user-1",
-            "test_event",
+            distinct_id="user-1",
+            event="test_event",
             properties={"foo": "bar"},
         )
 
@@ -195,10 +195,20 @@ class TestPostHogNoOp:
         monkeypatch.setattr(analytics, "_posthog_client", BrokenClient())
         monkeypatch.setattr(analytics, "_posthog_enabled", True)
 
-        with caplog.at_level(logging.ERROR):
+        monkeypatch.delenv("DEBUG_ANALYTICS", raising=False)
+
+        with caplog.at_level(logging.WARNING, logger="app.utils.analytics"):
             analytics.track_event("user-1", "test_event", {"foo": "bar"})
 
-        assert "[POSTHOG] capture failed distinct_id=user-1 event=test_event" in caplog.text
+        records = [r for r in caplog.records if r.name == "app.utils.analytics"]
+        assert len(records) == 1
+        assert records[0].levelno == logging.WARNING
+        message = records[0].getMessage()
+        assert "[POSTHOG] capture failed event=test_event" in message
+        assert "error=RuntimeError" in message
+        assert "distinct_id_present=True" in message
+        # The raw user identifier must never be written to logs.
+        assert "user-1" not in caplog.text
 
     def test_init_posthog_logs_server_initialization(self, monkeypatch, caplog):
         from app.utils import analytics
@@ -220,6 +230,26 @@ class TestPostHogNoOp:
             analytics.init_posthog(Flask(__name__))
 
         assert "[POSTHOG] server initialization status enabled=True host=https://eu.i.posthog.com" in caplog.text
+
+    @pytest.mark.parametrize("flag", [None, "false", "0", ""])
+    def test_init_posthog_requires_server_enabled_flag(self, monkeypatch, flag):
+        from app.utils import analytics
+
+        fake_posthog = SimpleNamespace(api_key=None, host=None, debug=None, on_error=None)
+        monkeypatch.setenv("POSTHOG_API_KEY", "server-key")
+        if flag is None:
+            monkeypatch.delenv("POSTHOG_SERVER_ENABLED", raising=False)
+        else:
+            monkeypatch.setenv("POSTHOG_SERVER_ENABLED", flag)
+        monkeypatch.setitem(sys.modules, "posthog", fake_posthog)
+        monkeypatch.setattr(analytics, "_posthog_client", None)
+        monkeypatch.setattr(analytics, "_posthog_enabled", False)
+
+        analytics.init_posthog(Flask(__name__))
+
+        assert analytics._posthog_enabled is False
+        assert analytics._posthog_client is None
+        assert fake_posthog.api_key is None
 
 
 class TestPostHogSnippetAndCsp:
@@ -491,6 +521,8 @@ class TestPostHogServerFlows:
         track_event = MagicMock()
 
         class FakeResponse:
+            ok = True
+
             @staticmethod
             def json():
                 return {
@@ -501,7 +533,7 @@ class TestPostHogServerFlows:
 
         monkeypatch.setattr("app.routes.public_routes.track_event", track_event)
         monkeypatch.setattr("main.oauth.google.authorize_access_token", lambda: {"access_token": "token"})
-        monkeypatch.setattr("main.oauth.google.get", lambda _path: FakeResponse())
+        monkeypatch.setattr("main.oauth.google.get", lambda _path, **_kwargs: FakeResponse())
 
         resp = client.get("/auth")
 

@@ -415,8 +415,12 @@ def test_checked_versions_use_catalog_identity():
     checked = build_checked_versions(slots, {"cars": {}}, None)
     cv = checked["car_1"]
     assert cv["make"] == make
-    assert cv["data_basis"] == "verified_source"
-    assert cv["confidence"] == "high"
+    assert cv["model"] == model
+    assert cv["version_or_trim"] == variants[0]["version_or_trim"]
+    # 629da44 made checked_versions a public allowlist; provenance metadata
+    # (data_basis / confidence) is internal and must not reach the payload.
+    assert "data_basis" not in cv
+    assert "confidence" not in cv
 
 
 # --------------------------------------------------------------------------
