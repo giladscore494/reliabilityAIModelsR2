@@ -15,6 +15,7 @@ ACTIVE_ROUTES = [
     "/dashboard",
     "/terms",
     "/privacy",
+    "/accessibility",
     "/healthz",
 ]
 

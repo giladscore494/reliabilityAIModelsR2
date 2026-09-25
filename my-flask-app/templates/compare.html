@@ -187,13 +187,13 @@
 {% set active_page = 'compare' %}
 {% include '_navbar.html' %}
 
-<main class="flex-grow relative container mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-16 overflow-hidden">
+<main id="main-content" tabindex="-1" class="flex-grow relative container mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-16 overflow-hidden">
     <div class="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[900px] opacity-20 pointer-events-none"
          style="background: radial-gradient(circle, rgba(99,102,241,0.25) 0%, rgba(15,23,42,0) 70%);"></div>
 
     {% if not user or not user.is_authenticated %}
         <div class="relative z-10 max-w-xl mx-auto text-center yr-chrome-card p-10">
-            <h2 class="text-3xl font-extrabold mb-4" style="font-family:'Rubik','Heebo',sans-serif;">השוואת רכבים – התחברות נדרשת</h2>
+            <h1 class="text-3xl font-extrabold mb-4" style="font-family:'Rubik','Heebo',sans-serif;">השוואת רכבים – התחברות נדרשת</h1>
             <p class="text-slate-400 mb-6 text-sm md:text-base">
                 כדי להשתמש בכלי השוואת הרכבים, יש להתחבר עם חשבון Google.
             </p>
@@ -210,9 +210,9 @@
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M5 4a1 1 0 00-2 0v7.268a2 2 0 000 3.464V16a1 1 0 102 0v-1.268a2 2 0 000-3.464V4zM11 4a1 1 0 10-2 0v1.268a2 2 0 000 3.464V16a1 1 0 102 0V8.732a2 2 0 000-3.464V4zM16 3a1 1 0 011 1v7.268a2 2 0 010 3.464V16a1 1 0 11-2 0v-1.268a2 2 0 010-3.464V4a1 1 0 011-1z"/></svg>
                     השוואת רכבים
                 </div>
-                <h2 class="text-4xl md:text-[3.2rem] font-extrabold" style="font-family:'Rubik','Heebo',sans-serif; letter-spacing:-.5px;">
+                <h1 class="text-4xl md:text-[3.2rem] font-extrabold" style="font-family:'Rubik','Heebo',sans-serif; letter-spacing:-.5px;">
                     השוואת רכבים
-                </h2>
+                </h1>
                 <p class="text-slate-400 max-w-2xl mx-auto">
                     בחר עד 3 רכבים להשוואה מקיפה על בסיס נתונים מאומתים מהאינטרנט
                 </p>
@@ -233,7 +233,7 @@
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div class="autocomplete-container md:col-span-1">
-                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 block">חפש רכב</label>
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 block" for="car_search_1">חפש רכב</label>
                                 <input type="text" id="car_search_1" class="yr-input autocomplete-input w-full bg-white border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-primary focus:ring-primary focus:border-primary" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
                                 <div id="car_dropdown_1" class="autocomplete-dropdown"></div>
                                 <input type="hidden" id="car_make_1" name="make_1">
@@ -243,7 +243,7 @@
                                 <div id="car_selected_1" class="hidden mt-2 text-sm text-emerald-400 font-medium"></div>
                             </div>
                             <div class="space-y-2">
-                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400">שנתון</label>
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400" for="year_1">שנתון</label>
                                 <select id="year_1" name="year_1" disabled
                                         class="yr-select ltr-select w-full appearance-none bg-white border-2 border-slate-700 rounded-xl px-4 py-3 text-primary focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                     <option value="">בחר רכב תחילה</option>
@@ -251,7 +251,7 @@
                             </div>
                             <div class="grid grid-cols-2 gap-4">
                                 <div class="space-y-2">
-                                    <label class="text-xs font-bold uppercase tracking-wider text-slate-400">סוג מנוע</label>
+                                    <label class="text-xs font-bold uppercase tracking-wider text-slate-400" for="engine_1">סוג מנוע</label>
                                     <select id="engine_1" name="engine_1"
                                             class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
                                         <option value="" selected>-- לפי המאגר / לא נבחר --</option>
@@ -262,7 +262,7 @@
                                     </select>
                                 </div>
                                 <div class="space-y-2">
-                                    <label class="text-xs font-bold uppercase tracking-wider text-slate-400">תיבת הילוכים</label>
+                                    <label class="text-xs font-bold uppercase tracking-wider text-slate-400" for="gear_1">תיבת הילוכים</label>
                                     <select id="gear_1" name="gear_1"
                                             class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
                                         <option value="" selected>-- לפי המאגר / לא נבחר --</option>
@@ -276,7 +276,7 @@
                                 </div>
                             </div>
                             <div class="variant-slot-container hidden mt-2 md:col-span-3" id="variant_container_1">
-                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1 block">גרסה טכנית</label>
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1 block" for="variant_1">גרסה טכנית</label>
                                 <select id="variant_1" class="yr-select w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
                                     <option value="">-- בחר גרסה --</option>
                                 </select>
@@ -296,7 +296,7 @@
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div class="autocomplete-container md:col-span-1">
-                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 block">חפש רכב</label>
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 block" for="car_search_2">חפש רכב</label>
                                 <input type="text" id="car_search_2" class="yr-input autocomplete-input w-full bg-white border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-primary focus:ring-primary focus:border-primary" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
                                 <div id="car_dropdown_2" class="autocomplete-dropdown"></div>
                                 <input type="hidden" id="car_make_2" name="make_2">
@@ -306,7 +306,7 @@
                                 <div id="car_selected_2" class="hidden mt-2 text-sm text-emerald-400 font-medium"></div>
                             </div>
                             <div class="space-y-2">
-                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400">שנתון</label>
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400" for="year_2">שנתון</label>
                                 <select id="year_2" name="year_2" disabled
                                         class="yr-select ltr-select w-full appearance-none bg-white border-2 border-slate-700 rounded-xl px-4 py-3 text-primary focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                     <option value="">בחר רכב תחילה</option>
@@ -314,7 +314,7 @@
                             </div>
                             <div class="grid grid-cols-2 gap-4">
                                 <div class="space-y-2">
-                                    <label class="text-xs font-bold uppercase tracking-wider text-slate-400">סוג מנוע</label>
+                                    <label class="text-xs font-bold uppercase tracking-wider text-slate-400" for="engine_2">סוג מנוע</label>
                                     <select id="engine_2" name="engine_2"
                                             class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
                                         <option value="" selected>-- לפי המאגר / לא נבחר --</option>
@@ -325,7 +325,7 @@
                                     </select>
                                 </div>
                                 <div class="space-y-2">
-                                    <label class="text-xs font-bold uppercase tracking-wider text-slate-400">תיבת הילוכים</label>
+                                    <label class="text-xs font-bold uppercase tracking-wider text-slate-400" for="gear_2">תיבת הילוכים</label>
                                     <select id="gear_2" name="gear_2"
                                             class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
                                         <option value="" selected>-- לפי המאגר / לא נבחר --</option>
@@ -339,7 +339,7 @@
                                 </div>
                             </div>
                             <div class="variant-slot-container hidden mt-2 md:col-span-3" id="variant_container_2">
-                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1 block">גרסה טכנית</label>
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1 block" for="variant_2">גרסה טכנית</label>
                                 <select id="variant_2" class="yr-select w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
                                     <option value="">-- בחר גרסה --</option>
                                 </select>
@@ -359,7 +359,7 @@
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div class="autocomplete-container md:col-span-1">
-                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 block">חפש רכב</label>
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 block" for="car_search_3">חפש רכב</label>
                                 <input type="text" id="car_search_3" class="yr-input autocomplete-input w-full bg-white border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-primary focus:ring-primary focus:border-primary" placeholder="חפש לפי יצרן או דגם..." autocomplete="off">
                                 <div id="car_dropdown_3" class="autocomplete-dropdown"></div>
                                 <input type="hidden" id="car_make_3" name="make_3">
@@ -369,7 +369,7 @@
                                 <div id="car_selected_3" class="hidden mt-2 text-sm text-emerald-400 font-medium"></div>
                             </div>
                             <div class="space-y-2">
-                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400">שנתון</label>
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400" for="year_3">שנתון</label>
                                 <select id="year_3" name="year_3" disabled
                                         class="yr-select ltr-select w-full appearance-none bg-white border-2 border-slate-700 rounded-xl px-4 py-3 text-primary focus:ring-0 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                     <option value="">בחר רכב תחילה</option>
@@ -377,7 +377,7 @@
                             </div>
                             <div class="grid grid-cols-2 gap-4">
                                 <div class="space-y-2">
-                                    <label class="text-xs font-bold uppercase tracking-wider text-slate-400">סוג מנוע</label>
+                                    <label class="text-xs font-bold uppercase tracking-wider text-slate-400" for="engine_3">סוג מנוע</label>
                                     <select id="engine_3" name="engine_3"
                                             class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
                                         <option value="" selected>-- לפי המאגר / לא נבחר --</option>
@@ -388,7 +388,7 @@
                                     </select>
                                 </div>
                                 <div class="space-y-2">
-                                    <label class="text-xs font-bold uppercase tracking-wider text-slate-400">תיבת הילוכים</label>
+                                    <label class="text-xs font-bold uppercase tracking-wider text-slate-400" for="gear_3">תיבת הילוכים</label>
                                     <select id="gear_3" name="gear_3"
                                             class="w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
                                         <option value="" selected>-- לפי המאגר / לא נבחר --</option>
@@ -402,7 +402,7 @@
                                 </div>
                             </div>
                             <div class="variant-slot-container hidden mt-2 md:col-span-3" id="variant_container_3">
-                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1 block">גרסה טכנית</label>
+                                <label class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1 block" for="variant_3">גרסה טכנית</label>
                                 <select id="variant_3" class="yr-select w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary">
                                     <option value="">-- בחר גרסה --</option>
                                 </select>
@@ -495,7 +495,7 @@
                 </div>
             </div>
 
-            <section id="compareResultReadyPanel" class="hidden space-y-6">
+            <section id="compareResultReadyPanel" role="status" aria-live="polite" class="hidden space-y-6">
                 <div class="yr-ready-panel">
                     <h3 class="text-2xl md:text-3xl font-black" style="font-family:'Rubik','Heebo',sans-serif;">התוצאה מוכנה</h3>
                     <p class="mt-3 text-sm md:text-base text-slate-300">
@@ -510,7 +510,7 @@
             {% include '_research_compare_panel.html' %}
 
             <!-- Results Section (hidden initially) -->
-            <div id="resultsSection" class="hidden space-y-6">
+            <div id="resultsSection" tabindex="-1" class="hidden space-y-6">
                 <div class="yr-disclaimer--warn text-sm md:text-base leading-relaxed space-y-2" style="padding:16px 20px; border-radius:var(--yr-radius,18px);">
                     <p><strong>דיסקליימר חשוב:</strong> ההשוואה היא כלי תומך החלטה בלבד ואינה ייעוץ מקצועי, בדיקה מכנית או חוות דעת שמאית.</p>
                     <p>יש לאמת עצמאית כל נתון מול מקורות נוספים ובדיקה מקצועית. אין אחריות לטעויות, פערים או מידע חסר.</p>
@@ -542,7 +542,7 @@
             </div>
 
             <!-- Error Section -->
-            <div id="errorSection" class="hidden yr-chrome-card border-red-400/30 rounded-2xl p-6 text-center" style="border-color:rgba(239,68,68,.25);">
+            <div id="errorSection" role="alert" class="hidden yr-chrome-card border-red-400/30 rounded-2xl p-6 text-center" style="border-color:rgba(239,68,68,.25);">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto text-red-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
@@ -587,11 +587,11 @@
                 </div>
             </div>
         </div>
-        <div id="compareResultAckModal" class="fixed inset-0 z-50 hidden">
+        <div id="compareResultAckModal" role="dialog" aria-modal="true" aria-labelledby="compare-ack-title" class="fixed inset-0 z-50 hidden">
             <div class="absolute inset-0 bg-black/70"></div>
             <div class="absolute inset-0 flex items-center justify-center p-4">
                 <div class="w-full max-w-lg yr-chrome-card p-6 md:p-8">
-                    <h3 class="text-2xl font-black mb-3" style="font-family:'Rubik','Heebo',sans-serif;">אישור לפני פתיחת תוצאות ההשוואה</h3>
+                    <h3 id="compare-ack-title" class="text-2xl font-black mb-3" style="font-family:'Rubik','Heebo',sans-serif;">אישור לפני פתיחת תוצאות ההשוואה</h3>
                     <p class="text-slate-300 text-sm leading-relaxed mb-4">
                         תוצאת ההשוואה מסייעת בקבלת החלטה בלבד ואינה תחליף לבדיקה מקצועית/מכנית או להערכת שמאי.
                     </p>
@@ -599,7 +599,7 @@
                         <input id="compareResultAckCheckbox" type="checkbox" class="mt-1 rounded border-slate-600 bg-white text-primary">
                         <span>אני מבין/ה שעליי לבצע אימות עצמאי ושאין להסתמך על ההשוואה כמקור יחיד להחלטה.</span>
                     </label>
-                    <p id="compareResultAckError" class="hidden text-xs text-danger mb-3">יש לסמן את תיבת האישור כדי להמשיך.</p>
+                    <p id="compareResultAckError" role="alert" class="hidden text-xs text-danger mb-3">יש לסמן את תיבת האישור כדי להמשיך.</p>
                     <div class="flex gap-3">
                         <button id="compareResultAckConfirm" type="button" class="yr-btn flex-1 rounded-full px-5 py-3">אישור ופתיחת התוצאה</button>
                         <button id="compareResultAckCancel" type="button" class="yr-btn--chrome yr-btn rounded-full px-5 py-3">ביטול</button>

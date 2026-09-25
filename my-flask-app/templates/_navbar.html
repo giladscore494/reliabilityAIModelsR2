@@ -13,11 +13,12 @@
 
 <meta name="csrf-token" content="{{ csrf_token }}">
 
+<a class="yr-skip-link" href="#main-content">דלג לתוכן הראשי</a>
 <header class="yr-header">
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-4">
     <a href="{{ url_for('public.index') }}" class="yr-brand group shrink-0">
       <span class="yr-brand__mark">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+        <svg aria-hidden="true" focusable="false" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
           <path d="M5 11l1.5-4.2A2 2 0 0 1 8.4 5.4h7.2a2 2 0 0 1 1.9 1.4L19 11 M5 11h14v5H5z M5 16v2 M19 16v2 M7.5 13.5h.01 M16.5 13.5h.01"></path>
         </svg>
       </span>
@@ -37,7 +38,7 @@
         </div>
       {% endif %}
 
-      <nav class="hidden md:flex items-center gap-2 text-sm font-medium">
+      <nav aria-label="ניווט ראשי" class="hidden md:flex items-center gap-2 text-sm font-medium">
         {% for item in nav_items %}
           <a href="{{ url_for(item.endpoint) }}"
              class="yr-nav-pill {{ 'yr-nav-pill--active' if active_page == item.active else '' }}">
@@ -66,18 +67,18 @@
       </nav>
 
       <button id="navbar-toggle" type="button" class="yr-icon-btn md:hidden text-lg"
-              aria-label="פתח תפריט">
+              aria-label="פתח תפריט" aria-expanded="false" aria-controls="navbar-drawer">
         ☰
       </button>
     </div>
   </div>
 </header>
 
-<div id="navbar-drawer" class="hidden fixed inset-0 z-50">
-  <div class="drawer-overlay absolute inset-0 bg-black/40"></div>
-  <div class="drawer-panel yr-drawer-panel absolute inset-y-0 right-0 w-72 max-w-full p-6 flex flex-col gap-6 translate-x-full transition-transform duration-200">
+<div id="navbar-drawer" class="hidden fixed inset-0 z-50" aria-hidden="true">
+  <div class="drawer-overlay absolute inset-0 bg-black/40" aria-hidden="true"></div>
+  <div class="drawer-panel yr-drawer-panel absolute inset-y-0 right-0 w-72 max-w-full p-6 flex flex-col gap-6 translate-x-full transition-transform duration-200" role="dialog" aria-modal="true" aria-labelledby="navbar-drawer-title" tabindex="-1">
     <div class="flex items-center justify-between">
-      <div class="flex items-center gap-2 text-slate-200 font-semibold">
+      <div id="navbar-drawer-title" class="flex items-center gap-2 text-slate-200 font-semibold">
         {% if is_authenticated %}
           <div class="flex items-center gap-2 text-slate-300 text-sm">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -92,7 +93,7 @@
       <button id="navbar-close" type="button" class="text-slate-400 hover:text-slate-100 transition" aria-label="סגור תפריט">✕</button>
     </div>
 
-    <nav class="flex flex-col gap-2 text-sm font-medium">
+    <nav aria-label="ניווט נייד" class="flex flex-col gap-2 text-sm font-medium">
       {% for item in nav_items %}
         <a href="{{ url_for(item.endpoint) }}"
            class="nav-drawer-link yr-nav-pill w-full text-right {{ 'yr-nav-pill--active' if active_page == item.active else '' }}">

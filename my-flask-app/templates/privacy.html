@@ -30,10 +30,10 @@
   {% include '_navbar.html' %}
 
   <!-- MAIN -->
-  <main class="flex-grow container mx-auto px-4 sm:px-6 lg:px-8 py-16 md:py-24">
+  <main id="main-content" tabindex="-1" class="flex-grow container mx-auto px-4 sm:px-6 lg:px-8 py-16 md:py-24">
     <div class="max-w-4xl mx-auto bg-white/80 backdrop-blur-xl shadow-xl p-8 sm:p-10 rounded-3xl border border-[#cfd5dd] fade-in">
-      <h2 class="text-4xl md:text-5xl font-extrabold text-white mb-6">מדיניות פרטיות</h2>
-      <p class="text-slate-400 mb-2"><strong>עדכון אחרון:</strong> 25 באפריל 2026</p>
+      <h1 class="text-4xl md:text-5xl font-extrabold text-slate-100 mb-6">מדיניות פרטיות</h1>
+      <p class="text-slate-400 mb-2"><strong>עדכון אחרון:</strong> 25 בספטמבר 2026</p>
       <p class="text-slate-500 text-sm mb-6">
         גרסת מדיניות: <code>{{ privacy_version or '2026-04-25' }}</code> ·
         גרסת תקנון: <code>{{ terms_version or '2026-04-25' }}</code> ·
@@ -49,7 +49,7 @@
         למשתמש מזוהה לעומת מבקר אנונימי.
       </p>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">1. אילו נתונים נאספים</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">1. אילו נתונים נאספים</h3>
       <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li><strong>נתוני חשבון:</strong> שם, כתובת אימייל ומזהה Google כאשר אתה מתחבר.</li>
         <li><strong>נתוני מוצר:</strong> פרטי רכב, פרופילי שימוש, תוצאות סקירת רכב, השוואות רכבים, תוצאות Advisor, היסטוריית שימוש בדשבורד וזמני עיבוד.</li>
@@ -57,7 +57,7 @@
         <li><strong>נתוני הסכמה:</strong> אישורי תקנון, פרטיות, והסכמות ייעודיות לפיצ'רים או למחקר.</li>
       </ul>
 
-      <h3 id="research-notice" class="text-2xl font-bold text-white mt-10 mb-4">2. הודעת מחקר – מחקר אופציונלי אחרי התוצאה</h3>
+      <h3 id="research-notice" class="text-2xl font-bold text-slate-100 mt-10 mb-4">2. הודעת מחקר – מחקר אופציונלי אחרי התוצאה</h3>
       <p class="text-slate-200 mb-4">
         בחלק מהזרימות באתר אנו עשויים להציג שאלות מחקר אופציונליות לאחר קבלת תוצאה או המלצה. שמירת תשובות אלה מחייבת אישור מחקר ייעודי ומפורש ואינה תנאי לשימוש בשירות, למעט מידע שנדרש ישירות להפעלת השירות עצמו.
       </p>
@@ -72,7 +72,7 @@
         הן אמורות להתבסס על מידע מצטבר או שעבר אנונימיזציה, ולא על נתוני משתמש מזוהים.
       </p>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">3. שימוש ב-AI וספקי צד שלישי</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">3. שימוש ב-AI וספקי צד שלישי</h3>
       <p class="text-slate-200 mb-4">
         לצורך הפעלת חלק מהשירותים אנו משתמשים בספקי AI או תשתית, למשל Google לצורך התחברות ו-Google Gemini לצורך חלק מהעיבוד.
         לא כל פיצ'ר מעביר את אותו היקף מידע, ואנו שואפים לצמצם זיהוי ישיר כאשר אין בכך צורך.
@@ -82,7 +82,7 @@
         להפעלת השירות או לשיפורו, ובהתאם להסכמות הרלוונטיות.
       </p>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">4. מטרות העיבוד</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">4. מטרות העיבוד</h3>
       <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li>הפעלת ההתחברות, שמירת סשן והגנה מפני שימוש לרעה.</li>
         <li>הפקת תוצאות אמינות, השוואה או המלצה מותאמות לקלט.</li>
@@ -91,7 +91,7 @@
         <li>עמידה בצרכים תפעוליים, אבטחת מידע, ניהול תקלות ומניעת הונאה.</li>
       </ul>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">5. איך נשמר המידע</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">5. איך נשמר המידע</h3>
       <p class="text-slate-200 mb-4">
         הנתונים נשמרים במסד נתונים מנוהל, בכפוף לבקרות גישה, לוגים, TLS ואמצעים תפעוליים נוספים. כתובת IP לצורכי הסכמה אינה נשמרת ככתובת מלאה
         כאשר ניתן לצמצם אותה או לגבב אותה.
@@ -100,35 +100,31 @@
         עוגיות וסשן פנימי משמשים לצורך התחברות, CSRF וניהול מזהה אנונימי טכני. איננו מצהירים כאן על שימוש בעוגיות פרסום של צד שלישי.
       </p>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">6. תקופות שמירה</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">6. תקופות שמירה</h3>
       <p class="text-slate-200 mb-6">
         תקופות השמירה תלויות בסוג המידע ובצורך התפעולי. היסטוריית מוצר והסכמות עשויות להישמר כל עוד החשבון פעיל או כל עוד קיים צורך סביר
         בתיעוד, אלא אם נמחקו מוקדם יותר, בכפוף לגיבויים, דרישות דין ומגבלות טכניות.
       </p>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">7. מחיקה, גישה וזכויות</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">7. מחיקה, גישה וזכויות</h3>
       <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-4">
         <li>ניתן למחוק חשבון דרך <a href="{{ url_for('dashboard.dashboard') }}" class="text-primary hover:underline">הדשבורד</a>; מחיקה זו מיועדת למחוק נתונים משויכים במערכות התפעוליות.</li>
         <li>ניתן לפנות אלינו בבקשות עיון, מחיקה או בירור, בכפוף לדין החל וליכולת התפעולית.</li>
         <li>מידע מסוים עשוי להישאר לזמן מוגבל בגיבויים, לוגים או רשומות הנדרשות לצורכי אבטחה ותפעול.</li>
       </ul>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">8. פיצ'רים משלימים – חשבוניות ומחירי טיפול</h3>
-      <p class="text-slate-200 mb-4">
-        בפיצ'רים אלה ייתכן עיבוד של מסמכים או נתונים שחולצו מהם. כאשר הפיצ'ר פעיל, המידע הרלוונטי משמש להפקת דוח, להשוואות סטטיסטיות,
-        ולשיפור המערכת. הפיצ'ר עשוי לדרוש הסכמה ייעודית נפרדת.
-      </p>
-      <p class="text-slate-200 mb-6">
-        ככל האפשר אנו מצמצמים שמירה של קבצים גולמיים ושל פרטים מזהים שאינם נחוצים להפעלת השירות.
-      </p>
+      <h3 id="analytics" class="text-2xl font-bold text-slate-100 mt-10 mb-4">8. ניתוח שימוש באמצעות PostHog</h3>
+      <p class="text-slate-200 mb-4">כאשר מפתח PostHog מוגדר, רכיב הדפדפן נטען רק לאחר בחירה מפורשת ב״אישור ניתוח שימוש״. הוא שולח אירועים מצומצמים ונתיב עמוד ללא מחרוזת שאילתה. איסוף אוטומטי, הקלטת סשן, פרופילי אדם ושמירת מזהה PostHog מתמשך מושבתים. הבחירה נשמרת ב-localStorage וניתן לשנותה בקישור ״הגדרות ניתוח שימוש״ בתחתית האתר.</p>
+      <p class="text-slate-200 mb-6">אין לשלוח ל-PostHog תוכן בקשות AI, תשובות מחקר, דוא״ל, מזהה Google, IP גולמי או תוכן מסמך. אירועי שרת כבויים כברירת מחדל ודורשים הגדרה תפעולית נפרדת. PostHog וספקי האירוח שלו עשויים לעבד את האירועים באזור המוגדר ב-<code>POSTHOG_HOST</code>.</p>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">9. יצירת קשר</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">9. יצירת קשר וזהות המפעיל</h3>
+      {% if legal_operator_name or legal_operator_id or legal_operator_address %}<p class="text-slate-200 mb-3">{% if legal_operator_name %}<strong>מפעיל השירות:</strong> {{ legal_operator_name }}<br>{% endif %}{% if legal_operator_id %}<strong>מספר מזהה:</strong> {{ legal_operator_id }}<br>{% endif %}{% if legal_operator_address %}<strong>כתובת:</strong> {{ legal_operator_address }}{% endif %}</p>{% endif %}
       <p class="text-slate-200 leading-relaxed">
         לפניות משפטיות, בקשות מחיקה, או שאלות בנושא פרטיות, ניתן ליצור קשר בכתובת
-        <a href="mailto:{{ contact_email }}" class="text-primary hover:underline">{{ contact_email }}</a>.
+        <a href="mailto:{{ legal_contact_email }}" class="text-primary hover:underline">{{ legal_contact_email }}</a>.
       </p>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">10. מידע שאיננו אוספים במכוון</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">10. מידע שאיננו אוספים במכוון</h3>
       <p class="text-slate-200 mb-3">
         כיום איננו אוספים במכוון את הסוגים הבאים, אלא אם תוסיפנו אותם בעתיד לאחר עדכון מדיניות הפרטיות:
       </p>
@@ -142,14 +138,14 @@
         <li>תלונות פרטניות מזהות נגד מוסכים, מבטחים או צדדים שלישיים.</li>
       </ul>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">11. שלוש שכבות נתונים מופרדות</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">11. שלוש שכבות נתונים מופרדות</h3>
       <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li><strong>היסטוריית מוצר רגילה</strong> — חיפושים, השוואות והמלצות שביצעת, להצגה בדשבורד שלך.</li>
         <li><strong>הקשר חשיבה ל-AI</strong> — תת-קבוצה קטנה ומסוננת של תשובותיך שעשויה להישלח למודל AI רק כאשר היא משפרת את התוצר.</li>
         <li><strong>מאגר עסקי / מחקרי</strong> — נתונים מובנים ומצורפים שמשמשים, בכפוף להסכמה, לבניית מאגר אמינות רכב ישראלי. אין ערבוב בין שכבות אלה.</li>
       </ul>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">12. מאגר מצרפי / עסקי</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">12. מאגר מצרפי / עסקי</h3>
       <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li>בכפוף להסכמתך הנפרדת, תשובות פרופיל הרכב והניסיון בבעלות עשויות לשמש לבניית מאגרי נתונים סטטיסטיים מצטברים.</li>
         <li>המטרה היא לשפר ניקוד אמינות, המלצות ותובנות שוק רלוונטיות לישראל.</li>
@@ -157,30 +153,30 @@
         <li>נתונים ברמת משתמש מזוהה לא יימכרו כפרופיל אישי מזוהה.</li>
       </ul>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">13. הודעת עיבוד AI</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">13. הודעת עיבוד AI</h3>
       <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li>חלק מנתוני הרכב/הבקשה עשויים להישלח לספקי AI חיצוניים לצורך הפקת תשובה.</li>
         <li>אנו שולחים רק נתונים רלוונטיים; מזהים אישיים אינם נשלחים אלא אם הדבר נחוץ טכנית.</li>
         <li>תוצרי AI עשויים לכלול שגיאות ואין להתייחס אליהם כייעוץ מקצועי, משפטי, פיננסי או בטיחותי.</li>
       </ul>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">14. בסיס משפטי / הסכמה</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">14. בסיס משפטי / הסכמה</h3>
       <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li>חלק מהנתונים נדרשים לצורך מתן השירות.</li>
         <li>איסוף מחקרי/עסקי אופציונלי מתבצע בכפוף להסכמה נפרדת ומפורשת.</li>
         <li>ניתן לסרב לאיסוף מחקרי כל עוד הוא אינו נדרש לתפקוד הליבה של השירות.</li>
       </ul>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">15. שיתוף נתונים עם מעבדים</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">15. שיתוף נתונים עם מעבדים</h3>
       <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li>ספק אירוח/תשתית.</li>
         <li>ספק מסד נתונים מנוהל.</li>
         <li>ספק הזדהות (Google OAuth).</li>
         <li>ספק מודל AI (לדוגמה Google Gemini API, אם בשימוש).</li>
-        <li>כלי אנליטיקה/אבטחה ככל שייושמו.</li>
+        <li>PostHog לניתוח שימוש אופציונלי, רק לאחר הבחירה המתוארת לעיל.</li>
       </ul>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">16. תקופות שמירה (ברירות מחדל)</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">16. תקופות שמירה (ברירות מחדל)</h3>
       <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li>נתוני חשבון נשמרים כל עוד החשבון קיים.</li>
         <li>היסטוריית חיפוש נשמרת לדשבורד עד למחיקה או שינוי מדיניות.</li>
@@ -188,16 +184,16 @@
         <li>לוגי אבטחה נשמרים לפרק זמן תפעולי מוגבל.</li>
       </ul>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">17. זכויות המשתמש</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">17. זכויות המשתמש</h3>
       <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li>זכות עיון בנתונים שאתה אישית סיפקת.</li>
-        <li>זכות תיקון מידע לא מדויק.</li>
+        <li>זכות לבקש תיקון של מידע שאינו נכון, שלם, ברור או מעודכן, בכפוף לדין.</li>
         <li>זכות לבקש מחיקה (בכפוף לדרישות דין ומגבלות תפעוליות).</li>
         <li>זכות למשוך הסכמת מחקר אופציונלית בכל עת באמצעות הדשבורד או פנייה אלינו.</li>
-        <li>פנייה: <a href="mailto:{{ contact_email }}" class="text-primary hover:underline">{{ contact_email }}</a>.</li>
+        <li>פנייה: <a href="mailto:{{ legal_contact_email }}" class="text-primary hover:underline">{{ legal_contact_email }}</a>.</li>
       </ul>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">18. אבטחת מידע</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">18. אבטחת מידע</h3>
       <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li>בקרות גישה, TLS, ניטור והרשאות.</li>
         <li>גיבוב (hash) של מזהים טכניים כגון IP ו-User-Agent כאשר ניתן.</li>
@@ -205,10 +201,10 @@
         <li>צמצום שדות רגישים ושימוש בערכי דליים (buckets) במקום ערכים מדויקים היכן שאפשר.</li>
       </ul>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">19. שינויים במדיניות</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">19. שינויים במדיניות</h3>
       <p class="text-slate-200 mb-2">
         גרסת מדיניות נוכחית: <code>{{ privacy_version or '2026-04-25' }}</code>.
-        עדכוני מהותיים עשויים להיות מוצגים בתוך המוצר. המשך שימוש לאחר עדכון מהווה הסכמה לתנאים החדשים, בכפוף לדין החל.
+        עדכוני מהותיים עשויים להיות מוצגים בתוך המוצר. עדכון מהותי יוצג למשתמשים, ובמקום שבו נדרשת הסכמה מחודשת מנגנון הגרסאות ידרוש פעולה מפורשת; אין בנוסח זה לגרוע מזכויות לפי דין.
       </p>
     </div>
   </main>

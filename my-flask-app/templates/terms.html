@@ -30,10 +30,10 @@
   {% include '_navbar.html' %}
 
   <!-- MAIN -->
-  <main class="flex-grow container mx-auto px-4 sm:px-6 lg:px-8 py-16 md:py-24">
+  <main id="main-content" tabindex="-1" class="flex-grow container mx-auto px-4 sm:px-6 lg:px-8 py-16 md:py-24">
     <div class="max-w-4xl mx-auto bg-white/80 backdrop-blur-xl shadow-xl p-8 sm:p-10 rounded-3xl border border-[#cfd5dd] fade-in">
-      <h2 class="text-4xl md:text-5xl font-extrabold text-white mb-6">תקנון תנאי שימוש</h2>
-      <p class="text-slate-400 mb-2"><strong>עודכן לאחרונה:</strong> 25 באפריל 2026</p>
+      <h1 class="text-4xl md:text-5xl font-extrabold text-slate-100 mb-6">תקנון תנאי שימוש</h1>
+      <p class="text-slate-400 mb-2"><strong>עודכן לאחרונה:</strong> 25 בספטמבר 2026</p>
       <p class="text-slate-500 text-sm mb-6">
         גרסת תקנון: <code>{{ terms_version or '2026-04-25' }}</code> ·
         גרסת מדיניות פרטיות: <code>{{ privacy_version or '2026-04-25' }}</code> ·
@@ -50,21 +50,20 @@
       </p>
 
       <p class="text-slate-200 leading-relaxed mb-6">
-        מסמך זה מסדיר את השימוש באתר yedaarechevAI ובמוצריו. המשך שימוש באתר או בחלקים המחייבים הזדהות מהווה הסכמה לתנאים אלה,
+        מסמך זה מסדיר את השימוש באתר yedaarechevAI ובמוצריו. בתכונות המוגנות נדרשת פעולה מפורשת לאישור גרסת התנאים והמדיניות,
         אך אינו יוצר מצג של ודאות משפטית, מקצועית או טכנית ביחס לתוכן המוצג.
       </p>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">1. מה כולל השירות כיום</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">1. מה כולל השירות כיום</h3>
       <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li>עמוד נחיתה ותוכן שיווקי/הסברי.</li>
         <li>סקירת רכב לפני החלטה.</li>
         <li>השוואת רכבים.</li>
         <li>מנוע המלצות / Advisor.</li>
         <li>דשבורד והיסטוריית שימוש עבור משתמשים מחוברים.</li>
-        <li>פיצ'רים משלימים, לרבות כלי בדיקת מחירי טיפולים וסריקת חשבוניות כאשר הם זמינים.</li>
       </ul>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">2. הצהרת AI והיקף הסתמכות</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">2. הצהרת AI והיקף הסתמכות</h3>
       <p class="text-slate-200 font-semibold text-danger mb-4">
         השירות מספק תוצרים חישוביים והערכות המבוססים בין היתר על מודלי AI, חיפושי רשת, כללי ניקוד פנימיים והקלט שהוזן.
         התוצרים אינם בדיקה מכנית, לא חוות דעת שמאית, לא ייעוץ משפטי, לא ייעוץ פיננסי ולא התחייבות לתוצאה בעולם האמיתי.
@@ -74,7 +73,7 @@
         לפני רכישה, מכירה, טיפול, מימון, ביטוח או החלטה משמעותית אחרת — יש לבצע בדיקות עצמאיות ולהסתייע באנשי מקצוע מתאימים.
       </p>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">3. התחברות, חשבון והיסטוריה</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">3. התחברות, חשבון והיסטוריה</h3>
       <p class="text-slate-200 mb-4">
         חלק מהפיצ'רים מחייבים התחברות באמצעות Google OAuth. בעת ההתחברות נשמרים פרטי בסיס לחשבון, והיסטוריית השימוש שלך עשויה להישמר
         כדי לאפשר חזרה לתוצאות, דשבורד, מעקב שימוש והגבלות תפעול.
@@ -84,14 +83,14 @@
         בניגוד למדיניות השירות.
       </p>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">4. מגבלות שימוש ושימוש הוגן</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">4. מגבלות שימוש ושימוש הוגן</h3>
       <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li>ייתכנו מכסות יומיות, מגבלות קצב, או מנגנוני הגנה נוספים מפני שימוש לרעה.</li>
         <li>אין להשתמש בשירות לאוטומציה אגרסיבית, כריית נתונים, בדיקות עבור צדדים שלישיים בהיקף מסחרי, או עקיפת מנגנוני אבטחה.</li>
         <li>אין להעלות או למסור תוכן שאין לך זכות להשתמש בו, או מידע מזהה של צדדים שלישיים ללא הרשאה מתאימה.</li>
       </ul>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">5. שאלות מחקר והסכמה ייעודית</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">5. שאלות מחקר והסכמה ייעודית</h3>
       <p class="text-slate-200 mb-4">
         בחלק מהזרימות באתר אנו עשויים להציג שאלות מחקר אופציונליות לאחר קבלת תוצאה או המלצה. שמירת תשובות אלה מחייבת אישור מחקר ייעודי ומפורש ואינה תנאי לשימוש בשירות, למעט מידע שנדרש ישירות להפעלת השירות עצמו.
       </p>
@@ -102,7 +101,7 @@
         <li>שימוש עתידי בתובנות מסחריות, אם ייעשה, צריך להסתמך על תוצרים מצטברים או אנונימיים ולא על נתוני משתמש מזוהים.</li>
       </ul>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">6. פרטיות, מחיקה ושמירת נתונים</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">6. פרטיות, מחיקה ושמירת נתונים</h3>
       <p class="text-slate-200 mb-4">
         פרטי רכב, פרופילים, תוצאות, מזהי בקשה, זמני תגובה, היסטוריית שימוש, והסכמות משפטיות או מחקריות עשויים להישמר במסד הנתונים
         לצורך הפעלת השירות, בקרה תפעולית, שיפור מוצר והצגת היסטוריה למשתמש.
@@ -112,38 +111,30 @@
         מיועדת למחוק את הנתונים המשויכים לחשבון במערכות התפעוליות שלנו, בכפוף למגבלות גיבוי, דרישות דין, ולפרקי זמן סבירים למחיקה.
       </p>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">7. שירותי צד שלישי</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">7. שירותי צד שלישי</h3>
       <p class="text-slate-200 mb-6">
         האתר משתמש בשירותי צד שלישי לצורך התחברות, תשתית, ולפעמים גם לצורך עיבוד AI. ייתכן שהקלטים או חלקים מתוכם יועברו לספקי טכנולוגיה
         לפי הצורך להפעלת הפיצ'ר הרלוונטי. פרטים נוספים מופיעים במדיניות הפרטיות.
       </p>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">8. בדיקת מחירי טיפול וסריקת חשבוניות</h3>
-      <p class="text-slate-200 mb-4">
-        פיצ'רים אלה מספקים אומדן, השוואה או סיכום מידע בלבד. אין מדובר בהתחייבות למחיר, חוות דעת שמאית או מסקנה מכנית מחייבת.
-      </p>
-      <p class="text-slate-200 mb-6">
-        שימוש בפיצ'ר סריקת חשבוניות עשוי לדרוש הסכמות ייעודיות נוספות לעיבוד המסמך ולשימוש בספקי AI או OCR חיצוניים.
-      </p>
-
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">9. קניין רוחני ושינויים בשירות</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">9. קניין רוחני ושינויים בשירות</h3>
       <p class="text-slate-200 mb-6">
         הקוד, העיצוב, מאגרי הנתונים הפנימיים, הלוגו והתכנים השייכים למפעיל מוגנים בזכויות קניין רוחני. אנו רשאים לעדכן, להשעות או להפסיק
         פיצ'רים, תנאים, ממשקים ומכסות שימוש מעת לעת.
       </p>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">10. גיל מינימלי, דין וסמכות שיפוט</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">10. גיל מינימלי, דין וסמכות שיפוט</h3>
       <p class="text-slate-200 mb-6">
         השירות מיועד לבני 18 ומעלה. הדין החל הוא דין מדינת ישראל, וסמכות השיפוט הייחודית תהיה לבתי המשפט המוסמכים במחוז תל אביב,
         ככל שהדין מאפשר זאת.
       </p>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">11. יצירת קשר</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">11. יצירת קשר</h3>
       <p class="text-slate-200 leading-relaxed">
-        לשאלות משפטיות או פניות אחרות, ניתן ליצור קשר בכתובת <a href="mailto:{{ contact_email }}" class="text-primary hover:underline">{{ contact_email }}</a>.
+        {% if legal_operator_name or legal_operator_id or legal_operator_address %}{% if legal_operator_name %}<strong>מפעיל השירות:</strong> {{ legal_operator_name }}<br>{% endif %}{% if legal_operator_id %}<strong>מספר מזהה:</strong> {{ legal_operator_id }}<br>{% endif %}{% if legal_operator_address %}<strong>כתובת:</strong> {{ legal_operator_address }}<br>{% endif %}{% endif %}לשאלות משפטיות או פניות אחרות: <a href="mailto:{{ legal_contact_email }}" class="text-primary hover:underline">{{ legal_contact_email }}</a>.
       </p>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">12. הסתמכות, אחריות מקצועית והגבלת אחריות</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">12. הסתמכות, אחריות מקצועית והגבלת אחריות</h3>
       <p class="text-slate-200 mb-3">
         השירות אינו מחליף בדיקת מוסך מורשה, אינו מחליף ייעוץ משפטי, ביטוחי, פיננסי או בטיחותי, ואינו מהווה אישור רשמי
         למצב הרכב. לפני רכישת רכב יש לבצע בדיקות עצמאיות, לרבות בדיקת מוסך, בדיקת בעלות/שעבודים, בדיקת היסטוריית
@@ -158,7 +149,7 @@
         על השירות. אין באמור כדי לשלול אחריות שלא ניתן לשלול על פי דין.
       </p>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">13. אחריות המשתמש על הנתונים</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">13. אחריות המשתמש על הנתונים</h3>
       <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li>על המשתמש לספק מידע מדויק.</li>
         <li>החלטות רכישה ומכירה הן באחריות המשתמש בלבד.</li>
@@ -167,14 +158,14 @@
         <li>אין למסור פרטי צד שלישי בלי הרשאה, ואין למסור תלונות פרטניות, מזהות או משמיצות נגד מוסכים, מוכרים, מבטחים או אנשים פרטיים.</li>
       </ul>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">14. מאגר מחקרי / עסקי</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">14. מאגר מחקרי / עסקי</h3>
       <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li>בכפוף להסכמת המשתמש, נתוני ניסיון בעלות עשויים לשמש לשיפור השירות ולבניית מאגרים סטטיסטיים מצטברים.</li>
         <li>תובנות מצטברות/אנונימיזציות עשויות להיות בשימוש מסחרי על-ידי yedaarechev.</li>
         <li>אין בכך מתן זכויות בעלות או תשלום למשתמשים בתובנות המצרפיות, אלא אם החברה הסכימה לכך מפורשות.</li>
       </ul>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">15. שימוש אסור</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">15. שימוש אסור</h3>
       <ul class="list-disc pr-6 space-y-2 text-slate-200 mb-6">
         <li>גריפת מידע, ביצוע הנדסה הפוכה או ניצול לרעה של השירות.</li>
         <li>בקשות אוטומטיות בקצב חריג.</li>
@@ -184,18 +175,18 @@
         <li>שימוש בתוצרי השירות כהסמכה רשמית של מצב הרכב.</li>
       </ul>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">16. זמינות והפסקת שירות</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">16. זמינות והפסקת שירות</h3>
       <p class="text-slate-200 mb-6">
         אין התחייבות לזמינות רציפה. השירות עשוי להשתנות, להיעצר או להיפסק לחלוטין בכל עת ובלי הודעה מוקדמת.
       </p>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">17. שינויים בתקנון</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">17. שינויים בתקנון</h3>
       <p class="text-slate-200 mb-6">
-        התקנון עשוי להתעדכן מעת לעת. המשך שימוש לאחר עדכון מהווה הסכמה לתנאים החדשים, בכפוף לדין החל.
+        התקנון עשוי להתעדכן מעת לעת. שינוי מהותי יוצג למשתמש, וכאשר נדרשת הסכמה מחודשת מנגנון הגרסאות ידרוש פעולה מפורשת. אין בעדכון כדי לגרוע מזכויות קוגנטיות לפי דין.
         גרסת תקנון נוכחית: <code>{{ terms_version or '2026-04-25' }}</code>.
       </p>
 
-      <h3 class="text-2xl font-bold text-white mt-10 mb-4">18. דין וסמכות שיפוט</h3>
+      <h3 class="text-2xl font-bold text-slate-100 mt-10 mb-4">18. דין וסמכות שיפוט</h3>
       <p class="text-slate-200 mb-6">
         הדין החל על תקנון זה הוא דין מדינת ישראל. סמכות שיפוט ייחודית:
         לבתי המשפט המוסמכים בתל אביב-יפו, ישראל, ככל שהדין מאפשר זאת.

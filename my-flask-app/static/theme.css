@@ -140,6 +140,15 @@ input:focus,select:focus,textarea:focus{
   background:#fff;
 }
 
+.yr-skip-link{
+  position:fixed; inset-block-start:.5rem; inset-inline-start:.5rem; z-index:10000;
+  padding:.75rem 1rem; border-radius:.6rem; background:#fff; color:#163a8a;
+  font-weight:800; transform:translateY(-160%); box-shadow:0 4px 18px rgba(0,0,0,.25);
+}
+.yr-skip-link:focus{transform:translateY(0)}
+[aria-invalid="true"]{border-color:#b42335!important; box-shadow:0 0 0 2px rgba(180,35,53,.2)}
+.yr-visually-hidden{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+
 /* Accessible, keyboard-visible focus everywhere */
 a:focus-visible,button:focus-visible,[role="button"]:focus-visible,
 input:focus-visible,select:focus-visible,textarea:focus-visible,
