@@ -354,11 +354,17 @@ def test_range_or_option_dependent_values_are_never_picked():
     out = validate(BMW_I4, claims, [chunk("bmw.co.il")])
     assert out["facts"] == {} and {r["reason"] for r in out["rejected_claims"]} == {"VALUE_NOT_EXACT"}
     # two different exact values for one configuration -> conflict, never an average
-    two = [claim("electric_range_km", v, "km", BMW_TECH, ev, market="IL", measurement_standard="WLTP") for v in (420, 483)]
+    two = [claim("electric_range_km", v, "km", BMW_TECH, ev, market="IL", measurement_standard="WLTP", value_qualifier="exact")
+           for v in (420, 483)]
     out = validate(BMW_I4, two, [chunk("bmw.co.il")])
     assert "electric_range_km" not in out["facts"] and out["conflicts"][0]["field"] == "electric_range_km"
     one = [claim("electric_range_km", 483, "km", BMW_TECH, ev, market="IL", measurement_standard="WLTP", value_qualifier="exact")]
     assert validate(BMW_I4, one, [chunk("bmw.co.il")])["facts"]["electric_range_km"]["identity_match"] == "powertrain"
+    # a missing qualifier fails closed for consumption / range
+    missing = [claim("electric_range_km", 483, "km", BMW_TECH, ev, market="IL", measurement_standard="WLTP"),
+               claim("energy_consumption_kwh_100km", 16.1, "kWh/100km", BMW_TECH, ev, market="IL")]
+    out = validate(BMW_I4, missing, [chunk("bmw.co.il")])
+    assert out["facts"] == {} and {r["reason"] for r in out["rejected_claims"]} == {"VALUE_NOT_EXACT"}
 
 
 def test_missing_model_statement_is_not_a_model_contradiction():
@@ -700,9 +706,85 @@ def test_charging_power_in_evidence_is_not_motor_output():
     assert match["checks"]["engine"] is None  # unknown, not a contradiction
 
 
-def test_body_words_in_a_trim_name_are_not_a_body_variant():
-    ev = dict(AUDI_PDF_EV, trim="Touring Edition")
-    match = match_variant(snap(AUDI_Q3), claim("torque_nm", 320, "Nm", AUDI_PDF, ev), "powertrain")
-    assert match["checks"]["body"] is not False
-    wagon = dict(AUDI_PDF_EV, body="Avant")
-    assert match_variant(snap(AUDI_Q3), claim("torque_nm", 320, "Nm", AUDI_PDF, wagon), "powertrain")["checks"]["body"] is False
+def test_body_variant_named_in_any_evidence_key_contradicts():
+    """A Sportback / wagon named in the trim or powertrain text is still a
+    different body (fail closed); the government trim may legitimise it."""
+    for ev in (dict(AUDI_PDF_EV, powertrain="Q3 Sportback 40 TFSI quattro 140 kW (190 PS)"),
+               dict(AUDI_PDF_EV, trim="Sportback S line"), dict(AUDI_PDF_EV, body="Avant"),
+               dict(AUDI_PDF_EV, body="SUV-Coupé")):
+        match = match_variant(snap(AUDI_Q3), claim("torque_nm", 320, "Nm", AUDI_PDF, ev), "powertrain")
+        assert match["checks"]["body"] is False, ev
+
+
+# ===========================================================================
+# Second adversarial-review round
+# ===========================================================================
+def test_multi_variant_power_table_never_identifies_the_variant():
+    table = dict(AUDI_PDF_EV, powertrain="35 TFSI 110 kW (150 PS) / 40 TFSI quattro 140 kW (190 PS) / 45 TFSI quattro 180 kW (245 PS)")
+    for scope in ("powertrain", "exact_variant"):
+        ev = dict(table, trim="S line") if scope == "exact_variant" else table
+        match = match_variant(snap(AUDI_Q3), claim("torque_nm", 320, "Nm", AUDI_PDF, ev), scope)
+        assert match["status"] == "VARIANT_SCOPE_AMBIGUOUS" and match["checks"]["engine"] is None, scope
+    two_engines = dict(AUDI_PDF_EV, powertrain="1.5 TFSI / 2.0 TFSI petrol")
+    assert match_variant(snap(AUDI_Q3), claim("torque_nm", 320, "Nm", AUDI_PDF, two_engines), "powertrain")["checks"]["engine"] is None
+    # a mild-hybrid starter-generator output is auxiliary, not another variant
+    assert match_variant(snap(MERCEDES_CLE), claim("torque_nm", 400, "Nm", CLE_PAGE, CLE_EV), "powertrain")["checks"]["engine"] is True
+
+
+@pytest.mark.parametrize("engine", ["3.0 V6", "3.0 inline-6", "3.0 R6 petrol", "2.5 5-cylinder", "1.5 eTSI", "2,5 TFSI", "3.0 six-cylinder turbo"])
+def test_other_displacement_formats_are_contradictions(engine):
+    ev = dict(CLE_EV, powertrain=engine)
+    assert match_variant(snap(MERCEDES_CLE), claim("torque_nm", 400, "Nm", CLE_PAGE, ev), "powertrain")["checks"]["engine"] is False
+
+
+def test_amg_designation_in_powertrain_text_never_lends_dimensions():
+    ev = {"model": "Mercedes-Benz CLE Coupé", "powertrain": "Mercedes-AMG CLE 53 4MATIC+ 3.0 inline-6", "drivetrain": "4MATIC+",
+          "generation": "C236"}
+    out = validate(MERCEDES_CLE, [claim("width_mm", 1900, "mm", CLE_PAGE, ev, market="IL")], [chunk("mercedes-benz.co.il")])
+    assert out["facts"] == {}
+
+
+def test_mixed_generation_codes_or_model_years_establish_nothing():
+    mixed_gen = {"model": "Mercedes-Benz CLE", "generation": "C236 / A236"}
+    out = validate(MERCEDES_CLE, [claim("length_mm", 4850, "mm", CLE_PAGE, mixed_gen, market="IL")], [chunk("mercedes-benz.co.il")])
+    assert out["facts"] == {} and out["rejected_claims"][0]["reason"] == "VARIANT_SCOPE_AMBIGUOUS"
+    mixed_year = {"model": "Mercedes-Benz CLE", "body": "Coupé MY2023/MY2024"}
+    out = validate(MERCEDES_CLE, [claim("length_mm", 4850, "mm", CLE_PAGE, mixed_year, market="IL")], [chunk("mercedes-benz.co.il")])
+    assert out["facts"] == {}
+    only_2024 = {"model": "Mercedes-Benz CLE", "body": "Coupé"}
+    out = validate(MERCEDES_CLE, [claim("length_mm", 4850, "mm", CLE_PAGE, only_2024, market="IL", model_year="2024")],
+                   [chunk("mercedes-benz.co.il")])
+    assert out["facts"]["length_mm"]["identity_match"] == "model_generation"  # "2024" as a string is a stated year
+    wrong = claim("torque_nm", 400, "Nm", CLE_PAGE, CLE_EV, market="IL", model_year="2026")
+    assert validate(MERCEDES_CLE, [wrong], [chunk("mercedes-benz.co.il")])["rejected_claims"][0]["reason"] == "VARIANT_YEAR_MISMATCH"
+
+
+@pytest.mark.parametrize("trim,expected", [("S line", True), ("S line 40 TFSI quattro", True), ("Business line", False),
+                                           ("S line Competition", False), ("S line Black Edition", False)])
+def test_trim_is_matched_as_whole_words(trim, expected):
+    ev = dict(AUDI_PDF_EV, trim=trim)
+    assert match_variant(snap(AUDI_Q3), claim("wheel_size_in", 19, "in", AUDI_PDF, ev), "exact_variant")["checks"]["trim"] is expected
+    cle = dict(CLE_EV, trim="AMG Line Premium Plus")
+    assert match_variant(snap(MERCEDES_CLE), claim("wheel_size_in", 19, "in", CLE_PAGE, cle), "exact_variant")["checks"]["trim"] is False
+
+
+def test_diesel_contradicts_a_petrol_vehicle():
+    ev = dict(AUDI_PDF_EV, powertrain="40 TDI quattro 140 kW (190 PS) diesel")
+    out = validate(AUDI_Q3, [claim("torque_nm", 400, "Nm", AUDI_PDF, ev)], [chunk("audi-mediacenter.com")])
+    assert out["rejected_claims"][0]["reason"] == "VARIANT_PROPULSION_MISMATCH"
+
+
+def test_price_rejected_without_an_israeli_source_is_not_negatively_cached():
+    ev = {"model": "BMW i4 eDrive35", "trim": "Pure", "model_code": "41AW"}
+
+    def responder(prompt, config, n):
+        if is_commercial(prompt):
+            return sdk_response({"claims": [claim("official_price_ils", 339000, "ILS", "https://www.bmw.com/en/i4.html", ev)]},
+                                chunks=[chunk("bmw.com")], queries=["bmw i4 price"])
+        return sdk_response({"claims": []}, chunks=[chunk("bmw.co.il")], queries=["bmw i4"])
+
+    repo = LiveOfficialEnrichmentRepository(gemini(responder), InProcessEnrichmentCache())
+    outcome, _ = enrich_many(repo, [snap(BMW_I4)])[0]
+    price = outcome["group_freshness"]["price"]
+    assert price["state"] == "grounding_unverifiable" and price["fresh_until"] is None
+    assert price["failure_reason"] == "NO_OFFICIAL_SOURCE_INSPECTED"

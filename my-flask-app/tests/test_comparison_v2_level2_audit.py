@@ -72,7 +72,7 @@ def snap(key, slot="car_1"):
 
 def claim(field, value, unit, url, *, market="GLOBAL", evidence=AUDI_PDF_EVIDENCE, scope="variant", year=2024, **extra):
     return {"field": field, "value": value, "unit": unit, "source_url": url, "source_title": "Audi", "source_market": market,
-            "vehicle_model_year": year, "variant_scope": scope, "identity_evidence": evidence, **extra}
+            "vehicle_model_year": year, "value_qualifier": "exact", "variant_scope": scope, "identity_evidence": evidence, **extra}
 
 
 def chunk(title, i=0):

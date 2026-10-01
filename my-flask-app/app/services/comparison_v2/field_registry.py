@@ -63,6 +63,10 @@ class FieldSpec:
     # this field may be attributed to the Level 1.5 variant (see
     # ``IDENTITY_SCOPES`` and ``official_variant_matcher``).
     identity_scope: str = "exact_variant"
+    # Homologated values that commonly differ by wheels / options within one
+    # powertrain (consumption, range): accepted only when the model reports
+    # value_qualifier == "exact" — a missing qualifier fails closed.
+    requires_exact_qualifier: bool = False
 
     @property
     def trim_sensitive(self) -> bool:
@@ -208,8 +212,10 @@ FIELD_IDENTITY_SCOPES: Dict[str, str] = {
 }
 # Backward-compatible name: fields that do not need the Israeli trim.
 POWERTRAIN_LEVEL_FIELDS = tuple(k for k, v in FIELD_IDENTITY_SCOPES.items() if v == SCOPE_POWERTRAIN)
+EXACT_QUALIFIER_FIELDS = ("fuel_consumption_l_100km", "energy_consumption_kwh_100km", "electric_range_km")
 FIELD_SPECS = {
-    key: replace(spec, identity_scope=FIELD_IDENTITY_SCOPES.get(key, SCOPE_EXACT_VARIANT))
+    key: replace(spec, identity_scope=FIELD_IDENTITY_SCOPES.get(key, SCOPE_EXACT_VARIANT),
+                 requires_exact_qualifier=key in EXACT_QUALIFIER_FIELDS)
     for key, spec in FIELD_SPECS.items()
 }
 

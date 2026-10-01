@@ -51,15 +51,17 @@ _EV_TOKENS = ("electric", "bev", "ev", "חשמלי", "edrive")
 _PHEV_TOKENS = ("pluginhybrid", "phev", "plugin", "פלאגאין")
 _HYBRID_TOKENS = ("hybrid", "hev", "היברידי", "mildhybrid", "mhev", "48v", "isg", "eqboost", "startergenerator")
 _PETROL_TOKENS = ("petrol", "gasoline", "tfsi", "tsi", "tgdi", "gdi", "בנזין")
+_DIESEL_TOKENS = ("diesel", "tdi", "crdi", "dci", "cdi", "bluehdi", "דיזל")
 
-# Explicit body variants. A token contradicts the Level 1.5 vehicle unless the
-# government model name carries it or the government body style is one of
-# the compatible styles. Only unambiguous variant names are listed; a generic
+# Explicit body variants. A token anywhere in the identity evidence (model,
+# body, powertrain, trim ...) contradicts the Level 1.5 vehicle unless the
+# government model name or trim carries it or the government body style is
+# one of the compatible styles. Only unambiguous variant names are listed; a generic
 # word such as "coupe" is not (BMW calls the i4 a "Gran Coupe").
 _BODY_VARIANTS: Tuple[Tuple[Tuple[str, ...], Tuple[str, ...]], ...] = (
     (("cabriolet", "cabrio", "convertible", "roadster", "spyder", "spider"), ("convertible", "cabriolet", "roadster")),
     (("avant", "touring", "estate", "wagon", "shooting brake", "sports tourer", "sportswagon", "kombi"), ("wagon", "estate")),
-    (("sportback",), ()),
+    (("sportback", "suv coupe", "coupe suv"), ()),
     (("long wheelbase", "lwb"), ()),
 )
 # Positive body statements per Level 1.5 body style.
@@ -120,6 +122,8 @@ def normalize_model_code(code: Any) -> str:
 
 
 def _int_year(value: Any) -> Optional[int]:
+    if isinstance(value, str) and re.fullmatch(r"\s*\d{4}\s*", value):
+        value = int(value)
     if isinstance(value, bool) or not isinstance(value, int):
         return None
     return value if 1980 <= value <= 2100 else None
@@ -166,14 +170,18 @@ def claim_years(claim: Dict[str, Any], evidence_text: str = "") -> Dict[str, Any
 
 
 def _check_year(model_year: Any, years: Dict[str, Any]) -> Optional[bool]:
-    """None = no explicit model year (never a mismatch); False only when the
-    source explicitly attributes the value to a different model year."""
+    """None = no explicit model year (never a mismatch); False when the source
+    explicitly attributes the value to a different model year; True only when
+    every stated model year is the government one (a page covering several
+    model years establishes none of them)."""
     stated = years["stated_model_years"]
     if not stated or not isinstance(model_year, int):
         return None
     if years["vehicle_model_year"] is not None and years["vehicle_model_year"] != model_year:
         return False
-    return model_year in stated
+    if model_year not in stated:
+        return False
+    return True if all(y == model_year for y in stated) else None
 
 
 # ---------------------------------------------------------------------------
@@ -227,8 +235,9 @@ _DESIGNATION_WORDS = ("rs", "amg", "gt", "gts", "gti", "n", "m", "s", "sq", "svr
 
 
 def extra_model_designations(identity: Dict[str, Any], evidence_model: str) -> List[str]:
-    """Variant designations in the evidence model name that the government
-    model name does not carry ("CLE 53", "i4 M50", "RS Q3", "Q3 45 TFSI").
+    """Variant designations in the evidence model / powertrain text that the
+    government model name does not carry ("CLE 53", "i4 M50", "RS Q3",
+    "Q3 45 TFSI", "140 kW").
 
     They do not reject a dimension by themselves (the Ministry name for an
     Audi is just "Q3"), but they mean the source names a specific variant, so
@@ -246,17 +255,32 @@ def extra_model_designations(identity: Dict[str, Any], evidence_model: str) -> L
     return out
 
 
-def _check_trim(snapshot_trim: str, evidence_trim: str) -> Optional[bool]:
+_TRIM_FILLER = ("line", "edition", "package", "pack", "trim", "version")
+
+
+def _check_trim(snapshot_trim: str, evidence_trim: str, snapshot_model: str = "") -> Optional[bool]:
+    """Whole-token trim match. "S LINE" never matches "Business line", and an
+    extra trim word ("S line Competition", "AMG Premium Plus") is a different
+    trim. Filler words and powertrain / model tokens next to the trim are
+    tolerated ("S line 40 TFSI quattro")."""
     want = _tokens(snapshot_trim)
-    if not want or not _compact(evidence_trim):
+    have = _tokens(evidence_trim)
+    if not want or not have:
         return None
-    have = _compact(evidence_trim)
-    return all(tok in have for tok in want)
+    if not all(w in have for w in want):
+        return False
+    model_tokens = set(_tokens(snapshot_model))
+    extra = [t for t in have if t not in want and t not in _TRIM_FILLER and t not in model_tokens and not _DESIGNATION.match(t)]
+    return not extra
 
 
-def _check_propulsion(propulsion: str, compact: str, words: List[str]) -> Optional[bool]:
+def _check_propulsion(propulsion: str, compact: str, words: List[str], fuel_type: Optional[str] = None) -> Optional[bool]:
     if not compact:
         return None
+    if fuel_type == "petrol" and _has_any(compact, _DIESEL_TOKENS, words):
+        return False
+    if fuel_type == "diesel" and _has_any(compact, _PETROL_TOKENS, words):
+        return False
     says_phev = _has_any(compact, _PHEV_TOKENS, words)
     says_hybrid = _has_any(compact, _HYBRID_TOKENS, words) and not says_phev
     says_ev = _has_any(compact, _EV_TOKENS, words) and not says_hybrid and not says_phev
@@ -311,6 +335,23 @@ def _power_values(text: str) -> Dict[str, List[float]]:
     return {"hp": hp, "kw": kw}
 
 
+def _power_verdict(candidates: List[float], hp: Any) -> Optional[bool]:
+    """True when the stated output is the government output (±3 %); None
+    when the evidence also states another full output (a table of several
+    variants never identifies one of them); False when only other outputs
+    are stated. Small auxiliary outputs (a mild-hybrid starter-generator,
+    < 40 %) are ignored."""
+    if not hp or not candidates:
+        return None
+    matching = [c for c in candidates if abs(c - hp) / hp <= 0.03]
+    others = [c for c in candidates if abs(c - hp) / hp > 0.03 and c >= 0.4 * hp]
+    if matching and others:
+        return None
+    if matching:
+        return True
+    return False if others else None
+
+
 def _check_engine(facts: Dict[str, Any], evidence_text: str, compact: str) -> Optional[bool]:
     """Engine displacement and/or output for combustion; motor configuration
     or output for EVs. A stated displacement that differs, or a stated output
@@ -320,11 +361,7 @@ def _check_engine(facts: Dict[str, Any], evidence_text: str, compact: str) -> Op
     propulsion = facts.get("propulsion")
     hp = facts.get("horsepower")
     powers = _power_values(evidence_text)
-    power_match = None
-    if hp:
-        candidates = powers["hp"] + [k * 1.341022 for k in powers["kw"]]
-        if candidates:
-            power_match = any(abs(c - hp) / hp <= 0.03 for c in candidates)
+    power_match = _power_verdict(powers["hp"] + [k * 1.341022 for k in powers["kw"]], hp)
     if propulsion == "battery_electric":
         if power_match is not None:
             return power_match
@@ -341,14 +378,17 @@ def _check_engine(facts: Dict[str, Any], evidence_text: str, compact: str) -> Op
     # A decimal is a displacement only next to an engine word ("2.0 TFSI",
     # "2.0L", "1.6 T-GDi", "2.0 petrol") — never "7.4 s", "8.6 l/100 km"
     # or "16.1 kWh".
-    liters = [float(v) for v in re.findall(
-        r"(?<![\d.])([0-8]\.\d)\s*-?\s*(?:l\b(?!\s*/)|litre(?!s?\s*/)|liter(?!s?\s*/)|ליטר|t\b|t-?gdi|tfsi|tsi|tdi|gdi|turbo|hybrid|petrol|gasoline|benzin|diesel|engine|בנזין)",
+    liters = [float(v.replace(",", ".")) for v in re.findall(
+        r"(?<![\d.,])([0-8][.,]\d)\s*-?\s*(?:l\b(?!\s*/)|litre(?!s?\s*/)|liter(?!s?\s*/)|ליטר|t\b|t-?gdi|e?tfsi|e?tsi|tdi|gdi|turbo|"
+        r"hybrid|petrol|gasoline|benzin|diesel|engine|בנזין|v\d{1,2}\b|inline|in-line|straight|r\d\b|\d-?cyl|cylinder|cyl\b|(?:three|four|five|six|eight|ten|twelve)[\s-]*cyl|ecoboost)",
         lowered)]
     ccs = [float(v) for v in re.findall(r"(\d{3,4})\s*(?:cc|סמ\"ק|סמ״ק|cm3|cm³|ccm)", lowered)]
     displacement_match = None
     if liters or ccs:
         want_l = round(cc / 1000.0, 1)
-        displacement_match = any(abs(v - want_l) < 0.05 for v in liters) or any(abs(v - cc) <= 60 for v in ccs)
+        hits = [abs(v - want_l) < 0.05 for v in liters] + [abs(v - cc) <= 60 for v in ccs]
+        # several different displacements = a multi-engine table: not established
+        displacement_match = True if all(hits) else (None if any(hits) else False)
     if displacement_match is False:
         return False
     if displacement_match is True:
@@ -361,11 +401,12 @@ def _check_body(identity: Dict[str, Any], facts: Dict[str, Any], body_text: str,
     wagon, Sportback, long wheelbase ...) than the Level 1.5 vehicle; True
     when it names a compatible body; None when it says nothing about it."""
     gov_model = _plain(identity.get("model"))
+    gov_names = gov_model + " " + _plain(identity.get("trim"))
     gov_body = (facts.get("body_style") or "").lower()
     text = _plain(evidence_text)
     for needles, compatible in _BODY_VARIANTS:
         stated = any(_phrase_in(text, n) for n in needles)
-        if stated and not any(_phrase_in(gov_model, n) for n in needles) and gov_body not in compatible:
+        if stated and not any(_phrase_in(gov_names, n) for n in needles) and gov_body not in compatible:
             return False
     body = _plain(body_text)
     if not body.strip():
@@ -394,12 +435,13 @@ def _check_generation(identity: Dict[str, Any], facts: Dict[str, Any], codes: Li
         return None
     year = identity.get("model_year")
     body = (facts.get("body_style") or "").lower()
+    fits = []
     for entry in known:
         year_ok = not isinstance(year, int) or ((entry["from"] is None or year >= entry["from"]) and (entry["to"] is None or year <= entry["to"]))
         body_ok = entry["body"] is None or entry["body"] == body or (entry["body"] == "convertible" and body in ("convertible", "cabriolet"))
-        if year_ok and body_ok:
-            return True
-    return False
+        fits.append(year_ok and body_ok)
+    # "C236 / A236": the source covers several generations/bodies -> none established
+    return True if all(fits) else (None if any(fits) else False)
 
 
 def _check_seats(seats: Any, evidence_text: str) -> Optional[bool]:
@@ -442,17 +484,16 @@ def evaluate_identity(snapshot: Dict[str, Any], claim: Dict[str, Any]) -> Dict[s
         model_code = bool(code_known) and code_evidence == code_known
 
     years = claim_years(claim, evidence_text)
-    designations = extra_model_designations(identity, evidence.get("model", ""))
+    designations = extra_model_designations(identity, evidence.get("model", "") + " " + evidence.get("powertrain", ""))
     checks = {
         "model_code": model_code,
         "model": _check_model(identity.get("model"), evidence.get("model", ""), evidence_text),
         "model_family": _check_model_family(identity.get("model"), evidence.get("model", ""), evidence_text),
-        "body": _check_body(identity, facts, " ".join(evidence.get(k, "") for k in ("body", "model", "seating")),
-                            " ".join(evidence.get(k, "") for k in ("model", "body", "generation"))),
+        "body": _check_body(identity, facts, " ".join(evidence.get(k, "") for k in ("body", "model", "seating")), evidence_text),
         "generation": _check_generation(identity, facts, gen_codes),
         "year": _check_year(identity.get("model_year"), years),
-        "trim": _check_trim(identity.get("trim"), evidence.get("trim", "")),
-        "propulsion": _check_propulsion(facts.get("propulsion"), compact, words),
+        "trim": _check_trim(identity.get("trim"), evidence.get("trim", ""), identity.get("model") or ""),
+        "propulsion": _check_propulsion(facts.get("propulsion"), compact, words, facts.get("fuel_type")),
         "drivetrain": _check_drivetrain(facts.get("drivetrain"), compact, words),
         "engine": _check_engine(facts, evidence_text, compact),
         "seats": _check_seats(facts.get("seats"), evidence_text),

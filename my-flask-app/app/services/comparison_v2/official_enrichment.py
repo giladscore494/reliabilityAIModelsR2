@@ -162,7 +162,7 @@ def _schema_for(fields: Iterable[str]) -> Dict[str, Any]:
                             },
                         },
                     },
-                    "required": ["field", "value", "source_url", "source_market", "variant_scope", "identity_evidence"],
+                    "required": ["field", "value", "source_url", "source_market", "variant_scope", "value_qualifier", "identity_evidence"],
                 },
             },
             "extra_official_equipment": {
@@ -473,7 +473,7 @@ def build_official_enrichment_prompt(
             "4. Israeli official sources have priority for: " + ", ".join(ISRAELI_PRIORITY_TOPICS) + ". Global manufacturer sources may supplement: " + ", ".join(GLOBAL_SUPPLEMENT_TOPICS) + " — only when the exact technical configuration (powertrain, drivetrain, engine/motor) is visibly the same.",
             "4b. A value is never acceptable merely because it is on an allowed domain; it must be tied to this exact variant. If the exact variant cannot be established, omit the field (it stays missing). Use ONLY pages on the allowed domains. Never use dealers, brokers, price-comparison sites, review sites, forums, Wikipedia, press aggregators or any third party. If no allowed page states a value, omit that field.",
             "5. Never infer, estimate, average or compute a missing number. Never turn an approximate marketing claim ('about', 'from') into an exact specification.",
-            "5b. value_qualifier: 'exact' for a single published specification of this configuration (a maximum such as top speed or peak charging power is exact). 'one_of_several' when the page gives a range ('16.1–18.2') or different values by wheels/options/trim and does not show which applies to this vehicle — never pick the lowest, highest or an average. 'approximate' for 'about/approx./~'. Non-exact values are discarded, so prefer omitting them.",
+            "5b. value_qualifier (required on every claim): 'exact' for a single published specification of this configuration (a maximum such as top speed or peak charging power is exact). 'one_of_several' when the page gives a range ('16.1–18.2') or different values by wheels/options/trim and does not show which applies to this vehicle — never pick the lowest, highest or an average. 'approximate' for 'about/approx./~'. Non-exact values are discarded, so prefer omitting them. Consumption and range are accepted only when marked 'exact'.",
             "6. Price, registration fee and warranty must come from an Israeli official page in ILS/Israeli terms; never use a foreign price or a foreign warranty.",
             "7. For electric range always set measurement_standard (WLTP/EPA/NEDC/CLTC) exactly as the page states; never convert between standards.",
             "8. Report each value with the unit printed on the page (do not convert). Booleans are true only when the page explicitly lists the item for this trim.",
@@ -995,7 +995,13 @@ def group_observation(
     else:
         reasons = Counter(r.get("reason") for r in validation.get("rejected_claims") or [] if r.get("field") in wanted)
         no_official_evidence = not (validation.get("grounded_official_hosts") or [])
-        if no_official_evidence and reasons and set(reasons) == {REJECT_NOT_GROUNDED}:
+        relevant_inspected = bool(set(validation.get("grounded_official_markets") or []) & set(relevant_markets(group)))
+        if not relevant_inspected:
+            # e.g. a price claimed from a GLOBAL page with no Israeli source
+            # retrieved: nothing about the Israeli price was observed.
+            state, ttl = STATE_UNVERIFIABLE, None
+            record["failure_reason"] = FAILURE_NO_OFFICIAL_SOURCE
+        elif no_official_evidence and reasons and set(reasons) == {REJECT_NOT_GROUNDED}:
             # Nothing official could be correlated at all: a correlation /
             # evidence failure, not a finding about the vehicle.
             state, ttl = STATE_UNVERIFIABLE, None

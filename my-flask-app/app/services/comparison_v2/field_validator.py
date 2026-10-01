@@ -76,7 +76,10 @@ MAX_EXTRA_EQUIPMENT = 20
 #       field (exact_variant / powertrain / powertrain_body /
 #       model_generation); combustion output establishes the engine when no
 #       displacement is printed; body / generation / seating contradictions;
-#       exact model code needs the model name; non-exact values rejected.
+#       exact model code needs the model name; non-exact values rejected
+#       (consumption / range need an explicit 'exact'); several outputs,
+#       displacements, generation codes or model years establish none;
+#       whole-word trims; diesel vs petrol.
 FIELD_VALIDATOR_VERSION = "field-validator/3"
 
 
@@ -312,8 +315,9 @@ class FieldValidator:
             return {"_status": "rejected", **base, "reason": match["status"] if match["status"] != "VARIANT_MISMATCH" else (match["reasons"] or ["VARIANT_MISMATCH"])[0]}
 
         qualifier = raw.get("value_qualifier")
-        if isinstance(qualifier, str) and qualifier.strip().lower() not in ("", "exact"):
-            return {"_status": "rejected", **base, "reason": REJECT_NOT_EXACT, "value_qualifier": qualifier[:24]}
+        qualifier = qualifier.strip().lower() if isinstance(qualifier, str) else ""
+        if (qualifier not in ("", "exact")) or (spec is not None and spec.requires_exact_qualifier and qualifier != "exact"):
+            return {"_status": "rejected", **base, "reason": REJECT_NOT_EXACT, "value_qualifier": qualifier[:24] or None}
 
         value, unit, err = normalize_claim_value(active_spec, raw.get("value"), raw.get("unit"))
         if err:
