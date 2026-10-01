@@ -271,6 +271,7 @@ def _wants_stream() -> bool:
 def _compare_v2(data, user_id, session_id, owner_bypass, request_id, reservation_id, idempotent_retry, day_key, daily_limit):
     """Comparison V2: Level 1.5 + official Level 2 + deterministic engine + JEV + summary."""
     from app.extensions import ai_client
+    from app.services.comparison_v2.official_enrichment import url_context_enabled as enrichment_url_context_enabled
     from app.services.comparison_v2.pipeline import build_default_deps, collect_result, run_comparison_v2
 
     def settle(ok: bool) -> None:
@@ -291,7 +292,7 @@ def _compare_v2(data, user_id, session_id, owner_bypass, request_id, reservation
         model=comparison_enrichment_model_id(),
         api_method="generate_content_grounded",
         endpoint_family="models.generateContent",
-        tools=["google_search"],
+        tools=["google_search"] + (["url_context"] if enrichment_url_context_enabled() else []),
     )
     deps = build_default_deps(ai_client)
     events = run_comparison_v2(
@@ -309,6 +310,11 @@ def _compare_v2(data, user_id, session_id, owner_bypass, request_id, reservation
             settled = False
             try:
                 for event in events:
+                    if event["type"] == "heartbeat":
+                        # keeps proxies from idling out a long enrichment;
+                        # the client ignores blank lines
+                        yield "\n"
+                        continue
                     if event["type"] == "progress":
                         line = {"type": "progress", "stage": event["stage"], "label_he": event["label_he"]}
                         if event.get("mode"):

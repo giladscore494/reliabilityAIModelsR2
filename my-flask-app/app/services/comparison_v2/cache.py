@@ -2,7 +2,10 @@
 """Per-vehicle official Level 2 cache (separate from whole-comparison history).
 
 Key = (variant_identity_key, enrichment_contract_version,
-source_registry_version, enrichment_model). Freshness is tracked per field
+source_registry_version, enrichment_model, field_validator_version), so a
+model switch (e.g. Flash -> Pro), a registry change, a contract change or a
+change of validation semantics can never be served a result produced under
+the old configuration. Old rows simply stop being read. Freshness is tracked per field
 group (technical / price / warranty) so a stale price never forces the
 technical data to be searched again, and an Audi Q3 enriched once is reused
 whether it is later compared with a Tucson or a BMW.
@@ -21,8 +24,12 @@ from typing import Any, Dict, List, Optional
 from app.services.comparison_v2.field_registry import FRESHNESS_TTL_SECONDS
 
 
-def build_cache_key(variant_identity_key: str, contract_version: str, registry_version: str, model: str) -> str:
-    raw = "|".join([variant_identity_key or "", contract_version, registry_version, model or ""])
+def build_cache_key(variant_identity_key: str, contract_version: str, registry_version: str, model: str,
+                    validator_version: str = "") -> str:
+    parts = [variant_identity_key or "", contract_version, registry_version, model or ""]
+    if validator_version:
+        parts.append(validator_version)
+    raw = "|".join(parts)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 

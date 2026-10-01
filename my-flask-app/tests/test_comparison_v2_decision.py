@@ -378,27 +378,29 @@ def test_validate_summary_unit():
 # --------------------------------------------------------------------------
 # enrichment / cost behaviour
 # --------------------------------------------------------------------------
-def test_cache_miss_two_cars_is_four_remote_calls():
+def test_cache_miss_two_cars_is_six_remote_calls():
     provider = FakeEnrichmentProvider()
     session = FakeTypeSafeSession()
     writer = FakeSummaryWriter()
     out = run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(provider=provider, session=session, writer=writer))["data"]
-    assert len(provider.calls) == 2
-    assert {c["vehicle_id"] for c in provider.calls} == {AUDI_Q3, HYUNDAI_TUCSON}  # one call per car, each its own
+    # exactly one technical + one commercial task per car, each its own call
+    assert sorted((c["vehicle_id"], c["groups"]) for c in provider.calls) == sorted(
+        [(k, g) for k in (AUDI_Q3, HYUNDAI_TUCSON) for g in (("technical",), ("price", "warranty"))]
+    )
     assert len(session.post_calls) == 1 and writer.calls == 1
     meta = out["provider_meta"]
-    assert (meta["remote_enrichment_calls"], meta["jev_calls"], meta["summary_calls"]) == (2, 1, 1)
+    assert (meta["remote_enrichment_calls"], meta["jev_calls"], meta["summary_calls"]) == (4, 1, 1)
 
 
 def test_per_car_cache_reused_across_different_pairs():
     provider = FakeEnrichmentProvider()
     deps = build_fake_deps(provider=provider)
-    run([AUDI_Q3, HYUNDAI_TUCSON], deps)
+    run([HYUNDAI_TUCSON, AUDI_Q3], deps)
     reset_model_verification_cache()
-    out = run([AUDI_Q3, BMW_I4], deps)["data"]
-    assert [c["vehicle_id"] for c in provider.calls] == [AUDI_Q3, HYUNDAI_TUCSON, BMW_I4] or \
-        sorted(c["vehicle_id"] for c in provider.calls[:2]) == sorted([AUDI_Q3, HYUNDAI_TUCSON]) and provider.calls[2]["vehicle_id"] == BMW_I4
-    assert out["provider_meta"]["remote_enrichment_calls"] == 1
+    out = run([HYUNDAI_TUCSON, BMW_I4], deps)["data"]
+    assert sorted(c["vehicle_id"] for c in provider.calls[:4]) == sorted([AUDI_Q3, HYUNDAI_TUCSON] * 2)
+    assert [c["vehicle_id"] for c in provider.calls[4:]] == [BMW_I4, BMW_I4]  # only the new car is searched
+    assert out["provider_meta"]["remote_enrichment_calls"] == 2
     assert out["vehicle_snapshots"]["car_1"]["official_enrichment"]["status"] == "cache_hit"
 
 
@@ -409,7 +411,8 @@ def test_enrichment_failure_for_one_car_continues_with_level15():
     assert out["type"] == "result"
     assert data["vehicle_snapshots"]["car_2"]["official_enrichment"]["status"] == "failed"
     assert data["vehicle_snapshots"]["car_2"]["government"]["facts"]["horsepower"] == 230
-    assert len(provider.calls) == 2  # no retry
+    assert len(provider.calls) == 4  # one call per task, no retry
+    assert data["vehicle_snapshots"]["car_2"]["official_enrichment"]["level2_health"] == "failed"
 
 
 def test_stale_price_refreshes_only_price_group():
@@ -424,13 +427,14 @@ def test_stale_price_refreshes_only_price_group():
     first = repo.get_or_enrich(snap)
     assert "official_price_ils" in first["facts"] and "torque_nm" in first["facts"]
     now[0] = now[0] + timedelta(hours=30)
+    assert [c["groups"] for c in provider.calls] == [("technical",), ("price", "warranty")]
     second = repo.get_or_enrich(snap)
-    assert provider.calls[1]["groups"] == ("price",)
+    assert provider.calls[2]["groups"] == ("price",)
     assert second["status"] == "refreshed"
     assert "torque_nm" in second["facts"]  # technical data kept from cache
     now[0] = now[0] + timedelta(hours=1)
     repo.get_or_enrich(snap)
-    assert len(provider.calls) == 2  # fresh again -> no call
+    assert len(provider.calls) == 3  # fresh again -> no call
 
 
 def test_enrichment_prompt_is_single_vehicle_and_lists_registry_domains():
@@ -497,7 +501,7 @@ def test_level2_cache_hit_is_one_jev_and_one_summary():
     out = run([AUDI_Q3, HYUNDAI_TUCSON], deps)["data"]
     meta = out["provider_meta"]
     assert (meta["remote_enrichment_calls"], meta["jev_calls"], meta["summary_calls"]) == (0, 1, 1)
-    assert len(provider.calls) == 2 and len(session.post_calls) == 2 and writer.calls == 2
+    assert len(provider.calls) == 4 and len(session.post_calls) == 2 and writer.calls == 2
 
 
 def test_prompt_carries_only_this_brands_seed_urls_and_rules():

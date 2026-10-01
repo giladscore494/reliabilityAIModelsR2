@@ -3,6 +3,7 @@
 buyer-profile/2 -> mocked JEV micro-judgments -> composition -> summary ->
 API -> UI renderer. No paid calls."""
 
+import copy
 import json
 import shutil
 import subprocess
@@ -73,7 +74,7 @@ def test_e2e_audi_vs_tucson_json(v2_client, app):
     assert data["progress"][-1] == "complete"
     assert data["comparison_id"]
     meta = data["provider_meta"]
-    assert (meta["remote_enrichment_calls"], meta["jev_calls"], meta["summary_calls"]) == (2, 1, 1)
+    assert (meta["remote_enrichment_calls"], meta["jev_calls"], meta["summary_calls"]) == (4, 1, 1)
     # history list + detail reload
     hist = client.get("/api/compare/history").get_json()["data"]["history"]
     assert hist[0]["cars"][0]["make"] == "Audi"
@@ -136,11 +137,24 @@ def test_e2e_bmw_vs_xpeng_stream(v2_client):
     assert "dc_charging_power_kw" in ev["evidence"]["conflicted_metrics"]
 
 
+def _drop_invalid_audi_commercial_claims(provider):
+    """The Audi fixture's price/warranty claims are deliberately invalid
+    (foreign price, lookalike host): those groups are 'rejected', which by
+    design never freezes a whole-comparison cache. Remove them so the Audi
+    commercial groups are a genuinely empty (healthy) observation."""
+    outputs = copy.deepcopy(provider.outputs)
+    claims = outputs[AUDI_Q3]["raw"]["claims"]
+    outputs[AUDI_Q3]["raw"]["claims"] = [c for c in claims if c["field"] not in ("official_price_ils", "warranty_vehicle_years")]
+    provider.outputs = outputs
+
+
 def test_whole_comparison_cache_hit_is_zero_remote_calls(v2_client):
+    # Tucson + BMW: every Level 2 group is a healthy observation (complete /
+    # partial / genuinely empty), so the whole comparison may be cached.
     client, _, counters = v2_client
-    first = _post(client, [AUDI_Q3, HYUNDAI_TUCSON]).get_json()["data"]
+    first = _post(client, [HYUNDAI_TUCSON, BMW_I4]).get_json()["data"]
     calls = (len(counters["provider"].calls), len(counters["session"].post_calls), counters["writer"].calls)
-    second = _post(client, [AUDI_Q3, HYUNDAI_TUCSON]).get_json()["data"]
+    second = _post(client, [HYUNDAI_TUCSON, BMW_I4]).get_json()["data"]
     assert second["cached"] is True
     assert second["comparison_id"] != first["comparison_id"]
     assert (len(counters["provider"].calls), len(counters["session"].post_calls), counters["writer"].calls) == calls
@@ -150,6 +164,7 @@ def test_different_profiles_never_share_a_decision_cache_entry(v2_client):
     client, _, counters = v2_client
     perf = {"mode": "personalized", "main_use": "highway", "priorities": {**PRI, "performance": 4}}
     family = {"mode": "personalized", "main_use": "family", "priorities": {**PRI, "practicality": 4}}
+    _drop_invalid_audi_commercial_claims(counters["provider"])
     a = _post(client, [AUDI_Q3, HYUNDAI_TUCSON], buyer_profile=perf).get_json()["data"]
     b = _post(client, [AUDI_Q3, HYUNDAI_TUCSON], buyer_profile=family).get_json()["data"]
     assert a["cached"] is False and b["cached"] is False

@@ -10,7 +10,7 @@ measurement *standard* (WLTP/EPA/...) is never converted — only units are.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, FrozenSet, Optional, Tuple
 
 ALL_FAMILIES: FrozenSet[str] = frozenset({"ev", "phev", "combustion", "unknown"})
@@ -59,6 +59,11 @@ class FieldSpec:
     enum_values: Tuple[str, ...] = ()
     pattern: Optional[str] = None
     requires_standard: bool = False
+    # False only for values fixed by the powertrain (engine/motor, battery,
+    # gearbox): those may be matched at powertrain level when the page does
+    # not name the Israeli trim. Trim-dependent values (equipment, wheels,
+    # dimensions, consumption/range, price) always need the trim.
+    trim_sensitive: bool = True
 
 
 def _num(key, group, label, unit, units, lo, hi, **kw) -> FieldSpec:
@@ -150,6 +155,19 @@ FIELD_SPECS: Dict[str, FieldSpec] = {
         _num("warranty_battery_km", "commercial", "אחריות לסוללה (ק״מ)", "km", {"km": _factor(1)},
              10_000, 1_000_000, israeli_only=True, local_authority=True, freshness=FRESHNESS_WARRANTY, conflict_rel=0.0),
     )
+}
+
+# Values fixed by the powertrain (see ``FieldSpec.trim_sensitive``).
+POWERTRAIN_LEVEL_FIELDS = (
+    "torque_nm", "acceleration_0_100_s", "top_speed_kmh",
+    "battery_capacity_kwh", "battery_capacity_net_kwh",
+    "ac_charging_power_kw", "dc_charging_power_kw",
+    "dc_charge_time_minutes", "dc_charge_from_pct", "dc_charge_to_pct",
+    "transmission_type", "transmission_gears", "fuel_tank_l",
+)
+FIELD_SPECS = {
+    key: (replace(spec, trim_sensitive=False) if key in POWERTRAIN_LEVEL_FIELDS else spec)
+    for key, spec in FIELD_SPECS.items()
 }
 
 FIELD_GROUPS = ("performance", "battery", "dimensions", "transmission", "equipment", "commercial")

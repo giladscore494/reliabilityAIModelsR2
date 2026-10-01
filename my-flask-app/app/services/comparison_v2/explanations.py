@@ -70,6 +70,7 @@ NOT_COMPARABLE_REASON_HE = {
     "RANGE_STANDARD_MISMATCH": "תקני מדידה שונים",
     "NOT_CROSS_POWERTRAIN_COMPARABLE": "סוגי הנעה שונים",
     "DC_CHARGE_WINDOW_MISMATCH": "טווחי טעינה שונים",
+    "DC_CHARGE_WINDOW_MISSING": "חלון הטעינה (מ־% עד %) לא פורסם",
     "PRICE_MARKET_MISMATCH": "שוק או מטבע שונים",
 }
 

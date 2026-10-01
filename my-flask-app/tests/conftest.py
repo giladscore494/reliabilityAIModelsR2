@@ -10,6 +10,13 @@ if str(ROOT_DIR) not in sys.path:
 from main import create_app, db, User
 
 
+@pytest.fixture(autouse=True)
+def _no_grounding_redirect_network(monkeypatch):
+    """Comparison V2 resolves Google grounding redirects over the network in
+    production; tests never do (they inject a fake resolver when needed)."""
+    monkeypatch.setenv("COMPARISON_GROUNDING_RESOLVE_REDIRECTS", "false")
+
+
 @pytest.fixture
 def app(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "sqlite:///:memory:")

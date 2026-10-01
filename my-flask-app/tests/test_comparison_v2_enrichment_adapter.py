@@ -78,16 +78,24 @@ class FakeClient:
 # --------------------------------------------------------------------------
 # request contract (SDK 2.x)
 # --------------------------------------------------------------------------
-def test_provider_config_one_attempt_provider_timeout_low_thinking():
-    provider = GeminiOfficialEnrichmentProvider(client=None, model_id="gemini-3.8-flash", timeout_sec=125)
-    cfg = provider._config()
+def test_provider_config_one_attempt_provider_timeout_low_thinking(monkeypatch):
+    for name in ("COMPARISON_ENRICHMENT_MAX_OUTPUT_TOKENS", "COMPARISON_ENRICHMENT_THINKING_LEVEL",
+                 "COMPARISON_ENRICHMENT_TEMPERATURE", "COMPARISON_ENRICHMENT_URL_CONTEXT"):
+        monkeypatch.delenv(name, raising=False)
+    provider = GeminiOfficialEnrichmentProvider(client=None, model_id="gemini-3.1-pro-preview", timeout_sec=125)
+    cfg = provider._config(("technical",), "ev")
     assert cfg.http_options.timeout == 125_000  # milliseconds, enforced by the SDK's HTTP client
     assert cfg.http_options.retry_options.attempts == 1  # no SDK retry
     assert cfg.thinking_config.thinking_level == genai_types.ThinkingLevel.LOW
-    assert cfg.tools[0].google_search is not None
+    assert cfg.tools[0].google_search is not None  # Google Search grounding stays enabled
+    assert cfg.tools[1].url_context is not None  # seed URLs / PDFs can actually be opened
     assert cfg.response_mime_type == "application/json"
-    assert cfg.response_json_schema == ENRICHMENT_RESPONSE_SCHEMA
-    assert cfg.temperature == 0.0
+    fields = set(cfg.response_json_schema["properties"]["claims"]["items"]["properties"]["field"]["enum"])
+    assert "battery_capacity_kwh" in fields and "official_price_ils" not in fields  # task-scoped schema
+    assert not fields & {"horsepower", "engine_cc", "seats", "doors"}  # no wasted cross-check searches
+    assert cfg.max_output_tokens == 32768  # explicit ceiling (thinking counts toward it)
+    assert cfg.automatic_function_calling.disable is True  # SDK AFC loop is irrelevant to Google Search
+    assert cfg.temperature is None  # Gemini 3 default (low temperature can loop)
 
 
 def test_default_timeout_is_live_window(monkeypatch):
@@ -140,8 +148,9 @@ def test_valid_live_shaped_response_yields_accepted_fact():
     outcome, meta = enrich_many(repo, [snap(BMW_I4)])[0]
     assert outcome["status"] == "enriched"
     assert outcome["facts"]["torque_nm"]["value"] == 400
-    assert meta["grounded_source_count"] == 1 and meta["parse_source"] == "native_parsed"
-    assert len(client.models.calls) == 1
+    assert outcome["facts"]["torque_nm"]["grounding_tier"] == "site"  # www.bmw.co.il cited, Search names bmw.co.il
+    assert meta["grounded_source_count"] == 2 and meta["parse_source"] == ["native_parsed", "native_parsed"]
+    assert len(client.models.calls) == 2  # technical + commercial task
 
 
 # --------------------------------------------------------------------------
@@ -164,7 +173,7 @@ def test_invalid_json_diagnostics_are_useful_and_safe(caplog):
     assert diag["native_parsed_present"] is False
     assert leaked not in json.dumps(diag) and "[REDACTED]" in diag["text_head"]
     logged = " ".join(r.getMessage() for r in caplog.records)
-    assert "vehicle_enrichment_invalid_json" in logged
+    assert "vehicle_enrichment_unusable_response" in logged and "error=INVALID_JSON" in logged
     assert leaked not in logged
     assert "ROLE: You extract" not in logged  # never the prompt
 
@@ -173,7 +182,7 @@ def test_invalid_json_makes_no_second_model_call():
     client = FakeClient(lambda prompt: sdk_response(["not json at all"]))
     repo = LiveOfficialEnrichmentRepository(GeminiOfficialEnrichmentProvider(client, "gemini-3.8-flash", 125), InProcessEnrichmentCache())
     results = enrich_many(repo, [snap(AUDI_Q3), snap(BMW_I4)])
-    assert len(client.models.calls) == 2  # exactly one per car, no repair call
+    assert len(client.models.calls) == 4  # exactly one per task (2 per car), no repair call
     for outcome, _ in results:
         assert outcome["status"] == "failed" and outcome["error_code"] == "INVALID_JSON"
         assert "text_head" not in outcome["provider_diagnostics"]  # fragments stay in logs
@@ -228,7 +237,7 @@ def test_each_car_gets_its_own_full_window_when_started_later():
     provider = SleepyProvider({AUDI_Q3: 0.45, BMW_I4: 0.45}, timeout_sec=0.6)
     out = enrich_many(_repo(provider), [snap(AUDI_Q3), snap(BMW_I4)], max_workers=1, timeout_sec=0.6, poll_interval=0.02)
     assert [o["status"] for o, _ in out] == ["enriched", "enriched"]
-    assert len(provider.calls) == 2
+    assert len(provider.calls) == 4  # 2 tasks per car, strictly sequential, none timed out
 
 
 def test_slow_second_car_not_prematurely_timed_out():
@@ -253,9 +262,10 @@ def test_max_one_enrichment_call_per_car_three_cars():
     from comparison_v2_fakes import HYUNDAI_TUCSON
 
     enrich_many(repo, [snap(AUDI_Q3), snap(BMW_I4), snap(HYUNDAI_TUCSON)])
-    assert len(client.models.calls) == 3
+    assert len(client.models.calls) == 6  # one technical + one commercial task per car
     prompts = [c["contents"] for c in client.models.calls]
-    assert sum("Q3" in p for p in prompts) == 1 and sum("I4 EDRIVE35" in p for p in prompts) == 1
+    assert sum("Q3" in p for p in prompts) == 2 and sum("I4 EDRIVE35" in p for p in prompts) == 2
+    assert all(("Q3" in p) + ("I4 EDRIVE35" in p) + ("TUCSON" in p) == 1 for p in prompts)  # one vehicle per prompt
 
 
 @pytest.mark.parametrize("host", ["bmw.co.il.evil.com", "car-review.example"])

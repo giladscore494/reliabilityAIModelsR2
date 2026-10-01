@@ -9,9 +9,13 @@ from typing import Set
 DEFAULT_COMPARISON_MODEL_ID = "gemini-3.1-pro-preview"
 DEFAULT_COMPARISON_FALLBACK_MODEL_ID = "gemini-3.5-flash"
 DEFAULT_COMPARISON_LOW_COST_MODEL_ID = "gemini-3.5-flash"
-# Comparison V2: one grounded official-source extraction per car and one
-# ungrounded summary after the JEV decision.
+# Comparison V2 summary: one ungrounded summary after the JEV decision.
 DEFAULT_COMPARISON_V2_MODEL_ID = "gemini-3.8-flash"
+DEFAULT_COMPARISON_V2_SUMMARY_MODEL_ID = DEFAULT_COMPARISON_V2_MODEL_ID
+# Comparison V2 official Level 2 enrichment (grounded research/extraction):
+# the higher-quality Pro model. Independent of the legacy Stage A/B models
+# even though the id currently coincides with DEFAULT_COMPARISON_MODEL_ID.
+DEFAULT_COMPARISON_V2_ENRICHMENT_MODEL_ID = "gemini-3.1-pro-preview"
 
 # Static allow-list based on Gemini API model ids that support generateContent
 # for the comparison service's current text/JSON/search-grounding usage. Keep
@@ -23,6 +27,7 @@ SDK_SUPPORTED_COMPARISON_MODEL_IDS: Set[str] = {
     "gemini-3.1-flash-lite",
     "gemini-3.1-pro-preview",
     DEFAULT_COMPARISON_V2_MODEL_ID,
+    DEFAULT_COMPARISON_V2_ENRICHMENT_MODEL_ID,
 }
 
 COMPARISON_MODEL_ENV_VARS = (
@@ -100,12 +105,12 @@ def comparison_low_cost_model_id() -> str:
 def comparison_enrichment_model_id() -> str:
     """V2 per-car official enrichment model (grounded). Independent of the
     legacy COMPARISON_STAGE_A_MODEL, which keeps its meaning for the legacy path."""
-    return _configured_model("COMPARISON_ENRICHMENT_MODEL", DEFAULT_COMPARISON_V2_MODEL_ID)
+    return _configured_model("COMPARISON_ENRICHMENT_MODEL", DEFAULT_COMPARISON_V2_ENRICHMENT_MODEL_ID)
 
 
 def comparison_summary_model_id() -> str:
     """V2 final summary model (ungrounded, after JEV)."""
-    return _configured_model("COMPARISON_SUMMARY_MODEL", DEFAULT_COMPARISON_V2_MODEL_ID)
+    return _configured_model("COMPARISON_SUMMARY_MODEL", DEFAULT_COMPARISON_V2_SUMMARY_MODEL_ID)
 
 
 def comparison_v2_enabled() -> bool:

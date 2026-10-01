@@ -21,7 +21,11 @@ ENGINE_VERSION = "comparison-v2/2"
 # own result contract; new comparisons never use it.
 ENGINE_VERSION_V21 = "comparison-v2/1"
 READABLE_ENGINE_VERSIONS = (ENGINE_VERSION_V21, ENGINE_VERSION)
-ENRICHMENT_CONTRACT_VERSION = "official-enrichment/1"
+# /2: per-car work split into technical / commercial tasks, cross-check
+# fields no longer requested, ``group_freshness`` (meaningful-observation
+# freshness) in the cached payload. Part of every cache key: /1 rows — which
+# could hold empty results marked fresh — are never read again.
+ENRICHMENT_CONTRACT_VERSION = "official-enrichment/2"
 SNAPSHOT_CONTRACT_VERSION = "canonical-vehicle-snapshot/1"
 
 SLOT_KEYS = ("car_1", "car_2", "car_3")

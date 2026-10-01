@@ -265,8 +265,35 @@ def classify_host(manufacturer: str, host: Optional[str]) -> Optional[Dict[str, 
     return best
 
 
+def registry_site(manufacturer: str, host: Optional[str]) -> Optional[str]:
+    """The official *site* an allowed host belongs to, else None.
+
+    The site is the broadest ``subdomains=True`` registry entry covering the
+    host (``uploads.audi-mediacenter.com`` and ``audi-mediacenter.com`` are one
+    site); a host covered only by exact entries is its own site
+    (``bmw.scene7.com``). Used to correlate a cited URL with grounding
+    evidence: Google Search grounding usually names the site, not the exact
+    subdomain the model cites.
+    """
+    entry = OFFICIAL_SOURCE_REGISTRY.get((manufacturer or "").strip())
+    host = normalize_hostname(host) if host else None
+    if not entry or not host:
+        return None
+    roots: List[str] = []
+    exact: List[str] = []
+    for key in ("israel", "manufacturer"):
+        for host_entry in entry[key]:
+            if _entry_matches(host, host_entry):
+                (roots if host_entry["subdomains"] else exact).append(host_entry["host"])
+    if roots:
+        return min(roots, key=len)
+    if exact:
+        return max(exact, key=len)
+    return None
+
+
 def check_official_url(manufacturer: str, url: Any) -> Dict[str, Any]:
-    """Full verdict for one URL: {allowed, reason, host, market, source_type, registry_host}."""
+    """Full verdict for one URL: {allowed, reason, host, site, market, source_type, registry_host}."""
     if (manufacturer or "").strip() not in OFFICIAL_SOURCE_REGISTRY:
         return {"allowed": False, "reason": REASON_MANUFACTURER_UNKNOWN, "host": None}
     host, err = _parse_url_host(url)
@@ -275,7 +302,7 @@ def check_official_url(manufacturer: str, url: Any) -> Dict[str, Any]:
     info = classify_host(manufacturer, host)
     if not info:
         return {"allowed": False, "reason": REASON_DOMAIN_NOT_ALLOWED, "host": host}
-    return {"allowed": True, "reason": None, "host": host, **info}
+    return {"allowed": True, "reason": None, "host": host, "site": registry_site(manufacturer, host), **info}
 
 
 def is_allowed_official_url(manufacturer: str, url: Any) -> bool:

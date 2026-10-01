@@ -35,17 +35,18 @@ These must be present (app will hard-fail on Render without `SECRET_KEY`/`DATABA
 
 ### Comparison V2 (feature-flagged; see `docs/COMPARISON_V2.md`)
 - `COMPARISON_V2_ENABLED` (default `false`; `true` switches `/compare` and `POST /api/compare` to V2; set back to `false` to roll back)
-- `COMPARISON_ENRICHMENT_MODEL` (default `gemini-3.8-flash`; one grounded official-source extraction per car)
+- `COMPARISON_ENRICHMENT_MODEL` (default `gemini-3.1-pro-preview`; grounded official-source extraction, technical + commercial task per car). If this variable is set in the Render dashboard it overrides the default — remove it (or set it to `gemini-3.1-pro-preview`).
 - `COMPARISON_SUMMARY_MODEL` (default `gemini-3.8-flash`; one ungrounded summary after the JEV decision)
 - `TYPESAFE_API_KEY` (secret; server-side only)
 - `JEV_MODEL` (no default — set it to an id/alias printed by `python -m scripts.jev_models`; an id that `GET /v1/models` does not list is never used)
 - `TYPESAFE_BASE_URL` (optional, default `https://api.typesafe.ai`)
 - `COMPARISON_V2_OFFLINE_MODE` (optional, default `false`; `true` = Level 1.5 only, zero remote calls)
-- `COMPARISON_ENRICHMENT_TIMEOUT_SEC` (optional, default `125`; provider-level HTTP timeout per car, each car gets its own window), `JEV_TIMEOUT_SEC` (optional, default `30`), `COMPARISON_SUMMARY_TIMEOUT_SEC` (optional, default `25`)
-- `COMPARISON_ENRICHMENT_CONCURRENCY` (optional, default `3`), `COMPARISON_V2_RESULT_TTL_HOURS` (optional, default `24`)
+- `COMPARISON_ENRICHMENT_TIMEOUT_SEC` (optional, default `125`; provider-level HTTP timeout per enrichment task, each task gets its own window), `JEV_TIMEOUT_SEC` (optional, default `30`), `COMPARISON_SUMMARY_TIMEOUT_SEC` (optional, default `25`)
+- `COMPARISON_ENRICHMENT_CONCURRENCY` (optional, default `0` = all tasks concurrent; do not set it below 6 for 3 cars), `COMPARISON_V2_RESULT_TTL_HOURS` (optional, default `24`)
+- Optional enrichment knobs: `COMPARISON_ENRICHMENT_THINKING_LEVEL` (`LOW`), `COMPARISON_ENRICHMENT_MAX_OUTPUT_TOKENS` (`32768`), `COMPARISON_ENRICHMENT_URL_CONTEXT` (`true`), `COMPARISON_ENRICHMENT_SPLIT` (`true`), `COMPARISON_ENRICHMENT_TEMPERATURE` (unset = model default), `COMPARISON_GROUNDING_RESOLVE_REDIRECTS` (`true`), `COMPARISON_GROUNDING_MIN_TIER` (`site`), `COMPARISON_V2_SERVER_TIMEOUT_SEC` (auto-detected from gunicorn `--timeout`)
 - Uses the existing `GEMINI_API_KEY`. Migration `cc01_vehicle_enrichment_cache` runs via the existing `preDeployCommand`.
-- gunicorn `--timeout 240` (render.yaml / Procfile): worst case is enrichment 125s + 5s grace, JEV ≤45s, summary ≤25s. If the Render service overrides the start command in the dashboard, update it there too.
-- Live check of one car (one paid call, safe output): `python -m scripts.enrichment_diagnostic audi` / `bmw`.
+- gunicorn `--timeout 240` (render.yaml / Procfile). Production was observed running `--timeout 180`, i.e. the dashboard start command overrides render.yaml: update it there. The pipeline reads the effective timeout and caps enrichment/JEV/summary to it (worst case at 180: enrichment 135s, then JEV and summary shrink to the ~33s left), so the worker is never killed after a successful enrichment — but 240 leaves the full JEV/summary windows.
+- Live check of one car (two paid calls, safe output): `python -m scripts.enrichment_diagnostic audi` / `bmw` / `tucson technical`.
 
 ## 3) Google OAuth redirect URI (IMPORTANT)
 In Google Cloud Console > APIs & Services > Credentials > OAuth 2.0 Client ID:

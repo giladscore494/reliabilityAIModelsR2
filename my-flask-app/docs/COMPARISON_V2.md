@@ -209,8 +209,22 @@ confidence; JEV confidences are never averaged.
 
 * Only https URLs whose host equals an allowed host, or is a subdomain of an
   allowed host marked `subdomains=True` (`bmw.co.il.evil.com` is rejected).
-* The cited host must also appear in the Google Search grounding metadata of
-  that call (`SOURCE_NOT_GROUNDED` otherwise).
+* The cited URL must also be corroborated by evidence Google itself produced
+  for that call (`grounding.GroundingIndex`; `SOURCE_NOT_GROUNDED` otherwise),
+  never by anything the model wrote. Evidence: grounding-chunk redirect
+  targets (one header-only request to Google's redirect endpoint; the page is
+  never fetched), URLs the URL-context tool retrieved successfully, and chunk
+  titles that are bare hostnames. The Gemini Developer API never fills
+  `web.domain`. Correlation tiers, recorded on every fact as
+  `grounding_tier`: `url` (exact retrieved URL) > `host` > `site` (same
+  official site, e.g. `uploads.audi-mediacenter.com` cited while Search names
+  `audi-mediacenter.com`). `COMPARISON_GROUNDING_MIN_TIER` can tighten this.
+  Citation metadata is not search evidence.
+* Identity: trim-dependent fields need the full variant match. Values fixed
+  by the powertrain (torque, 0-100, top speed, battery, charging, gearbox,
+  fuel tank) may match at powertrain level when the page does not name the
+  Israeli trim (`identity_match="powertrain"`); a stated contradicting trim is
+  still a mismatch.
 * Market (IL / GLOBAL) comes from the registry, never from the model.
   Price, registration fee and warranty require an Israeli official host.
 * `seed_urls` are prompt starting points only; they never make a claim valid.
@@ -225,17 +239,33 @@ reported separately and never becomes an advantage.
 
 | situation | remote calls |
 |---|---|
-| cold, 2 cars | 2 enrichment + 1 JEV (many Score questions) + 1 summary |
+| cold, 2 cars | 4 enrichment (technical + commercial task per car, all concurrent) + 1 JEV (many Score questions) + 1 summary |
 | Level 2 cache hit | 1 JEV + 1 summary |
-| whole comparison cached (24h, same cars + same NORMALIZED buyer profile + versions) | 0 |
+| whole comparison cached (same cars + same NORMALIZED buyer profile + versions; only when every car's Level 2 is healthy; until the earliest group freshness, max 24h) | 0 |
 | a car fails a hard requirement and only one car remains eligible | 0 JEV (nothing left to weigh) |
 | `COMPARISON_V2_OFFLINE_MODE=true` | 0 |
 
-Enrichment provider timeout 125s per car (own window each). TTL per field group: technical 30 days, price 24 hours, warranty 7 days. A
-stale group triggers one call for that group only. `GET /v1/models` is
+Enrichment provider timeout 125s per task (own window each, +10s grace),
+capped by the request deadline derived from the server timeout. Freshness is a
+*meaningful observation* per group (`group_freshness`), never "the model
+returned JSON":
+
+| state | meaning | fresh for (technical / price / warranty) |
+|---|---|---|
+| `complete` | >= half the requested fields validated | 30 d / 24 h / 7 d |
+| `partial` | some fields validated | 3 d / 24 h / 2 d (values kept on re-search) |
+| `empty` | grounded search, nothing reported | 3 d / 12 h / 2 d |
+| `rejected` | claims returned, all rejected | 12 h / 6 h / 12 h |
+| `grounding_unverifiable`, `ungrounded`, `failed` | no meaningful observation | never cached |
+
+Timeouts, provider errors, `INVALID_JSON` and any finish reason other than
+`STOP` (e.g. `MAX_TOKENS`) are `failed`. Only stale groups are searched again.
+Cache keys include the enrichment model, contract, registry and
+`FIELD_VALIDATOR_VERSION`, so changing any of them invalidates old rows. `GET /v1/models` is
 called to verify `JEV_MODEL` and cached in-process for 6 hours.
 
-No retries: one enrichment attempt per car, one JEV attempt, one summary
+No retries: one enrichment attempt per task (the only exception: an HTTP 400
+rejecting the URL-context tool is retried once with Google Search only), one JEV attempt, one summary
 attempt. Enrichment failure -> Level 1.5 only. JEV failure (when questions were asked) ->
 `decision_unavailable` and deterministic facts; one malformed answer only
 drops that question (`judgment_unavailable`). Summary failure/rejection ->
@@ -243,21 +273,38 @@ deterministic Hebrew template.
 
 ## Gemini enrichment adapter (google-genai 2.25.0)
 
-* One `models.generate_content` call per car with `GenerateContentConfig(tools=[google_search],
-  response_mime_type="application/json", response_json_schema=..., temperature=0,
-  thinking_config=ThinkingConfig(thinking_level=LOW),
+* Model `COMPARISON_ENRICHMENT_MODEL` (default `gemini-3.1-pro-preview`; the summary keeps its own
+  `COMPARISON_SUMMARY_MODEL`). Endpoint: Gemini Developer API `POST /v1beta/models/{model}:generateContent`.
+* One `models.generate_content` call per task (technical / commercial) with `GenerateContentConfig(
+  tools=[google_search, url_context], response_mime_type="application/json",
+  response_json_schema=<task-scoped field enum>, max_output_tokens=32768,
+  thinking_config=ThinkingConfig(thinking_level=LOW), automatic_function_calling=disable,
   http_options=HttpOptions(timeout=COMPARISON_ENRICHMENT_TIMEOUT_SEC*1000, retry_options=HttpRetryOptions(attempts=1)))`.
+  Temperature is the model default (Gemini 3 guidance); `COMPARISON_ENRICHMENT_TEMPERATURE`,
+  `COMPARISON_ENRICHMENT_THINKING_LEVEL`, `COMPARISON_ENRICHMENT_MAX_OUTPUT_TOKENS`,
+  `COMPARISON_ENRICHMENT_URL_CONTEXT`, `COMPARISON_ENRICHMENT_SPLIT` override.
+* The SDK's "AFC is enabled with max remote calls: 10" line refers to automatic *Python* function
+  calling; it never limited Google Search. AFC is now disabled explicitly.
+* Government cross-check fields (horsepower, engine_cc, seats, doors) are no longer requested.
 * Output: `response.parsed` (the SDK's `json.loads` of the text for a dict schema) first; otherwise a
   strict parse of the text (raw, fenced, outermost `{...}`, or the last text part that is a complete
   object). Never a second "repair" call.
-* `INVALID_JSON` logs `vehicle_enrichment_invalid_json` with model, finish reason, candidate count, text
+* `INVALID_JSON` / `FINISH_*` / `PROMPT_BLOCKED:*` log `vehicle_enrichment_unusable_response` with model, finish reason, usage, candidate count, text
   length, native-parsed presence, sanitized head/tail fragments, grounding metadata presence, chunk and
   query counts, parser reason. The API response carries the same metadata without text fragments.
-* Grounding sources: `candidates[].grounding_metadata.grounding_chunks[].web.{uri,title,domain}` (uri is
-  usually the vertexaisearch redirect, title/domain the site) plus citation URIs. The registry +
-  grounding cross-check in `field_validator` remains the enforcement boundary.
-* `enrich_many`: every car has its own window (provider timeout + 5s grace) measured from the moment its
-  call starts; a call past its window is reported `CALL_TIMEOUT` and abandoned (never awaited).
+* Grounding evidence: see "Source enforcement" (`grounding.py`).
+* `enrich_many`: every task has its own window (provider timeout + 10s grace) measured from the moment it
+  starts, capped by the request deadline; a call past its window is reported `CALL_TIMEOUT` /
+  `DEADLINE_EXCEEDED` and abandoned (never awaited). The streaming route sends blank keep-alive lines
+  while enrichment runs.
+* Per car, `vehicle_enrichment_completed` logs: requested groups/field count, model, duration, status,
+  finish reasons, token usage, grounding presence, search query / chunk / URL-context counts, grounded
+  official hosts, accepted / rejected / model-generic / conflict / missing counts, rejection-reason
+  histogram, group states, cache-write decision and groups marked fresh. Never prompts, model text or keys.
+* Wall-clock: the request budget is the Gunicorn `--timeout` (read from the command line /
+  `GUNICORN_CMD_ARGS`, or `COMPARISON_V2_SERVER_TIMEOUT_SEC`) minus 12s; enrichment must leave 30s for
+  JEV + summary, and both are capped by (or skipped for) what remains, so a finished enrichment is never
+  killed by the worker timeout.
 
 ## Category cards (deterministic, no LLM)
 

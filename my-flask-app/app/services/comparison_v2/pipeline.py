@@ -19,6 +19,8 @@ import hashlib
 import json
 import logging
 import os
+import shlex
+import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -64,7 +66,15 @@ from app.services.comparison_v2.hard_constraints import HardConstraintEvaluator
 from app.services.comparison_v2.jev_client import TypeSafeJevClient, run_system_one
 from app.services.comparison_v2.judgments import KIND_FIT, KIND_MATERIALITY, JevJudgmentRegistry
 from app.services.comparison_v2.level15 import build_level15_snapshot
-from app.services.comparison_v2.official_enrichment import LiveOfficialEnrichmentRepository, enrich_many
+from app.services.comparison_v2.field_validator import FIELD_VALIDATOR_VERSION
+from app.services.comparison_v2.official_enrichment import (
+    HEALTHY_STATES,
+    LiveOfficialEnrichmentRepository,
+    WRAPPER_GRACE_SEC,
+    enrich_many_iter,
+    enrichment_report,
+    enrichment_timeout_sec,
+)
 from app.services.comparison_v2.source_registry import SOURCE_REGISTRY_VERSION
 from app.services.comparison_v2.summary_writer import GeminiSummaryWriter, build_summary_payload, produce_summary
 
@@ -85,7 +95,8 @@ class PipelineDeps:
     jev_client: Optional[TypeSafeJevClient]
     summary_writer: Optional[GeminiSummaryWriter]
     history: Optional[Any] = None  # ComparisonV2HistoryStore-like
-    enrichment_concurrency: int = 3
+    # 0 = every enrichment task of every car runs concurrently (<= 2 per car).
+    enrichment_concurrency: int = 0
     provider_meta: Dict[str, Any] = field(default_factory=dict)
     jev_unavailable_reason: Optional[str] = None
 
@@ -100,6 +111,83 @@ def _progress(stage: str, **extra: Any) -> Dict[str, Any]:
 
 def _error(status: int, code: str, message: str) -> Dict[str, Any]:
     return {"type": "error", "status": status, "code": code, "message": message}
+
+
+# ---------------------------------------------------------------------------
+# wall-clock budget
+# ---------------------------------------------------------------------------
+# Seconds kept free below the server's hard request timeout (response
+# serialization, history write, network).
+SERVER_TIMEOUT_SAFETY_SEC = 12
+# Seconds reserved after enrichment for JEV + summary (each is also capped by
+# what actually remains, and skipped below its minimum).
+POST_ENRICHMENT_RESERVE_SEC = 30
+JEV_MIN_SEC = 5
+SUMMARY_MIN_SEC = 5
+SUMMARY_RESERVE_SEC = 8
+
+
+def _gunicorn_timeout_from_args(args: List[str]) -> Optional[int]:
+    for i, arg in enumerate(args):
+        value = None
+        if arg in ("--timeout", "-t") and i + 1 < len(args):
+            value = args[i + 1]
+        elif arg.startswith("--timeout="):
+            value = arg.split("=", 1)[1]
+        if value is not None:
+            try:
+                return int(value)
+            except ValueError:
+                return None
+    return None
+
+
+def server_timeout_sec() -> Optional[int]:
+    """The hard per-request timeout of the serving process, when knowable.
+
+    ``COMPARISON_V2_SERVER_TIMEOUT_SEC`` wins; otherwise Gunicorn's
+    ``--timeout`` from ``GUNICORN_CMD_ARGS`` or the command line (a sync
+    worker is killed after it, streaming or not). None in tests/dev.
+    """
+    raw = os.environ.get("COMPARISON_V2_SERVER_TIMEOUT_SEC")
+    if raw:
+        try:
+            return int(raw) if int(raw) > 0 else None
+        except ValueError:
+            return None
+    from_env = _gunicorn_timeout_from_args(shlex.split(os.environ.get("GUNICORN_CMD_ARGS") or ""))
+    if from_env:
+        return from_env
+    if "gunicorn" in os.path.basename(sys.argv[0] or ""):
+        return _gunicorn_timeout_from_args(list(sys.argv[1:])) or 30  # gunicorn's own default
+    return None
+
+
+def request_budget_sec() -> Optional[float]:
+    timeout = server_timeout_sec()
+    return float(timeout - SERVER_TIMEOUT_SAFETY_SEC) if timeout else None
+
+
+def _remaining(deadline: Optional[float]) -> Optional[float]:
+    return None if deadline is None else deadline - time.monotonic()
+
+
+class _bounded_timeout:
+    """Temporarily cap ``obj.timeout_sec`` (restored afterwards)."""
+
+    def __init__(self, obj: Any, seconds: Optional[float]):
+        self.obj, self.seconds, self.saved = obj, seconds, None
+
+    def __enter__(self):
+        if self.obj is not None and self.seconds is not None and hasattr(self.obj, "timeout_sec"):
+            self.saved = self.obj.timeout_sec
+            self.obj.timeout_sec = type(self.saved)(max(1, min(float(self.saved), self.seconds))) if self.saved else self.seconds
+        return self
+
+    def __exit__(self, *exc):
+        if self.saved is not None:
+            self.obj.timeout_sec = self.saved
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +248,7 @@ def compute_request_hash(keys: List[str], buyer_profile: Optional[Dict[str, Any]
         "buyer": buyer_profile or {},  # the complete NORMALIZED buyer-profile/2
         "registry": SOURCE_REGISTRY_VERSION,
         "contract": ENRICHMENT_CONTRACT_VERSION,
+        "validator": FIELD_VALIDATOR_VERSION,
         "models": {k: provider_meta.get(k) for k in ("enrichment_model", "summary_model", "jev_model")},
     }
     return hashlib.sha256(json.dumps(material, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
@@ -195,6 +284,8 @@ def _response_snapshot(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         "official_enrichment": {
             "level": official.get("level"),
             "status": official.get("status"),
+            "level2_health": official.get("level2_health"),
+            "group_states": {g: (r or {}).get("state") for g, r in (official.get("group_freshness") or {}).items()},
             "facts": official.get("facts") or {},
             "conflicts": official.get("conflicts") or [],
             "missing": official.get("missing") or [],
@@ -211,6 +302,9 @@ def _diagnostics(snapshot: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "enrichment_status": official.get("status"),
+        "level2_health": official.get("level2_health"),
+        "group_freshness": official.get("group_freshness") or {},
+        "enrichment_tasks": official.get("tasks") or [],
         "error_code": official.get("error_code"),
         "provider_diagnostics": official.get("provider_diagnostics"),
         "refreshed_groups": official.get("refreshed_groups"),
@@ -222,6 +316,8 @@ def _diagnostics(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         "government_conflicts": slim(official.get("government_conflicts"), ("field", "level15_value", "normalized_value", "source_url")),
         "extra_official_equipment": official.get("extra_official_equipment") or [],
         "ignored_grounding_hosts": official.get("ignored_grounding_hosts") or [],
+        "grounded_official_hosts": official.get("grounded_official_hosts") or [],
+        "range_standard_conflicts": official.get("range_standard_conflicts") or [],
     }
 
 
@@ -317,8 +413,10 @@ def run_comparison_v2(
             yield {"type": "result", "status": 200, "data": response}
             return
 
-    # --- official enrichment (one remote call per car at most) -----------
+    # --- official enrichment (<= 2 bounded remote tasks per car) ----------
     t0 = time.perf_counter()
+    budget = request_budget_sec()
+    deadline = (time.monotonic() - (time.perf_counter() - started) + budget) if budget else None
     snapshot_list = [snapshots[s] for s in slots]
     remote_calls = 0
     if isinstance(deps.enrichment, LiveOfficialEnrichmentRepository):
@@ -329,7 +427,22 @@ def run_comparison_v2(
             event = "vehicle_enrichment_started" if groups else "vehicle_enrichment_cache_hit"
             _log(event, request_id=request_id, slot=slot, vehicle=snapshot_list[idx]["vehicle_id"][:12], groups=list(groups),
                  model=deps.enrichment.provider.model_id)
-        outcomes = enrich_many(deps.enrichment, snapshot_list, max_workers=deps.enrichment_concurrency)
+        enrichment_deadline = None
+        if deadline is not None:
+            enrichment_deadline = deadline - POST_ENRICHMENT_RESERVE_SEC
+            window = float(getattr(deps.enrichment.provider, "timeout_sec", None) or enrichment_timeout_sec()) + WRAPPER_GRACE_SEC
+            if enrichment_deadline - time.monotonic() < window:
+                _log("comparison_v2_enrichment_window_capped", request_id=request_id, budget_sec=budget,
+                     available_sec=round(enrichment_deadline - time.monotonic(), 1), window_sec=window)
+        gen = enrich_many_iter(deps.enrichment, snapshot_list, max_workers=deps.enrichment_concurrency or None,
+                               deadline=enrichment_deadline)
+        while True:
+            try:
+                next(gen)
+            except StopIteration as stop:
+                outcomes = stop.value
+                break
+            yield {"type": "heartbeat"}
     else:
         outcomes = []
         for slot, snap in zip(slots, snapshot_list):
@@ -337,26 +450,10 @@ def run_comparison_v2(
             outcomes.append((deps.enrichment.get_or_enrich(snap), {"remote_call": None}))
     yield _progress("validating_sources")
     for slot, (outcome, meta) in zip(slots, outcomes):
-        if meta.get("remote_call"):
-            remote_calls += 1
+        remote_calls += int(meta.get("remote_calls") or (1 if meta.get("remote_call") else 0))
         snapshots[slot]["official_enrichment"] = outcome
-        facts = outcome.get("facts") or {}
-        _log(
-            "vehicle_enrichment_completed",
-            request_id=request_id,
-            slot=slot,
-            status=outcome.get("status"),
-            remote_call=meta.get("remote_call"),
-            accepted=len(facts),
-            rejected=len(outcome.get("rejected_claims") or []),
-            conflicts=len(outcome.get("conflicts") or []),
-            grounded_sources=meta.get("grounded_source_count"),
-            grounding=meta.get("grounding"),
-            parse_source=meta.get("parse_source"),
-            model_generic=len(outcome.get("model_generic_claims") or []),
-            duration_ms=meta.get("duration_ms"),
-            error=outcome.get("error_code"),
-        )
+        _log("vehicle_enrichment_completed", request_id=request_id, slot=slot,
+             **enrichment_report(snapshots[slot], outcome, meta))
     timings["enrichment_ms"] = int((time.perf_counter() - t0) * 1000)
 
     # --- deterministic comparison ---------------------------------------
@@ -378,9 +475,16 @@ def run_comparison_v2(
     plan = JevJudgmentRegistry().build(profile, snapshots, pairwise, constraints, weights)
     questions = {qid: spec.to_question() for qid, spec in plan.specs.items()}
     jev_calls_before = deps.jev_client.calls if deps.jev_client is not None else 0
-    jev_run = run_system_one(deps.jev_client, plan.request_body, questions)
-    if jev_run["status"] == "failed" and deps.jev_client is None:
-        jev_run["reason"] = deps.jev_unavailable_reason or jev_run["reason"]
+    remaining = _remaining(deadline)
+    jev_cap = None if remaining is None else remaining - SUMMARY_RESERVE_SEC - 2
+    if jev_cap is not None and jev_cap < JEV_MIN_SEC and deps.jev_client is not None:
+        jev_run = run_system_one(None, plan.request_body, questions)
+        jev_run["reason"] = "deadline_exceeded"
+    else:
+        with _bounded_timeout(deps.jev_client, jev_cap):
+            jev_run = run_system_one(deps.jev_client, plan.request_body, questions)
+        if jev_run["status"] == "failed" and deps.jev_client is None:
+            jev_run["reason"] = deps.jev_unavailable_reason or jev_run["reason"]
     timings["jev_ms"] = int((time.perf_counter() - t0) * 1000)
     _log("jev_completed" if jev_run["status"] != "failed" else "jev_failed", request_id=request_id,
          status=jev_run["status"], reason=jev_run.get("reason"), questions=len(questions),
@@ -404,7 +508,14 @@ def run_comparison_v2(
     cars = {slot: _car_card(snapshots[slot]) for slot in slots}
     summary_calls_before = deps.summary_writer.calls if deps.summary_writer is not None else 0
     summary_payload = build_summary_payload(cars, recommendation, recommendation["reasons_he"], cards, notes, profile_summary, limitations)
-    summary = produce_summary(deps.summary_writer, cars, summary_payload)
+    remaining = _remaining(deadline)
+    summary_cap = None if remaining is None else remaining - 2
+    if summary_cap is not None and summary_cap < SUMMARY_MIN_SEC and deps.summary_writer is not None:
+        summary = produce_summary(None, cars, summary_payload)
+        summary["reason"] = "deadline_exceeded"
+    else:
+        with _bounded_timeout(deps.summary_writer, summary_cap):
+            summary = produce_summary(deps.summary_writer, cars, summary_payload)
     _log("summary_completed" if summary["source"] == "gemini" else "summary_failed", request_id=request_id,
          source=summary["source"], reason=summary.get("reason"), duration_ms=summary.get("duration_ms"))
 
@@ -459,13 +570,12 @@ def run_comparison_v2(
     total_ms = int((time.perf_counter() - started) * 1000)
     response["timings"]["total_ms"] = total_ms
 
-    cacheable = (
-        composition["outcome"] != DECISION_UNAVAILABLE
-        and all((snapshots[s]["official_enrichment"].get("status") in ("enriched", "refreshed", "cache_hit")) for s in slots)
-    )
+    cacheable, valid_until, cache_reason = comparison_cacheability(composition, [snapshots[s]["official_enrichment"] for s in slots])
+    _log("comparison_v2_result_cache_decision", request_id=request_id, cacheable=cacheable, reason=cache_reason, valid_until=valid_until)
     if deps.history is not None:
         try:
-            response["comparison_id"] = deps.history.save(user_id, session_id, response, request_hash, total_ms, cacheable)
+            response["comparison_id"] = deps.history.save(user_id, session_id, response, request_hash, total_ms, cacheable,
+                                                          valid_until=valid_until)
         except Exception:
             logger.warning("comparison_v2 history_save_failed request_id=%s", request_id, exc_info=True)
 
@@ -475,11 +585,38 @@ def run_comparison_v2(
     yield {"type": "result", "status": 200, "data": response}
 
 
+def comparison_cacheability(composition: Dict[str, Any], enrichments: List[Dict[str, Any]]):
+    """(cacheable, valid_until_iso, reason) for the whole-comparison cache.
+
+    A comparison is frozen only when every car's Level 2 is a meaningful,
+    healthy observation (each freshness group complete / partial / genuinely
+    empty, none failed, ungrounded, unverifiable or all-rejected), and never
+    beyond the earliest group freshness of any car.
+    """
+    if composition.get("outcome") == DECISION_UNAVAILABLE:
+        return False, None, "decision_unavailable"
+    until: Optional[str] = None
+    for official in enrichments:
+        freshness = official.get("group_freshness") or {}
+        if official.get("status") not in ("enriched", "refreshed", "cache_hit"):
+            return False, None, f"enrichment_status:{official.get('status')}"
+        states = [(freshness.get(g) or {}).get("state") for g in ("technical", "price", "warranty")]
+        if any(state not in HEALTHY_STATES for state in states):
+            return False, None, "level2_not_healthy:" + ",".join(str(x) for x in states)
+        car_until = official.get("cache_valid_until")
+        if not car_until:
+            return False, None, "no_freshness"
+        until = car_until if until is None or car_until < until else until
+    return True, until, None
+
+
 def collect_result(events: Iterator[Dict[str, Any]]) -> Dict[str, Any]:
     """Consume a pipeline run; return the final result/error event plus progress."""
     progress: List[str] = []
     final: Dict[str, Any] = {}
     for event in events:
+        if event["type"] == "heartbeat":
+            continue
         if event["type"] == "progress":
             progress.append(event["stage"])
         else:
@@ -512,19 +649,26 @@ class ComparisonV2HistoryStore:
             .limit(5)
             .all()
         )
+        now = self.now().replace(tzinfo=timezone.utc)
         for row in rows:
             computed = _load_json(row.computed_result)
-            if isinstance(computed, dict) and computed.get("engine_version") == ENGINE_VERSION and computed.get("cacheable"):
+            if not (isinstance(computed, dict) and computed.get("engine_version") == ENGINE_VERSION and computed.get("cacheable")):
+                continue
+            valid_until = _parse_iso_utc(computed.get("valid_until"))
+            if valid_until is None or now >= valid_until:
+                continue  # Level 2 freshness of a car expired: recompute
+            if isinstance(computed, dict):
                 return {"response": computed["response"], "cars": _load_json(row.cars_selected), "row_id": row.id}
         return None
 
-    def _write(self, user_id, session_id, cars_list, response, request_hash, duration_ms, cacheable) -> int:
+    def _write(self, user_id, session_id, cars_list, response, request_hash, duration_ms, cacheable, valid_until=None) -> int:
         from app.extensions import db
         from app.models import ComparisonHistory
 
         stored = {
             "engine_version": ENGINE_VERSION,
             "cacheable": bool(cacheable),
+            "valid_until": valid_until if cacheable else None,
             "overall_winner": None,
             "response": {k: v for k, v in response.items() if k not in ("comparison_id", "cached")},
         }
@@ -552,12 +696,24 @@ class ComparisonV2HistoryStore:
             raise
         return record.id
 
-    def save(self, user_id, session_id, response, request_hash, duration_ms, cacheable) -> int:
-        return self._write(user_id, session_id, response.get("cars_selected_list") or [], response, request_hash, duration_ms, cacheable)
+    def save(self, user_id, session_id, response, request_hash, duration_ms, cacheable, valid_until=None) -> int:
+        return self._write(user_id, session_id, response.get("cars_selected_list") or [], response, request_hash, duration_ms,
+                           cacheable, valid_until)
 
     def save_copy(self, user_id, session_id, cached, request_hash) -> int:
         response = cached["response"]
-        return self._write(user_id, session_id, response.get("cars_selected_list") or [], response, request_hash, 0, True)
+        # A copy is history for this user only; it never extends the cache.
+        return self._write(user_id, session_id, response.get("cars_selected_list") or [], response, request_hash, 0, False)
+
+
+def _parse_iso_utc(value: Any) -> Optional[datetime]:
+    if not isinstance(value, str):
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
 def _load_json(value: Any) -> Any:
@@ -602,7 +758,7 @@ def build_default_deps(ai_client: Any = None) -> PipelineDeps:
         jev_client=jev_client,
         summary_writer=writer,
         history=ComparisonV2HistoryStore(),
-        enrichment_concurrency=int(os.environ.get("COMPARISON_ENRICHMENT_CONCURRENCY", "3")),
+        enrichment_concurrency=int(os.environ.get("COMPARISON_ENRICHMENT_CONCURRENCY", "0") or 0),
         provider_meta={
             "enrichment_model": None if offline else comparison_enrichment_model_id(),
             "summary_model": None if offline else comparison_summary_model_id(),

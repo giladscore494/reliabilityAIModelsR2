@@ -2,8 +2,9 @@
 """Deterministic validation + canonical merge of official Level 2 claims.
 
 Order per claim: contract field -> source domain allowlist -> grounding
-corroboration -> Israeli-source requirement -> variant scope -> identity match
--> type/unit normalization -> plausible range -> applicability. Surviving
+corroboration (``grounding.GroundingIndex``: url / host / site tier) ->
+Israeli-source requirement -> variant scope -> identity match -> type/unit
+normalization -> plausible range -> applicability. Surviving
 claims are grouped per field; disagreeing official sources become a conflict
 (excluded from the comparison) unless the field is local and an Israeli
 official source outranks a global one.
@@ -29,12 +30,11 @@ from app.services.comparison_v2.field_registry import (
     normalize_unit_token,
     pattern_ok,
 )
-from app.services.comparison_v2.official_variant_matcher import MATCH_STRONG, OfficialVariantMatcher
+from app.services.comparison_v2.grounding import GroundingIndex
+from app.services.comparison_v2.official_variant_matcher import MATCH_AMBIGUOUS, MATCH_STRONG, OfficialVariantMatcher
 from app.services.comparison_v2.source_registry import (
     MARKET_IL,
     check_official_url,
-    classify_host,
-    normalize_hostname,
 )
 
 logger = logging.getLogger("comparison_v2")
@@ -55,6 +55,15 @@ REJECT_MALFORMED = "CLAIM_MALFORMED"
 MAX_CLAIMS = 80
 MAX_EXTRA_EQUIPMENT = 20
 
+# Bump whenever acceptance semantics change: it is part of every enrichment
+# and whole-comparison cache key, so results produced under older semantics
+# are never served as if validated by the current rules.
+#   /2: grounding correlated by url/host/site tier (redirect targets,
+#       URL-context retrievals, bare-host titles; ``domain`` is never needed);
+#       powertrain-level identity for trim-independent technical fields;
+#       a conflict in a non-selected range standard no longer hides the range.
+FIELD_VALIDATOR_VERSION = "field-validator/2"
+
 
 def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -67,36 +76,9 @@ def _short(value: Any, limit: int = 160) -> Any:
 
 
 def grounded_registry_hosts(manufacturer: str, grounded_sources: Iterable[Dict[str, Any]]) -> Tuple[set, List[str]]:
-    """Registry entries actually retrieved by Google Search, plus ignored hosts.
-
-    Grounding chunks carry a redirect URI plus ``domain``/``title``; we use the
-    domain (or the URI host when it is not the grounding redirect) and keep
-    only hosts that classify into this manufacturer's registry.
-    """
-    official: set = set()
-    ignored: List[str] = []
-    for src in grounded_sources or []:
-        candidates = []
-        for key in ("domain", "host", "title"):
-            val = src.get(key)
-            if isinstance(val, str) and "." in val and " " not in val.strip():
-                candidates.append(val)
-        uri = src.get("uri") or src.get("url")
-        if isinstance(uri, str):
-            verdict = check_official_url(manufacturer, uri)
-            if verdict.get("host") and "vertexaisearch" not in (verdict.get("host") or ""):
-                candidates.append(verdict["host"])
-        matched = False
-        for cand in candidates:
-            info = classify_host(manufacturer, normalize_hostname(cand))
-            if info:
-                official.add(info["registry_host"])
-                matched = True
-        if not matched and candidates:
-            host = normalize_hostname(candidates[0])
-            if host and host not in ignored:
-                ignored.append(host)
-    return official, ignored[:20]
+    """Official hosts present in the grounding evidence, plus ignored hosts."""
+    index = GroundingIndex(manufacturer, grounded_sources)
+    return set(index.official_hosts), index.ignored
 
 
 def _normalize_number(spec: FieldSpec, value: Any, unit: Any) -> Tuple[Optional[float], Optional[str], Optional[str]]:
@@ -176,7 +158,7 @@ class FieldValidator:
         manufacturer = snapshot["identity"]["manufacturer"]
         family = snapshot["derived"]["powertrain_family"]
         observed_at = observed_at or _utcnow_iso()
-        official_hosts, ignored_hosts = grounded_registry_hosts(manufacturer, grounded_sources)
+        index = GroundingIndex(manufacturer, grounded_sources)
         requested = set(requested_fields) if requested_fields else set(FIELD_SPECS)
 
         accepted: List[Dict[str, Any]] = []
@@ -189,7 +171,7 @@ class FieldValidator:
             claims = []
 
         for raw in claims[:MAX_CLAIMS]:
-            verdict = self._validate_claim(snapshot, raw, family, official_hosts, observed_at)
+            verdict = self._validate_claim(snapshot, raw, family, index, observed_at)
             status = verdict.pop("_status")
             if status == "accepted":
                 if verdict["field"] in requested:
@@ -209,9 +191,9 @@ class FieldValidator:
                     verdict.get("host"),
                 )
 
-        facts, conflicts, superseded = self._merge(accepted)
+        facts, conflicts, superseded, standard_conflicts = self._merge(accepted)
         facts = self._post_merge_checks(facts, conflicts, rejected)
-        extra_equipment = self._extra_equipment(manufacturer, raw_output, official_hosts)
+        extra_equipment = self._extra_equipment(raw_output, index)
         for conflict in conflicts:
             logger.info(
                 "comparison_v2 official_claim_conflict vehicle=%s field=%s values=%s",
@@ -248,12 +230,14 @@ class FieldValidator:
             "extra_official_equipment": extra_equipment,
             "missing": missing,
             "sources": list(sources.values()),
-            "ignored_grounding_hosts": ignored_hosts,
-            "grounded_official_hosts": sorted(official_hosts),
+            "ignored_grounding_hosts": index.ignored,
+            "grounded_official_hosts": index.official_hosts,
+            "grounding_index": index.summary(),
+            "range_standard_conflicts": standard_conflicts,
         }
 
     # ------------------------------------------------------------------
-    def _validate_claim(self, snapshot, raw, family, official_hosts, observed_at) -> Dict[str, Any]:
+    def _validate_claim(self, snapshot, raw, family, index: GroundingIndex, observed_at) -> Dict[str, Any]:
         if not isinstance(raw, dict):
             return {"_status": "rejected", "field": None, "reason": REJECT_MALFORMED}
         field = raw.get("field")
@@ -274,8 +258,13 @@ class FieldValidator:
         base["host"] = url_verdict.get("host")
         if not url_verdict["allowed"]:
             return {"_status": "rejected", **base, "reason": url_verdict["reason"]}
-        if url_verdict["registry_host"] not in official_hosts:
+        # The allowlist alone is never enough: Google's own grounding evidence
+        # must show this URL / host / official site was actually retrieved.
+        tier, grounded_host = index.correlate(raw.get("source_url"))
+        if not index.accepts(tier):
             return {"_status": "rejected", **base, "reason": REJECT_NOT_GROUNDED}
+        base["grounding_tier"] = tier
+        base["grounded_host"] = grounded_host
 
         # Market and source type come from the registry, never from the model.
         market = url_verdict["market"]
@@ -295,6 +284,8 @@ class FieldValidator:
             return {"_status": "rejected", **base, "reason": REJECT_ISRAELI_SOURCE_REQUIRED}
 
         match = self.matcher.match(snapshot, raw)
+        if spec is not None and not spec.trim_sensitive:
+            match = _powertrain_level_match(match)
         base["variant_match"] = {"status": match["status"], "matched_by": match["matched_by"], "reasons": match["reasons"]}
         if match["status"] != MATCH_STRONG:
             return {"_status": "rejected", **base, "reason": match["status"] if match["status"] != "VARIANT_MISMATCH" else (match["reasons"] or ["VARIANT_MISMATCH"])[0]}
@@ -392,6 +383,8 @@ class FieldValidator:
             else:
                 merged["measurement_standard"] = standard
                 standard_values[standard] = merged
+        range_conflicts = [c for c in conflicts if c["field"] == "electric_range_km"]
+        standard_conflicts: List[Dict[str, Any]] = []
         for preferred in ("WLTP", "EPA", "CLTC", "NEDC"):
             if preferred in standard_values:
                 chosen = standard_values.pop(preferred)
@@ -407,8 +400,17 @@ class FieldValidator:
                     "sources": chosen["sources"],
                     **{k: chosen[k] for k in ("source_level", "source_type", "source_url", "source_title", "source_market", "validated", "variant_scope", "observed_at", "freshness_group")},
                 }
+                # A disagreement inside ANOTHER standard does not make the
+                # selected standard's value uncertain. Keeping it in
+                # ``conflicts`` (keyed by field name) would hide the valid
+                # selected range from the comparison, so it is reported
+                # separately instead.
+                if range_conflicts:
+                    standard_conflicts = range_conflicts
+                    conflicts = [c for c in conflicts if c["field"] != "electric_range_km"]
+                    chosen["conflicting_standards"] = sorted({c.get("measurement_standard") for c in range_conflicts if c.get("measurement_standard")})
                 break
-        return facts, conflicts, superseded
+        return facts, conflicts, superseded, standard_conflicts
 
     def _merge_group(self, spec: FieldSpec, field: str, claims: List[Dict[str, Any]]) -> Dict[str, Any]:
         first = claims[0]
@@ -431,7 +433,7 @@ class FieldValidator:
             if c["source_url"] in seen:
                 continue
             seen.add(c["source_url"])
-            sources.append({k: c.get(k) for k in ("source_url", "source_title", "source_market", "source_type")})
+            sources.append({k: c.get(k) for k in ("source_url", "source_title", "source_market", "source_type", "grounding_tier")})
         fact = {
             "field": field,
             "value": primary["normalized_value"],
@@ -451,6 +453,8 @@ class FieldValidator:
             "variant_scope": VARIANT_SCOPE_VARIANT,
             "observed_at": primary["observed_at"],
             "freshness_group": primary["freshness_group"],
+            "grounding_tier": _best_tier(c.get("grounding_tier") for c in claims),
+            "identity_match": (primary.get("variant_match") or {}).get("matched_by"),
             "sources": sources,
         }
         if primary.get("currency"):
@@ -473,17 +477,18 @@ class FieldValidator:
             facts["dc_charge_time_minutes"]["comparable"] = False
         return facts
 
-    def _extra_equipment(self, manufacturer, raw_output, official_hosts) -> List[Dict[str, Any]]:
+    def _extra_equipment(self, raw_output, index: GroundingIndex) -> List[Dict[str, Any]]:
         items = raw_output.get("extra_official_equipment") if isinstance(raw_output, dict) else None
         out: List[Dict[str, Any]] = []
         for item in (items if isinstance(items, list) else [])[:MAX_EXTRA_EQUIPMENT]:
             if not isinstance(item, dict):
                 continue
             name = item.get("name")
-            verdict = check_official_url(manufacturer, item.get("source_url"))
+            verdict = check_official_url(index.manufacturer, item.get("source_url"))
             if not isinstance(name, str) or not name.strip() or not verdict["allowed"]:
                 continue
-            if verdict["registry_host"] not in official_hosts:
+            tier, _ = index.correlate(item.get("source_url"))
+            if not index.accepts(tier):
                 continue
             out.append(
                 {
@@ -491,7 +496,36 @@ class FieldValidator:
                     "value": _short(item.get("value"), 60) if isinstance(item.get("value"), (str, int, float, bool)) else None,
                     "source_url": item.get("source_url"),
                     "source_market": verdict["market"],
+                    "grounding_tier": tier,
                     "weighted": False,
                 }
             )
         return out
+
+
+_TIER_RANK = {"url": 0, "host": 1, "site": 2}
+
+
+def _best_tier(tiers) -> Optional[str]:
+    ranked = sorted((t for t in tiers if t in _TIER_RANK), key=_TIER_RANK.get)
+    return ranked[0] if ranked else None
+
+
+def _powertrain_level_match(match: Dict[str, Any]) -> Dict[str, Any]:
+    """Trim-independent technical fields: an UNSTATED trim is acceptable.
+
+    Global manufacturer pages never carry Israeli trim names, yet torque,
+    acceleration, battery or charging power are fixed by the powertrain. The
+    match is upgraded only when trim is the sole unstated element and every
+    other identity element (model, propulsion, drivetrain, engine/motor) is
+    stated and consistent; any contradiction stays a mismatch.
+    """
+    if match.get("status") != MATCH_AMBIGUOUS:
+        return match
+    checks = match.get("checks") or {}
+    if checks.get("trim") is not None:
+        return match
+    required = ("model", "propulsion", "drivetrain", "engine")
+    if all(checks.get(k) is True for k in required) and checks.get("year") is not False:
+        return {**match, "status": MATCH_STRONG, "matched_by": "powertrain", "reasons": []}
+    return match

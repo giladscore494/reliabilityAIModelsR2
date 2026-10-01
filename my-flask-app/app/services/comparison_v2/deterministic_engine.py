@@ -132,8 +132,31 @@ def _same_range_standard(values: List[Dict[str, Any]]) -> Optional[str]:
 
 def _same_charge_window(values: List[Dict[str, Any]]) -> Optional[str]:
     windows = {(v.get("dc_from"), v.get("dc_to")) for v in values}
-    if len(windows) != 1 or any(None in w for w in windows) or any(v.get("comparable") is False for v in values):
+    if any(None in w for w in windows) or any(v.get("comparable") is False for v in values):
+        return "DC_CHARGE_WINDOW_MISSING"  # a charge time without its published window
+    if len(windows) != 1:
         return "DC_CHARGE_WINDOW_MISMATCH"
+    return None
+
+
+RANGE_STANDARD_PREFERENCE = ("WLTP", "EPA", "CLTC", "NEDC")
+
+
+def _common_range_standard(present: Dict[str, Dict[str, Any]]) -> Optional[Tuple[str, Dict[str, float]]]:
+    """A measurement standard every car publishes (primary or alternate).
+
+    Values are never converted between standards: the comparison simply uses
+    each car's own official value for the shared standard.
+    """
+    per_slot: Dict[str, Dict[str, float]] = {}
+    for slot, read in present.items():
+        options = dict(read.get("alternates") or {})
+        if read.get("measurement_standard"):
+            options[read["measurement_standard"]] = read["value"]
+        per_slot[slot] = options
+    for std in RANGE_STANDARD_PREFERENCE:
+        if all(std in opts and opts[std] is not None for opts in per_slot.values()):
+            return std, {slot: opts[std] for slot, opts in per_slot.items()}
     return None
 
 
@@ -277,6 +300,13 @@ DESCRIPTIVE_VALUE_LABELS_HE = {
 }
 
 
+def _display(metric: Metric, value: Any, read: Dict[str, Any]) -> Optional[str]:
+    text = format_value(metric, value)
+    if text is not None and metric.key == "electric_range_km" and read.get("measurement_standard"):
+        text = f"{text} ({read['measurement_standard']})"
+    return text
+
+
 def format_value(metric: Metric, value: Any) -> Optional[str]:
     if value is None:
         return None
@@ -319,10 +349,16 @@ def read_metric(snapshot: Dict[str, Any], metric: Metric) -> Dict[str, Any]:
             return {"value": None, "applicable": True}
         return {"value": sum(1 for v in values if v), "applicable": True}
     official = snapshot.get("official_enrichment") or {}
-    conflicted = {c.get("field") for c in official.get("conflicts") or []}
-    if metric.key in conflicted:
-        return {"value": None, "applicable": True, "conflict": True}
     fact = (official.get("facts") or {}).get(metric.key)
+    for conflict in official.get("conflicts") or []:
+        if conflict.get("field") != metric.key:
+            continue
+        # A range conflict inside a different measurement standard does not
+        # make the selected standard's validated value uncertain.
+        std = conflict.get("measurement_standard")
+        if std and fact and fact.get("measurement_standard") and std != fact.get("measurement_standard"):
+            continue
+        return {"value": None, "applicable": True, "conflict": True}
     if not fact or not fact.get("validated") or fact.get("variant_scope") != "variant":
         return {"value": None, "applicable": True}
     out = {
@@ -333,6 +369,8 @@ def read_metric(snapshot: Dict[str, Any], metric: Metric) -> Dict[str, Any]:
         "currency": fact.get("currency"),
         "comparable": fact.get("comparable", True),
     }
+    if metric.key == "electric_range_km":
+        out["alternates"] = {std: (alt or {}).get("value") for std, alt in (fact.get("alternate_standards") or {}).items()}
     if metric.key == "dc_charge_time_minutes":
         facts = official.get("facts") or {}
         out["dc_from"] = (facts.get("dc_charge_from_pct") or {}).get("value")
@@ -366,7 +404,7 @@ def compare_metric(metric: Metric, snapshots: Dict[str, Dict[str, Any]]) -> Dict
         "correlation_group": metric.correlation_group,
         "missing_behavior": metric.missing_behavior,
         "values": values,
-        "display": {slot: format_value(metric, v) for slot, v in values.items()},
+        "display": {slot: _display(metric, v, reads[slot]) for slot, v in values.items()},
         "provenance": {slot: (_provenance(snapshots[slot], metric) if values[slot] is not None else None) for slot in snapshots},
         "missing": [slot for slot, r in reads.items() if r.get("applicable") and r.get("value") is None and not r.get("conflict")],
         "conflicted": [slot for slot, r in reads.items() if r.get("conflict")],
@@ -399,6 +437,17 @@ def compare_metric(metric: Metric, snapshots: Dict[str, Dict[str, Any]]) -> Dict
     if len(present) < 2:
         result["status"] = STATUS_CONFLICT if result["conflicted"] else STATUS_INSUFFICIENT
         return result
+    if metric.key == "electric_range_km" and _same_range_standard(list(present.values())):
+        common = _common_range_standard(present)
+        if common:
+            std, shared = common
+            for slot, value in shared.items():
+                present[slot] = {**present[slot], "value": value, "measurement_standard": std}
+                result["values"][slot] = value
+                result["display"][slot] = _display(metric, value, present[slot])
+                if result["provenance"].get(slot):
+                    result["provenance"][slot] = {**result["provenance"][slot], "measurement_standard": std}
+            result["measurement_standard"] = std
     if metric.comparable_check:
         reason = metric.comparable_check(list(present.values()))
         if reason:

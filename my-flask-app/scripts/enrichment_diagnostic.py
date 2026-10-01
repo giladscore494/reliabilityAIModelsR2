@@ -1,17 +1,23 @@
 # -*- coding: utf-8 -*-
-"""Live Level 2 enrichment diagnostic for ONE demo vehicle (one paid Gemini call).
+"""Live Level 2 enrichment diagnostic for ONE demo vehicle (paid Gemini calls).
 
 Usage (server-side, GEMINI_API_KEY set):
     python -m scripts.enrichment_diagnostic audi
-    python -m scripts.enrichment_diagnostic bmw
+    python -m scripts.enrichment_diagnostic bmw technical          # one task only
+    python -m scripts.enrichment_diagnostic tucson price,warranty
 
-Runs exactly the production path for a single car — the same provider config
-(Google Search grounding, JSON schema, low thinking, provider HTTP timeout, no
-SDK retry) and the same deterministic validation — without the cache, JEV or
-the summary. Prints safe metadata only: latency, parse source, grounding
-counts, accepted fields with their source hosts, rejection reasons, and the
-INVALID_JSON diagnostics when applicable. The API key and the prompt are never
-printed.
+Runs exactly the production enrichment path for a single car — the same
+``GeminiOfficialEnrichmentProvider`` (model from COMPARISON_ENRICHMENT_MODEL,
+Google Search + URL context, task-scoped JSON schema, thinking level, output
+ceiling, provider HTTP timeout, no SDK retry, grounding-redirect resolution),
+the same task split, the same ``FieldValidator`` / grounding correlation and
+the same freshness classification — without JEV or the summary. The cache is
+an in-process one, so nothing is written to the production cache; the report
+shows the decision production WOULD take.
+
+Prints safe metadata only (the same ``enrichment_report`` production logs as
+``vehicle_enrichment_completed``, plus per-field detail). The API key, the
+prompt and the raw model response are never printed.
 """
 
 from __future__ import annotations
@@ -19,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from collections import defaultdict
 
 ALIASES = {
     "audi": "182116040879ae9539249b243610e1db750726454cbe0eb645a7b696bf96abdf",
@@ -31,14 +38,77 @@ ALIASES = {
 }
 
 
+def build_report(snapshot, outcome, meta, provider) -> dict:
+    """Pure function (unit-tested): diagnostic report from a production outcome."""
+    from app.services.comparison_v2.official_enrichment import (
+        enrichment_max_output_tokens,
+        enrichment_report,
+        enrichment_thinking_level,
+        plan_tasks,
+        requested_fields,
+    )
+
+    family = snapshot["derived"]["powertrain_family"]
+    groups = meta.get("groups") or []
+    facts = outcome.get("facts") or {}
+    rejected_by_reason = defaultdict(list)
+    for r in outcome.get("rejected_claims") or []:
+        rejected_by_reason[r.get("reason") or "UNKNOWN"].append({"field": r.get("field"), "host": r.get("host")})
+    report = {
+        "vehicle": snapshot["identity"]["display_name"],
+        "powertrain_family": family,
+        "model": provider.model_id,
+        "config": {
+            "provider_timeout_sec": provider.timeout_sec,
+            "url_context": getattr(provider, "url_context", None),
+            "resolve_grounding_redirects": getattr(provider, "resolve_redirects", None),
+            "thinking_level": enrichment_thinking_level(),
+            "max_output_tokens": enrichment_max_output_tokens(),
+            "tasks": [{"task": name, "groups": list(g)} for name, g in plan_tasks(groups)],
+        },
+        "requested_fields": requested_fields(family, groups),
+        "summary": enrichment_report(snapshot, outcome, meta),
+        "tasks": outcome.get("tasks") or [],
+        "accepted": {
+            k: {
+                "value": f.get("value"),
+                "unit": f.get("unit"),
+                "host": (f.get("source_url") or "").split("/")[2] if f.get("source_url") else None,
+                "market": f.get("source_market"),
+                "grounding_tier": f.get("grounding_tier"),
+                "identity_match": f.get("identity_match"),
+                "measurement_standard": f.get("measurement_standard"),
+            }
+            for k, f in facts.items()
+        },
+        "rejected_by_reason": dict(rejected_by_reason),
+        "model_generic": [{"field": r.get("field"), "host": r.get("host")} for r in outcome.get("model_generic_claims") or []],
+        "missing": outcome.get("missing") or [],
+        "conflicts": [c.get("field") for c in outcome.get("conflicts") or []],
+        "grounded_official_hosts": outcome.get("grounded_official_hosts") or [],
+        "ignored_grounding_hosts": outcome.get("ignored_grounding_hosts") or [],
+        "group_freshness": outcome.get("group_freshness") or {},
+        "cache_decision": {
+            "cache_write": outcome.get("cache_write"),
+            "fresh_groups_marked": outcome.get("fresh_groups_written") or [],
+            "level2_health": outcome.get("level2_health"),
+            "whole_comparison_cache_eligible": outcome.get("level2_health") in ("complete", "partial", "empty"),
+        },
+        "provider_diagnostics": outcome.get("provider_diagnostics"),
+    }
+    return report
+
+
 def main(argv) -> int:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from google import genai
 
+    from app.services.comparison.model_config import comparison_enrichment_model_id
     from app.services.comparison_v2.cache import InProcessEnrichmentCache
     from app.services.comparison_v2.demo_catalog import DemoVehicleCatalogRepository
     from app.services.comparison_v2.level15 import build_level15_snapshot
     from app.services.comparison_v2.official_enrichment import (
+        ALL_FRESHNESS_GROUPS,
         GeminiOfficialEnrichmentProvider,
         LiveOfficialEnrichmentRepository,
         enrich_many,
@@ -49,38 +119,22 @@ def main(argv) -> int:
         print("GEMINI_API_KEY is not set.")
         return 2
     name = (argv[1] if len(argv) > 1 else "audi").lower()
+    groups = tuple(g for g in (argv[2].split(",") if len(argv) > 2 else ALL_FRESHNESS_GROUPS) if g in ALL_FRESHNESS_GROUPS)
     variant = ALIASES.get(name, name)
     record = DemoVehicleCatalogRepository().get_variant(variant)
     if not record:
         print(f"unknown vehicle: {name}")
         return 2
     snapshot = build_level15_snapshot(record, "car_1")
-    provider = GeminiOfficialEnrichmentProvider(genai.Client(api_key=key))
-    repo = LiveOfficialEnrichmentRepository(provider, InProcessEnrichmentCache())
+    provider = GeminiOfficialEnrichmentProvider(genai.Client(api_key=key), model_id=comparison_enrichment_model_id())
+    cache = InProcessEnrichmentCache()
+    repo = LiveOfficialEnrichmentRepository(provider, cache)
+    if set(groups) != set(ALL_FRESHNESS_GROUPS):
+        # Restrict the run to the requested groups by marking the others fresh.
+        original_plan = repo.plan
+        repo.plan = lambda snap: (original_plan(snap)[0], groups)  # type: ignore[assignment]
     outcome, meta = enrich_many(repo, [snapshot])[0]
-
-    facts = outcome.get("facts") or {}
-    report = {
-        "vehicle": snapshot["identity"]["display_name"],
-        "model": provider.model_id,
-        "provider_timeout_sec": provider.timeout_sec,
-        "latency_ms": meta.get("duration_ms"),
-        "status": outcome.get("status"),
-        "error_code": outcome.get("error_code"),
-        "parse_source": meta.get("parse_source"),
-        "grounded_sources": meta.get("grounded_source_count"),
-        "grounding": meta.get("grounding"),
-        "grounded_official_hosts": outcome.get("grounded_official_hosts"),
-        "ignored_grounding_hosts": outcome.get("ignored_grounding_hosts"),
-        "accepted": {k: {"value": f.get("value"), "unit": f.get("unit"), "host": (f.get("source_url") or "").split("/")[2] if f.get("source_url") else None,
-                         "market": f.get("source_market")} for k, f in facts.items()},
-        "rejected": [{"field": r.get("field"), "reason": r.get("reason"), "host": r.get("host")} for r in outcome.get("rejected_claims") or []],
-        "model_generic": [{"field": r.get("field"), "host": r.get("host")} for r in outcome.get("model_generic_claims") or []],
-        "conflicts": [c.get("field") for c in outcome.get("conflicts") or []],
-        "government_conflicts": [c.get("field") for c in outcome.get("government_conflicts") or []],
-        "provider_diagnostics": outcome.get("provider_diagnostics"),
-    }
-    print(json.dumps(report, ensure_ascii=False, indent=1, default=str))
+    print(json.dumps(build_report(snapshot, outcome, meta, provider), ensure_ascii=False, indent=1, default=str))
     return 0
 
 
