@@ -3,8 +3,10 @@
 
 Order per claim: contract field -> source domain allowlist -> grounding
 corroboration (``grounding.GroundingIndex``: url / host / site tier) ->
-Israeli-source requirement -> variant scope -> identity match -> type/unit
-normalization -> plausible range -> applicability. Surviving
+Israeli-source requirement -> variant scope -> identity match at the
+field's identity scope (``field_registry.IDENTITY_SCOPES``) -> exact-value
+qualifier -> type/unit normalization -> plausible range -> applicability.
+Surviving
 claims are grouped per field; disagreeing official sources become a conflict
 (excluded from the comparison) unless the field is local and an Israeli
 official source outranks a global one.
@@ -31,7 +33,7 @@ from app.services.comparison_v2.field_registry import (
     pattern_ok,
 )
 from app.services.comparison_v2.grounding import GroundingIndex
-from app.services.comparison_v2.official_variant_matcher import MATCH_AMBIGUOUS, MATCH_STRONG, OfficialVariantMatcher
+from app.services.comparison_v2.official_variant_matcher import MATCH_STRONG, SCOPE_EXACT_VARIANT, OfficialVariantMatcher
 from app.services.comparison_v2.source_registry import (
     MARKET_IL,
     check_official_url,
@@ -51,6 +53,13 @@ REJECT_NOT_APPLICABLE = "FIELD_NOT_APPLICABLE"
 REJECT_STANDARD_MISSING = "MEASUREMENT_STANDARD_MISSING"
 REJECT_CURRENCY = "CURRENCY_NOT_ILS"
 REJECT_MALFORMED = "CLAIM_MALFORMED"
+REJECT_NOT_EXACT = "VALUE_NOT_EXACT"
+
+# ``value_qualifier`` the model reports per claim. Only an exact published
+# specification may become a fact: one end of a published range, one of
+# several wheel/option-dependent values, or an approximation is rejected
+# (never averaged, never the best case).
+VALUE_QUALIFIERS = ("exact", "one_of_several", "approximate")
 
 MAX_CLAIMS = 80
 MAX_EXTRA_EQUIPMENT = 20
@@ -62,7 +71,13 @@ MAX_EXTRA_EQUIPMENT = 20
 #       URL-context retrievals, bare-host titles; ``domain`` is never needed);
 #       powertrain-level identity for trim-independent technical fields;
 #       a conflict in a non-selected range standard no longer hides the range.
-FIELD_VALIDATOR_VERSION = "field-validator/2"
+#   /3: the page publication year never takes part in variant matching (only
+#       an explicitly stated vehicle model year does); identity scopes per
+#       field (exact_variant / powertrain / powertrain_body /
+#       model_generation); combustion output establishes the engine when no
+#       displacement is printed; body / generation / seating contradictions;
+#       exact model code needs the model name; non-exact values rejected.
+FIELD_VALIDATOR_VERSION = "field-validator/3"
 
 
 def _utcnow_iso() -> str:
@@ -183,12 +198,17 @@ class FieldValidator:
                     government_conflicts.append(verdict)
             else:
                 rejected.append(verdict)
+                years = (verdict.get("variant_match") or {}).get("years") or {}
                 logger.info(
-                    "comparison_v2 official_claim_rejected vehicle=%s field=%s reason=%s host=%s",
+                    "comparison_v2 official_claim_rejected vehicle=%s field=%s reason=%s host=%s scope=%s%s",
                     snapshot["vehicle_id"][:12],
                     verdict.get("field"),
                     verdict.get("reason"),
                     verdict.get("host"),
+                    (verdict.get("variant_match") or {}).get("scope"),
+                    (" government_model_year=%s claimed_vehicle_model_year=%s source_publication_year=%s" % (
+                        years.get("government_model_year"), years.get("claimed_vehicle_model_year"),
+                        years.get("source_publication_year"))) if verdict.get("reason") == "VARIANT_YEAR_MISMATCH" else "",
                 )
 
         facts, conflicts, superseded, standard_conflicts = self._merge(accepted)
@@ -232,6 +252,7 @@ class FieldValidator:
             "sources": list(sources.values()),
             "ignored_grounding_hosts": index.ignored,
             "grounded_official_hosts": index.official_hosts,
+            "grounded_official_markets": index.official_markets,
             "grounding_index": index.summary(),
             "range_standard_conflicts": standard_conflicts,
         }
@@ -273,22 +294,26 @@ class FieldValidator:
         if isinstance(model_market, str) and model_market.upper() not in (market, ""):
             base["model_reported_market"] = model_market[:8]
 
-        scope = raw.get("variant_scope")
-        if scope == VARIANT_SCOPE_MODEL_GENERIC:
+        variant_scope = raw.get("variant_scope")
+        if variant_scope == VARIANT_SCOPE_MODEL_GENERIC:
             return {"_status": "model_generic", **base, "reason": REJECT_MODEL_GENERIC}
-        if scope != VARIANT_SCOPE_VARIANT:
+        if variant_scope != VARIANT_SCOPE_VARIANT:
             return {"_status": "rejected", **base, "reason": REJECT_SCOPE_INVALID}
 
         active_spec = spec or gov_spec
         if spec is not None and spec.israeli_only and market != MARKET_IL:
             return {"_status": "rejected", **base, "reason": REJECT_ISRAELI_SOURCE_REQUIRED}
 
-        match = self.matcher.match(snapshot, raw)
-        if spec is not None and not spec.trim_sensitive:
-            match = _powertrain_level_match(match)
-        base["variant_match"] = {"status": match["status"], "matched_by": match["matched_by"], "reasons": match["reasons"]}
+        scope = spec.identity_scope if spec is not None else SCOPE_EXACT_VARIANT
+        match = self.matcher.match(snapshot, raw, scope)
+        base["variant_match"] = {"status": match["status"], "matched_by": match["matched_by"], "reasons": match["reasons"],
+                                 "scope": scope, "years": match.get("years") or {}}
         if match["status"] != MATCH_STRONG:
             return {"_status": "rejected", **base, "reason": match["status"] if match["status"] != "VARIANT_MISMATCH" else (match["reasons"] or ["VARIANT_MISMATCH"])[0]}
+
+        qualifier = raw.get("value_qualifier")
+        if isinstance(qualifier, str) and qualifier.strip().lower() not in ("", "exact"):
+            return {"_status": "rejected", **base, "reason": REJECT_NOT_EXACT, "value_qualifier": qualifier[:24]}
 
         value, unit, err = normalize_claim_value(active_spec, raw.get("value"), raw.get("unit"))
         if err:
@@ -317,13 +342,16 @@ class FieldValidator:
                 return {"_status": "rejected", **base, "reason": REJECT_STANDARD_MISSING}
             standard = standard.upper()
 
-        source_year = raw.get("source_year") if isinstance(raw.get("source_year"), int) and not isinstance(raw.get("source_year"), bool) else None
+        years = match.get("years") or {}
         claim = {
             "_status": "accepted",
             **base,
             "normalized_value": value,
             "normalized_unit": unit,
-            "source_year": source_year,
+            # provenance only — never used for matching
+            "source_publication_year": years.get("source_publication_year"),
+            "vehicle_model_year": years.get("claimed_vehicle_model_year"),
+            "identity_scope": scope,
             "variant_scope": VARIANT_SCOPE_VARIANT,
             "source_level": SOURCE_LEVEL_OFFICIAL,
             "validated": True,
@@ -448,13 +476,15 @@ class FieldValidator:
             "source_url": primary["source_url"],
             "source_title": primary["source_title"],
             "source_market": primary["source_market"],
-            "source_year": primary.get("source_year"),
+            "source_publication_year": primary.get("source_publication_year"),
+            "vehicle_model_year": primary.get("vehicle_model_year"),
             "validated": True,
             "variant_scope": VARIANT_SCOPE_VARIANT,
             "observed_at": primary["observed_at"],
             "freshness_group": primary["freshness_group"],
             "grounding_tier": _best_tier(c.get("grounding_tier") for c in claims),
             "identity_match": (primary.get("variant_match") or {}).get("matched_by"),
+            "identity_scope": primary.get("identity_scope"),
             "sources": sources,
         }
         if primary.get("currency"):
@@ -509,23 +539,3 @@ _TIER_RANK = {"url": 0, "host": 1, "site": 2}
 def _best_tier(tiers) -> Optional[str]:
     ranked = sorted((t for t in tiers if t in _TIER_RANK), key=_TIER_RANK.get)
     return ranked[0] if ranked else None
-
-
-def _powertrain_level_match(match: Dict[str, Any]) -> Dict[str, Any]:
-    """Trim-independent technical fields: an UNSTATED trim is acceptable.
-
-    Global manufacturer pages never carry Israeli trim names, yet torque,
-    acceleration, battery or charging power are fixed by the powertrain. The
-    match is upgraded only when trim is the sole unstated element and every
-    other identity element (model, propulsion, drivetrain, engine/motor) is
-    stated and consistent; any contradiction stays a mismatch.
-    """
-    if match.get("status") != MATCH_AMBIGUOUS:
-        return match
-    checks = match.get("checks") or {}
-    if checks.get("trim") is not None:
-        return match
-    required = ("model", "propulsion", "drivetrain", "engine")
-    if all(checks.get(k) is True for k in required) and checks.get("year") is not False:
-        return {**match, "status": MATCH_STRONG, "matched_by": "powertrain", "reasons": []}
-    return match

@@ -339,6 +339,12 @@ class GroundingIndex:
     def official_hosts(self) -> List[str]:
         return sorted(self.hosts)
 
+    @property
+    def official_markets(self) -> List[str]:
+        """Registry markets (IL / GLOBAL) of the official hosts Google retrieved."""
+        markets = {(classify_host(self.manufacturer, h) or {}).get("market") for h in self.hosts}
+        return sorted(m for m in markets if m)
+
     def correlate(self, claim_url: Any) -> Tuple[Optional[str], Optional[str]]:
         """(tier, grounded_host) for an ALLOWLISTED claim URL, else (None, None)."""
         verdict = check_official_url(self.manufacturer, claim_url)

@@ -59,11 +59,15 @@ class FieldSpec:
     enum_values: Tuple[str, ...] = ()
     pattern: Optional[str] = None
     requires_standard: bool = False
-    # False only for values fixed by the powertrain (engine/motor, battery,
-    # gearbox): those may be matched at powertrain level when the page does
-    # not name the Israeli trim. Trim-dependent values (equipment, wheels,
-    # dimensions, consumption/range, price) always need the trim.
-    trim_sensitive: bool = True
+    # How much vehicle identity a source must establish before a value of
+    # this field may be attributed to the Level 1.5 variant (see
+    # ``IDENTITY_SCOPES`` and ``official_variant_matcher``).
+    identity_scope: str = "exact_variant"
+
+    @property
+    def trim_sensitive(self) -> bool:
+        """True when the Israeli trim (or the exact model code) is required."""
+        return self.identity_scope == SCOPE_EXACT_VARIANT
 
 
 def _num(key, group, label, unit, units, lo, hi, **kw) -> FieldSpec:
@@ -157,16 +161,55 @@ FIELD_SPECS: Dict[str, FieldSpec] = {
     )
 }
 
-# Values fixed by the powertrain (see ``FieldSpec.trim_sensitive``).
-POWERTRAIN_LEVEL_FIELDS = (
-    "torque_nm", "acceleration_0_100_s", "top_speed_kmh",
-    "battery_capacity_kwh", "battery_capacity_net_kwh",
-    "ac_charging_power_kw", "dc_charging_power_kw",
-    "dc_charge_time_minutes", "dc_charge_from_pct", "dc_charge_to_pct",
-    "transmission_type", "transmission_gears", "fuel_tank_l",
-)
+# ---------------------------------------------------------------------------
+# identity scopes — what determines each value
+# ---------------------------------------------------------------------------
+# Every scope rejects an EXPLICIT contradiction (model, body, generation,
+# stated vehicle model year, propulsion, drivetrain, engine/motor, model
+# code). They differ only in which identity elements must be POSITIVELY
+# established when the source does not name the Israeli trim:
+#
+# * exact_variant — Israeli trim (with model + full powertrain) or the exact
+#   official model code. Price, fees, warranty, equipment, wheels/tyres,
+#   height and ground clearance (suspension / wheel packages change them).
+# * powertrain — model + propulsion + drivetrain + engine/motor
+#   configuration. Values the manufacturer defines per mechanical
+#   configuration: performance, battery, charging, gearbox, fuel tank and the
+#   homologated consumption / range of that configuration (a value the source
+#   itself gives as a range or per wheel/option is rejected as not exact, and
+#   different values for one configuration become a conflict — never an
+#   average and never the best case).
+# * powertrain_body — powertrain + the body explicitly stated and compatible
+#   (cargo volume differs between body styles, drivetrains and batteries).
+# * model_generation — same model, no body / generation / year / powertrain
+#   contradiction, plus a positive generation anchor (generation code, the
+#   exact powertrain, or the stated model year). Exterior length, width,
+#   wheelbase — invariant for one body generation.
+SCOPE_EXACT_VARIANT = "exact_variant"
+SCOPE_POWERTRAIN = "powertrain"
+SCOPE_POWERTRAIN_BODY = "powertrain_body"
+SCOPE_MODEL_GENERATION = "model_generation"
+IDENTITY_SCOPES = (SCOPE_EXACT_VARIANT, SCOPE_POWERTRAIN, SCOPE_POWERTRAIN_BODY, SCOPE_MODEL_GENERATION)
+
+FIELD_IDENTITY_SCOPES: Dict[str, str] = {
+    **{key: SCOPE_POWERTRAIN for key in (
+        "torque_nm", "acceleration_0_100_s", "top_speed_kmh",
+        "fuel_consumption_l_100km", "energy_consumption_kwh_100km",
+        "battery_capacity_kwh", "battery_capacity_net_kwh",
+        "electric_range_km", "electric_range_standard",
+        "ac_charging_power_kw", "dc_charging_power_kw",
+        "dc_charge_time_minutes", "dc_charge_from_pct", "dc_charge_to_pct",
+        "transmission_type", "transmission_gears", "fuel_tank_l",
+    )},
+    "cargo_volume_l": SCOPE_POWERTRAIN_BODY,
+    **{key: SCOPE_MODEL_GENERATION for key in ("length_mm", "width_mm", "wheelbase_mm")},
+    # everything else (height, ground clearance, equipment, wheels/tyres,
+    # commercial) stays exact_variant
+}
+# Backward-compatible name: fields that do not need the Israeli trim.
+POWERTRAIN_LEVEL_FIELDS = tuple(k for k, v in FIELD_IDENTITY_SCOPES.items() if v == SCOPE_POWERTRAIN)
 FIELD_SPECS = {
-    key: (replace(spec, trim_sensitive=False) if key in POWERTRAIN_LEVEL_FIELDS else spec)
+    key: replace(spec, identity_scope=FIELD_IDENTITY_SCOPES.get(key, SCOPE_EXACT_VARIANT))
     for key, spec in FIELD_SPECS.items()
 }
 

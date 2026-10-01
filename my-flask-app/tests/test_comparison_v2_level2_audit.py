@@ -72,7 +72,7 @@ def snap(key, slot="car_1"):
 
 def claim(field, value, unit, url, *, market="GLOBAL", evidence=AUDI_PDF_EVIDENCE, scope="variant", year=2024, **extra):
     return {"field": field, "value": value, "unit": unit, "source_url": url, "source_title": "Audi", "source_market": market,
-            "source_year": year, "variant_scope": scope, "identity_evidence": evidence, **extra}
+            "vehicle_model_year": year, "variant_scope": scope, "identity_evidence": evidence, **extra}
 
 
 def chunk(title, i=0):
@@ -381,7 +381,12 @@ def test_contract_registry_and_validator_versions_are_part_of_the_key():
     assert base != build_cache_key("v", ENRICHMENT_CONTRACT_VERSION, SOURCE_REGISTRY_VERSION, "m", "field-validator/1")
     # The poisoned production rows were written under /1 without a validator version.
     assert base != build_cache_key("v", "official-enrichment/1", SOURCE_REGISTRY_VERSION, "m")
-    assert ENRICHMENT_CONTRACT_VERSION == "official-enrichment/2" and FIELD_VALIDATOR_VERSION == "field-validator/2"
+    # /3 (publication year vs vehicle model year, identity scopes, research
+    # retry): rows written under /2 — e.g. Audi technical "rejected" for
+    # VARIANT_YEAR_MISMATCH — are never read again.
+    assert ENRICHMENT_CONTRACT_VERSION == "official-enrichment/3" and FIELD_VALIDATOR_VERSION == "field-validator/3"
+    assert base != build_cache_key("v", "official-enrichment/2", SOURCE_REGISTRY_VERSION, "m", "field-validator/2")
+    assert base != build_cache_key("v", ENRICHMENT_CONTRACT_VERSION, SOURCE_REGISTRY_VERSION, "m", "field-validator/2")
 
 
 def test_legacy_poisoned_payload_shape_would_not_be_trusted_even_under_new_key():
