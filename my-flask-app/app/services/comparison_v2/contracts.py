@@ -25,7 +25,12 @@ READABLE_ENGINE_VERSIONS = (ENGINE_VERSION_V21, ENGINE_VERSION)
 # fields no longer requested, ``group_freshness`` (meaningful-observation
 # freshness) in the cached payload. Part of every cache key: /1 rows — which
 # could hold empty results marked fresh — are never read again.
-ENRICHMENT_CONTRACT_VERSION = "official-enrichment/2"
+# /3: claim year metadata split into ``source_publication_year`` (provenance
+# only) and ``vehicle_model_year`` (explicitly stated model year; the only
+# year that may be matched); identity evidence gains body / generation /
+# seating; ``value_qualifier``; research-required retry; "empty" only after
+# an official source was actually retrieved.
+ENRICHMENT_CONTRACT_VERSION = "official-enrichment/3"
 SNAPSHOT_CONTRACT_VERSION = "canonical-vehicle-snapshot/1"
 
 SLOT_KEYS = ("car_1", "car_2", "car_3")

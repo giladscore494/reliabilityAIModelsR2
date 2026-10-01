@@ -233,8 +233,14 @@ def test_partial_identity_is_ambiguous_and_rejected():
 
 
 def test_exact_model_code_is_strong_match():
-    claim = _tucson_claim(identity_evidence={"model_code": "JADD1"})
-    assert "torque_nm" in _validate(HYUNDAI_TUCSON, [claim])["facts"]
+    # The code must be shown with the model name it belongs to (a bare code
+    # could be the Ministry code echoed back); then trim wording is irrelevant.
+    claim = _tucson_claim(identity_evidence={"model_code": "JADD1", "model": "Tucson Hybrid", "trim": "Elite Plus"})
+    fact = _validate(HYUNDAI_TUCSON, [claim])["facts"]["torque_nm"]
+    assert fact["identity_match"] == "model_code"
+    bare = _tucson_claim(identity_evidence={"model_code": "JADD1"})
+    out = _validate(HYUNDAI_TUCSON, [bare])
+    assert out["facts"] == {} and out["rejected_claims"][0]["reason"] == "VARIANT_SCOPE_AMBIGUOUS"
     wrong = _tucson_claim(identity_evidence={"model_code": "JADD2", "model": "Tucson Hybrid", "trim": "Excellence", "powertrain": "1.6 hybrid 230hp", "drivetrain": "AWD"})
     out = _validate(HYUNDAI_TUCSON, [wrong])
     assert out["rejected_claims"][0]["reason"] == "VARIANT_MODEL_CODE_MISMATCH"
@@ -325,7 +331,7 @@ def test_epa_range_kept_as_epa_never_relabelled_wltp():
 
 
 def test_range_without_standard_rejected():
-    claim = _tucson_claim(field="electric_range_km", value=60, unit="km", source_year=2024)
+    claim = _tucson_claim(field="electric_range_km", value=60, unit="km", vehicle_model_year=2024)
     claim.pop("measurement_standard", None)
     out = FieldValidator().validate(snap(BMW_I4), {"claims": [dict(claim, identity_evidence=MOCK_PROVIDER_OUTPUTS[BMW_I4]["raw"]["claims"][0]["identity_evidence"], source_url="https://www.bmw.co.il/x")]},
                                     [{"domain": "bmw.co.il"}])

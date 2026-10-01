@@ -30,7 +30,10 @@ def _claim(field, value, unit, url, market, evidence, *, scope="variant", year=N
         "source_url": url,
         "source_title": title,
         "source_market": market,
-        "source_year": year,
+        # The fixtures' ``year`` is the model year the page states for the
+        # specification (publication year is provenance only).
+        "vehicle_model_year": year,
+        "value_qualifier": "exact",
         "variant_scope": scope,
         "identity_evidence": evidence,
     }

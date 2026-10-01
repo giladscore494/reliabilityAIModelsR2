@@ -5,6 +5,8 @@ Usage (server-side, GEMINI_API_KEY set):
     python -m scripts.enrichment_diagnostic audi
     python -m scripts.enrichment_diagnostic bmw technical          # one task only
     python -m scripts.enrichment_diagnostic tucson price,warranty
+    python -m scripts.enrichment_diagnostic production             # Audi Q3 + BMW i4 + Mercedes CLE, concurrently
+    python -m scripts.enrichment_diagnostic audi,bmw,cle
 
 Runs exactly the production enrichment path for a single car — the same
 ``GeminiOfficialEnrichmentProvider`` (model from COMPARISON_ENRICHMENT_MODEL,
@@ -36,6 +38,8 @@ ALIASES = {
     "cle": "ebbcdf940d27890fc82da0264e12b23f2a0eb86ca8faaad156ed11c08498bd20",
     "escalade": "c3249a13a6e515e4be50fb50bb15b653552d09b2f781027b7e080c8987bfc735",
 }
+# The three vehicles of the production run at 3d62dda.
+GROUPS_OF_NAMES = {"production": ("audi", "bmw", "cle")}
 
 
 def build_report(snapshot, outcome, meta, provider) -> dict:
@@ -53,7 +57,10 @@ def build_report(snapshot, outcome, meta, provider) -> dict:
     facts = outcome.get("facts") or {}
     rejected_by_reason = defaultdict(list)
     for r in outcome.get("rejected_claims") or []:
-        rejected_by_reason[r.get("reason") or "UNKNOWN"].append({"field": r.get("field"), "host": r.get("host")})
+        item = {"field": r.get("field"), "host": r.get("host"), "scope": (r.get("variant_match") or {}).get("scope")}
+        if r.get("reason") == "VARIANT_YEAR_MISMATCH":
+            item["years"] = (r.get("variant_match") or {}).get("years")
+        rejected_by_reason[r.get("reason") or "UNKNOWN"].append(item)
     report = {
         "vehicle": snapshot["identity"]["display_name"],
         "powertrain_family": family,
@@ -77,6 +84,9 @@ def build_report(snapshot, outcome, meta, provider) -> dict:
                 "market": f.get("source_market"),
                 "grounding_tier": f.get("grounding_tier"),
                 "identity_match": f.get("identity_match"),
+                "identity_scope": f.get("identity_scope"),
+                "vehicle_model_year": f.get("vehicle_model_year"),
+                "source_publication_year": f.get("source_publication_year"),
                 "measurement_standard": f.get("measurement_standard"),
             }
             for k, f in facts.items()
@@ -118,14 +128,17 @@ def main(argv) -> int:
     if not key:
         print("GEMINI_API_KEY is not set.")
         return 2
-    name = (argv[1] if len(argv) > 1 else "audi").lower()
+    arg = (argv[1] if len(argv) > 1 else "audi").lower()
+    names = list(GROUPS_OF_NAMES.get(arg, arg.split(",")))
     groups = tuple(g for g in (argv[2].split(",") if len(argv) > 2 else ALL_FRESHNESS_GROUPS) if g in ALL_FRESHNESS_GROUPS)
-    variant = ALIASES.get(name, name)
-    record = DemoVehicleCatalogRepository().get_variant(variant)
-    if not record:
-        print(f"unknown vehicle: {name}")
-        return 2
-    snapshot = build_level15_snapshot(record, "car_1")
+    catalog = DemoVehicleCatalogRepository()
+    snapshots = []
+    for i, name in enumerate(names):
+        record = catalog.get_variant(ALIASES.get(name, name))
+        if not record:
+            print(f"unknown vehicle: {name}")
+            return 2
+        snapshots.append(build_level15_snapshot(record, f"car_{i + 1}"))
     provider = GeminiOfficialEnrichmentProvider(genai.Client(api_key=key), model_id=comparison_enrichment_model_id())
     cache = InProcessEnrichmentCache()
     repo = LiveOfficialEnrichmentRepository(provider, cache)
@@ -133,8 +146,9 @@ def main(argv) -> int:
         # Restrict the run to the requested groups by marking the others fresh.
         original_plan = repo.plan
         repo.plan = lambda snap: (original_plan(snap)[0], groups)  # type: ignore[assignment]
-    outcome, meta = enrich_many(repo, [snapshot])[0]
-    print(json.dumps(build_report(snapshot, outcome, meta, provider), ensure_ascii=False, indent=1, default=str))
+    results = enrich_many(repo, snapshots)
+    reports = [build_report(snapshot, outcome, meta, provider) for snapshot, (outcome, meta) in zip(snapshots, results)]
+    print(json.dumps(reports[0] if len(reports) == 1 else reports, ensure_ascii=False, indent=1, default=str))
     return 0
 
 
