@@ -72,6 +72,29 @@ def get_comparison_history(user_id: int, limit: int = 10) -> List[Dict]:
     return result
 
 
+V2_ENGINE_VERSION = "comparison-v2/1"
+
+
+def _v2_detail(record) -> Optional[Dict]:
+    """Comparison V2 rows are returned as stored; legacy healing never touches them."""
+    computed = _safe_json_obj(record.computed_result, default={})
+    if not isinstance(computed, dict) or computed.get("engine_version") != V2_ENGINE_VERSION:
+        return None
+    cars = _safe_json_obj(record.cars_selected, default=[])
+    response = dict(computed.get("response") or {})
+    response["comparison_id"] = record.id
+    response["cached"] = False
+    return {
+        "id": record.id,
+        "created_at": record.created_at.isoformat(),
+        "engine_version": V2_ENGINE_VERSION,
+        "cars_selected_list": cars if isinstance(cars, list) else [],
+        "v2_result": response,
+        "model_name": record.model_name,
+        "prompt_version": record.prompt_version,
+    }
+
+
 def get_comparison_detail(comparison_id: int, user_id: Optional[int]) -> Optional[Dict]:
     """Get details of a specific comparison."""
     query = ComparisonHistory.query.filter_by(id=comparison_id)
@@ -81,6 +104,10 @@ def get_comparison_detail(comparison_id: int, user_id: Optional[int]) -> Optiona
     record = query.first()
     if not record:
         return None
+
+    v2_detail = _v2_detail(record)
+    if v2_detail is not None:
+        return v2_detail
 
     try:
         # Robust parsing with double-encoding support
@@ -174,6 +201,11 @@ def regenerate_comparison_ai(
     ).first()
     if not record:
         return None
+
+    if _v2_detail(record) is not None:
+        # V2 summaries are produced once, after the JEV decision; there is no
+        # legacy writer to regenerate them with.
+        return {"comparison_id": comparison_id, "ai": {"status": "not_applicable", "reason": "comparison_v2"}, "narrative": None}
 
     cars_selected = _safe_json_obj(record.cars_selected, default=[])
     computed_result = _safe_json_obj(record.computed_result, default={})

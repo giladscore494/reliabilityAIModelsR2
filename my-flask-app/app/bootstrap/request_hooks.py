@@ -63,7 +63,8 @@ def register_request_hooks(
         duration_ms = None
         if getattr(g, "start_time", None) is not None:
             duration_ms = int((pytime.perf_counter() - g.start_time) * 1000)
-        response_size = response.calculate_content_length()
+        # Never size a streamed body: Werkzeug would buffer the whole stream.
+        response_size = None if response.is_streamed else response.calculate_content_length()
         logger.info(
             "[RESP] request_id=%s path=%s duration_ms=%s status=%s response_bytes=%s",
             getattr(g, "request_id", "unknown"),

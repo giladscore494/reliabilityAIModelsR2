@@ -271,6 +271,31 @@ class ComparisonHistory(db.Model):
         raise ValueError(f"Invalid type for {key}: expected dict, list, or JSON string")
 
 
+class VehicleOfficialEnrichmentCacheRow(db.Model):
+    """Per-vehicle validated official Level 2 data (comparison V2).
+
+    Keyed by sha256(variant_identity_key | enrichment_contract_version |
+    source_registry_version | enrichment_model). Freshness is tracked per field
+    group so price/warranty can expire without re-running technical search.
+    """
+    __tablename__ = "vehicle_official_enrichment_cache"
+
+    id = db.Column(db.Integer, primary_key=True)
+    cache_key = db.Column(db.String(64), nullable=False, unique=True)
+    variant_identity_key = db.Column(db.String(64), nullable=False, index=True)
+    enrichment_contract_version = db.Column(db.String(64), nullable=False)
+    source_registry_version = db.Column(db.String(64), nullable=False)
+    enrichment_model = db.Column(db.String(64), nullable=False)
+    # Native JSON/JSONB (dicts in, dicts out) — not JSONEncodedText, which
+    # double-encodes strings on PostgreSQL.
+    payload = db.Column(db.JSON().with_variant(JSONB(), "postgresql"), nullable=False)
+    technical_observed_at = db.Column(db.DateTime, nullable=True)
+    price_observed_at = db.Column(db.DateTime, nullable=True)
+    warranty_observed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
+
 class LegalFeatureAcceptance(db.Model):
     """
     Feature-specific legal acceptance records.

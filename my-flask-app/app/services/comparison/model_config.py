@@ -9,6 +9,9 @@ from typing import Set
 DEFAULT_COMPARISON_MODEL_ID = "gemini-3.1-pro-preview"
 DEFAULT_COMPARISON_FALLBACK_MODEL_ID = "gemini-3.5-flash"
 DEFAULT_COMPARISON_LOW_COST_MODEL_ID = "gemini-3.5-flash"
+# Comparison V2: one grounded official-source extraction per car and one
+# ungrounded summary after the JEV decision.
+DEFAULT_COMPARISON_V2_MODEL_ID = "gemini-3.8-flash"
 
 # Static allow-list based on Gemini API model ids that support generateContent
 # for the comparison service's current text/JSON/search-grounding usage. Keep
@@ -19,6 +22,7 @@ SDK_SUPPORTED_COMPARISON_MODEL_IDS: Set[str] = {
     DEFAULT_COMPARISON_LOW_COST_MODEL_ID,
     "gemini-3.1-flash-lite",
     "gemini-3.1-pro-preview",
+    DEFAULT_COMPARISON_V2_MODEL_ID,
 }
 
 COMPARISON_MODEL_ENV_VARS = (
@@ -27,6 +31,8 @@ COMPARISON_MODEL_ENV_VARS = (
     "COMPARISON_STAGE_B_MODEL",
     "COMPARISON_FALLBACK_MODEL",
     "COMPARISON_LOW_COST_MODEL",
+    "COMPARISON_ENRICHMENT_MODEL",
+    "COMPARISON_SUMMARY_MODEL",
 )
 
 
@@ -91,6 +97,21 @@ def comparison_low_cost_model_id() -> str:
     return normalize_model_id(os.environ.get("COMPARISON_LOW_COST_MODEL", DEFAULT_COMPARISON_LOW_COST_MODEL_ID))
 
 
+def comparison_enrichment_model_id() -> str:
+    """V2 per-car official enrichment model (grounded). Independent of the
+    legacy COMPARISON_STAGE_A_MODEL, which keeps its meaning for the legacy path."""
+    return _configured_model("COMPARISON_ENRICHMENT_MODEL", DEFAULT_COMPARISON_V2_MODEL_ID)
+
+
+def comparison_summary_model_id() -> str:
+    """V2 final summary model (ungrounded, after JEV)."""
+    return _configured_model("COMPARISON_SUMMARY_MODEL", DEFAULT_COMPARISON_V2_MODEL_ID)
+
+
+def comparison_v2_enabled() -> bool:
+    return (os.environ.get("COMPARISON_V2_ENABLED") or "false").strip().lower() in ("1", "true", "yes", "on")
+
+
 def validate_comparison_model_id(model_id: str, *, env_name: str = "model") -> str:
     normalized = normalize_model_id(model_id)
     if normalized not in SDK_SUPPORTED_COMPARISON_MODEL_IDS:
@@ -109,15 +130,20 @@ def validate_comparison_model_config(log: logging.Logger | None = None) -> None:
         "COMPARISON_STAGE_B_MODEL": comparison_stage_b_model_id(),
         "COMPARISON_FALLBACK_MODEL": comparison_fallback_model_id(),
         "COMPARISON_LOW_COST_MODEL": comparison_low_cost_model_id(),
+        "COMPARISON_ENRICHMENT_MODEL": comparison_enrichment_model_id(),
+        "COMPARISON_SUMMARY_MODEL": comparison_summary_model_id(),
     }
     for env_name, model_id in configured.items():
         validate_comparison_model_id(model_id, env_name=env_name)
     if log:
         log.info(
-            "[AI] comparison_model_config_valid stage_a_model=%s stage_a_repair_model=%s stage_b_model=%s fallback_model=%s low_cost_model=%s",
+            "[AI] comparison_model_config_valid stage_a_model=%s stage_a_repair_model=%s stage_b_model=%s fallback_model=%s low_cost_model=%s enrichment_model=%s summary_model=%s v2_enabled=%s",
             configured["COMPARISON_STAGE_A_MODEL"],
             configured["COMPARISON_STAGE_A_REPAIR_MODEL"],
             configured["COMPARISON_STAGE_B_MODEL"],
             configured["COMPARISON_FALLBACK_MODEL"],
             configured["COMPARISON_LOW_COST_MODEL"],
+            configured["COMPARISON_ENRICHMENT_MODEL"],
+            configured["COMPARISON_SUMMARY_MODEL"],
+            comparison_v2_enabled(),
         )
