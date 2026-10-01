@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """Comparison routes blueprint for Car Comparison feature."""
 
+import json
 import re
 from datetime import datetime, timedelta
-from flask import Blueprint, render_template, request, current_app, session, make_response
+from flask import Blueprint, Response, render_template, request, current_app, session, make_response, stream_with_context
 from flask_login import current_user, login_required
 
 from app.services.vehicle_catalog_service import get_vehicle_catalog_ui_data, get_flat_vehicle_catalog
@@ -31,7 +32,13 @@ from app.models import LegalAcceptance, QuotaReservation
 from app.utils.http_helpers import api_error, api_ok, is_owner_user, get_request_id, _utcnow
 from app.services import comparison_service
 from app.services.gemini_health_verdict import log_product_call_verdict_input
-from app.services.comparison.model_config import comparison_stage_a_model_id
+from app.services.comparison.model_config import (
+    comparison_enrichment_model_id,
+    comparison_stage_a_model_id,
+    comparison_v2_enabled,
+)
+from app.services.comparison.schemas import validate_buyer_profile
+from app.services.comparison_v2.demo_catalog import DemoVehicleCatalogRepository
 from app.utils.analytics import track_event
 
 bp = Blueprint('comparison', __name__)
@@ -56,6 +63,7 @@ def compare_page():
             privacy_version=current_app.config.get("PRIVACY_VERSION", PRIVACY_VERSION),
             compare_result_ack_key=COMPARE_RESULT_ACK_KEY,
             compare_result_ack_version=COMPARE_RESULT_ACK_VERSION,
+            **_v2_template_context(),
         )
     user_email = getattr(current_user, "email", "") if current_user.is_authenticated else ""
     terms_version = current_app.config.get("TERMS_VERSION", TERMS_VERSION)
@@ -85,7 +93,16 @@ def compare_page():
         privacy_version=privacy_version,
         compare_result_ack_key=COMPARE_RESULT_ACK_KEY,
         compare_result_ack_version=COMPARE_RESULT_ACK_VERSION,
+        **_v2_template_context(),
     )
+
+
+def _v2_template_context():
+    enabled = comparison_v2_enabled()
+    return {
+        "comparison_v2_enabled": enabled,
+        "comparison_v2_variants": DemoVehicleCatalogRepository().picker_entries() if enabled else [],
+    }
 
 
 @bp.route('/api/compare/catalog', methods=['GET'])
@@ -201,6 +218,11 @@ def compare_api():
                 request_id=request_id,
             )
 
+    if comparison_v2_enabled():
+        return _compare_v2(
+            data, user_id, session_id, owner_bypass, request_id, reservation_id, idempotent_retry, day_key, daily_limit
+        )
+
     # Process comparison
     try:
         log_product_call_verdict_input(
@@ -239,6 +261,98 @@ def compare_api():
             release_quota_reservation(reservation_id, user_id, day_key)
         current_app.logger.exception("compare_api failed")
         return api_error("server_error", "שגיאת שרת בעת השוואה", status=500)
+
+
+def _wants_stream() -> bool:
+    return "application/x-ndjson" in (request.headers.get("Accept") or "")
+
+
+def _compare_v2(data, user_id, session_id, owner_bypass, request_id, reservation_id, idempotent_retry, day_key, daily_limit):
+    """Comparison V2: Level 1.5 + official Level 2 + deterministic engine + JEV + summary."""
+    from app.extensions import ai_client
+    from app.services.comparison_v2.pipeline import build_default_deps, collect_result, run_comparison_v2
+
+    def settle(ok: bool) -> None:
+        if not reservation_id or idempotent_retry:
+            return
+        if ok:
+            finalize_quota_reservation(reservation_id, user_id, day_key)
+        else:
+            release_quota_reservation(reservation_id, user_id, day_key)
+
+    buyer_valid, buyer_error, buyer_profile = validate_buyer_profile(data.get("buyer_profile"))
+    if not buyer_valid:
+        settle(False)
+        return api_error("validation_error", buyer_error, status=400)
+
+    log_product_call_verdict_input(
+        request_id=request_id,
+        feature="compare_v2",
+        model=comparison_enrichment_model_id(),
+        api_method="generate_content_grounded",
+        endpoint_family="models.generateContent",
+        tools=["google_search"],
+    )
+    deps = build_default_deps(ai_client)
+    events = run_comparison_v2(
+        data, deps, user_id=user_id, session_id=session_id, buyer_profile=buyer_profile, request_id=request_id
+    )
+
+    def track_completed():
+        try:
+            track_event(str(user_id), "compare_completed", {"request_id": request_id, "engine": "v2"})
+        except Exception:
+            pass
+
+    if _wants_stream():
+        def generate():
+            settled = False
+            try:
+                for event in events:
+                    if event["type"] == "progress":
+                        line = {"type": "progress", "stage": event["stage"], "label_he": event["label_he"]}
+                        if event.get("mode"):
+                            line["mode"] = event["mode"]
+                    elif event["type"] == "result":
+                        settle(True)
+                        settled = True
+                        track_completed()
+                        line = {"type": "result", "ok": True, "data": event["data"]}
+                    else:
+                        settle(False)
+                        settled = True
+                        line = {"type": "error", "ok": False, "error": {"code": event["code"], "message": event["message"]}}
+                    yield json.dumps(line, ensure_ascii=False) + "\n"
+            except Exception:
+                current_app.logger.exception("compare_v2 stream failed request_id=%s", request_id)
+                if not settled:
+                    settle(False)
+                    settled = True
+                yield json.dumps({"type": "error", "ok": False, "error": {"code": "server_error", "message": "שגיאת שרת בעת השוואה"}}, ensure_ascii=False) + "\n"
+            finally:
+                if not settled:
+                    settle(False)
+
+        resp = Response(stream_with_context(generate()), mimetype="application/x-ndjson")
+        resp.implicit_sequence_conversion = False  # keep progress events streaming
+        resp.headers["Cache-Control"] = "no-store"
+        resp.headers["X-Accel-Buffering"] = "no"
+        return resp
+
+    try:
+        final = collect_result(events)
+    except Exception:
+        settle(False)
+        current_app.logger.exception("compare_v2 failed request_id=%s", request_id)
+        return api_error("server_error", "שגיאת שרת בעת השוואה", status=500)
+    if final.get("type") != "result":
+        settle(False)
+        return api_error(final.get("code", "server_error"), final.get("message", "שגיאה"), status=final.get("status", 500))
+    settle(True)
+    track_completed()
+    payload = dict(final["data"])
+    payload["progress"] = final.get("progress", [])
+    return api_ok(payload)
 
 
 @bp.route('/api/compare/history', methods=['GET'])

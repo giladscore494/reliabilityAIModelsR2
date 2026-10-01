@@ -176,6 +176,43 @@
             white-space:nowrap;
         }
         .show-flex:not(.hidden) { display:flex !important; }
+
+        /* --- Comparison V2 --- */
+        .v2-category-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:14px; }
+        @media (min-width:900px) { .v2-category-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+        .v2-category-card .car-result-chip, .v2-coverage-item .car-result-chip { white-space:normal; }
+        .v2-variant-card { border:1px solid var(--yr-border,#e3e8ef); border-radius:14px; background:#fff; padding:.75rem; }
+        .v2-level-badge { display:inline-flex; align-items:center; font-size:.72rem; font-weight:700; padding:.15rem .6rem; border-radius:9999px; border:1px solid; }
+        .v2-level-15 { color:#1f6f43; border-color:rgba(31,157,87,.45); background:rgba(31,157,87,.08); }
+        .v2-level-2 { color:#1f57e6; border-color:rgba(47,107,255,.4); background:rgba(47,107,255,.07); }
+        .v2-prov { display:inline-block; font-size:.66rem; font-weight:700; padding:0 .45rem; border-radius:9999px; border:1px solid; vertical-align:middle; white-space:nowrap; }
+        .v2-prov-gov { color:#1f6f43; border-color:rgba(31,157,87,.45); }
+        .v2-prov-importer { color:#1f57e6; border-color:rgba(47,107,255,.45); }
+        .v2-prov-maker { color:#6b4bd8; border-color:rgba(107,75,216,.45); }
+        .v2-confidence { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; color:#1c2530; font-size:.95rem; }
+        .v2-tip-wrap { position:relative; display:inline-flex; }
+        .v2-info { width:1.4rem; height:1.4rem; border-radius:9999px; border:1px solid #9aa3af; font-size:.75rem; font-weight:700; color:#46505c; background:#fff; }
+        .v2-info:focus-visible { outline:2px solid #2f6bff; outline-offset:2px; }
+        .v2-tooltip { position:absolute; bottom:calc(100% + 6px); right:0; width:max-content; max-width:16rem; background:#1c2530; color:#fff; font-size:.75rem; line-height:1.4; padding:.4rem .6rem; border-radius:8px; opacity:0; pointer-events:none; transition:opacity .15s; z-index:20; }
+        .v2-tip-wrap:hover .v2-tooltip, .v2-info:focus + .v2-tooltip { opacity:1; }
+        .v2-coverage-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:.75rem; }
+        .v2-coverage-item { border:1px solid var(--yr-border,#e3e8ef); border-radius:14px; background:#fff; padding:.75rem; }
+        .v2-status { font-size:.8rem; font-weight:700; color:#1c2530; border:1px solid var(--yr-border,#e3e8ef); border-radius:9999px; padding:.2rem .7rem; background:#f7f9fc; }
+        .v2-status-muted { color:#46505c; font-weight:600; }
+        .v2-conflict { color:#a15c00; }
+        .v2-lead-dot { color:#1f9d57; font-size:.6rem; vertical-align:middle; }
+        .v2-details > summary { cursor:pointer; font-weight:700; color:#1f57e6; font-size:.85rem; }
+        .v2-details[open] > summary { margin-bottom:.5rem; }
+        .v2-table { width:100%; border-collapse:collapse; font-size:.8rem; color:#1c2530; }
+        .v2-table th, .v2-table td { border-bottom:1px solid var(--yr-border,#e3e8ef); padding:.4rem .35rem; text-align:right; vertical-align:top; }
+        .v2-table thead th { font-weight:700; color:#46505c; }
+        .v2-steps { list-style:none; padding:0; margin:0; font-size:.75rem; color:#6b7480; }
+        .v2-steps li { padding:.1rem 0; }
+        .v2-steps li::before { content:"○ "; }
+        .v2-step-done { color:#1f6f43; }
+        .v2-step-done::before { content:"✓ " !important; }
+        .v2-step-active { color:#1f57e6; font-weight:700; }
+        .v2-step-active::before { content:"● " !important; }
         @keyframes ring-pulse { 0%, 100% { opacity:1; } 50% { opacity:0.5; } }
         .ring-overtime { animation:ring-pulse 1s ease-in-out infinite; }
     </style>
@@ -213,7 +250,11 @@
                     השוואת רכבים
                 </h1>
                 <p class="text-slate-400 max-w-2xl mx-auto">
+                    {% if comparison_v2_enabled %}
+                    השוואת גרסאות מדויקות על בסיס נתוני משרד התחבורה ואתרי היבואן והיצרן הרשמיים בלבד
+                    {% else %}
                     בחר עד 3 רכבים להשוואה מקיפה על בסיס נתונים מאומתים מהאינטרנט
+                    {% endif %}
                 </p>
             </header>
 
@@ -221,6 +262,33 @@
             <div id="carSelectionSection" class="yr-chrome-card p-6 md:p-8">
                 <h3 class="text-xl font-bold mb-6" style="font-family:'Rubik','Heebo',sans-serif;">בחר רכבים להשוואה</h3>
 
+                {% if comparison_v2_enabled %}
+                <!-- Comparison V2: exact variant picker (Level 1.5 demo catalog) -->
+                <div id="compareV2Picker" class="space-y-4" data-engine="comparison-v2/1">
+                    <p class="text-sm text-slate-400">בחרו שתי גרסאות מדויקות. הנתונים הממשלתיים נטענים לפי הגרסה — אין צורך לבחור מנוע או תיבת הילוכים.</p>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {% for n in [1, 2, 3] %}
+                        <div class="car-slot-container car-accent-{{ n }} border-2 rounded-xl p-4 bg-white/60 space-y-3" data-v2-slot="{{ n }}" style="border-color: var(--accent);">
+                            <label for="v2_variant_{{ n }}" class="text-lg font-bold car-title block">
+                                רכב {{ n }} {% if n < 3 %}<span class="text-secondary">*</span>{% else %}<span class="text-slate-500 text-sm">(אופציונלי)</span>{% endif %}
+                            </label>
+                            <select id="v2_variant_{{ n }}" dir="auto" class="yr-select w-full bg-white border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-primary" {% if n < 3 %}aria-required="true"{% endif %}>
+                                <option value="">בחרו גרסה...</option>
+                                {% for make, group in comparison_v2_variants|groupby('make') %}
+                                <optgroup label="{{ make }}">
+                                    {% for v in group %}
+                                    <option value="{{ v.variant_identity_key }}">{{ v.make }} {{ v.model }} · {{ v.year }} · {{ v.trim }}</option>
+                                    {% endfor %}
+                                </optgroup>
+                                {% endfor %}
+                            </select>
+                            <div id="v2_variant_card_{{ n }}" class="v2-variant-card hidden" aria-live="polite"></div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                <script type="application/json" id="compare-v2-catalog">{{ comparison_v2_variants|tojson }}</script>
+                {% else %}
                 <div class="space-y-6">
                     <!-- Car Slot 1 -->
                     <div class="car-slot-container car-accent-1 border-2 rounded-xl p-4 bg-white/60" data-slot="1" style="border-color: var(--accent);">
@@ -411,11 +479,16 @@
                         </div>
                     </div>
                 </div>
+                {% endif %}
                 
                 <details id="buyerProfilePanel" class="yr-tile p-4 md:p-5">
                     <summary class="cursor-pointer text-lg font-bold" style="font-family:'Rubik','Heebo',sans-serif;">התאמה לשימוש שלי</summary>
                     <p class="mt-3 text-xs text-slate-400 leading-relaxed">
+                        {% if comparison_v2_enabled %}
+                        ההעדפות משפיעות על מה שחשוב בהכרעה — לא על הנתונים העובדתיים של הרכבים.
+                        {% else %}
                         הפרטים האלה משפיעים רק על התאמת ההסבר אליך, לא על הנתונים העובדתיים של הרכבים.
+                        {% endif %}
                     </p>
                     <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
                         <label class="space-y-1 text-sm text-slate-300">תקציב מינימלי
@@ -454,6 +527,9 @@
                         <label class="flex items-center gap-2"><input data-priority="comfort" type="checkbox" class="buyer-priority rounded border-slate-600 bg-white"> נוחות</label>
                         <label class="flex items-center gap-2"><input data-priority="cost" type="checkbox" class="buyer-priority rounded border-slate-600 bg-white"> עלות אחזקה</label>
                     </div>
+                    {% if comparison_v2_enabled %}
+                    <p id="v2ReliabilityNote" role="note" class="hidden mt-3 text-xs text-primary bg-primary/10 border border-primary/30 rounded-lg p-2">אמינות ארוכת טווח עדיין אינה נכללת בגרסת ההשוואה הזו.</p>
+                    {% endif %}
                 </details>
 
                 <div class="pt-4 space-y-8">
@@ -582,7 +658,8 @@
                 </div>
                 <div class="text-center">
                     <div id="compareEtaText" class="text-xs sm:text-sm text-primary font-semibold"></div>
-                    <div id="compareStatusText" class="text-xs text-primary/80 font-medium mt-1">מעבד...</div>
+                    <div id="compareStatusText" aria-live="polite" class="text-xs text-primary/80 font-medium mt-1">מעבד...</div>
+                    <ol id="compareV2Steps" class="hidden v2-steps mt-3 text-right" aria-label="שלבי ההשוואה"></ol>
                 </div>
             </div>
         </div>
@@ -614,6 +691,7 @@
 {% include '_research_consent_modal.html' %}
 
 <script src="{{ url_for('static', filename='research.js') }}"></script>
+<script src="{{ url_for('static', filename='compare_v2.js') }}"></script>
 <script nonce="{{ csp_nonce }}">
 (function() {
     'use strict';
@@ -635,6 +713,8 @@
     // CAR DATA & MODEL MAP
     // ============================================================
     
+    const COMPARE_V2_ENABLED = {{ 'true' if comparison_v2_enabled else 'false' }};
+    const CompareV2 = window.YedaCompareV2 || null;
     const carDataScript = document.getElementById('car-data');
     const compareCatalogUrl = "{{ compare_catalog_url|default('/api/compare/catalog') }}";
     let CAR_DATA = {};
@@ -1222,6 +1302,7 @@
     }
     
     function stopCompareTimingBanner(showCompletionMessage = true) {
+        if (CompareV2) CompareV2.hideSteps();
         if (compareTimingInterval) {
             clearInterval(compareTimingInterval);
             compareTimingInterval = null;
@@ -1542,6 +1623,22 @@
             }
             
             const record = data.data;
+
+            if (record && record.engine_version === 'comparison-v2/1' && record.v2_result) {
+                const v2Result = record.v2_result;
+                const v2Cars = record.cars_selected_list || v2Result.cars_selected_list || [];
+                if (COMPARE_V2_ENABLED && CompareV2) {
+                    CompareV2.setSelected(v2Cars.map(c => c.variant_identity_key));
+                }
+                comparisonResult = v2Result;
+                currentHistoryId = record.id || null;
+                renderResults(v2Result, { openImmediately: true });
+                syncCompareResearchContext(v2Cars);
+                setTimeout(() => {
+                    resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 100);
+                return;
+            }
             
             // Build compatible result object for renderResults
             const resultCompat = {
@@ -1663,6 +1760,7 @@
     }
     
     function getSelectedCars() {
+        if (COMPARE_V2_ENABLED && CompareV2) return CompareV2.getSelectedCars();
         const cars = [];
         for (let i = 1; i <= 3; i++) {
             const car = getSelectedCar(i);
@@ -1701,7 +1799,7 @@
     }
 
     function hasDuplicates(cars) {
-        const keys = cars.map(c => `${c.make || ''}|${c.model || ''}|${c.year || ''}|${c.engine_type || ''}|${c.gearbox || ''}|${c.variant_id || ''}`);
+        const keys = cars.map(c => c.variant_identity_key || `${c.make || ''}|${c.model || ''}|${c.year || ''}|${c.engine_type || ''}|${c.gearbox || ''}|${c.variant_id || ''}`);
         return new Set(keys).size !== keys.length;
     }
     
@@ -1783,17 +1881,28 @@
                 comparePayload.buyer_profile = buyerProfile;
             }
 
+            const compareHeaders = {
+                'Content-Type': 'application/json',
+                'X-Idempotency-Key': compareIdempotencyKey,
+                'X-CSRF-Token': getCSRFToken(),
+            };
+            if (COMPARE_V2_ENABLED && CompareV2) {
+                compareHeaders['Accept'] = 'application/x-ndjson, application/json';
+                CompareV2.resetSteps();
+            }
             const resp = await fetch('/api/compare', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Idempotency-Key': compareIdempotencyKey,
-                    'X-CSRF-Token': getCSRFToken(),
-                },
+                headers: compareHeaders,
                 body: JSON.stringify(comparePayload)
             });
             
-            const data = await resp.json();
+            let data;
+            if (COMPARE_V2_ENABLED && CompareV2) {
+                const v2 = await CompareV2.readCompareResponse(resp, (event) => CompareV2.markStage(event.stage, event.label_he));
+                data = v2.raw && v2.raw.type ? { ok: v2.ok, data: v2.data, error: v2.error } : (v2.raw || { ok: v2.ok, data: v2.data, error: v2.error });
+            } else {
+                data = await resp.json();
+            }
             
             if (!resp.ok || !data.ok) {
                 // Extract user-facing error message
@@ -2041,6 +2150,33 @@
     }
 
     function renderResults(result, options = {}) {
+        if (CompareV2 && CompareV2.isV2Result(result)) {
+            CompareV2.renderResult(result);
+            finishResultRender(result, Object.keys(result.cars || {}).length, options);
+            return;
+        }
+        renderLegacyResults(result, options);
+    }
+
+    function finishResultRender(result, comparedCount, options) {
+        isLoading = false;
+        isResultReady = true;
+        isResultOpen = false;
+        closeCompareResult();
+        showCompareReadyPanel();
+        showCompareResearchCard();
+        trackEvent('result_rendered', {
+            flow_type: 'compare',
+            compare_history_id: currentHistoryId,
+            compared_count: comparedCount,
+        });
+        if (options.openImmediately) {
+            resultReadyPanel?.classList.add('hidden');
+            openCompareResult({ userInitiated: false });
+        }
+    }
+
+    function renderLegacyResults(result, options = {}) {
         const carsSelected = result.cars_selected || {};
         const carKeys = Object.keys(carsSelected).filter(k => k.startsWith('car_'));
         const computed = result.computed_result || {};
@@ -2093,21 +2229,7 @@
 
         const categoriesSection = document.getElementById('categoriesSection');
         categoriesSection.innerHTML = hasUsableDecision ? renderDecisionSections(decision, carsSelected, carKeys, result) : renderComparePartialResearch(result);
-        isLoading = false;
-        isResultReady = true;
-        isResultOpen = false;
-        closeCompareResult();
-        showCompareReadyPanel();
-        showCompareResearchCard();
-        trackEvent('result_rendered', {
-            flow_type: 'compare',
-            compare_history_id: currentHistoryId,
-            compared_count: carKeys.length,
-        });
-        if (options.openImmediately) {
-            resultReadyPanel?.classList.add('hidden');
-            openCompareResult({ userInitiated: false });
-        }
+        finishResultRender(result, carKeys.length, options);
     }
     
     // ============================================================
@@ -2280,7 +2402,11 @@
     initAutoComplete(2);
     initAutoComplete(3);
     
-    loadCompareCatalog();
+    if (COMPARE_V2_ENABLED && CompareV2) {
+        CompareV2.init({ onChange: updateCompareButton });
+    } else {
+        loadCompareCatalog();
+    }
     console.log('[COMPARE] Initialized; catalog lazy-loading from', compareCatalogUrl);
     
     // Check for history load parameter

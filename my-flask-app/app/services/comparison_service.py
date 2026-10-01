@@ -87,7 +87,7 @@ def call_stage_a_parallel(validated_cars, cars_selected_slots):
 def call_gemini_single_pass_compare(prompt, timeout_sec=None):  # noqa: F405
     """Compatibility wrapper so tests can monkeypatch the single grounded call."""
     if timeout_sec is None:
-        timeout_sec = COMPARE_SINGLE_PASS_TIMEOUT_SEC
+        timeout_sec = COMPARE_SINGLE_PASS_TIMEOUT_SEC  # noqa: F405
     return _ground_call_gemini_single_pass_compare(prompt, timeout_sec)
 
 
@@ -110,7 +110,7 @@ def get_comparison_detail(comparison_id, user_id):
 
 def regenerate_comparison_ai(comparison_id, user_id):
     original_stage_b = _history.call_gemini_compare_writer
-    _history.call_gemini_compare_writer = call_gemini_compare_writer
+    _history.call_gemini_compare_writer = call_gemini_compare_writer  # noqa: F405
     try:
         return _history.regenerate_comparison_ai(comparison_id, user_id)
     finally:

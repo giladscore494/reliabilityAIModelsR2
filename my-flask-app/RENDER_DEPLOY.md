@@ -33,6 +33,18 @@ These must be present (app will hard-fail on Render without `SECRET_KEY`/`DATABA
 - `POSTHOG_HOST` (optional; default `https://us.i.posthog.com`)
 - `OWNER_EMAIL` (optional; single email address of the site owner for the owner management UI, e.g. `gilad@example.com`)
 
+### Comparison V2 (feature-flagged; see `docs/COMPARISON_V2.md`)
+- `COMPARISON_V2_ENABLED` (default `false`; `true` switches `/compare` and `POST /api/compare` to V2; set back to `false` to roll back)
+- `COMPARISON_ENRICHMENT_MODEL` (default `gemini-3.8-flash`; one grounded official-source extraction per car)
+- `COMPARISON_SUMMARY_MODEL` (default `gemini-3.8-flash`; one ungrounded summary after the JEV decision)
+- `TYPESAFE_API_KEY` (secret; server-side only)
+- `JEV_MODEL` (no default — set it to an id/alias printed by `python -m scripts.jev_models`; an id that `GET /v1/models` does not list is never used)
+- `TYPESAFE_BASE_URL` (optional, default `https://api.typesafe.ai`)
+- `COMPARISON_V2_OFFLINE_MODE` (optional, default `false`; `true` = Level 1.5 only, zero remote calls)
+- `COMPARISON_ENRICHMENT_TIMEOUT_SEC` (optional, default `90`), `JEV_TIMEOUT_SEC` (optional, default `30`), `COMPARISON_SUMMARY_TIMEOUT_SEC` (optional, default `25`)
+- `COMPARISON_ENRICHMENT_CONCURRENCY` (optional, default `3`), `COMPARISON_V2_RESULT_TTL_HOURS` (optional, default `24`)
+- Uses the existing `GEMINI_API_KEY`. Migration `cc01_vehicle_enrichment_cache` runs via the existing `preDeployCommand`.
+
 ## 3) Google OAuth redirect URI (IMPORTANT)
 In Google Cloud Console > APIs & Services > Credentials > OAuth 2.0 Client ID:
 Add **the exact** redirect URI(s) that your app will use:
