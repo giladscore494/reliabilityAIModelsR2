@@ -234,6 +234,10 @@ class GeminiSummaryWriter:
             response_mime_type="application/json",
             response_json_schema=SUMMARY_RESPONSE_SCHEMA,
             thinking_config=genai_types.ThinkingConfig(thinking_level=genai_types.ThinkingLevel.LOW),
+            http_options=genai_types.HttpOptions(
+                timeout=int(self.timeout_sec * 1000),
+                retry_options=genai_types.HttpRetryOptions(attempts=1),
+            ),
         )
 
     def write(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -243,8 +247,7 @@ class GeminiSummaryWriter:
         started = time.perf_counter()
         try:
             resp = self.client.models.generate_content(model=self.model_id, contents=build_summary_prompt(payload), config=self._config())
-            text = getattr(resp, "text", None) or ""
-            output = json.loads(text)
+            output = resp.parsed if isinstance(getattr(resp, "parsed", None), dict) else json.loads(getattr(resp, "text", None) or "")
         except Exception as exc:
             return {"output": None, "error_code": f"SUMMARY_ERROR:{type(exc).__name__}", "duration_ms": int((time.perf_counter() - started) * 1000)}
         return {"output": output, "error_code": None, "duration_ms": int((time.perf_counter() - started) * 1000)}

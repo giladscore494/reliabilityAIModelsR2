@@ -81,7 +81,7 @@ reported separately and never becomes an advantage.
 | whole comparison cached (24h, same cars + buyer profile + versions) | 0 |
 | `COMPARISON_V2_OFFLINE_MODE=true` | 0 |
 
-TTL per field group: technical 30 days, price 24 hours, warranty 7 days. A
+Enrichment provider timeout 125s per car (own window each). TTL per field group: technical 30 days, price 24 hours, warranty 7 days. A
 stale group triggers one call for that group only. `GET /v1/models` is
 called to verify `JEV_MODEL` and cached in-process for 6 hours.
 
@@ -89,6 +89,37 @@ No retries: one enrichment attempt per car, one JEV attempt, one summary
 attempt. Enrichment failure -> Level 1.5 only. JEV failure ->
 `decision_unavailable` and deterministic facts. Summary failure/rejection ->
 deterministic Hebrew template.
+
+## Gemini enrichment adapter (google-genai 2.25.0)
+
+* One `models.generate_content` call per car with `GenerateContentConfig(tools=[google_search],
+  response_mime_type="application/json", response_json_schema=..., temperature=0,
+  thinking_config=ThinkingConfig(thinking_level=LOW),
+  http_options=HttpOptions(timeout=COMPARISON_ENRICHMENT_TIMEOUT_SEC*1000, retry_options=HttpRetryOptions(attempts=1)))`.
+* Output: `response.parsed` (the SDK's `json.loads` of the text for a dict schema) first; otherwise a
+  strict parse of the text (raw, fenced, outermost `{...}`, or the last text part that is a complete
+  object). Never a second "repair" call.
+* `INVALID_JSON` logs `vehicle_enrichment_invalid_json` with model, finish reason, candidate count, text
+  length, native-parsed presence, sanitized head/tail fragments, grounding metadata presence, chunk and
+  query counts, parser reason. The API response carries the same metadata without text fragments.
+* Grounding sources: `candidates[].grounding_metadata.grounding_chunks[].web.{uri,title,domain}` (uri is
+  usually the vertexaisearch redirect, title/domain the site) plus citation URIs. The registry +
+  grounding cross-check in `field_validator` remains the enforcement boundary.
+* `enrich_many`: every car has its own window (provider timeout + 5s grace) measured from the moment its
+  call starts; a call past its window is reported `CALL_TIMEOUT` and abandoned (never awaited).
+
+## Category explanations and cross-powertrain categories
+
+* `explanations.build_category_explanation` (deterministic, no LLM): what the category evaluates, what
+  the compared evidence says, why the immutable JEV decision was reached (tie / insufficient /
+  unavailable worded explicitly), and missing / conflicting / not-comparable gaps (missing is never a
+  disadvantage).
+* `not_applicable` = the category is irrelevant to every selected car. When a category's metrics each
+  apply to only one selected powertrain (EV charging vs a petrol car, L/100km vs kWh/100km) the evidence
+  status is `cross_powertrain_descriptive`: values are shown, no JEV question is asked, no winner is
+  assigned; the data is still in the JEV state as context for `overall`.
+* UI: JEV confidence ("ביטחון ההכרעה") is shown only for a real `car_N` / `tie` decision — never for
+  `insufficient_evidence` (coverage is emphasised instead).
 
 ## JEV request (redacted)
 

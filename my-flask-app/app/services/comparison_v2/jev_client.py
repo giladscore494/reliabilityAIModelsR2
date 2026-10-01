@@ -152,6 +152,7 @@ def build_deterministic_evidence(comparison: Dict[str, Any], categories: List[st
     for cat in categories:
         ev = comparison["categories"][cat]
         evidence[cat] = {
+            "evidence_status": ev["status"],
             "atomic_results": [_compact_atomic(r) for r in ev["atomic_results"] if r["status"] != "descriptive"],
             "correlation_groups": ev["group_results"],
             "contextual_facts": [{"metric": c["metric"], "values": c["values"]} for c in ev["contextual_facts"]],
@@ -169,10 +170,13 @@ def build_jev_request(
     comparison: Dict[str, Any],
     ask_categories: List[str],
     buyer_context: Optional[Dict[str, Any]],
+    context_categories: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
+    """``context_categories`` (e.g. cross-powertrain descriptive data) are
+    included in the evidence for the overall question but get no question."""
     slots = list(snapshots.keys())
     state: Dict[str, Any] = {slot: sanitize_snapshot_for_jev(snap) for slot, snap in snapshots.items()}
-    state["deterministic_evidence"] = build_deterministic_evidence(comparison, ask_categories)
+    state["deterministic_evidence"] = build_deterministic_evidence(comparison, list(ask_categories) + list(context_categories or []))
     state["coverage"] = comparison["coverage"]
     state["buyer_profile"] = buyer_context or {}
 
@@ -352,6 +356,7 @@ def evaluate_with_jev(
     comparison: Dict[str, Any],
     ask_categories: List[str],
     buyer_context: Optional[Dict[str, Any]],
+    context_categories: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Exactly one systemone call (or zero on failure/unconfigured)."""
     if client is None:
@@ -359,7 +364,7 @@ def evaluate_with_jev(
     ok, reason = verify_model(client)
     if not ok:
         return unavailable_decisions(ask_categories, reason or "jev_unverified")
-    payload = build_jev_request(client.model, snapshots, comparison, ask_categories, buyer_context)
+    payload = build_jev_request(client.model, snapshots, comparison, ask_categories, buyer_context, context_categories)
     started = time.perf_counter()
     try:
         data = client.systemone(payload)

@@ -36,11 +36,13 @@ from app.services.comparison_v2.contracts import (
 from app.services.comparison_v2.demo_catalog import is_valid_identity_key
 from app.services.comparison_v2.deterministic_engine import (
     CATEGORIES,
+    EVIDENCE_CROSS_POWERTRAIN,
     CATEGORY_LABELS_HE,
     STATUS_COMPARED,
     run_deterministic_comparison,
     vehicle_coverage,
 )
+from app.services.comparison_v2.explanations import build_category_explanation
 from app.services.comparison_v2.jev_client import TypeSafeJevClient, evaluate_with_jev
 from app.services.comparison_v2.level15 import build_level15_snapshot
 from app.services.comparison_v2.official_enrichment import LiveOfficialEnrichmentRepository, enrich_many
@@ -228,6 +230,7 @@ def _diagnostics(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "enrichment_status": official.get("status"),
         "error_code": official.get("error_code"),
+        "provider_diagnostics": official.get("provider_diagnostics"),
         "refreshed_groups": official.get("refreshed_groups"),
         "stale_fields": official.get("stale_fields") or [],
         "rejected_claims": slim(official.get("rejected_claims"), ("field", "reason", "host", "source_url", "raw_value", "raw_unit")),
@@ -250,13 +253,19 @@ def _sources(snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def assemble_categories(
-    comparison: Dict[str, Any], jev_result: Dict[str, Any], ask: List[str]
+    comparison: Dict[str, Any], jev_result: Dict[str, Any], ask: List[str],
+    snapshots: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Dict[str, Any]]:
+    snapshots = snapshots or {}
+    names = {slot: snap["identity"]["display_name"] for slot, snap in snapshots.items()}
     categories = {}
     for cat in CATEGORIES:
         ev = comparison["categories"][cat]
         if ev["status"] == NOT_APPLICABLE:
             status, decision = NOT_APPLICABLE, {"choice": NOT_APPLICABLE, "confidence": None, "probabilities": None, "decision_source": "not_applicable"}
+        elif ev["status"] == EVIDENCE_CROSS_POWERTRAIN:
+            # Shown descriptively; not atomically comparable -> no question, no winner.
+            status, decision = EVIDENCE_CROSS_POWERTRAIN, {"choice": "not_comparable", "confidence": None, "probabilities": None, "decision_source": "cross_powertrain"}
         else:
             decision = dict(jev_result["decisions"].get(cat) or {"choice": DECISION_UNAVAILABLE})
             decision["decision_source"] = "jev" if decision.get("choice") != DECISION_UNAVAILABLE else "none"
@@ -268,6 +277,8 @@ def assemble_categories(
             "decision": decision,
             "evidence": ev,
             "top_reasons": _top_reasons(ev),
+            # Deterministic text from evidence + the immutable decision (no LLM).
+            "explanation": build_category_explanation(cat, ev, decision, names, snapshots, CATEGORY_LABELS_HE[cat]) if snapshots else None,
         }
     return categories
 
@@ -354,6 +365,9 @@ def run_comparison_v2(
             rejected=len(outcome.get("rejected_claims") or []),
             conflicts=len(outcome.get("conflicts") or []),
             grounded_sources=meta.get("grounded_source_count"),
+            grounding=meta.get("grounding"),
+            parse_source=meta.get("parse_source"),
+            model_generic=len(outcome.get("model_generic_claims") or []),
             duration_ms=meta.get("duration_ms"),
             error=outcome.get("error_code"),
         )
@@ -373,14 +387,15 @@ def run_comparison_v2(
     yield _progress("evaluating_decision")
     t0 = time.perf_counter()
     # Every applicable category is a JEV question (one request).
-    ask = [c for c, e in comparison["categories"].items() if e["status"] != NOT_APPLICABLE]
+    ask = [c for c, e in comparison["categories"].items() if e["status"] not in (NOT_APPLICABLE, EVIDENCE_CROSS_POWERTRAIN)]
+    context_only = [c for c, e in comparison["categories"].items() if e["status"] == EVIDENCE_CROSS_POWERTRAIN]
     jev_calls_before = deps.jev_client.calls if deps.jev_client is not None else 0
     if deps.jev_client is None:
         from app.services.comparison_v2.jev_client import unavailable_decisions
 
         jev_result = unavailable_decisions(ask, deps.jev_unavailable_reason or "jev_not_configured")
     else:
-        jev_result = evaluate_with_jev(deps.jev_client, snapshots, comparison, ask, buyer_context)
+        jev_result = evaluate_with_jev(deps.jev_client, snapshots, comparison, ask, buyer_context, context_only)
     timings["jev_ms"] = int((time.perf_counter() - t0) * 1000)
     if jev_result["status"] == "ok":
         _log("jev_completed", request_id=request_id, requested_model=jev_result.get("requested_model"),
@@ -388,7 +403,7 @@ def run_comparison_v2(
     else:
         _log("jev_failed", request_id=request_id, reason=jev_result.get("reason"), duration_ms=timings["jev_ms"])
 
-    categories = assemble_categories(comparison, jev_result, ask)
+    categories = assemble_categories(comparison, jev_result, ask, snapshots)
     overall = dict(jev_result["decisions"].get("overall") or {"choice": DECISION_UNAVAILABLE})
     overall["status"] = "decided" if overall.get("choice") != DECISION_UNAVAILABLE else DECISION_UNAVAILABLE
     limitations = limitations_for(buyer_context, comparison)

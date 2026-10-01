@@ -288,6 +288,11 @@ def _collect_interaction_grounding(resp: Any) -> Dict[str, Any]:
             query = data.get("query") or data.get("search_query") or data.get("q")
             if query:
                 meta["search_queries"].append(str(query))
+            # google-genai 2.x Interactions: arguments.queries
+            args = data.get("arguments") if isinstance(data.get("arguments"), dict) else {}
+            for q in args.get("queries") or []:
+                if q:
+                    meta["search_queries"].append(str(q))
         if typ == "google_search_result":
             add_source(data.get("url"), data.get("title"))
         for ann in data.get("annotations") or []:

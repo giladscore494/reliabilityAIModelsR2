@@ -41,6 +41,7 @@ STATUS_CONFLICT = "conflict"
 
 # Category evidence states (not decisions).
 EVIDENCE_NONE_COMPARABLE = "no_comparable_evidence"
+EVIDENCE_CROSS_POWERTRAIN = "cross_powertrain_descriptive"
 
 ALL = frozenset({"ev", "phev", "combustion", "unknown"})
 PLUGIN = frozenset({"ev", "phev"})
@@ -446,10 +447,13 @@ def build_group_results(atomic: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
-def _category_applicable(category: str, snapshots: Dict[str, Dict[str, Any]]) -> bool:
-    if category == "electric_and_charging":
-        return sum(1 for s in snapshots.values() if s["derived"]["powertrain_family"] in PLUGIN) >= 2
-    return True
+def _slots_in_scope(metric: Metric, snapshots: Dict[str, Dict[str, Any]]) -> List[str]:
+    return [slot for slot, snap in snapshots.items() if snap["derived"]["powertrain_family"] in metric.applies_to]
+
+
+def _category_applicable(category: str, snapshots: Dict[str, Dict[str, Any]], metrics: List[Metric]) -> bool:
+    """not_applicable only when the category is irrelevant to EVERY selected car."""
+    return any(_slots_in_scope(m, snapshots) for m in metrics)
 
 
 def _coverage_for(metrics: List[Metric], slot: str, snapshot: Dict[str, Any]) -> Dict[str, Any]:
@@ -462,7 +466,7 @@ def _coverage_for(metrics: List[Metric], slot: str, snapshot: Dict[str, Any]) ->
 def build_category_evidence(category: str, snapshots: Dict[str, Dict[str, Any]], registry: Optional[MetricRegistry] = None) -> Dict[str, Any]:
     registry = registry or MetricRegistry()
     metrics = registry.for_category(category)
-    applicable = _category_applicable(category, snapshots)
+    applicable = _category_applicable(category, snapshots, metrics)
     atomic = [compare_metric(m, snapshots) for m in metrics]
     compared = [r for r in atomic if r["status"] == STATUS_COMPARED]
     contextual = [
@@ -484,9 +488,17 @@ def build_category_evidence(category: str, snapshots: Dict[str, Dict[str, Any]],
     ]
     # Evidence state only. The engine never decides a category: every
     # applicable category goes to JEV (which can answer insufficient_evidence).
+    judged = [m for m in metrics if m.kind not in (DESCRIPTIVE, CONTEXTUAL)]
+    shared_metric = any(len(_slots_in_scope(m, snapshots)) >= 2 for m in judged)
+    scope_slots = sorted({slot for m in judged for slot in _slots_in_scope(m, snapshots)})
+    cross_powertrain = any(r.get("reason") == "NOT_CROSS_POWERTRAIN_COMPARABLE" for r in atomic)
     status = "ready"
     if not applicable:
         status = NOT_APPLICABLE
+    elif not compared and not differing_context and cross_powertrain and not shared_metric:
+        # Relevant to only one selected powertrain (e.g. EV charging vs a
+        # petrol car): values are shown descriptively, no direct winner.
+        status = EVIDENCE_CROSS_POWERTRAIN
     elif not compared and not differing_context:
         status = EVIDENCE_NONE_COMPARABLE
     return {
@@ -502,6 +514,7 @@ def build_category_evidence(category: str, snapshots: Dict[str, Dict[str, Any]],
         "missing_metrics": missing,
         "conflicted_metrics": conflicted,
         "coverage": {slot: _coverage_for(metrics, slot, snap) for slot, snap in snapshots.items()},
+        "scope_slots": scope_slots,
     }
 
 

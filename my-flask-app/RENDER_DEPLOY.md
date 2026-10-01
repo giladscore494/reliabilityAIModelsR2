@@ -41,9 +41,11 @@ These must be present (app will hard-fail on Render without `SECRET_KEY`/`DATABA
 - `JEV_MODEL` (no default — set it to an id/alias printed by `python -m scripts.jev_models`; an id that `GET /v1/models` does not list is never used)
 - `TYPESAFE_BASE_URL` (optional, default `https://api.typesafe.ai`)
 - `COMPARISON_V2_OFFLINE_MODE` (optional, default `false`; `true` = Level 1.5 only, zero remote calls)
-- `COMPARISON_ENRICHMENT_TIMEOUT_SEC` (optional, default `90`), `JEV_TIMEOUT_SEC` (optional, default `30`), `COMPARISON_SUMMARY_TIMEOUT_SEC` (optional, default `25`)
+- `COMPARISON_ENRICHMENT_TIMEOUT_SEC` (optional, default `125`; provider-level HTTP timeout per car, each car gets its own window), `JEV_TIMEOUT_SEC` (optional, default `30`), `COMPARISON_SUMMARY_TIMEOUT_SEC` (optional, default `25`)
 - `COMPARISON_ENRICHMENT_CONCURRENCY` (optional, default `3`), `COMPARISON_V2_RESULT_TTL_HOURS` (optional, default `24`)
 - Uses the existing `GEMINI_API_KEY`. Migration `cc01_vehicle_enrichment_cache` runs via the existing `preDeployCommand`.
+- gunicorn `--timeout 240` (render.yaml / Procfile): worst case is enrichment 125s + 5s grace, JEV ≤45s, summary ≤25s. If the Render service overrides the start command in the dashboard, update it there too.
+- Live check of one car (one paid call, safe output): `python -m scripts.enrichment_diagnostic audi` / `bmw`.
 
 ## 3) Google OAuth redirect URI (IMPORTANT)
 In Google Cloud Console > APIs & Services > Credentials > OAuth 2.0 Client ID:
