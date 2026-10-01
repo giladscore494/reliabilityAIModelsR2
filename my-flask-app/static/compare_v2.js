@@ -1,15 +1,16 @@
-/* Comparison V2 UI: exact-variant picker, staged progress and the
- * evidence-based result renderer (engine_version "comparison-v2/1").
+/* Comparison V2 UI: exact-variant picker, the personalization step
+ * (buyer-profile/2), staged progress and the result renderers.
  *
- * Three separate concepts are always shown separately:
- *   what we know (facts + provenance), what the evidence says (category
- *   decisions), and how confident the decision engine is.
- * There is no quality score anywhere in this file.
+ * "comparison-v2/2" results carry a decision composed in code from validated
+ * facts, the user's declared priorities and narrow JEV judgments; they are
+ * rendered by renderV22. Stored "comparison-v2/1" rows keep their original
+ * renderer. There is no quality score and no "correctness %" anywhere here.
  */
 (function (root) {
     'use strict';
 
-    var ENGINE_VERSION = 'comparison-v2/1';
+    var ENGINE_VERSION = 'comparison-v2/2';
+    var ENGINE_VERSION_V21 = 'comparison-v2/1';
     var SLOTS = ['car_1', 'car_2', 'car_3'];
 
     var STAGE_LABELS = {
@@ -18,7 +19,7 @@
         enriching: 'משלים מידע מאתרי היצרן',
         validating_sources: 'מאמת את המקורות',
         comparing_facts: 'משווה את הנתונים',
-        evaluating_decision: 'מחשב את ההכרעה',
+        evaluating_decision: 'שוקל את ההבדלים לפי הצרכים שלך',
         writing_summary: 'מנסח את הסיכום'
     };
     var STEP_ORDER = ['resolving_vehicles', 'loading_government_data', 'enriching', 'validating_sources', 'comparing_facts', 'evaluating_decision', 'writing_summary'];
@@ -134,7 +135,7 @@
         return '<div class="space-y-4" data-v2-hero data-overall-choice="' + escapeHtml(choice || '') + '">' +
             levelBadges() +
             '<div class="space-y-1">' + headline + '<p class="text-primary leading-7">' + line + '</p></div>' +
-            confidenceHtml(overall.confidence, 'overall') +
+            (isRealDecision(result, overall) ? confidenceHtml(overall.confidence, 'overall') : '') +
             '<section aria-label="כיסוי נתונים"><h5 class="text-sm font-bold text-primary mb-2">כיסוי נתונים</h5>' +
             '<div class="v2-coverage-grid">' + coverage + '</div></section>' +
             '</div>';
@@ -143,51 +144,26 @@
     // ------------------------------------------------------------------
     // category cards
     // ------------------------------------------------------------------
-    function categoryStatusHtml(result, cat) {
+    // JEV confidence is confidence in its returned choice — shown only for a
+    // real car_N / tie decision, never for insufficient_evidence.
+    function isRealDecision(result, decision) {
+        var choice = (decision || {}).choice;
+        return decision && decision.decision_source !== 'cross_powertrain' &&
+            (choice === 'tie' || !!(result.cars || {})[choice]);
+    }
+
+    function decisionBadgeHtml(result, cat) {
         var decision = cat.decision || {};
         var choice = decision.choice;
-        if (cat.status === 'insufficient_evidence' || choice === 'insufficient_evidence') {
-            return '<span class="v2-status v2-status-muted">אין מספיק מידע להשוואה אמינה בתחום הזה</span>';
-        }
-        if (cat.status === 'decision_unavailable' || choice === 'decision_unavailable') {
-            if ((cat.evidence || {}).status === 'no_comparable_evidence') {
-                return '<span class="v2-status v2-status-muted">אין מספיק מידע להשוואה אמינה בתחום הזה</span>';
-            }
-            return '<span class="v2-status v2-status-muted">ההכרעה בתחום זה אינה זמינה — מוצגים נתונים בלבד</span>';
-        }
-        if (choice === 'tie') {
-            return '<span class="v2-status">אין יתרון משמעותי</span>';
+        if (cat.status === 'cross_powertrain_descriptive') {
+            return '<span class="v2-status v2-status-muted" data-badge="no_direct">ללא הכרעה ישירה</span>';
         }
         if ((result.cars || {})[choice]) {
-            return carChip(result, choice) + ' <span class="text-sm font-bold text-primary">מוביל</span>';
+            return '<span class="v2-badge-lead" data-badge="lead">' + carChip(result, choice) + ' <span class="text-sm font-bold text-primary">מוביל</span></span>';
         }
-        return '';
-    }
-
-    function metricRows(result, evidence) {
-        var rows = (evidence.atomic_results || []).filter(function (r) { return r.status === 'compared'; });
-        if (!rows.length) {
-            rows = (evidence.atomic_results || []).filter(function (r) {
-                return r.status === 'descriptive' && Object.keys(r.values || {}).some(function (k) { return r.values[k] !== null; });
-            });
-        }
-        return rows.slice(0, 4);
-    }
-
-    function perCarFacts(result, evidence) {
-        var rows = metricRows(result, evidence);
-        if (!rows.length) return '';
-        return '<div class="v2-car-facts grid grid-cols-1 sm:grid-cols-' + Math.min(slotsOf(result).length, 3) + ' gap-3">' +
-            slotsOf(result).map(function (slot) {
-                var items = rows.map(function (r) {
-                    var shown = (r.display || {})[slot];
-                    var prov = (r.provenance || {})[slot];
-                    var value = shown ? escapeHtml(shown) : '<span class="text-primary/60" title="לא נמצא מקור רשמי מדויק לגרסה הזו">—</span>';
-                    var lead = r.leader === slot ? ' <span class="sr-only">(מוביל)</span><span aria-hidden="true" class="v2-lead-dot">●</span>' : '';
-                    return '<li><span class="text-primary/80">' + escapeHtml(r.label_he) + ':</span> <span class="font-bold text-primary">' + value + '</span>' + lead + ' ' + provenanceBadge(prov) + '</li>';
-                }).join('');
-                return '<div><div class="mb-1">' + carChip(result, slot) + '</div><ul class="text-sm leading-7 space-y-0.5">' + items + '</ul></div>';
-            }).join('') + '</div>';
+        if (choice === 'tie') return '<span class="v2-status" data-badge="tie">ללא יתרון משמעותי</span>';
+        if (choice === 'insufficient_evidence') return '<span class="v2-status v2-status-muted" data-badge="insufficient">אין מספיק מידע</span>';
+        return '<span class="v2-status v2-status-muted" data-badge="unavailable">הכרעה לא זמינה</span>';
     }
 
     function labelFor(evidence, metric) {
@@ -195,19 +171,93 @@
         return hit ? hit.label_he : metric;
     }
 
-    function coverageLine(result, evidence) {
+    function hasAnyValue(r, slots) {
+        return slots.some(function (s) { return (r.values || {})[s] !== null && (r.values || {})[s] !== undefined; });
+    }
+
+    function keyFactRows(result, evidence) {
+        var slots = slotsOf(result);
+        var rows = (evidence.atomic_results || []).filter(function (r) { return r.status === 'compared'; });
+        if (!rows.length) {
+            rows = (evidence.atomic_results || []).filter(function (r) {
+                // No direct comparison: still show the values that exist (one car only, etc.).
+                return r.status !== 'compared' && hasAnyValue(r, slots);
+            });
+        }
+        return rows.slice(0, 4);
+    }
+
+    function keyFactsHtml(result, evidence) {
+        var rows = keyFactRows(result, evidence);
+        if (!rows.length) return '';
+        var slots = slotsOf(result);
+        var body = rows.map(function (r) {
+            var cells = slots.map(function (slot) {
+                var shown = (r.display || {})[slot];
+                var value = shown ? escapeHtml(shown) : '<span class="text-primary/60" title="לא נמצא מקור רשמי מדויק לגרסה הזו">—</span>';
+                var lead = r.leader === slot ? '<span class="sr-only">(מוביל)</span><span aria-hidden="true" class="v2-lead-dot">●</span> ' : '';
+                return '<span class="v2-fact-cell"><span class="v2-fact-car">' + escapeHtml(carName(result, slot)) + ':</span> ' + lead +
+                    '<span class="font-bold text-primary">' + value + '</span> ' + (shown ? provenanceBadge((r.provenance || {})[slot]) : '') + '</span>';
+            }).join('');
+            return '<li class="v2-fact-row"><span class="v2-fact-label">' + escapeHtml(r.label_he) + '</span><span class="v2-fact-values">' + cells + '</span></li>';
+        }).join('');
+        return '<section class="v2-key-facts" aria-label="הנתונים המרכזיים"><h5 class="text-sm font-bold text-primary mb-1">הנתונים המרכזיים</h5><ul class="space-y-1.5">' + body + '</ul></section>';
+    }
+
+    function adasDiffHtml(result, evidence) {
+        var adas = (evidence.atomic_results || []).filter(function (r) { return r.metric === 'adas_systems_count' && r.details; })[0];
+        if (!adas) return '';
+        return slotsOf(result).map(function (slot) {
+            var only = ((adas.details || {}).systems_only_in || {})[slot] || [];
+            if (!only.length) return '';
+            return '<p class="text-xs text-primary/80">רק ב־' + escapeHtml(carName(result, slot)) + ': ' + only.map(escapeHtml).join(', ') + '</p>';
+        }).join('');
+    }
+
+    function coverageText(result, evidence) {
         var parts = slotsOf(result).map(function (slot) {
             var c = (evidence.coverage || {})[slot] || {};
             if (!c.applicable) return null;
             return escapeHtml(carName(result, slot)) + ' ' + escapeHtml(c.available) + ' מתוך ' + escapeHtml(c.applicable);
         }).filter(Boolean);
-        return parts.length ? '<p class="text-xs text-primary/70">כיסוי ראיות: ' + parts.join(' · ') + '</p>' : '';
+        return parts.length ? 'כיסוי ראיות בתחום: ' + parts.join(' · ') : '';
+    }
+
+    function gapsList(result, cat) {
+        var evidence = cat.evidence || {};
+        if (cat.explanation && Array.isArray(cat.explanation.gaps)) return cat.explanation.gaps;
+        // Rows stored before explanations existed.
+        var out = [];
+        var missing = (evidence.missing_metrics || []).map(function (m) { return labelFor(evidence, m); });
+        if (missing.length) out.push('חסרים נתונים מאומתים עבור: ' + missing.slice(0, 5).join(', ') + '. נתון חסר אינו נחשב לחיסרון.');
+        var conflicts = (evidence.conflicted_metrics || []).map(function (m) { return labelFor(evidence, m); });
+        if (conflicts.length) out.push('נמצאה סתירה בין מקורות רשמיים ולכן הנתון לא השתתף בהכרעה: ' + conflicts.join(', ') + '.');
+        return out;
+    }
+
+    function categorySourcesHtml(result, evidence) {
+        var seen = {};
+        var items = [];
+        (evidence.atomic_results || []).forEach(function (r) {
+            Object.keys(r.provenance || {}).forEach(function (slot) {
+                var prov = (r.provenance || {})[slot];
+                ((prov && prov.sources) || []).forEach(function (src) {
+                    var url = safeUrl(src.source_url);
+                    if (!url || seen[url]) return;
+                    seen[url] = true;
+                    var badge = src.source_type === 'official_importer' ? '<span class="v2-prov v2-prov-importer">יבואן רשמי</span>' : '<span class="v2-prov v2-prov-maker">יצרן</span>';
+                    items.push('<li>' + badge + ' <a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer" class="underline">' + escapeHtml(src.source_title || url) + '</a></li>');
+                });
+            });
+        });
+        var gov = '<li><span class="v2-prov v2-prov-gov">משרד התחבורה</span> מאגר הדגמים (WLTP) — Level 1.5</li>';
+        return '<ul class="text-xs space-y-1 mt-2">' + gov + items.join('') + '</ul>';
     }
 
     function detailsTable(result, evidence) {
         var slots = slotsOf(result);
         var rows = (evidence.atomic_results || []).filter(function (r) {
-            return slots.some(function (s) { return (r.values || {})[s] !== null && (r.values || {})[s] !== undefined; }) || r.status === 'compared';
+            return hasAnyValue(r, slots) || r.status === 'compared';
         });
         if (!rows.length) return '<p class="text-sm text-primary/70">אין נתונים להצגה בתחום זה.</p>';
         var head = '<tr><th scope="col">מדד</th>' + slots.map(function (s) { return '<th scope="col">' + escapeHtml(carName(result, s)) + '</th>'; }).join('') + '<th scope="col">תוצאה</th></tr>';
@@ -234,33 +284,37 @@
         return '<div class="overflow-x-auto"><table class="v2-table"><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>';
     }
 
+    // For V2 rows stored before server-side explanations existed.
+    function fallbackExplanation(result, cat) {
+        var choice = (cat.decision || {}).choice;
+        if (cat.status === 'cross_powertrain_descriptive') return 'הנתונים בתחום זה אינם בני-השוואה ישירה בין סוגי ההנעה שנבחרו, ולכן לא ניתנה הכרעה בתחום.';
+        if (choice === 'insufficient_evidence') return 'אין מספיק מידע להשוואה אמינה בתחום הזה.';
+        if (choice === 'decision_unavailable') return 'מנוע ההכרעה לא היה זמין, ולכן מוצגים כאן הנתונים בלבד ללא הכרעה.';
+        return '';
+    }
+
     function buildCategoryCardHtml(result, cat) {
         var evidence = cat.evidence || {};
         var decision = cat.decision || {};
-        var missing = (evidence.missing_metrics || []).map(function (m) { return labelFor(evidence, m); });
-        var conflicts = (evidence.conflicted_metrics || []).map(function (m) { return labelFor(evidence, m); });
-        var notComparable = (evidence.not_comparable || []).filter(function (n) { return n.reason === 'NOT_CROSS_POWERTRAIN_COMPARABLE'; });
-        var adas = (evidence.atomic_results || []).filter(function (r) { return r.metric === 'adas_systems_count' && r.details; })[0];
-        var adasHtml = '';
-        if (adas) {
-            adasHtml = slotsOf(result).map(function (slot) {
-                var only = ((adas.details || {}).systems_only_in || {})[slot] || [];
-                if (!only.length) return '';
-                return '<p class="text-xs text-primary/80">רק ב־' + escapeHtml(carName(result, slot)) + ': ' + only.map(escapeHtml).join(', ') + '</p>';
-            }).join('');
+        var explanation = (cat.explanation && cat.explanation.text) || fallbackExplanation(result, cat);
+        var confidence = '';
+        if (isRealDecision(result, decision) && pct(decision.confidence)) {
+            confidence = confidenceHtml(decision.confidence, 'cat_' + cat.key);
         }
-        return '<article class="yr-compare-result-card v2-category-card rounded-2xl border border-slate-200 bg-white p-4 md:p-5 space-y-3" data-category="' + escapeHtml(cat.key) + '" data-status="' + escapeHtml(cat.status) + '">' +
+        var gaps = gapsList(result, cat);
+        var coverage = coverageText(result, evidence);
+        var muted = gaps.slice();
+        if (decision.choice === 'insufficient_evidence' && coverage) muted.unshift(coverage);
+        return '<article class="yr-compare-result-card v2-category-card rounded-2xl border border-slate-200 bg-white p-4 md:p-5 space-y-3" data-category="' + escapeHtml(cat.key) + '" data-status="' + escapeHtml(cat.status) + '" data-choice="' + escapeHtml(decision.choice || '') + '">' +
             '<div class="flex flex-wrap items-center justify-between gap-2">' +
             '<h4 class="text-lg font-bold text-primary">' + escapeHtml(cat.label_he) + '</h4>' +
-            '<div class="flex flex-wrap items-center gap-2">' + categoryStatusHtml(result, cat) + '</div></div>' +
-            (decision.decision_source === 'jev' && pct(decision.confidence) ? '<p class="text-sm text-primary">ביטחון: <strong>' + escapeHtml(pct(decision.confidence)) + '</strong></p>' : '') +
-            coverageLine(result, evidence) +
-            perCarFacts(result, evidence) +
-            adasHtml +
-            (notComparable.length ? '<p class="text-xs text-primary/80">' + notComparable.map(function (n) { return escapeHtml(labelFor(evidence, n.metric)); }).join(', ') + ' — נמדדים ביחידות שונות לפי סוג ההנעה ולכן לא הושוו ישירות.</p>' : '') +
-            (conflicts.length ? '<p class="text-xs v2-conflict">נמצאה סתירה בין מקורות רשמיים ולכן הנתון לא השתתף בהכרעה: ' + conflicts.map(escapeHtml).join(', ') + '</p>' : '') +
-            (missing.length ? '<p class="text-xs text-primary/70">מידע חסר: ' + missing.slice(0, 6).map(escapeHtml).join(', ') + (missing.length > 6 ? ' ועוד' : '') + ' — לא נמצא מקור רשמי מדויק לגרסה הזו. נתון חסר אינו נחשב לחיסרון.</p>' : '') +
-            '<details class="v2-details"><summary>פרטים ומקורות</summary>' + detailsTable(result, evidence) + '</details>' +
+            '<div class="flex flex-wrap items-center gap-2">' + decisionBadgeHtml(result, cat) + '</div></div>' +
+            confidence +
+            (explanation ? '<p class="v2-explanation text-sm leading-7 text-primary" data-v2-explanation>' + escapeHtml(explanation) + '</p>' : '') +
+            keyFactsHtml(result, evidence) +
+            adasDiffHtml(result, evidence) +
+            (muted.length ? '<div class="v2-gaps" data-v2-gaps><ul class="space-y-1">' + muted.map(function (g) { return '<li>' + escapeHtml(g) + '</li>'; }).join('') + '</ul></div>' : '') +
+            '<details class="v2-details"><summary>כל הנתונים והמקורות</summary>' + detailsTable(result, evidence) + categorySourcesHtml(result, evidence) + '</details>' +
             '</article>';
     }
 
@@ -338,22 +392,326 @@
             buildVehiclesHtml(result) +
             '<section class="space-y-3"><h4 class="text-xl font-black text-primary">השוואה לפי תחומים</h4>' +
             '<div class="v2-category-grid">' + shown.map(function (c) { return buildCategoryCardHtml(result, c); }).join('') + '</div>' +
-            (skipped.length ? '<p class="text-xs text-primary/70">לא רלוונטי להשוואה הזו: ' + skipped.map(function (c) { return escapeHtml(c.label_he); }).join(', ') + '.</p>' : '') +
+            (skipped.length ? '<p class="text-xs text-primary/70">לא רלוונטי לאף אחד מהרכבים שנבחרו: ' + skipped.map(function (c) { return escapeHtml(c.label_he); }).join(', ') + '.</p>' : '') +
             '</section>' +
             buildSourcesHtml(result) +
             '<section class="yr-compare-result-card p-4 md:p-5"><h4 class="yr-card-title text-lg mb-3 text-primary">הערה</h4><p class="text-primary/80">ההשוואה היא כלי עזר בלבד. לפני רכישה מומלץ לבדוק היסטוריית טיפולים, בדיקת מוסך ומסמכי רכב.</p></section>';
     }
 
+    // ==================================================================
+    // V2/2 renderer (composed decision)
+    // ==================================================================
+    var INFLUENCE_BADGES = {
+        influenced: null,
+        balanced: ['ללא יתרון משמעותי', ''],
+        zero_weight: ['לא השפיע — סומן כלא חשוב', 'v2-status-muted'],
+        no_towing_need: ['לא השפיע — לא נדרשת גרירה', 'v2-status-muted'],
+        no_declared_features: ['לא השפיע — לא הוגדר אבזור רצוי', 'v2-status-muted'],
+        decided_by_requirements: ['ההכרעה נקבעה לפי דרישות החובה', 'v2-status-muted'],
+        judgment_unavailable: ['שיפוט לא זמין', 'v2-status-muted'],
+        insufficient_data: ['אין מספיק מידע', 'v2-status-muted'],
+        not_directly_comparable: ['לא בר-השוואה ישירה', 'v2-status-muted'],
+        not_applicable: ['לא רלוונטי', 'v2-status-muted']
+    };
+
+    function profileSummaryHtml(result) {
+        var ps = result.profile_summary || {};
+        var general = (result.buyer_profile || {}).mode === 'general';
+        var headline = (ps.headline || []).map(escapeHtml).join(' · ');
+        var priorities = general ? '' : (ps.priorities || []).map(function (p) {
+            return '<li class="v2-chip' + (p.value === 0 ? ' v2-chip-muted' : '') + '">' + escapeHtml(p.name_he) + ': <strong>' + escapeHtml(p.label_he) + '</strong></li>';
+        }).join('');
+        return '<section class="v2-profile-summary" aria-label="הצרכים שהגדרת" data-v2-profile-summary>' +
+            '<h5 class="text-sm font-bold text-primary/80">' + (general ? 'סוג ההשוואה' : 'השימוש שלך') + '</h5>' +
+            '<p class="text-primary font-bold">' + headline + '</p>' +
+            (priorities ? '<ul class="flex flex-wrap gap-2 mt-2" aria-label="מה חשוב לך">' + priorities + '</ul>' : '') +
+            '</section>';
+    }
+
+    function constraintNotesHtml(result) {
+        var notes = ((result.hard_constraints || {}).notes) || [];
+        if (!notes.length) return '';
+        var fails = notes.filter(function (n) { return n.level === 'fail'; });
+        var unknown = notes.filter(function (n) { return n.level === 'unknown'; });
+        return '<section class="space-y-2" aria-label="דרישות החובה שהגדרת" data-v2-constraints>' +
+            (fails.length ? '<div class="v2-warning" role="alert"><h5 class="font-bold">אי-עמידה בדרישות חובה</h5><ul class="list-disc list-inside">' +
+                fails.map(function (n) { return '<li>' + escapeHtml(n.text_he) + '</li>'; }).join('') + '</ul></div>' : '') +
+            (unknown.length ? '<details class="v2-unknown-note"><summary>דרישות שלא ניתן היה לאמת (' + unknown.length + ')</summary><ul class="list-disc list-inside text-sm">' +
+                unknown.map(function (n) { return '<li>' + escapeHtml(n.text_he) + '</li>'; }).join('') + '</ul></details>' : '') +
+            '</section>';
+    }
+
+    function reasonsHtml(result) {
+        var rec = result.recommendation || {};
+        var reasons = rec.reasons_he || {};
+        var pros = reasons['for'] || [];
+        var cons = reasons.against || [];
+        if (!pros.length && !cons.length) return '';
+        return '<section aria-label="הסיבות המרכזיות" data-v2-reasons>' +
+            (pros.length ? '<h5 class="text-sm font-bold text-primary mb-1">הסיבות המרכזיות</h5><ul class="v2-reasons">' +
+                pros.map(function (t) { return '<li>' + escapeHtml(t) + '</li>'; }).join('') + '</ul>' : '') +
+            (cons.length ? '<h5 class="text-sm font-bold text-primary mt-3 mb-1">איפה רכב אחר חזק יותר</h5><ul class="v2-reasons v2-reasons-against">' +
+                cons.map(function (t) { return '<li>' + escapeHtml(t) + '</li>'; }).join('') + '</ul>' : '') +
+            '</section>';
+    }
+
+    function buildHeroV22Html(result) {
+        var rec = result.recommendation || {};
+        var outcome = rec.outcome || '';
+        var title = '<p class="text-sm font-bold text-primary/80">' + escapeHtml(rec.title_he || '') + '</p>';
+        var main;
+        if ((result.cars || {})[outcome]) {
+            main = title + '<h4 class="text-2xl md:text-3xl font-black text-primary">' + escapeHtml(carName(result, outcome)) + '</h4>' +
+                (rec.strength_label_he ? '<p class="text-sm text-primary"><span class="v2-status">' + escapeHtml(rec.strength_label_he) + '</span></p>' : '') +
+                (rec.subtitle_he ? '<p class="text-sm text-primary">' + escapeHtml(rec.subtitle_he) + '</p>' : '');
+        } else {
+            main = '<h4 class="text-2xl md:text-3xl font-black text-primary">' + escapeHtml(rec.title_he || '') + '</h4>';
+        }
+        var coverage = rec.evidence_coverage_label_he ?
+            '<p class="text-xs text-primary/80">כיסוי הראיות ביחס למה שחשוב לך: <strong>' + escapeHtml(rec.evidence_coverage_label_he) + '</strong>' +
+            ' <span class="v2-tip-wrap"><button type="button" class="v2-info" aria-describedby="v2CovTip" aria-label="מה זה כיסוי הראיות?">i</button>' +
+            '<span role="tooltip" id="v2CovTip" class="v2-tooltip">איזה חלק מהחשיבות שהגדרת נשען על נתונים מאומתים בני-השוואה. זה אינו סיכוי שההמלצה נכונה.</span></span></p>' : '';
+        return '<div class="space-y-4" data-v2-hero data-engine="' + ENGINE_VERSION + '" data-outcome="' + escapeHtml(outcome) + '">' +
+            profileSummaryHtml(result) +
+            '<div class="space-y-1" data-v2-recommendation>' + main + '</div>' +
+            coverage +
+            constraintNotesHtml(result) +
+            reasonsHtml(result) +
+            '</div>';
+    }
+
+    function influenceBadgeHtml(result, card) {
+        if (card.influence_status === 'influenced') {
+            if (card.favoured_slot && (result.cars || {})[card.favoured_slot]) {
+                return '<span class="v2-badge-lead" data-badge="influenced">השפיע לטובת ' + carChip(result, card.favoured_slot) + '</span>';
+            }
+            return '<span class="v2-status" data-badge="influenced">השפיע על ההכרעה</span>';
+        }
+        var b = INFLUENCE_BADGES[card.influence_status] || ['', 'v2-status-muted'];
+        return '<span class="v2-status ' + b[1] + '" data-badge="' + escapeHtml(card.influence_status) + '">' + escapeHtml(b[0]) + '</span>';
+    }
+
+    function judgmentDetailsHtml(result, card) {
+        var rows = [];
+        (card.pairs || []).forEach(function (pv) {
+            (pv.signals || []).forEach(function (s) {
+                var pair = pv.pair.map(function (slot) { return carName(result, slot); }).join(' מול ');
+                var what;
+                if (s.source === 'objective') {
+                    what = s.favoured_name ? 'הנתונים מעדיפים את ' + escapeHtml(s.favoured_name) : (s.status === 'tie' ? 'ללא הבדל משמעותי' : 'מדדים מעורבים');
+                    if (s.materiality_label_he) what += ' · משמעות הפער לשימוש שלך: <strong>' + escapeHtml(s.materiality_label_he) + '</strong>';
+                } else if (s.source === 'contextual') {
+                    what = Object.keys(s.fit || {}).map(function (slot) { return escapeHtml(carName(result, slot)) + ': ' + escapeHtml(s.fit[slot].label_he); }).join(' · ');
+                } else {
+                    what = s.favoured_name ? 'לטובת ' + escapeHtml(s.favoured_name) : 'ללא הבדל';
+                }
+                if (!s.usable) what += ' · <span class="text-primary/60">לא השתתף בשקלול</span>';
+                var certainty = (typeof s.model_certainty === 'number') ?
+                    '<div class="text-[11px] text-primary/60">' + escapeHtml((result.model_certainty || {}).label_he || 'ודאות מודל בשיפוט הזה') + ': ' + escapeHtml(pct(s.model_certainty)) + '</div>' : '';
+                rows.push('<li><span class="font-bold">' + escapeHtml(s.label_he) + '</span>' +
+                    ((card.pairs || []).length > 1 ? ' <span class="text-primary/60">(' + escapeHtml(pair) + ')</span>' : '') +
+                    '<div>' + what + '</div>' + certainty + '</li>');
+            });
+        });
+        if (!rows.length) return '';
+        var note = (result.model_certainty || {}).note_he;
+        return '<details class="v2-details"><summary>איך זה נשקל</summary><ul class="v2-judgments space-y-2 mt-2 text-sm">' + rows.join('') + '</ul>' +
+            (note ? '<p class="text-[11px] text-primary/60 mt-2">' + escapeHtml(note) + '</p>' : '') + '</details>';
+    }
+
+    function buildCategoryCardV22Html(result, card) {
+        var evidence = card.evidence || {};
+        var layers = card.layers || {};
+        var gaps = card.gaps || [];
+        function layer(title, text, attr) {
+            return text ? '<div class="v2-layer"' + (attr ? ' ' + attr : '') + '><dt>' + title + '</dt><dd>' + escapeHtml(text) + '</dd></div>' : '';
+        }
+        return '<article class="yr-compare-result-card v2-category-card rounded-2xl border border-slate-200 bg-white p-4 md:p-5 space-y-3" data-category="' + escapeHtml(card.key) + '" data-influence="' + escapeHtml(card.influence_status) + '" data-evidence-status="' + escapeHtml(card.evidence_status) + '">' +
+            '<div class="flex flex-wrap items-center justify-between gap-2">' +
+            '<h4 class="text-lg font-bold text-primary">' + escapeHtml(card.label_he) + '</h4>' +
+            '<div class="flex flex-wrap items-center gap-2">' + influenceBadgeHtml(result, card) + '</div></div>' +
+            '<dl class="v2-layers">' +
+            layer('מה הקטגוריה בודקת', layers.what, 'data-layer="what"') +
+            layer('מה חשוב לך כאן', layers.importance, 'data-layer="importance"') +
+            layer('מה הנתונים אומרים', layers.data, 'data-layer="data"') +
+            layer('למה זה השפיע או לא השפיע', layers.influence, 'data-layer="influence"') +
+            '</dl>' +
+            keyFactsHtml(result, evidence) +
+            adasDiffHtml(result, evidence) +
+            (gaps.length ? '<div class="v2-gaps" data-v2-gaps><ul class="space-y-1">' + gaps.map(function (g) { return '<li>' + escapeHtml(g) + '</li>'; }).join('') + '</ul></div>' : '') +
+            judgmentDetailsHtml(result, card) +
+            '<details class="v2-details"><summary>כל הנתונים והמקורות</summary>' + detailsTable(result, evidence) + categorySourcesHtml(result, evidence) + '</details>' +
+            '</article>';
+    }
+
+    function buildResultBodyV22Html(result) {
+        var order = result.category_order || Object.keys(result.categories || {});
+        var cards = order.map(function (k) { return (result.categories || {})[k]; }).filter(Boolean);
+        var shown = cards.filter(function (c) { return c.evidence_status !== 'not_applicable'; });
+        var skipped = cards.filter(function (c) { return c.evidence_status === 'not_applicable'; });
+        var unsupported = (result.unsupported_concepts || []).map(function (u) { return escapeHtml(u.label_he); });
+        return buildSummaryHtml(result) +
+            buildVehiclesHtml(result) +
+            '<section class="space-y-3"><h4 class="text-xl font-black text-primary">למה — לפי תחומים</h4>' +
+            '<div class="v2-category-grid">' + shown.map(function (c) { return buildCategoryCardV22Html(result, c); }).join('') + '</div>' +
+            (skipped.length ? '<p class="text-xs text-primary/70">לא רלוונטי לאף אחד מהרכבים שנבחרו: ' + skipped.map(function (c) { return escapeHtml(c.label_he); }).join(', ') + '.</p>' : '') +
+            (unsupported.length ? '<p class="text-xs text-primary/70">עדיין לא נכלל בגרסה הזו: ' + unsupported.join(', ') + '.</p>' : '') +
+            '</section>' +
+            buildLimitationsHtml(result) +
+            buildSourcesHtml(result) +
+            '<section class="yr-compare-result-card p-4 md:p-5"><h4 class="yr-card-title text-lg mb-3 text-primary">הערה</h4><p class="text-primary/80">ההשוואה היא כלי עזר בלבד. לפני רכישה מומלץ לבדוק היסטוריית טיפולים, בדיקת מוסך ומסמכי רכב.</p></section>';
+    }
+
+    // ==================================================================
+    // personalization step (buyer-profile/2)
+    // ==================================================================
+    var PRIORITY_KEYS = ['safety', 'performance', 'efficiency', 'practicality', 'purchase_price', 'warranty', 'equipment', 'environment'];
+    var EV_PRIORITY_KEY = 'ev_convenience';
+
+    function byId(id) { return document.getElementById(id); }
+
+    function selectedMode() {
+        var checked = document.querySelector('input[name="v2_mode"]:checked');
+        return checked ? checked.value : '';
+    }
+
+    function pluginSelected() {
+        return getSelectedCars().some(function (c) {
+            var v = variantByKey(c.variant_identity_key);
+            return v && (v.powertrain_family === 'ev' || v.powertrain_family === 'phev');
+        });
+    }
+
+    function syncPersonalization() {
+        var fields = byId('v2PersonalizedFields');
+        if (fields) fields.classList.toggle('hidden', selectedMode() !== 'personalized');
+        var plugin = pluginSelected();
+        Array.prototype.forEach.call(document.querySelectorAll('#v2Personalization [data-ev-only]'), function (el) {
+            el.classList.toggle('hidden', !plugin);
+        });
+        var toggle = byId('v2_towing_toggle');
+        var kg = byId('v2_towing_braked_required_kg');
+        if (toggle && kg) kg.disabled = !toggle.checked;
+        if (selectedMode()) showProfileError('');
+    }
+
+    function numberValue(id) {
+        var el = byId(id);
+        if (!el || el.disabled) return null;
+        var raw = String(el.value || '').trim();
+        if (!raw) return null;
+        var num = Number(raw);
+        return isFinite(num) ? num : NaN;
+    }
+
+    function selectValue(id) {
+        var el = byId(id);
+        return el && el.value ? el.value : null;
+    }
+
+    function checkedValues(name) {
+        return Array.prototype.map.call(document.querySelectorAll('input[name="' + name + '"]:checked'), function (el) { return el.value; });
+    }
+
+    function collectProfile() {
+        var mode = selectedMode();
+        if (!mode) return { ok: false, error: 'יש לבחור „השוואה מותאמת אליי” או „השוואה כללית”.', focusId: null };
+        if (mode === 'general') return { ok: true, profile: { mode: 'general' } };
+        var profile = { mode: 'personalized' };
+        profile.main_use = selectValue('v2_main_use');
+        if (!profile.main_use) return { ok: false, error: 'יש לבחור את השימוש העיקרי ברכב.', focusId: 'v2_main_use' };
+        var numbers = [
+            ['annual_km', 'v2_annual_km', 0, 150000],
+            ['regular_passengers', 'v2_regular_passengers', 1, 9],
+            ['budget_max_ils', 'v2_budget_max_ils', 10000, 5000000]
+        ];
+        var plugin = pluginSelected();
+        if (byId('v2_towing_toggle') && byId('v2_towing_toggle').checked) {
+            numbers.push(['towing_braked_required_kg', 'v2_towing_braked_required_kg', 100, 5000]);
+        }
+        if (plugin) {
+            numbers.push(['typical_daily_km', 'v2_typical_daily_km', 0, 1000]);
+            numbers.push(['frequent_long_trip_km', 'v2_frequent_long_trip_km', 0, 3000]);
+        }
+        for (var i = 0; i < numbers.length; i++) {
+            var n = numbers[i];
+            var value = numberValue(n[1]);
+            if (value === null) continue;
+            if (isNaN(value) || value < n[2] || value > n[3]) {
+                return { ok: false, error: 'ערך לא תקין: יש להזין מספר בין ' + n[2].toLocaleString('he-IL') + ' ל־' + n[3].toLocaleString('he-IL') + '.', focusId: n[1] };
+            }
+            profile[n[0]] = Math.round(value);
+        }
+        if (byId('v2_towing_toggle') && byId('v2_towing_toggle').checked && !profile.towing_braked_required_kg) {
+            return { ok: false, error: 'סימנת שאתה צריך לגרור — יש להזין משקל גרירה נדרש עם בלמים.', focusId: 'v2_towing_braked_required_kg' };
+        }
+        ['parking_constraint', 'awd_requirement', 'road_conditions'].forEach(function (k) {
+            var v = selectValue('v2_' + k);
+            if (v) profile[k] = v;
+        });
+        var cargo = document.querySelector('input[name="v2_cargo_need"]:checked');
+        if (cargo) profile.cargo_need = cargo.value;
+        if (plugin) {
+            var charging = selectValue('v2_charging_access');
+            if (charging) profile.charging_access = charging;
+        }
+        var must = checkedValues('v2_must');
+        profile.must_have_features = must;
+        profile.nice_to_have_features = checkedValues('v2_nice').filter(function (f) { return must.indexOf(f) === -1; });
+        var keys = PRIORITY_KEYS.concat(plugin ? [EV_PRIORITY_KEY] : []);
+        profile.priorities = {};
+        keys.forEach(function (k) {
+            var picked = document.querySelector('input[name="v2_pri_' + k + '"]:checked');
+            profile.priorities[k] = picked ? parseInt(picked.value, 10) : 2;
+        });
+        return { ok: true, profile: profile };
+    }
+
+    function showProfileError(message, focusId) {
+        var box = byId('v2ModeError');
+        if (box) {
+            box.textContent = message || '';
+            box.classList.toggle('hidden', !message);
+        }
+        if (message) {
+            var section = byId('v2Personalization');
+            var target = focusId ? byId(focusId) : document.querySelector('input[name="v2_mode"]');
+            if (section && section.scrollIntoView) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            if (target && target.focus) target.focus();
+        }
+    }
+
+    function initPersonalization() {
+        var section = byId('v2Personalization');
+        if (!section) return;
+        section.addEventListener('change', function (event) {
+            var t = event.target;
+            // a feature is either required or nice-to-have, never both
+            if (t && t.name === 'v2_must' && t.checked) {
+                var twin = section.querySelector('input[name="v2_nice"][value="' + t.value + '"]');
+                if (twin) twin.checked = false;
+            }
+            if (t && t.name === 'v2_nice' && t.checked) {
+                var req = section.querySelector('input[name="v2_must"][value="' + t.value + '"]');
+                if (req && req.checked) t.checked = false;
+            }
+            syncPersonalization();
+        });
+        syncPersonalization();
+    }
+
     function isV2Result(result) {
-        return !!(result && result.engine_version === ENGINE_VERSION);
+        return !!(result && (result.engine_version === ENGINE_VERSION || result.engine_version === ENGINE_VERSION_V21));
     }
 
     function renderResult(result, els) {
         els = els || {};
         var winner = els.winnerDisplay || document.getElementById('winnerDisplay');
         var cats = els.categoriesSection || document.getElementById('categoriesSection');
-        if (winner) winner.innerHTML = buildHeroHtml(result);
-        if (cats) cats.innerHTML = buildResultBodyHtml(result);
+        var v22 = result && result.engine_version === ENGINE_VERSION;
+        if (winner) winner.innerHTML = v22 ? buildHeroV22Html(result) : buildHeroHtml(result);
+        if (cats) cats.innerHTML = v22 ? buildResultBodyV22Html(result) : buildResultBodyHtml(result);
+        if (typeof document === 'undefined') return;
         ['assumptionsDisplay', 'topReasons', 'compareApiDisclaimers'].forEach(function (id) {
             var el = document.getElementById(id);
             if (el) el.classList.add('hidden');
@@ -401,13 +759,8 @@
             var select = document.getElementById('v2_variant_' + (idx + 1));
             if (select && variantByKey(key)) { select.value = key; renderVariantCard(idx + 1); }
         });
+        syncPersonalization();
         if (onChangeCallback) onChangeCallback();
-    }
-
-    function syncReliabilityNote() {
-        var box = document.querySelector('.buyer-priority[data-priority="reliability"]');
-        var note = document.getElementById('v2ReliabilityNote');
-        if (note) note.classList.toggle('hidden', !(box && box.checked));
     }
 
     function init(options) {
@@ -421,13 +774,12 @@
                 if (!select) return;
                 select.addEventListener('change', function () {
                     renderVariantCard(slotN);
+                    syncPersonalization();
                     if (onChangeCallback) onChangeCallback();
                 });
             })(n);
         }
-        var box = document.querySelector('.buyer-priority[data-priority="reliability"]');
-        if (box) box.addEventListener('change', syncReliabilityNote);
-        syncReliabilityNote();
+        initPersonalization();
     }
 
     // ------------------------------------------------------------------
@@ -499,6 +851,12 @@
 
     var api = {
         ENGINE_VERSION: ENGINE_VERSION,
+        ENGINE_VERSION_V21: ENGINE_VERSION_V21,
+        collectProfile: collectProfile,
+        showProfileError: showProfileError,
+        buildHeroV22Html: buildHeroV22Html,
+        buildCategoryCardV22Html: buildCategoryCardV22Html,
+        buildResultBodyV22Html: buildResultBodyV22Html,
         init: init,
         getSelectedCars: getSelectedCars,
         setSelected: setSelected,

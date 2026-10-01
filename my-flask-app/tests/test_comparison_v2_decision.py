@@ -1,17 +1,16 @@
 # -*- coding: utf-8 -*-
-"""JEV client, summary writer and pipeline behaviour (all offline)."""
+"""JEV System One request/answers, summary writer and pipeline behaviour (all offline)."""
 
 import copy
 import json
+import re
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from app.services.comparison_v2.cache import InProcessEnrichmentCache
+from app.services.comparison_v2.decision_model import FIT_LEVELS, MATERIALITY_LEVELS
 from app.services.comparison_v2.jev_client import (
-    TypeSafeJevClient,
-    build_jev_request,
-    evaluate_with_jev,
     extract_model_ids,
     redacted_request_shape,
     reset_model_verification_cache,
@@ -38,22 +37,35 @@ from comparison_v2_fakes import (
 )
 
 
+GENERAL = {"mode": "general"}
+PRI = dict(safety=2, performance=2, efficiency=2, practicality=2, purchase_price=2, warranty=2, equipment=2, environment=2)
+QID = re.compile(r"^(materiality__car_[1-3]__car_[1-3]__[a-z0-9_]+|fit__car_[1-3]__[a-z_]+)$")
+HEBREW = re.compile(r"[\u0590-\u05ff]")
+
+
 def run(keys, deps, profile=None):
     data = {"cars": [{"variant_identity_key": k} for k in keys]}
-    return collect_result(run_comparison_v2(data, deps, buyer_profile=profile))
+    return collect_result(run_comparison_v2(data, deps, buyer_profile=profile or GENERAL))
 
 
 def flip(choice):
     return {"car_1": "car_2", "car_2": "car_1"}.get(choice, choice)
 
 
+def resolve(state, path):
+    node = state
+    for part in path.split("."):
+        assert isinstance(node, dict) and part in node, path
+        node = node[part]
+    return node
+
+
 # --------------------------------------------------------------------------
-# JEV request contract
+# JEV System One request contract (V2/2)
 # --------------------------------------------------------------------------
-def test_one_jev_call_with_all_categories_and_real_choice_options():
+def test_one_systemone_call_with_many_narrow_score_questions():
     session = FakeTypeSafeSession()
-    deps = build_fake_deps(session=session)
-    out = run([AUDI_Q3, HYUNDAI_TUCSON], deps)
+    out = run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(session=session))
     assert out["type"] == "result"
     assert len(session.post_calls) == 1
     call = session.post_calls[0]
@@ -61,139 +73,198 @@ def test_one_jev_call_with_all_categories_and_real_choice_options():
     assert call["headers"]["Authorization"] == "Bearer ts-test-secret-key"
     body = call["json"]
     assert body["model"] == "jev-1.13.0"
-    assert set(body["state"]) == {"car_1", "car_2", "deterministic_evidence", "coverage", "buyer_profile"}
-    applicable = [k for k, c in out["data"]["categories"].items() if c["status"] != "not_applicable"]
-    # every applicable category (even one with no comparable metric) is a JEV question
-    assert set(body["questions"]) == set(applicable) | {"overall"}
-    assert "official_price_and_warranty" in body["questions"]
-    for k in applicable:
-        assert out["data"]["categories"][k]["decision"]["decision_source"] == "jev"
-    assert "electric_and_charging" not in body["questions"]  # not applicable to ICE/hybrid pair
-    for q in body["questions"].values():
-        assert q["type"] == "choice"
-        assert list(q["criteria"]) == ["car_1", "car_2", "tie", "insufficient_evidence"]
-        assert q["criteria"]["insufficient_evidence"] == "Available evidence is insufficient"
-        assert q["criteria"]["tie"] == "Differences are balanced or not meaningful"
+    assert set(body["state"]) == {"buyer_profile", "pairwise_objective_evidence", "contextual_vehicle_evidence", "hard_constraint_results"}
+    questions = body["questions"]
+    assert len(questions) >= 5
+    assert "overall" not in questions
+    for qid, q in questions.items():
+        assert QID.match(qid), qid
+        assert q["type"] == "score"
+        assert q["criteria"] in (MATERIALITY_LEVELS, *FIT_LEVELS.values())
+    # no broad category-winner questions and no car_N/tie criteria anywhere
+    from app.services.comparison_v2.deterministic_engine import CATEGORIES
+    assert not set(questions) & set(CATEGORIES)
+    text = json.dumps(questions)
+    assert "insufficient_evidence" not in text and "Which car" not in text and "better overall?" not in text
+    assert out["data"]["decision"]["primitives"] == ["score"]
+    assert out["data"]["decision"]["question_count"] == len(questions)
 
 
-def test_three_cars_still_one_call_with_car_3_choice():
+def test_materiality_questions_only_for_code_determined_differences():
     session = FakeTypeSafeSession()
-    deps = build_fake_deps(session=session)
-    out = run([AUDI_Q3, HYUNDAI_TUCSON, BMW_I4], deps)
-    assert len(session.post_calls) == 1
-    for q in session.post_calls[0]["json"]["questions"].values():
-        assert list(q["criteria"]) == ["car_1", "car_2", "car_3", "tie", "insufficient_evidence"]
-    assert out["data"]["provider_meta"]["jev_calls"] == 1
+    out = run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(session=session))["data"]
+    directions = out["decision_trace"]["pairwise_direction"]["car_1__car_2"]
+    asked = {qid.split("__")[3] for qid in session.post_calls[0]["json"]["questions"] if qid.startswith("materiality__")}
+    weights = out["decision_trace"]["overall_composition"]["weights"]
+    from app.services.comparison_v2.decision_model import GROUP_DIMENSION
+    assert asked == {g for g, d in directions.items()
+                     if d in ("car_1", "car_2") and g in GROUP_DIMENSION and weights[GROUP_DIMENSION[g]] > 0}
+    assert "towing" not in asked  # no towing requirement -> towing is never weighed
+    # missing / tie / not comparable groups are never turned into a question
+    assert all(directions[g] in ("car_1", "car_2") for g in asked)
 
 
-def test_state_contains_only_validated_data():
+def test_three_cars_one_call_with_pairwise_questions():
     session = FakeTypeSafeSession()
-    run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(session=session))
+    out = run([AUDI_Q3, HYUNDAI_TUCSON, BMW_I4], build_fake_deps(session=session))["data"]
+    assert len(session.post_calls) == 1 and out["provider_meta"]["jev_calls"] == 1
+    pairs = {"__".join(q.split("__")[1:3]) for q in session.post_calls[0]["json"]["questions"] if q.startswith("materiality__")}
+    assert pairs == {"car_1__car_2", "car_1__car_3", "car_2__car_3"}
+
+
+def test_state_contains_only_compact_validated_data_in_english():
+    session = FakeTypeSafeSession()
+    run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(session=session),
+        profile={"mode": "personalized", "main_use": "family", "parking_constraint": "tight", "priorities": PRI})
     body = session.post_calls[0]["json"]
     text = json.dumps(body, ensure_ascii=False)
     # rejected / model-generic / third-party values never reach JEV
-    assert "carzone" not in text
-    assert "evil.com" not in text
-    assert "299000" not in text  # foreign price claim
-    assert "193" not in json.dumps(body["state"]["car_2"]["official_level_2"])  # 2WD top-speed claim
-    assert "1650" not in text  # model_generic height
-    assert "Bose" not in text  # extra equipment is never weighted
-    # no URLs, page titles, HTML or prose
-    assert "http" not in text and "<" not in text
-    assert "source_url" not in text and "source_title" not in text
-    assert "ts-test-secret-key" not in text
-    car2_official = body["state"]["car_2"]["official_level_2"]["facts"]
-    assert car2_official["torque_nm"]["value"] == 350
+    for banned in ("carzone", "evil.com", "299000", "1650", "Bose", "http", "<", "source_url", "source_title",
+                   "ts-test-secret-key", "rejected", "Audi", "Hyundai", "Tucson", "Q3"):
+        assert banned not in text, banned
+    assert not HEBREW.search(text)  # English canonical internal wording
+    assert "193" not in json.dumps(body["state"]["pairwise_objective_evidence"]["factor_values"].get("top_speed", {}))
+    torque = body["state"]["pairwise_objective_evidence"]["factor_values"]["power_output"]["torque_nm"]
+    assert torque["car_2"] == 350
 
 
-def test_buyer_profile_passed_to_jev():
+def test_no_value_is_duplicated_between_state_subtrees():
+    session = FakeTypeSafeSession()
+    run([BMW_I4, AUDI_Q3], build_fake_deps(session=session),
+        profile={"mode": "personalized", "main_use": "commuting", "charging_access": "home", "typical_daily_km": 50,
+                 "priorities": {**PRI, "ev_convenience": 3}})
+    state = session.post_calls[0]["json"]["state"]
+    factor_keys = {(metric, slot) for g in state["pairwise_objective_evidence"]["factor_values"].values()
+                   for metric, vals in g.items() for slot in vals if slot.startswith("car_")}
+    ctx_keys = {(k, slot) for slot, vals in state["contextual_vehicle_evidence"].items() for k in vals}
+    assert not factor_keys & ctx_keys
+    assert any(q.startswith("fit__") and q.endswith("charging_routine_fit") for q in session.post_calls[0]["json"]["questions"])
+
+
+def test_every_question_references_existing_state_paths():
+    session = FakeTypeSafeSession()
+    out = run([BMW_I4, AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(session=session),
+              profile={"mode": "personalized", "main_use": "family", "charging_access": "public_only",
+                       "road_conditions": "rough_roads", "priorities": {**PRI, "ev_convenience": 2}})["data"]
+    body = session.post_calls[0]["json"]
+    specs = out["decision_trace"]["jev_question_specs"]
+    assert {s["question_id"] for s in specs} == set(body["questions"])
+    for spec in specs:
+        for path in spec["state_paths"]:
+            resolve(body["state"], path)
+            assert path in body["questions"][spec["question_id"]]["instructions"], (spec["question_id"], path)
+
+
+def test_priorities_stay_in_code_and_do_not_reach_jev():
     session = FakeTypeSafeSession()
     run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(session=session),
-        profile={"family_size": "זוג + 3", "priority_weights": {"safety": 10}})
-    body = session.post_calls[0]["json"]
-    assert body["state"]["buyer_profile"]["family_size"] == "זוג + 3"
-    assert "safety" in body["state"]["buyer_profile"]["emphasis"]
-    assert "preferences" in body["questions"]["overall"]["instructions"]
+        profile={"mode": "personalized", "main_use": "family", "annual_km": 18000, "priorities": {**PRI, "safety": 4}})
+    buyer = session.post_calls[0]["json"]["state"]["buyer_profile"]
+    assert buyer["main_use"] == "family" and buyer["annual_km"] == 18000
+    assert "priorities" not in buyer and "weights" not in json.dumps(buyer)
 
 
-def test_ab_swap_flips_decisions():
+def test_zero_weight_dimension_is_not_asked():
+    session = FakeTypeSafeSession()
+    run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(session=session),
+        profile={"mode": "personalized", "main_use": "city", "priorities": {**PRI, "performance": 0}})
+    asked = {q.split("__")[3] for q in session.post_calls[0]["json"]["questions"] if q.startswith("materiality__")}
+    assert not asked & {"power_output", "acceleration", "top_speed"}
+
+
+def test_ab_swap_flips_outcome_and_preserves_judgments():
     ab = run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps())["data"]
     ba = run([HYUNDAI_TUCSON, AUDI_Q3], build_fake_deps())["data"]
-    assert ab["overall"]["choice"] == "car_2"
-    assert ba["overall"]["choice"] == flip(ab["overall"]["choice"])
-    for cat in ab["categories"]:
-        assert ba["categories"][cat]["decision"]["choice"] == flip(ab["categories"][cat]["decision"]["choice"]), cat
+    assert ab["recommendation"]["outcome"] == "car_2"
+    assert ba["recommendation"]["outcome"] == flip(ab["recommendation"]["outcome"])
+    pa = ab["decision_trace"]["overall_composition"]["pairs"]["car_1__car_2"]
+    pb = ba["decision_trace"]["overall_composition"]["pairs"]["car_1__car_2"]
+    assert pa["utility"] == -pb["utility"]
+    assert pa["effective_weight_coverage"] == pb["effective_weight_coverage"]
+    # same questions, same materiality readings, inverted code directions
+    assert ab["decision_trace"]["materiality_scores"] == ba["decision_trace"]["materiality_scores"]
+    da = ab["decision_trace"]["pairwise_direction"]["car_1__car_2"]
+    db = ba["decision_trace"]["pairwise_direction"]["car_1__car_2"]
+    assert {g: flip(d) for g, d in da.items()} == db
+    assert [r.replace("Hyundai Tucson Hybrid", "X") for r in ab["recommendation"]["reasons_he"]["for"]] == \
+        [r.replace("Hyundai Tucson Hybrid", "X") for r in ba["recommendation"]["reasons_he"]["for"]]
 
 
 def test_missing_data_gives_no_advantage_to_other_side():
     # Toyota's official claim is rejected -> no Level 2 at all for car_1.
-    out = run([TOYOTA_SIEENA, HYUNDAI_TUCSON], build_fake_deps())["data"]
+    session = FakeTypeSafeSession()
+    out = run([TOYOTA_SIEENA, HYUNDAI_TUCSON], build_fake_deps(session=session))["data"]
     perf = out["categories"]["performance"]["evidence"]["atomic_results"]
     torque = next(r for r in perf if r["metric"] == "torque_nm")
     assert torque["status"] == "insufficient_data" and torque["leader"] is None
     eff = out["categories"]["efficiency"]
-    assert eff["evidence"]["status"] == "no_comparable_evidence"
-    assert eff["decision"]["choice"] == "insufficient_evidence"  # JEV's answer, not a local fallback
-    assert eff["decision"]["decision_source"] == "jev"
-    # Tucson's extra Level 2 coverage does not turn into wins
+    assert eff["evidence_status"] == "insufficient_data"
+    assert eff["influence_status"] == "insufficient_data"
+    assert not any("fuel_use" in q for q in session.post_calls[0]["json"]["questions"])
     assert out["coverage"]["car_2"]["official"]["present"] > out["coverage"]["car_1"]["official"]["present"]
     for cat in out["categories"].values():
         for r in cat["evidence"]["atomic_results"]:
             if "car_1" in r["missing"]:
-                assert r["leader"] in (None,), r["metric"]
+                assert r["leader"] is None, r["metric"]
 
 
-def test_insufficient_evidence_from_jev_is_preserved():
-    override = {"overall": {"type": "choice", "choice": "insufficient_evidence", "confidence": 0.71,
-                            "probabilities": {"car_1": 0.1, "car_2": 0.15, "tie": 0.04, "insufficient_evidence": 0.71}}}
-    session = FakeTypeSafeSession(answers_override=override)
-    writer = FakeSummaryWriter()
-    out = run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(session=session, writer=writer))["data"]
-    assert out["overall"]["choice"] == "insufficient_evidence"
-    assert out["overall"]["confidence"] == 0.71
-    assert writer.payloads[0]["overall"]["choice"] == "insufficient_evidence"
-    assert "יתרון כולל" not in out["summary"] or "אין" in out["summary"]
+def test_malformed_answer_only_drops_that_question():
+    probe = run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps())["data"]
+    qid = next(q for q in probe["decision_trace"]["materiality_scores"])
+    bad = {qid: {"type": "score", "score": 7, "confidence": 0.9, "probabilities": {"0": 1.0}}}
+    out = run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(session=FakeTypeSafeSession(answers_override=bad)))["data"]
+    answers = out["decision_trace"]["jev_answers"]
+    assert answers[qid]["status"] == "judgment_unavailable"
+    assert sum(a["status"] == "ok" for a in answers.values()) == len(answers) - 1
+    assert out["decision"]["status"] == "ok"
+    assert out["recommendation"]["outcome"] != "decision_unavailable"
 
 
-def test_probabilities_confidence_model_and_usage_stored_verbatim():
-    probs = {"car_1": 0.08, "car_2": 0.86, "tie": 0.04, "insufficient_evidence": 0.02}
-    override = {"overall": {"type": "choice", "choice": "car_2", "confidence": 0.86, "probabilities": probs},
-                "safety": {"type": "choice", "choice": "car_2", "confidence": 0.94,
-                           "probabilities": {"car_1": 0.01, "car_2": 0.94, "tie": 0.03, "insufficient_evidence": 0.02}}}
+def test_score_answer_distribution_model_and_usage_stored_verbatim():
+    probe = run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps())["data"]
+    qid = next(q for q in probe["decision_trace"]["materiality_scores"])
+    probs = {"0": 0.05, "1": 0.15, "2": 0.5, "3": 0.25, "4": 0.05}
+    override = {qid: {"type": "score", "score": 2.1, "confidence": 0.42, "probabilities": probs,
+                      "legend": {str(i): MATERIALITY_LEVELS[i] for i in range(5)}}}
     session = FakeTypeSafeSession(answers_override=override, response_model="jev-1.13.0-20260915")
     out = run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(session=session, jev_model="jev-latest"))["data"]
-    assert out["overall"]["choice"] == "car_2"
-    assert out["overall"]["confidence"] == 0.86
-    assert out["overall"]["probabilities"] == probs
-    assert out["categories"]["safety"]["decision"]["confidence"] == 0.94
+    ans = out["decision_trace"]["jev_answers"][qid]
+    assert (ans["score"], ans["confidence"], ans["probabilities"]) == (2.1, 0.42, probs)
+    assert ans["legend"]["2"] == MATERIALITY_LEVELS[2]
     assert out["decision"]["requested_model"] == "jev-latest"
     assert out["decision"]["response_model"] == "jev-1.13.0-20260915"
     assert out["decision"]["usage"] == {"input_tokens": 1234, "output_tokens": 0}
-    # confidence is never turned into a car score
-    assert "score" not in json.dumps(out["overall"])
+    # no overall confidence is manufactured
+    assert "confidence" not in json.dumps(out["recommendation"])
 
 
-def test_confidence_not_recomputed_from_probabilities():
-    override = {"overall": {"type": "choice", "choice": "car_1", "confidence": 0.5,
-                            "probabilities": {"car_1": 0.9, "car_2": 0.05, "tie": 0.03, "insufficient_evidence": 0.02}}}
-    out = run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(session=FakeTypeSafeSession(answers_override=override)))["data"]
-    assert out["overall"]["confidence"] == 0.5
+def test_confidence_is_never_averaged_into_the_decision():
+    def with_confidence(conf):
+        probe = run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps())["data"]
+        override = {}
+        for qid, ans in probe["decision_trace"]["jev_answers"].items():
+            override[qid] = {k: ans[k] for k in ("type", "score", "probabilities")}
+            override[qid]["confidence"] = conf
+        return run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(session=FakeTypeSafeSession(answers_override=override)))["data"]
+
+    low, high = with_confidence(0.2), with_confidence(0.99)
+    assert low["decision_trace"]["overall_composition"]["pairs"] == high["decision_trace"]["overall_composition"]["pairs"]
+    assert low["recommendation"] == high["recommendation"]
+    assert _no_time(low["vehicle_snapshots"]) == _no_time(high["vehicle_snapshots"])
 
 
-def test_jev_choice_outside_vocabulary_becomes_unavailable_not_a_winner():
-    override = {"overall": {"type": "choice", "choice": "car_9", "confidence": 0.99, "probabilities": {}}}
-    out = run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(session=FakeTypeSafeSession(answers_override=override)))["data"]
-    assert out["overall"]["choice"] == "decision_unavailable"
-
-
-def test_jev_confidence_does_not_change_facts():
-    low = {"overall": {"type": "choice", "choice": "car_2", "confidence": 0.31, "probabilities": {}}}
-    high = {"overall": {"type": "choice", "choice": "car_2", "confidence": 0.97, "probabilities": {}}}
-    a = run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(session=FakeTypeSafeSession(answers_override=low)))["data"]
-    b = run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(session=FakeTypeSafeSession(answers_override=high)))["data"]
-    assert _no_time(a["vehicle_snapshots"]) == _no_time(b["vehicle_snapshots"])
-    for cat in a["categories"]:
-        assert _no_time(a["categories"][cat]["evidence"]) == _no_time(b["categories"][cat]["evidence"])
+def test_jev_failure_keeps_deterministic_facts_and_never_asks_gemini_for_a_winner():
+    writer = FakeSummaryWriter()
+    out = run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(session=FakeTypeSafeSession(fail_systemone=True), writer=writer))
+    data = out["data"]
+    assert out["type"] == "result"
+    assert data["recommendation"]["outcome"] == "decision_unavailable"
+    assert data["recommendation"]["recommended_slot"] is None
+    assert writer.calls == 0
+    assert data["summary_source"] == "deterministic_fallback"
+    safety = data["categories"]["safety"]
+    assert safety["influence_status"] == "judgment_unavailable"
+    assert any(r["status"] == "compared" for r in safety["evidence"]["atomic_results"])
 
 
 def _no_time(obj):
@@ -204,24 +275,11 @@ def _no_time(obj):
     return obj
 
 
-def test_jev_failure_keeps_deterministic_facts_and_never_asks_gemini_for_a_winner():
-    writer = FakeSummaryWriter()
-    out = run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(session=FakeTypeSafeSession(fail_systemone=True), writer=writer))
-    data = out["data"]
-    assert out["type"] == "result"
-    assert data["overall"]["choice"] == "decision_unavailable"
-    assert writer.calls == 0
-    assert data["summary_source"] == "deterministic_fallback"
-    safety = data["categories"]["safety"]
-    assert safety["status"] == "decision_unavailable"
-    assert any(r["status"] == "compared" for r in safety["evidence"]["atomic_results"])
-
-
 def test_unverified_jev_model_is_never_used():
     session = FakeTypeSafeSession(models={"data": [{"id": "jev-1.13.0"}]})
     out = run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(session=session, jev_model="jev-latest"))["data"]
     assert session.post_calls == []
-    assert out["overall"]["choice"] == "decision_unavailable"
+    assert out["recommendation"]["outcome"] == "decision_unavailable"
     assert out["decision"]["reason"] == "jev_model_not_in_account_models"
 
 
@@ -252,41 +310,55 @@ def test_response_never_contains_secrets():
 # --------------------------------------------------------------------------
 def test_summary_cannot_change_decision():
     def contrarian(payload):
-        return {"stated_overall_choice": "car_1", "summary_he": "לפי הנתונים הזמינים כרגע, ל־Audi Q3 יש יתרון כולל. זה הכל."}
+        return {"stated_outcome": "car_1", "summary_he": "לפי הנתונים הזמינים והעדיפויות שהגדרת, Audi Q3 מתאים יותר. זה הכל."}
 
     writer = FakeSummaryWriter(output_fn=contrarian)
     out = run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(writer=writer))["data"]
-    assert out["overall"]["choice"] == "car_2"
+    assert out["recommendation"]["outcome"] == "car_2"
     assert out["summary_source"] == "deterministic_fallback"
     assert writer.calls == 1  # no repair call
     assert "Hyundai Tucson Hybrid" in out["summary"]
 
 
+def test_summary_payload_is_the_immutable_composed_result():
+    writer = FakeSummaryWriter()
+    out = run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(writer=writer),
+              profile={"mode": "personalized", "main_use": "family", "priorities": {**PRI, "safety": 4}})["data"]
+    payload = writer.payloads[0]
+    assert payload["outcome"] == out["recommendation"]["outcome"]
+    assert payload["recommended_name"] == "Hyundai Tucson Hybrid"
+    assert payload["reasons_for"] == out["recommendation"]["reasons_he"]["for"]
+    assert "בטיחות: קריטי" in payload["buyer_profile"]["priorities"]
+    text = json.dumps(payload, ensure_ascii=False)
+    assert "http" not in text and "probabilities" not in text and "confidence" not in text
+
+
 def test_summary_with_matching_label_but_wrong_car_named_is_rejected():
     def sneaky(payload):
-        return {"stated_overall_choice": payload["overall"]["choice"],
-                "summary_he": "לפי הנתונים הזמינים כרגע, ל־Audi Q3 יש יתרון כולל. ההכרעה מבוססת על הנתונים הזמינים."}
+        return {"stated_outcome": payload["outcome"],
+                "summary_he": "לפי הנתונים הזמינים והעדיפויות שהגדרת, Audi Q3 מתאים יותר. ההכרעה מבוססת על הנתונים הזמינים."}
 
     out = run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(writer=FakeSummaryWriter(output_fn=sneaky)))["data"]
     assert out["summary_source"] == "deterministic_fallback"
 
 
 @pytest.mark.parametrize("text", [
-    "לפי הנתונים הזמינים כרגע, ל־Hyundai Tucson Hybrid יש יתרון כולל. ללא ספק זו הבחירה.",
-    "לפי הנתונים הזמינים כרגע, ל־Hyundai Tucson Hybrid יש יתרון כולל. הוא מקבל ציון גבוה.",
-    "לפי הנתונים הזמינים כרגע, ל־Hyundai Tucson Hybrid יש יתרון כולל. הצריכה שלו 4.1 ליטר.",
+    "לפי הנתונים הזמינים והעדיפויות שהגדרת, Hyundai Tucson Hybrid מתאים יותר. ללא ספק זו הבחירה.",
+    "לפי הנתונים הזמינים והעדיפויות שהגדרת, Hyundai Tucson Hybrid מתאים יותר. הוא מקבל ציון גבוה.",
+    "לפי הנתונים הזמינים והעדיפויות שהגדרת, Hyundai Tucson Hybrid מתאים יותר. הצריכה שלו 4.1 ליטר.",
+    "לפי הנתונים הזמינים והעדיפויות שהגדרת, Hyundai Tucson Hybrid מתאים יותר. ההמלצה נכונה ב-95% מהמקרים.",
     "משפט אחד בלבד.",
 ])
 def test_summary_guardrails_reject(text):
     out = run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps(
-        writer=FakeSummaryWriter(output_fn=lambda p: {"stated_overall_choice": p["overall"]["choice"], "summary_he": text})))["data"]
+        writer=FakeSummaryWriter(output_fn=lambda p: {"stated_outcome": p["outcome"], "summary_he": text})))["data"]
     assert out["summary_source"] == "deterministic_fallback"
 
 
 def test_valid_summary_accepted():
     out = run([AUDI_Q3, HYUNDAI_TUCSON], build_fake_deps())["data"]
     assert out["summary_source"] == "gemini"
-    assert out["summary"].startswith("לפי הנתונים הזמינים כרגע")
+    assert out["summary"].startswith("לפי הנתונים הזמינים והעדיפויות שהגדרת")
 
 
 def test_summary_failure_does_not_fail_request():
@@ -297,10 +369,10 @@ def test_summary_failure_does_not_fail_request():
 
 
 def test_validate_summary_unit():
-    payload = {"overall": {"choice": "tie", "choice_name": None}, "cars": {}, "categories": []}
+    payload = {"outcome": "tie", "recommended_name": None, "cars": {}, "categories": []}
     cars = {"car_1": {"display_name": "A"}, "car_2": {"display_name": "B"}}
-    assert validate_summary({"stated_overall_choice": "tie", "summary_he": "אין כרגע יתרון כולל משמעותי. הנתונים מאוזנים."}, payload, cars)
-    assert not validate_summary({"stated_overall_choice": "tie", "summary_he": "ל־A יש יתרון כולל. הנתונים מאוזנים."}, payload, cars)
+    assert validate_summary({"stated_outcome": "tie", "summary_he": "אין כרגע יתרון משמעותי. הנתונים מאוזנים."}, payload, cars)
+    assert not validate_summary({"stated_outcome": "tie", "summary_he": "A מתאים יותר. הנתונים מאוזנים."}, payload, cars)
 
 
 # --------------------------------------------------------------------------
@@ -391,7 +463,7 @@ def test_legacy_single_pass_prompt_not_used_by_v2():
 def test_ev_scenarios_b_and_d():
     b = run([BMW_I4, XPENG_P7I], build_fake_deps())["data"]
     ev = b["categories"]["electric_and_charging"]
-    assert ev["status"] != "not_applicable"
+    assert ev["evidence_status"] != "not_applicable"
     rng = next(r for r in ev["evidence"]["atomic_results"] if r["metric"] == "electric_range_km")
     assert rng["status"] == "not_comparable" and rng["reason"] == "RANGE_STANDARD_MISMATCH"
     assert "dc_charging_power_kw" in ev["evidence"]["conflicted_metrics"]
@@ -411,7 +483,7 @@ def test_offline_mode_makes_zero_remote_calls(monkeypatch):
     out = run([AUDI_Q3, HYUNDAI_TUCSON], deps)["data"]
     meta = out["provider_meta"]
     assert (meta["remote_enrichment_calls"], meta["jev_calls"], meta["summary_calls"]) == (0, 0, 0)
-    assert out["overall"]["choice"] == "decision_unavailable"
+    assert out["recommendation"]["outcome"] == "decision_unavailable"
     assert out["summary_source"] == "deterministic_fallback"
 
 

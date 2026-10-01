@@ -58,6 +58,8 @@ def _load_fixtures() -> Dict[str, Any]:
 
 def picker_entry(record: Dict[str, Any]) -> Dict[str, Any]:
     """Compact, display-ready picker row (no raw MoT column names)."""
+    from app.services.comparison_v2.level15 import powertrain_family  # level15 imports this module
+
     make = brand_display(record.get("manufacturer"))
     model = record.get("display_model") or record.get("model")
     hp = record.get("horsepower")
@@ -77,6 +79,7 @@ def picker_entry(record: Dict[str, Any]) -> Dict[str, Any]:
         "fuel_label": fuel_label or FUEL_LABELS_HE.get(fuel, fuel),
         "body_label": BODY_LABELS_HE.get(record.get("body_style"), record.get("body_style")),
         "seats": record.get("seats"),
+        "powertrain_family": powertrain_family(propulsion),
         "display_name": f"{make} {model}".strip(),
     }
 

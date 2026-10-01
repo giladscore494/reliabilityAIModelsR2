@@ -176,19 +176,84 @@ class _Resp:
         return self._payload
 
 
+# Fake JEV levels: a stand-in for real judgments, driven ONLY by the profile
+# and validated values in the state (never by slot names), so swapping
+# vehicles yields the same readings.
+FAKE_BASE_MATERIALITY = {
+    "gov_safety_rating": 3, "adas_equipment": 2, "passive_safety": 2, "stability_basics": 1,
+    "power_output": 2, "acceleration": 2, "top_speed": 1,
+    "fuel_use": 2, "energy_use": 2,
+    "battery_size": 1, "electric_range": 2, "dc_charging": 2, "ac_charging": 1,
+    "cargo": 2, "towing": 1,
+    "co2_wltp": 2, "co2_city_highway": 1, "pollution_class": 1, "tailpipe_other": 1,
+    "price": 2, "vehicle_warranty": 1, "battery_warranty": 1,
+}
+
+
+def fake_materiality(group: str, buyer: Dict[str, Any]) -> int:
+    level = FAKE_BASE_MATERIALITY.get(group, 2)
+    use = buyer.get("main_use")
+    if group in ("power_output", "acceleration", "top_speed") and use in ("highway", "long_trips"):
+        level += 1
+    if group == "cargo" and buyer.get("cargo_need"):
+        level = {"low": 0, "medium": 2, "high": 4}[buyer["cargo_need"]]
+    if group in ("fuel_use", "energy_use") and (buyer.get("annual_km") or 0) >= 25000:
+        level += 1
+    if group == "towing" and buyer.get("towing_braked_required_kg"):
+        level = 4
+    if group == "price" and buyer.get("budget_max_ils"):
+        level = 3
+    return max(0, min(4, level))
+
+
+def fake_fit(fit_type: str, vehicle: Dict[str, Any], buyer: Dict[str, Any], factor_values: Dict[str, Any], slot: str) -> int:
+    if fit_type == "parking_fit":
+        length = vehicle.get("length_mm") or 0
+        if buyer.get("parking_constraint") == "tight":
+            return 4 if length < 4500 else 3 if length < 4700 else 2 if length < 4900 else 1
+        return 3 if length < 4900 else 2
+    if fit_type == "body_use_fit":
+        table = {("family", "suv"): 4, ("family", "mpv"): 4, ("family", "sedan"): 3, ("city", "hatchback"): 4,
+                 ("city", "suv"): 2, ("highway", "sedan"): 4, ("long_trips", "sedan"): 4, ("work", "suv"): 3}
+        return table.get((buyer.get("main_use"), vehicle.get("body_style")), 2)
+    if fit_type == "ground_clearance_fit":
+        gc = vehicle.get("ground_clearance_mm") or 0
+        return 4 if gc >= 200 else 3 if gc >= 170 else 1
+    if fit_type == "charging_routine_fit":
+        rng = vehicle.get("electric_range_km") or ((factor_values.get("electric_range") or {}).get("electric_range_km") or {}).get(slot) or 0
+        access = buyer.get("charging_access")
+        if access in ("home", "home_and_work"):
+            return 4 if rng >= 400 else 3
+        return {"work": 3, "public_only": 2, "none": 0}.get(access, 2)
+    return 2
+
+
+def score_answer(level: int, levels: int = 5, peak: float = 0.85) -> Dict[str, Any]:
+    neighbours = [i for i in (level - 1, level + 1) if 0 <= i < levels]
+    probs = {str(i): 0.0 for i in range(levels)}
+    probs[str(level)] = peak
+    for n in neighbours:
+        probs[str(n)] = round((1 - peak) / len(neighbours), 6)
+    expected = sum(int(k) * v for k, v in probs.items())
+    return {"type": "score", "score": round(expected, 6), "confidence": peak, "probabilities": probs,
+            "legend": {str(i): f"level {i}" for i in range(levels)}}
+
+
 class FakeTypeSafeSession:
     """Records requests; answers /v1/models and /v1/systemone deterministically.
 
-    The fake "judgment" picks the car leading the most correlation groups in
-    the deterministic evidence it was sent (tie when equal, insufficient when
-    there are no compared groups). It is only a stand-in for JEV.
+    Every question must be a ``score`` question; the fake answers materiality
+    from the group + buyer context and fit from validated vehicle values. It
+    is only a stand-in for JEV.
     """
 
-    def __init__(self, models=None, answers_override=None, fail_systemone=False, response_model="jev-1.13.0"):
+    def __init__(self, models=None, answers_override=None, fail_systemone=False, response_model="jev-1.13.0",
+                 materiality_fn=None):
         self.models = models if models is not None else {"data": [{"id": "jev-1.13.0", "aliases": ["jev-latest"]}]}
         self.answers_override = answers_override or {}
         self.fail_systemone = fail_systemone
         self.response_model = response_model
+        self.materiality_fn = materiality_fn or fake_materiality
         self.get_calls: List[Dict[str, Any]] = []
         self.post_calls: List[Dict[str, Any]] = []
 
@@ -201,33 +266,20 @@ class FakeTypeSafeSession:
         if self.fail_systemone:
             return _Resp(503, {"error": "unavailable"})
         state = json["state"]
-        slots = [k for k in state if k.startswith("car_")]
+        buyer = state["buyer_profile"]
+        factor_values = state["pairwise_objective_evidence"]["factor_values"]
         answers = {}
-        totals = {s: 0 for s in slots}
         for qid, q in json["questions"].items():
-            if qid == "overall":
-                continue
-            groups = state["deterministic_evidence"][qid]["correlation_groups"]
-            counts = {s: sum(1 for g in groups if g["lean"] == s) for s in slots}
-            answers[qid] = self._answer(slots, counts, bool(groups))
-            if answers[qid]["choice"] in totals:
-                totals[answers[qid]["choice"]] += 1
-        answers["overall"] = self._answer(slots, totals, any(totals.values()))
+            assert q["type"] == "score", qid
+            parts = qid.split("__")
+            if parts[0] == "materiality":
+                level = self.materiality_fn(parts[3], buyer)
+            else:
+                slot, fit_type = parts[1], parts[2]
+                level = fake_fit(fit_type, state["contextual_vehicle_evidence"].get(slot, {}), buyer, factor_values, slot)
+            answers[qid] = score_answer(level, len(q["criteria"]))
         answers.update(copy.deepcopy(self.answers_override))
         return _Resp(200, {"model": self.response_model, "answers": answers, "usage": {"input_tokens": 1234, "output_tokens": 0}})
-
-    @staticmethod
-    def _answer(slots, counts, has_evidence):
-        if not has_evidence:
-            choice = "insufficient_evidence"
-        else:
-            best = max(counts.values())
-            leaders = [s for s, c in counts.items() if c == best]
-            choice = leaders[0] if len(leaders) == 1 and best > 0 else "tie"
-        options = slots + ["tie", "insufficient_evidence"]
-        probs = {o: 0.04 for o in options}
-        probs[choice] = round(1 - 0.04 * (len(options) - 1), 2)
-        return {"type": "choice", "choice": choice, "confidence": probs[choice], "probabilities": probs}
 
 
 class FakeSummaryWriter:
@@ -248,13 +300,12 @@ class FakeSummaryWriter:
             return {"output": None, "error_code": self.error, "duration_ms": 1}
         if self.output_fn:
             return {"output": self.output_fn(payload), "error_code": None, "duration_ms": 1}
-        overall = payload["overall"]
-        name = overall.get("choice_name")
+        name = payload.get("recommended_name")
         if name:
-            text = f"לפי הנתונים הזמינים כרגע, ל־{name} יש יתרון כולל. ההכרעה מבוססת על הנתונים הזמינים בלבד."
+            text = f"לפי הנתונים הזמינים והעדיפויות שהגדרת, {name} מתאים יותר. ההכרעה מבוססת על הנתונים המאומתים בלבד."
         else:
-            text = "אין כרגע מספיק מידע מאומת להכרעה כוללת. ההשוואה מציגה את הנתונים הזמינים בלבד."
-        return {"output": {"stated_overall_choice": overall["choice"], "summary_he": text}, "error_code": None, "duration_ms": 1}
+            text = "אין כרגע הכרעה מותאמת חד-משמעית. ההשוואה מציגה את הנתונים המאומתים בלבד."
+        return {"output": {"stated_outcome": payload["outcome"], "summary_he": text}, "error_code": None, "duration_ms": 1}
 
 
 def build_fake_deps(provider=None, session=None, writer=None, history=None, jev_model="jev-1.13.0"):

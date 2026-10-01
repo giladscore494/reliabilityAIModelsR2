@@ -37,7 +37,7 @@ from app.services.comparison.model_config import (
     comparison_stage_a_model_id,
     comparison_v2_enabled,
 )
-from app.services.comparison.schemas import validate_buyer_profile
+from app.services.comparison_v2.buyer_profile import ui_options as comparison_v2_ui_options
 from app.services.comparison_v2.demo_catalog import DemoVehicleCatalogRepository
 from app.utils.analytics import track_event
 
@@ -102,6 +102,7 @@ def _v2_template_context():
     return {
         "comparison_v2_enabled": enabled,
         "comparison_v2_variants": DemoVehicleCatalogRepository().picker_entries() if enabled else [],
+        "comparison_v2_profile_options": comparison_v2_ui_options() if enabled else {},
     }
 
 
@@ -280,10 +281,9 @@ def _compare_v2(data, user_id, session_id, owner_bypass, request_id, reservation
         else:
             release_quota_reservation(reservation_id, user_id, day_key)
 
-    buyer_valid, buyer_error, buyer_profile = validate_buyer_profile(data.get("buyer_profile"))
-    if not buyer_valid:
-        settle(False)
-        return api_error("validation_error", buyer_error, status=400)
+    # buyer-profile/2 is validated inside the pipeline (it needs the resolved
+    # vehicles to know whether EV questions apply); errors come back as events.
+    buyer_profile = data.get("buyer_profile")
 
     log_product_call_verdict_input(
         request_id=request_id,
@@ -317,7 +317,7 @@ def _compare_v2(data, user_id, session_id, owner_bypass, request_id, reservation
                         settle(True)
                         settled = True
                         track_completed()
-                        line = {"type": "result", "ok": True, "data": event["data"]}
+                        line = {"type": "result", "ok": True, "data": _public_v2_result(event["data"], owner_bypass)}
                     else:
                         settle(False)
                         settled = True
@@ -350,9 +350,17 @@ def _compare_v2(data, user_id, session_id, owner_bypass, request_id, reservation
         return api_error(final.get("code", "server_error"), final.get("message", "שגיאה"), status=final.get("status", 500))
     settle(True)
     track_completed()
-    payload = dict(final["data"])
+    payload = _public_v2_result(final["data"], owner_bypass)
     payload["progress"] = final.get("progress", [])
     return api_ok(payload)
+
+
+def _public_v2_result(data, is_owner):
+    """The full decision trace (JEV state, question specs, raw answers) is owner/debug only."""
+    payload = dict(data)
+    if not is_owner:
+        payload.pop("decision_trace", None)
+    return payload
 
 
 @bp.route('/api/compare/history', methods=['GET'])
@@ -388,7 +396,9 @@ def compare_detail(comparison_id):
     detail = comparison_service.get_comparison_detail(comparison_id, user_id)
     if not detail:
         return api_error("not_found", "השוואה לא נמצאה", status=404)
-    
+    if isinstance(detail.get("v2_result"), dict):
+        detail = {**detail, "v2_result": _public_v2_result(detail["v2_result"], is_owner_user())}
+
     return api_ok(detail)
 
 

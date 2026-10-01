@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 """Comparison V2 orchestration.
 
-validate request -> resolve variants -> Level 1.5 snapshots -> official
-enrichment per car (cache first, max one remote call per car, concurrent) ->
-deterministic validation + canonical merge -> deterministic comparison ->
-one JEV call -> one Gemini summary call -> persist -> response.
+validate request -> resolve variants -> Level 1.5 snapshots -> validate the
+buyer profile (``buyer-profile/2``) -> official enrichment per car (cache
+first, max one remote call per car, concurrent) -> deterministic validation +
+canonical merge -> deterministic comparison + pairwise evidence -> hard
+constraints -> ONE JEV System One call with many narrow Score questions ->
+deterministic composition (code decides) -> one Gemini summary call that
+explains the immutable result -> persist -> response.
 
 ``run_comparison_v2`` is a generator of events so the route can stream
 meaningful progress (NDJSON) or simply collect the final event.
@@ -21,31 +24,49 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Iterator, List, Optional
 
+from app.services.comparison_v2.buyer_profile import (
+    BUYER_PROFILE_VERSION,
+    UNSUPPORTED_CONCEPTS,
+    UNSUPPORTED_LABELS_HE,
+    BuyerProfileError,
+    normalize_buyer_profile,
+    profile_summary_he,
+)
+from app.services.comparison_v2.composer import DecisionComposer, strongest_reasons
 from app.services.comparison_v2.contracts import (
     DECISION_UNAVAILABLE,
     ENGINE_VERSION,
     ENRICHMENT_CONTRACT_VERSION,
     MAX_CARS,
     MIN_CARS,
-    NOT_APPLICABLE,
     PROGRESS_LABELS_HE,
     SLOT_KEYS,
     VehicleCatalogRepository,
     OfficialEnrichmentRepository,
 )
 from app.services.comparison_v2.demo_catalog import is_valid_identity_key
+from app.services.comparison_v2.decision_model import DIMENSIONS, dimension_weights
 from app.services.comparison_v2.deterministic_engine import (
     CATEGORIES,
-    CATEGORY_LABELS_HE,
     STATUS_COMPARED,
+    build_pairwise_evidence,
     run_deterministic_comparison,
-    vehicle_coverage,
 )
-from app.services.comparison_v2.jev_client import TypeSafeJevClient, evaluate_with_jev
+from app.services.comparison_v2.explanations import (
+    MODEL_CERTAINTY_LABEL_HE,
+    MODEL_CERTAINTY_NOTE_HE,
+    build_category_cards,
+    constraint_notes,
+    reason_texts,
+    recommendation_view,
+)
+from app.services.comparison_v2.hard_constraints import HardConstraintEvaluator
+from app.services.comparison_v2.jev_client import TypeSafeJevClient, run_system_one
+from app.services.comparison_v2.judgments import KIND_FIT, KIND_MATERIALITY, JevJudgmentRegistry
 from app.services.comparison_v2.level15 import build_level15_snapshot
 from app.services.comparison_v2.official_enrichment import LiveOfficialEnrichmentRepository, enrich_many
 from app.services.comparison_v2.source_registry import SOURCE_REGISTRY_VERSION
-from app.services.comparison_v2.summary_writer import GeminiSummaryWriter, produce_summary
+from app.services.comparison_v2.summary_writer import GeminiSummaryWriter, build_summary_payload, produce_summary
 
 logger = logging.getLogger("comparison_v2")
 
@@ -54,21 +75,7 @@ LIMITATION_RELIABILITY_HE = "אמינות ארוכת טווח עדיין אינ�
 LIMITATION_COST_HE = "עלויות אחזקה אינן נכללות בגרסה זו; נכלל רק מחיר רשמי מיבואן כשהוא מפורסם."
 LIMITATION_WARRANTY_HE = "תנאי אחריות אינם מדד לאמינות."
 
-PRIORITY_TO_CATEGORIES = {
-    "safety": ["safety"],
-    "performance": ["performance"],
-    "fuel": ["efficiency", "electric_and_charging"],
-    "comfort": ["practicality"],
-    "cost": ["official_price_and_warranty"],
-}
-MAIN_USE_TO_CATEGORIES = {
-    "family": ["practicality", "safety"],
-    "work": ["towing_and_utility", "practicality"],
-    "long_trips": ["efficiency", "electric_and_charging"],
-    "highway": ["efficiency", "electric_and_charging"],
-    "city": ["efficiency"],
-    "commuting": ["efficiency"],
-}
+LIMITATION_WEIGHTS_HE = "משקלי ההכרעה וספי ההכרעה הם ראשוניים ועדיין לא כוילו על מערך הערכה שלנו."
 
 
 @dataclass
@@ -123,47 +130,34 @@ def validate_v2_request(data: Any, catalog: VehicleCatalogRepository):
     return records, None
 
 
-def build_buyer_context(profile: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """Buyer preferences change what matters, never the facts."""
-    if not profile:
-        return None
-    emphasis: List[str] = []
-    weights = profile.get("priority_weights") or {}
-    for key, value in weights.items():
-        if value and key in PRIORITY_TO_CATEGORIES:
-            emphasis.extend(PRIORITY_TO_CATEGORIES[key])
-    emphasis.extend(MAIN_USE_TO_CATEGORIES.get(profile.get("main_use") or "", []))
-    if profile.get("family_size") or profile.get("cargo_need"):
-        emphasis.append("practicality")
-    ctx = {k: v for k, v in profile.items() if k != "priority_weights"}
-    ctx["priorities"] = sorted(k for k, v in weights.items() if v)
-    ctx["emphasis"] = list(dict.fromkeys(emphasis))
-    if "reliability" in ctx["priorities"]:
-        ctx["reliability_not_evaluated"] = True
-    return ctx
-
-
-def limitations_for(buyer_context: Optional[Dict[str, Any]], comparison: Dict[str, Any]) -> List[str]:
-    out = [LIMITATION_SOURCES_HE]
-    priorities = set((buyer_context or {}).get("priorities") or [])
-    if "reliability" in priorities:
-        out.append(LIMITATION_RELIABILITY_HE)
-    if "cost" in priorities:
-        out.append(LIMITATION_COST_HE)
+def limitations_for(comparison: Dict[str, Any]) -> List[str]:
+    out = [LIMITATION_SOURCES_HE, LIMITATION_RELIABILITY_HE, LIMITATION_COST_HE]
     warranty_compared = any(
         r["metric"].startswith("warranty_") and r["status"] == STATUS_COMPARED
         for r in comparison["categories"]["official_price_and_warranty"]["atomic_results"]
     )
     if warranty_compared:
         out.append(LIMITATION_WARRANTY_HE)
+    out.append(LIMITATION_WEIGHTS_HE)
     return out
+
+
+def _profile_error_message(exc: BuyerProfileError) -> str:
+    text = str(exc)
+    if text.startswith("buyer_profile") or text.startswith("mode"):
+        return "יש לבחור השוואה מותאמת אליי או השוואה כללית"
+    if text.startswith("main_use"):
+        return "יש לבחור את השימוש העיקרי ברכב"
+    if text.startswith("priorities"):
+        return "יש לדרג את החשיבות של כל תחום (0–4)"
+    return f"אחד משדות ההתאמה אינו תקין ({text.split(':', 1)[0]})"
 
 
 def compute_request_hash(keys: List[str], buyer_profile: Optional[Dict[str, Any]], provider_meta: Dict[str, Any]) -> str:
     material = {
         "engine": ENGINE_VERSION,
         "keys": keys,
-        "buyer": buyer_profile or {},
+        "buyer": buyer_profile or {},  # the complete NORMALIZED buyer-profile/2
         "registry": SOURCE_REGISTRY_VERSION,
         "contract": ENRICHMENT_CONTRACT_VERSION,
         "models": {k: provider_meta.get(k) for k in ("enrichment_model", "summary_model", "jev_model")},
@@ -194,16 +188,6 @@ def _car_card(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _top_reasons(evidence: Dict[str, Any], limit: int = 4) -> List[Dict[str, Any]]:
-    reasons = []
-    for r in evidence["atomic_results"]:
-        if r["status"] != STATUS_COMPARED:
-            continue
-        reasons.append({k: r.get(k) for k in ("metric", "label_he", "leader", "display", "provenance", "correlation_group", "note_he", "details")})
-    reasons.sort(key=lambda r: 0 if r["leader"] not in ("tie", None) else 1)
-    return reasons[:limit]
-
-
 def _response_snapshot(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     official = snapshot.get("official_enrichment") or {}
     return {
@@ -228,6 +212,7 @@ def _diagnostics(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "enrichment_status": official.get("status"),
         "error_code": official.get("error_code"),
+        "provider_diagnostics": official.get("provider_diagnostics"),
         "refreshed_groups": official.get("refreshed_groups"),
         "stale_fields": official.get("stale_fields") or [],
         "rejected_claims": slim(official.get("rejected_claims"), ("field", "reason", "host", "source_url", "raw_value", "raw_unit")),
@@ -249,27 +234,34 @@ def _sources(snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
     return list(by_url.values())
 
 
-def assemble_categories(
-    comparison: Dict[str, Any], jev_result: Dict[str, Any], ask: List[str]
-) -> Dict[str, Dict[str, Any]]:
-    categories = {}
-    for cat in CATEGORIES:
-        ev = comparison["categories"][cat]
-        if ev["status"] == NOT_APPLICABLE:
-            status, decision = NOT_APPLICABLE, {"choice": NOT_APPLICABLE, "confidence": None, "probabilities": None, "decision_source": "not_applicable"}
-        else:
-            decision = dict(jev_result["decisions"].get(cat) or {"choice": DECISION_UNAVAILABLE})
-            decision["decision_source"] = "jev" if decision.get("choice") != DECISION_UNAVAILABLE else "none"
-            status = "decided" if decision.get("choice") != DECISION_UNAVAILABLE else DECISION_UNAVAILABLE
-        categories[cat] = {
-            "key": cat,
-            "label_he": CATEGORY_LABELS_HE[cat],
-            "status": status,
-            "decision": decision,
-            "evidence": ev,
-            "top_reasons": _top_reasons(ev),
-        }
-    return categories
+def _decision_trace(profile, constraints, plan, jev_run, pairwise, composition) -> Dict[str, Any]:
+    """Everything needed to audit one decision later (owner/debug only; no secrets)."""
+    answers = jev_run.get("answers") or {}
+
+    def scores(kind):
+        return {qid: (answers.get(qid) or {}).get("score") for qid, spec in plan.specs.items() if spec.kind == kind}
+
+    return {
+        "buyer_profile_schema": BUYER_PROFILE_VERSION,
+        "normalized_buyer_profile": profile,
+        "hard_constraints": constraints,
+        "jev_state": plan.state,
+        "jev_question_specs": [spec.to_trace() for spec in plan.specs.values()],
+        "jev_skipped_questions": plan.skipped,
+        "jev_answers": answers,
+        "jev_unexpected_answer_ids": jev_run.get("unexpected_answer_ids") or [],
+        "pairwise_direction": {pk: {g: v["direction"] for g, v in p["groups"].items()} for pk, p in pairwise.items()},
+        "materiality_scores": scores(KIND_MATERIALITY),
+        "contextual_fit_scores": scores(KIND_FIT),
+        "category_contributions": {
+            pk: {d: p["dimensions"][d]["contribution"] for d in DIMENSIONS} for pk, p in composition.get("pairs", {}).items()
+        },
+        "effective_weight_coverage": {pk: p["effective_weight_coverage"] for pk, p in composition.get("pairs", {}).items()},
+        "overall_composition": composition,
+        "provider_model": {"requested": jev_run.get("requested_model"), "response": jev_run.get("response_model")},
+        "usage": jev_run.get("usage"),
+        "duration_ms": jev_run.get("duration_ms"),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -298,8 +290,13 @@ def run_comparison_v2(
 
     yield _progress("loading_government_data")
     snapshots = {slot: build_level15_snapshot(rec, slot) for slot, rec in zip(slots, records)}
-    buyer_context = build_buyer_context(buyer_profile)
-    request_hash = compute_request_hash(keys, buyer_profile, deps.provider_meta)
+    families = [snapshots[s]["derived"]["powertrain_family"] for s in slots]
+    try:
+        profile = normalize_buyer_profile(buyer_profile, has_plugin_vehicle=any(f in ("ev", "phev") for f in families))
+    except BuyerProfileError as exc:
+        yield _error(400, "invalid_buyer_profile", _profile_error_message(exc))
+        return
+    request_hash = compute_request_hash(keys, profile, deps.provider_meta)
 
     if deps.history is not None:
         try:
@@ -354,6 +351,9 @@ def run_comparison_v2(
             rejected=len(outcome.get("rejected_claims") or []),
             conflicts=len(outcome.get("conflicts") or []),
             grounded_sources=meta.get("grounded_source_count"),
+            grounding=meta.get("grounding"),
+            parse_source=meta.get("parse_source"),
+            model_generic=len(outcome.get("model_generic_claims") or []),
             duration_ms=meta.get("duration_ms"),
             error=outcome.get("error_code"),
         )
@@ -369,35 +369,42 @@ def run_comparison_v2(
     _log("deterministic_compare_completed", request_id=request_id, duration_ms=timings["deterministic_ms"],
          ready=[c for c, e in comparison["categories"].items() if e["status"] == "ready"])
 
-    # --- JEV (exactly one call) -------------------------------------------
+    # --- requirements, pairwise evidence, JEV micro-judgments --------------
     yield _progress("evaluating_decision")
     t0 = time.perf_counter()
-    # Every applicable category is a JEV question (one request).
-    ask = [c for c, e in comparison["categories"].items() if e["status"] != NOT_APPLICABLE]
+    constraints = HardConstraintEvaluator().evaluate(profile, snapshots)
+    pairwise = build_pairwise_evidence(snapshots)
+    weights = dimension_weights(profile, families)
+    plan = JevJudgmentRegistry().build(profile, snapshots, pairwise, constraints, weights)
+    questions = {qid: spec.to_question() for qid, spec in plan.specs.items()}
     jev_calls_before = deps.jev_client.calls if deps.jev_client is not None else 0
-    if deps.jev_client is None:
-        from app.services.comparison_v2.jev_client import unavailable_decisions
-
-        jev_result = unavailable_decisions(ask, deps.jev_unavailable_reason or "jev_not_configured")
-    else:
-        jev_result = evaluate_with_jev(deps.jev_client, snapshots, comparison, ask, buyer_context)
+    jev_run = run_system_one(deps.jev_client, plan.request_body, questions)
+    if jev_run["status"] == "failed" and deps.jev_client is None:
+        jev_run["reason"] = deps.jev_unavailable_reason or jev_run["reason"]
     timings["jev_ms"] = int((time.perf_counter() - t0) * 1000)
-    if jev_result["status"] == "ok":
-        _log("jev_completed", request_id=request_id, requested_model=jev_result.get("requested_model"),
-             response_model=jev_result.get("response_model"), usage=jev_result.get("usage"), duration_ms=timings["jev_ms"])
-    else:
-        _log("jev_failed", request_id=request_id, reason=jev_result.get("reason"), duration_ms=timings["jev_ms"])
+    _log("jev_completed" if jev_run["status"] != "failed" else "jev_failed", request_id=request_id,
+         status=jev_run["status"], reason=jev_run.get("reason"), questions=len(questions),
+         usable=jev_run.get("usable_answers"), requested_model=jev_run.get("requested_model"),
+         response_model=jev_run.get("response_model"), usage=jev_run.get("usage"), duration_ms=timings["jev_ms"])
 
-    categories = assemble_categories(comparison, jev_result, ask)
-    overall = dict(jev_result["decisions"].get("overall") or {"choice": DECISION_UNAVAILABLE})
-    overall["status"] = "decided" if overall.get("choice") != DECISION_UNAVAILABLE else DECISION_UNAVAILABLE
-    limitations = limitations_for(buyer_context, comparison)
+    # --- deterministic composition (code decides) ----------------------------
+    composition = DecisionComposer(profile, snapshots, pairwise, constraints, plan.specs, jev_run, weights).compose()
+    names = {slot: snapshots[slot]["identity"]["display_name"] for slot in slots}
+    answers = jev_run.get("answers") or {}
+    cards = build_category_cards(comparison, composition, profile, snapshots, pairwise, answers)
+    reasons = strongest_reasons(composition)
+    recommendation = recommendation_view(composition, profile, names)
+    recommendation["reasons_he"] = reason_texts(reasons, composition, profile, names)
+    notes = constraint_notes(constraints, names)
+    limitations = limitations_for(comparison)
+    profile_summary = profile_summary_he(profile)
 
     # --- summary (one call) ----------------------------------------------
     yield _progress("writing_summary")
     cars = {slot: _car_card(snapshots[slot]) for slot in slots}
     summary_calls_before = deps.summary_writer.calls if deps.summary_writer is not None else 0
-    summary = produce_summary(deps.summary_writer, cars, categories, overall, comparison["coverage"], buyer_context, limitations)
+    summary_payload = build_summary_payload(cars, recommendation, recommendation["reasons_he"], cards, notes, profile_summary, limitations)
+    summary = produce_summary(deps.summary_writer, cars, summary_payload)
     _log("summary_completed" if summary["source"] == "gemini" else "summary_failed", request_id=request_id,
          source=summary["source"], reason=summary.get("reason"), duration_ms=summary.get("duration_ms"))
 
@@ -412,28 +419,37 @@ def run_comparison_v2(
             for c in cars.values()
         ],
         "vehicle_snapshots": {slot: _response_snapshot(snapshots[slot]) for slot in slots},
-        "categories": categories,
+        "buyer_profile": profile,
+        "profile_summary": profile_summary,
+        "unsupported_concepts": [{"key": k, "label_he": UNSUPPORTED_LABELS_HE[k]} for k in UNSUPPORTED_CONCEPTS],
+        "recommendation": recommendation,
+        "hard_constraints": {**constraints, "notes": notes},
+        "categories": cards,
         "category_order": list(CATEGORIES),
-        "overall": overall,
         "coverage": comparison["coverage"],
         "summary": summary["text"],
         "summary_source": summary["source"],
         "sources": {slot: _sources(snapshots[slot]) for slot in slots},
         "diagnostics": {slot: _diagnostics(snapshots[slot]) for slot in slots},
         "limitations": limitations,
-        "buyer_context": buyer_context,
+        "model_certainty": {"label_he": MODEL_CERTAINTY_LABEL_HE, "note_he": MODEL_CERTAINTY_NOTE_HE},
         "decision": {
             "provider": "typesafe",
-            "status": jev_result["status"],
-            "reason": jev_result.get("reason"),
-            "requested_model": jev_result.get("requested_model"),
-            "response_model": jev_result.get("response_model"),
-            "usage": jev_result.get("usage"),
+            "status": jev_run["status"],
+            "reason": jev_run.get("reason"),
+            "requested_model": jev_run.get("requested_model"),
+            "response_model": jev_run.get("response_model"),
+            "usage": jev_run.get("usage"),
+            "question_count": jev_run["question_count"],
+            "usable_answers": jev_run.get("usable_answers", 0),
+            "primitives": sorted({q["type"] for q in questions.values()}),
+            "composition": "deterministic",
         },
+        "decision_trace": _decision_trace(profile, constraints, plan, jev_run, pairwise, composition),
         "provider_meta": {
             **deps.provider_meta,
             "decision_provider": "typesafe",
-            "jev_response_model": jev_result.get("response_model"),
+            "jev_response_model": jev_run.get("response_model"),
             "remote_enrichment_calls": remote_calls,
             "jev_calls": (deps.jev_client.calls - jev_calls_before) if deps.jev_client is not None else 0,
             "summary_calls": (deps.summary_writer.calls - summary_calls_before) if deps.summary_writer is not None else 0,
@@ -444,7 +460,7 @@ def run_comparison_v2(
     response["timings"]["total_ms"] = total_ms
 
     cacheable = (
-        overall.get("choice") != DECISION_UNAVAILABLE
+        composition["outcome"] != DECISION_UNAVAILABLE
         and all((snapshots[s]["official_enrichment"].get("status") in ("enriched", "refreshed", "cache_hit")) for s in slots)
     )
     if deps.history is not None:
@@ -454,7 +470,7 @@ def run_comparison_v2(
             logger.warning("comparison_v2 history_save_failed request_id=%s", request_id, exc_info=True)
 
     _log("comparison_v2_completed", request_id=request_id, cached=False, remote_enrichment_calls=remote_calls,
-         overall=overall.get("choice"), summary_source=summary["source"], total_ms=total_ms, **{k: v for k, v in timings.items() if k != "total_ms"})
+         outcome=composition["outcome"], questions=len(questions), summary_source=summary["source"], total_ms=total_ms, **{k: v for k, v in timings.items() if k != "total_ms"})
     yield _progress("complete")
     yield {"type": "result", "status": 200, "data": response}
 

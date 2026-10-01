@@ -133,9 +133,15 @@ def test_fuel_and_energy_consumption_never_compared_directly():
     assert by_metric["fuel_consumption_l_100km"]["status"] == STATUS_NOT_COMPARABLE
     assert by_metric["fuel_consumption_l_100km"]["kind"] == "not_cross_powertrain_comparable"
     assert by_metric["energy_consumption_kwh_100km"]["status"] == STATUS_NOT_COMPARABLE
-    # Evidence state only — the category decision itself belongs to JEV.
-    assert eff["status"] == "no_comparable_evidence"
-    assert result["categories"]["electric_and_charging"]["status"] == "not_applicable"
+    # Evidence state only — never a winner. Each metric applies to one
+    # powertrain only, so the category is shown descriptively.
+    assert eff["status"] == "cross_powertrain_descriptive"
+    # EV charging is relevant to the BMW: descriptive, NOT "not applicable".
+    assert result["categories"]["electric_and_charging"]["status"] == "cross_powertrain_descriptive"
+    assert result["categories"]["electric_and_charging"]["scope_slots"] == ["car_2"]
+    # Two petrol/hybrid cars: EV charging truly irrelevant to both.
+    ice = run_deterministic_comparison({"car_1": snap(AUDI_Q3), "car_2": snap(HYUNDAI_TUCSON, "car_2")})
+    assert ice["categories"]["electric_and_charging"]["status"] == "not_applicable"
 
 
 def test_gross_mass_never_feeds_power_to_weight():

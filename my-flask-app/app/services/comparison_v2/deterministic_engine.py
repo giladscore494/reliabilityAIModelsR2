@@ -41,6 +41,7 @@ STATUS_CONFLICT = "conflict"
 
 # Category evidence states (not decisions).
 EVIDENCE_NONE_COMPARABLE = "no_comparable_evidence"
+EVIDENCE_CROSS_POWERTRAIN = "cross_powertrain_descriptive"
 
 ALL = frozenset({"ev", "phev", "combustion", "unknown"})
 PLUGIN = frozenset({"ev", "phev"})
@@ -55,6 +56,7 @@ CATEGORIES: Tuple[str, ...] = (
     "towing_and_utility",
     "environment",
     "official_price_and_warranty",
+    "equipment_and_convenience",
 )
 
 CATEGORY_LABELS_HE = {
@@ -66,6 +68,7 @@ CATEGORY_LABELS_HE = {
     "towing_and_utility": "גרירה ושימושיות",
     "environment": "סביבה ופליטות",
     "official_price_and_warranty": "מחיר ואחריות רשמיים",
+    "equipment_and_convenience": "אבזור ונוחות שימוש",
     "overall": "הכרעה כוללת",
 }
 
@@ -214,6 +217,15 @@ METRIC_REGISTRY: Tuple[Metric, ...] = (
     _off("warranty_vehicle_km", "official_price_and_warranty", HIGHER_BETTER, correlation_group="vehicle_warranty"),
     _off("warranty_battery_years", "official_price_and_warranty", HIGHER_BETTER, correlation_group="battery_warranty"),
     _off("warranty_battery_km", "official_price_and_warranty", HIGHER_BETTER, correlation_group="battery_warranty"),
+    # --- equipment (each feature is its own signal; it only counts when the
+    #     user declared it must-have / nice-to-have — see composer) ---
+    *(
+        _off(key, "equipment_and_convenience", PRESENCE_POSITIVE, correlation_group=f"feature:{key}")
+        for key in ("apple_carplay", "android_auto", "heated_front_seats", "ventilated_front_seats",
+                    "power_front_seats", "panoramic_roof", "surround_view_camera", "premium_audio")
+    ),
+    _off("multimedia_screen_in", "equipment_and_convenience", DESCRIPTIVE),
+    _off("wheel_size_in", "equipment_and_convenience", DESCRIPTIVE),
 )
 
 METRICS_BY_KEY = {m.key: m for m in METRIC_REGISTRY}
@@ -446,10 +458,13 @@ def build_group_results(atomic: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
-def _category_applicable(category: str, snapshots: Dict[str, Dict[str, Any]]) -> bool:
-    if category == "electric_and_charging":
-        return sum(1 for s in snapshots.values() if s["derived"]["powertrain_family"] in PLUGIN) >= 2
-    return True
+def _slots_in_scope(metric: Metric, snapshots: Dict[str, Dict[str, Any]]) -> List[str]:
+    return [slot for slot, snap in snapshots.items() if snap["derived"]["powertrain_family"] in metric.applies_to]
+
+
+def _category_applicable(category: str, snapshots: Dict[str, Dict[str, Any]], metrics: List[Metric]) -> bool:
+    """not_applicable only when the category is irrelevant to EVERY selected car."""
+    return any(_slots_in_scope(m, snapshots) for m in metrics)
 
 
 def _coverage_for(metrics: List[Metric], slot: str, snapshot: Dict[str, Any]) -> Dict[str, Any]:
@@ -462,7 +477,7 @@ def _coverage_for(metrics: List[Metric], slot: str, snapshot: Dict[str, Any]) ->
 def build_category_evidence(category: str, snapshots: Dict[str, Dict[str, Any]], registry: Optional[MetricRegistry] = None) -> Dict[str, Any]:
     registry = registry or MetricRegistry()
     metrics = registry.for_category(category)
-    applicable = _category_applicable(category, snapshots)
+    applicable = _category_applicable(category, snapshots, metrics)
     atomic = [compare_metric(m, snapshots) for m in metrics]
     compared = [r for r in atomic if r["status"] == STATUS_COMPARED]
     contextual = [
@@ -484,9 +499,17 @@ def build_category_evidence(category: str, snapshots: Dict[str, Dict[str, Any]],
     ]
     # Evidence state only. The engine never decides a category: every
     # applicable category goes to JEV (which can answer insufficient_evidence).
+    judged = [m for m in metrics if m.kind not in (DESCRIPTIVE, CONTEXTUAL)]
+    shared_metric = any(len(_slots_in_scope(m, snapshots)) >= 2 for m in judged)
+    scope_slots = sorted({slot for m in judged for slot in _slots_in_scope(m, snapshots)})
+    cross_powertrain = any(r.get("reason") == "NOT_CROSS_POWERTRAIN_COMPARABLE" for r in atomic)
     status = "ready"
     if not applicable:
         status = NOT_APPLICABLE
+    elif not compared and not differing_context and cross_powertrain and not shared_metric:
+        # Relevant to only one selected powertrain (e.g. EV charging vs a
+        # petrol car): values are shown descriptively, no direct winner.
+        status = EVIDENCE_CROSS_POWERTRAIN
     elif not compared and not differing_context:
         status = EVIDENCE_NONE_COMPARABLE
     return {
@@ -502,6 +525,7 @@ def build_category_evidence(category: str, snapshots: Dict[str, Dict[str, Any]],
         "missing_metrics": missing,
         "conflicted_metrics": conflicted,
         "coverage": {slot: _coverage_for(metrics, slot, snap) for slot, snap in snapshots.items()},
+        "scope_slots": scope_slots,
     }
 
 
@@ -551,3 +575,76 @@ def run_deterministic_comparison(snapshots: Dict[str, Dict[str, Any]], registry:
         "coverage": {slot: vehicle_coverage(snap) for slot, snap in snapshots.items()},
         "cross_powertrain": sorted({s["derived"]["powertrain_family"] for s in snapshots.values()}) if len({s["derived"]["powertrain_family"] for s in snapshots.values()}) > 1 else [],
     }
+
+
+# ---------------------------------------------------------------------------
+# pairwise evidence (V2/2): code owns the direction of every objective signal
+# ---------------------------------------------------------------------------
+DIRECTION_MIXED = "mixed"
+
+
+def pair_key(a: str, b: str) -> str:
+    return f"{a}__{b}"
+
+
+def vehicle_pairs(slots: List[str]) -> List[Tuple[str, str]]:
+    ordered = sorted(slots)
+    return [(ordered[i], ordered[j]) for i in range(len(ordered)) for j in range(i + 1, len(ordered))]
+
+
+def build_pairwise_evidence(snapshots: Dict[str, Dict[str, Any]], registry: Optional[MetricRegistry] = None) -> Dict[str, Dict[str, Any]]:
+    """For every vehicle pair and correlation group: deterministic direction.
+
+    direction: one slot (that vehicle leads), ``tie``, ``mixed`` (metrics in
+    the group disagree) or ``none`` (no comparable validated value). Missing,
+    conflicted and not-comparable metrics never produce a direction.
+    """
+    registry = registry or MetricRegistry()
+    grouped: Dict[str, List[Metric]] = {}
+    for metric in registry.metrics:
+        if metric.correlation_group and metric.kind in (HIGHER_BETTER, LOWER_BETTER, PRESENCE_POSITIVE):
+            grouped.setdefault(metric.correlation_group, []).append(metric)
+    out: Dict[str, Dict[str, Any]] = {}
+    for a, b in vehicle_pairs(list(snapshots)):
+        sub = {a: snapshots[a], b: snapshots[b]}
+        groups: Dict[str, Any] = {}
+        for group, metrics in grouped.items():
+            results = [compare_metric(m, sub) for m in metrics]
+            compared = [r for r in results if r["status"] == STATUS_COMPARED]
+            leaders = {r["leader"] for r in compared if r["leader"] not in (None, CHOICE_TIE)}
+            if not compared:
+                direction = "none"
+            elif not leaders:
+                direction = CHOICE_TIE
+            elif len(leaders) == 1:
+                direction = next(iter(leaders))
+            else:
+                direction = DIRECTION_MIXED
+            groups[group] = {
+                "category": metrics[0].category,
+                "direction": direction,
+                "metrics": [
+                    {
+                        "metric": r["metric"],
+                        "label_he": r["label_he"],
+                        "unit": r["unit"],
+                        "kind": r["kind"],
+                        "values": r["values"],
+                        "display": r["display"],
+                        "leader": r["leader"],
+                        "status": r["status"],
+                        "measurement_standard": {
+                            s: (r["provenance"].get(s) or {}).get("measurement_standard") for s in (a, b)
+                        } if r["metric"] == "electric_range_km" else None,
+                    }
+                    for r in results
+                    if r["status"] == STATUS_COMPARED
+                ],
+                "excluded": [
+                    {"metric": r["metric"], "status": r["status"], "reason": r.get("reason")}
+                    for r in results
+                    if r["status"] != STATUS_COMPARED
+                ],
+            }
+        out[pair_key(a, b)] = {"pair": [a, b], "groups": groups}
+    return out

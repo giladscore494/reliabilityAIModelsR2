@@ -14,6 +14,7 @@ import concurrent.futures
 import json
 import logging
 import os
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -160,54 +161,183 @@ def build_official_enrichment_prompt(snapshot: Dict[str, Any], groups: Iterable[
     )
 
 
+DEFAULT_ENRICHMENT_TIMEOUT_SEC = 125
+# Extra seconds the per-car wrapper waits beyond the provider HTTP timeout, so
+# the SDK's own timeout normally fires first and the thread ends cleanly.
+WRAPPER_GRACE_SEC = 5
+
+
+def enrichment_timeout_sec() -> int:
+    try:
+        return max(10, int(os.environ.get("COMPARISON_ENRICHMENT_TIMEOUT_SEC", str(DEFAULT_ENRICHMENT_TIMEOUT_SEC))))
+    except ValueError:
+        return DEFAULT_ENRICHMENT_TIMEOUT_SEC
+
+
+def _get(obj: Any, name: str) -> Any:
+    """Attribute or dict access (SDK objects and plain-dict fixtures)."""
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        return obj.get(name)
+    return getattr(obj, name, None)
+
+
 def extract_grounded_sources(resp: Any) -> List[Dict[str, Any]]:
-    """Read grounding chunks from a generate_content response (no page text)."""
+    """Read Google Search grounding sources from a generate_content response.
+
+    google-genai 2.x shape: ``candidates[i].grounding_metadata.grounding_chunks[j].web``
+    with ``uri`` (usually the vertexaisearch grounding redirect), ``title``
+    (usually the site domain) and ``domain``. Citation URIs are read as a
+    secondary signal. No page text is read. Validation of these hosts stays in
+    ``field_validator`` / ``source_registry``.
+    """
     sources: List[Dict[str, Any]] = []
-    for cand in getattr(resp, "candidates", None) or []:
-        meta = getattr(cand, "grounding_metadata", None)
-        for chunk in getattr(meta, "grounding_chunks", None) or []:
-            web = getattr(chunk, "web", None)
-            if web is None:
-                continue
-            sources.append(
-                {
-                    "uri": getattr(web, "uri", None),
-                    "title": (getattr(web, "title", None) or "")[:160],
-                    "domain": getattr(web, "domain", None),
-                }
-            )
+    seen = set()
+
+    def add(uri, title, domain, kind):
+        key = (uri, domain, title)
+        if key in seen or not (uri or domain or title):
+            return
+        seen.add(key)
+        sources.append({"uri": uri, "title": (title or "")[:160], "domain": domain, "kind": kind})
+
+    for cand in _get(resp, "candidates") or []:
+        meta = _get(cand, "grounding_metadata")
+        for chunk in _get(meta, "grounding_chunks") or []:
+            web = _get(chunk, "web")
+            if web is not None:
+                add(_get(web, "uri"), _get(web, "title"), _get(web, "domain"), "grounding_chunk")
+        citations = _get(_get(cand, "citation_metadata"), "citations") or []
+        for cit in citations:
+            uri = _get(cit, "uri")
+            if isinstance(uri, str) and uri.startswith("https://"):
+                add(uri, _get(cit, "title"), None, "citation")
     return sources[:40]
 
 
+def grounding_stats(resp: Any) -> Dict[str, Any]:
+    present = False
+    chunks = 0
+    queries = 0
+    for cand in _get(resp, "candidates") or []:
+        meta = _get(cand, "grounding_metadata")
+        if meta is not None:
+            present = True
+            chunks += len(_get(meta, "grounding_chunks") or [])
+            queries += len(_get(meta, "web_search_queries") or [])
+    return {"grounding_metadata_present": present, "grounding_chunk_count": chunks, "web_search_query_count": queries}
+
+
+def _text_parts(resp: Any) -> List[str]:
+    """Non-thought text parts of the first candidate (same rule as the SDK's .text)."""
+    cands = _get(resp, "candidates") or []
+    if not cands:
+        return []
+    out = []
+    for part in _get(_get(cands[0], "content"), "parts") or []:
+        if _get(part, "thought") is True:
+            continue
+        text = _get(part, "text")
+        if isinstance(text, str):
+            out.append(text)
+    return out
+
+
 def _response_text(resp: Any) -> str:
-    try:
-        text = getattr(resp, "text", None)
-    except Exception:
-        text = None
-    if text:
-        return str(text)
-    parts: List[str] = []
-    for cand in getattr(resp, "candidates", None) or []:
-        content = getattr(cand, "content", None)
-        for part in getattr(content, "parts", None) or []:
-            val = getattr(part, "text", None)
-            if val:
-                parts.append(str(val))
-    return "".join(parts)
+    return "".join(_text_parts(resp))
+
+
+def _strict_object(text: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """json.loads of the text, of a fenced block, or of the outermost {...}.
+
+    Deterministic extraction only — nothing is rewritten or repaired.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return None, "EMPTY_TEXT"
+    candidates = [raw]
+    if raw.startswith("```"):
+        fenced = raw.strip("`").strip()
+        if fenced.lower().startswith("json"):
+            fenced = fenced[4:].strip()
+        candidates.append(fenced)
+    first, last = raw.find("{"), raw.rfind("}")
+    if 0 <= first < last:
+        candidates.append(raw[first:last + 1])
+    reason = "JSON_DECODE_ERROR"
+    for cand in candidates:
+        try:
+            data = json.loads(cand)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(data, dict):
+            return data, None
+        reason = "JSON_NOT_OBJECT"
+    return None, reason
 
 
 def parse_enrichment_json(text: str) -> Optional[Dict[str, Any]]:
-    """Strict JSON parse; tolerate a fenced block but never 'repair' content."""
-    raw = (text or "").strip()
-    if raw.startswith("```"):
-        raw = raw.strip("`")
-        if raw.lower().startswith("json"):
-            raw = raw[4:]
-    try:
-        data = json.loads(raw)
-    except (ValueError, TypeError):
-        return None
-    return data if isinstance(data, dict) else None
+    """Backward-compatible strict parse of a text payload."""
+    return _strict_object(text)[0]
+
+
+def extract_structured_output(resp: Any) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+    """Prefer the SDK's native ``parsed``; fall back to strict text parsing.
+
+    Returns (object_or_None, parse_info). Never calls the model again.
+    """
+    parsed = _get(resp, "parsed")
+    info: Dict[str, Any] = {"native_parsed_present": parsed is not None, "source": None, "parser_reason": None}
+    if isinstance(parsed, dict):
+        info["source"] = "native_parsed"
+        return parsed, info
+    parts = _text_parts(resp)
+    data, reason = _strict_object("".join(parts))
+    if data is not None:
+        info["source"] = "text"
+        return data, info
+    # Several text parts can each be a complete JSON object; the concatenation
+    # is then invalid. Use the last part that is a complete object on its own.
+    for part in reversed(parts):
+        data, _ = _strict_object(part)
+        if data is not None:
+            info["source"] = "text_part"
+            return data, info
+    info["parser_reason"] = "NATIVE_PARSED_NOT_OBJECT" if parsed is not None else reason
+    return None, info
+
+
+_SECRETISH = re.compile(r"(AIza[0-9A-Za-z_\-]{20,}|sk-[0-9A-Za-z]{16,}|Bearer\s+\S+)")
+
+
+def _sanitize_fragment(text: str, limit: int = 160) -> str:
+    cleaned = _SECRETISH.sub("[REDACTED]", re.sub(r"\s+", " ", text or "")).strip()
+    return cleaned[:limit]
+
+
+def invalid_json_diagnostics(resp: Any, model: Optional[str], parse_info: Dict[str, Any], exc: Optional[BaseException] = None) -> Dict[str, Any]:
+    """Safe metadata for an unusable response (no prompt, no key, short fragments)."""
+    cands = _get(resp, "candidates") or []
+    finish = _get(cands[0], "finish_reason") if cands else None
+    text = _response_text(resp)
+    diag = {
+        "model": model,
+        "model_version": _get(resp, "model_version"),
+        "finish_reason": getattr(finish, "value", finish),
+        "candidate_count": len(cands),
+        "text_part_count": len(_text_parts(resp)),
+        "response_text_length": len(text),
+        "native_parsed_present": parse_info.get("native_parsed_present"),
+        "parser_reason": parse_info.get("parser_reason") or (type(exc).__name__ if exc else None),
+        "text_head": _sanitize_fragment(text[:400]),
+        "text_tail": _sanitize_fragment(text[-400:]) if len(text) > 160 else "",
+        **grounding_stats(resp),
+    }
+    block = _get(_get(resp, "prompt_feedback"), "block_reason")
+    if block is not None:
+        diag["prompt_block_reason"] = getattr(block, "value", block)
+    return diag
 
 
 class OfficialEnrichmentProvider:
@@ -215,6 +345,7 @@ class OfficialEnrichmentProvider:
 
     name = "abstract"
     model_id: Optional[str] = None
+    timeout_sec: int = DEFAULT_ENRICHMENT_TIMEOUT_SEC
 
     def enrich(self, snapshot: Dict[str, Any], groups: Tuple[str, ...]) -> Dict[str, Any]:  # pragma: no cover - interface
         raise NotImplementedError
@@ -230,14 +361,19 @@ class OfflineEnrichmentProvider(OfficialEnrichmentProvider):
 
 
 class GeminiOfficialEnrichmentProvider(OfficialEnrichmentProvider):
-    """Google-Search-grounded Gemini extraction with a strict JSON schema."""
+    """Google-Search-grounded Gemini extraction with a strict JSON schema.
+
+    Exactly one ``generate_content`` call per car: provider-level HTTP timeout,
+    SDK retries disabled, low thinking. Malformed output is never sent back to
+    the model for repair.
+    """
 
     name = "gemini"
 
     def __init__(self, client: Any, model_id: Optional[str] = None, timeout_sec: Optional[int] = None):
         self.client = client
         self.model_id = model_id or enrichment_model_id()
-        self.timeout_sec = timeout_sec or int(os.environ.get("COMPARISON_ENRICHMENT_TIMEOUT_SEC", "90"))
+        self.timeout_sec = timeout_sec or enrichment_timeout_sec()
 
     def _config(self):
         from google.genai import types as genai_types
@@ -247,6 +383,11 @@ class GeminiOfficialEnrichmentProvider(OfficialEnrichmentProvider):
             response_mime_type="application/json",
             response_json_schema=ENRICHMENT_RESPONSE_SCHEMA,
             temperature=0.0,
+            thinking_config=genai_types.ThinkingConfig(thinking_level=genai_types.ThinkingLevel.LOW),
+            http_options=genai_types.HttpOptions(
+                timeout=int(self.timeout_sec * 1000),
+                retry_options=genai_types.HttpRetryOptions(attempts=1),
+            ),
         )
 
     def enrich(self, snapshot, groups):
@@ -257,21 +398,35 @@ class GeminiOfficialEnrichmentProvider(OfficialEnrichmentProvider):
         try:
             resp = self.client.models.generate_content(model=self.model_id, contents=prompt, config=self._config())
         except Exception as exc:  # provider failure -> Level 1.5 only
+            name = type(exc).__name__
+            code = "CALL_TIMEOUT" if "timeout" in name.lower() else f"PROVIDER_ERROR:{name}"
             return {
                 "raw": None,
                 "grounded_sources": [],
-                "error_code": f"PROVIDER_ERROR:{type(exc).__name__}",
+                "error_code": code,
                 "model": self.model_id,
                 "duration_ms": int((time.perf_counter() - started) * 1000),
+                "diagnostics": {"model": self.model_id, "exception": name, "status_code": getattr(exc, "code", None)},
             }
-        raw = parse_enrichment_json(_response_text(resp))
-        return {
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        raw, parse_info = extract_structured_output(resp)
+        result = {
             "raw": raw,
             "grounded_sources": extract_grounded_sources(resp),
             "error_code": None if raw is not None else "INVALID_JSON",
             "model": self.model_id,
-            "duration_ms": int((time.perf_counter() - started) * 1000),
+            "duration_ms": duration_ms,
+            "parse_source": parse_info.get("source"),
+            "grounding": grounding_stats(resp),
         }
+        if raw is None:
+            result["diagnostics"] = invalid_json_diagnostics(resp, self.model_id, parse_info)
+            logger.warning(
+                "comparison_v2 vehicle_enrichment_invalid_json vehicle=%s %s",
+                snapshot["vehicle_id"][:12],
+                json.dumps(result["diagnostics"], ensure_ascii=False, sort_keys=True, default=str),
+            )
+        return result
 
 
 def _requested_fields(family: str, groups: Iterable[str]) -> List[str]:
@@ -388,6 +543,10 @@ class LiveOfficialEnrichmentRepository(OfficialEnrichmentRepository):
                 outcome["missing"] = _requested_fields(snapshot["derived"]["powertrain_family"], ALL_FRESHNESS_GROUPS)
             outcome["error_code"] = error
             outcome["model"] = (provider_result or {}).get("model")
+            diag = (provider_result or {}).get("diagnostics")
+            if diag:
+                # metadata only — text fragments stay in server logs
+                outcome["provider_diagnostics"] = {k: v for k, v in diag.items() if k not in ("text_head", "text_tail")}
             return outcome
 
         now_iso = self.clock().isoformat()
@@ -425,46 +584,80 @@ def enrich_many(
     snapshots: List[Dict[str, Any]],
     *,
     max_workers: int = 3,
-    timeout_sec: Optional[int] = None,
+    timeout_sec: Optional[float] = None,
     on_started=None,
+    clock=time.monotonic,
+    poll_interval: float = 0.25,
 ) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
     """Run the per-car remote calls concurrently (exactly one per car needing it).
+
+    Every car gets its OWN full window, measured from the moment its call
+    actually starts running — never a shared deadline whose remainder a later
+    car inherits. The window is the provider's HTTP timeout plus a small grace,
+    so the SDK timeout normally fires first. A call still running after its
+    window is reported as ``CALL_TIMEOUT`` and abandoned (never awaited).
 
     Returns [(outcome, meta)] aligned with ``snapshots``. Validation, merging
     and cache writes happen on the calling thread.
     """
-    timeout_sec = timeout_sec or int(os.environ.get("COMPARISON_ENRICHMENT_TIMEOUT_SEC", "90"))
+    provider_timeout = getattr(repository.provider, "timeout_sec", None) or enrichment_timeout_sec()
+    window = float(timeout_sec) if timeout_sec is not None else float(provider_timeout) + WRAPPER_GRACE_SEC
     plans = [repository.plan(s) for s in snapshots]
     results: List[Optional[Dict[str, Any]]] = [None] * len(snapshots)
     metas: List[Dict[str, Any]] = [{"remote_call": False, "cache_hit": not groups, "groups": list(groups)} for _, groups in plans]
 
     to_fetch = [i for i, (_, groups) in enumerate(plans) if groups]
     if to_fetch:
+        started_at: Dict[int, float] = {}
+
+        def run(i: int):
+            started_at[i] = clock()
+            return repository.fetch(snapshots[i], plans[i][1])
+
         pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(max_workers, len(to_fetch))))
         try:
-            futures = {}
+            pending: Dict[concurrent.futures.Future, int] = {}
             for i in to_fetch:
                 if on_started:
                     on_started(i)
                 metas[i]["remote_call"] = repository.provider.name != "offline"
-                futures[pool.submit(repository.fetch, snapshots[i], plans[i][1])] = i
-            deadline = time.monotonic() + timeout_sec
-            for future, i in futures.items():
-                remaining = max(0.1, deadline - time.monotonic())
-                try:
-                    results[i] = future.result(timeout=remaining)
-                except concurrent.futures.TimeoutError:
-                    results[i] = {"raw": None, "grounded_sources": [], "error_code": "CALL_TIMEOUT", "model": repository.provider.model_id}
-                except Exception as exc:
-                    results[i] = {"raw": None, "grounded_sources": [], "error_code": f"PROVIDER_ERROR:{type(exc).__name__}", "model": repository.provider.model_id}
+                pending[pool.submit(run, i)] = i
+            while pending:
+                done, _ = concurrent.futures.wait(list(pending), timeout=poll_interval, return_when=concurrent.futures.FIRST_COMPLETED)
+                for future in done:
+                    i = pending.pop(future)
+                    try:
+                        results[i] = future.result()
+                    except Exception as exc:
+                        results[i] = {"raw": None, "grounded_sources": [], "error_code": f"PROVIDER_ERROR:{type(exc).__name__}", "model": repository.provider.model_id}
+                now = clock()
+                for future, i in list(pending.items()):
+                    begun = started_at.get(i)
+                    if begun is not None and now - begun > window:
+                        pending.pop(future)
+                        future.cancel()
+                        results[i] = {
+                            "raw": None,
+                            "grounded_sources": [],
+                            "error_code": "CALL_TIMEOUT",
+                            "model": repository.provider.model_id,
+                            "duration_ms": int((now - begun) * 1000),
+                        }
+                        logger.warning("comparison_v2 vehicle_enrichment_wrapper_timeout vehicle=%s window_sec=%s",
+                                       snapshots[i]["vehicle_id"][:12], window)
         finally:
+            # Never block on abandoned calls.
             pool.shutdown(wait=False, cancel_futures=True)
 
     out = []
     for i, snapshot in enumerate(snapshots):
         cached, groups = plans[i]
         outcome = repository.finalize(snapshot, cached, tuple(groups), results[i])
-        metas[i]["duration_ms"] = (results[i] or {}).get("duration_ms")
-        metas[i]["grounded_source_count"] = len((results[i] or {}).get("grounded_sources") or [])
+        res = results[i] or {}
+        metas[i]["duration_ms"] = res.get("duration_ms")
+        metas[i]["grounded_source_count"] = len(res.get("grounded_sources") or [])
+        metas[i]["grounding"] = res.get("grounding")
+        metas[i]["parse_source"] = res.get("parse_source")
+        metas[i]["error_code"] = res.get("error_code")
         out.append((outcome, metas[i]))
     return out

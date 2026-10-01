@@ -72,13 +72,15 @@ def get_comparison_history(user_id: int, limit: int = 10) -> List[Dict]:
     return result
 
 
-V2_ENGINE_VERSION = "comparison-v2/1"
+# V2/1 rows keep their own (broad-decision) result contract; V2/2 rows carry
+# the composed decision. Both are returned exactly as stored.
+V2_ENGINE_VERSIONS = ("comparison-v2/1", "comparison-v2/2")
 
 
 def _v2_detail(record) -> Optional[Dict]:
     """Comparison V2 rows are returned as stored; legacy healing never touches them."""
     computed = _safe_json_obj(record.computed_result, default={})
-    if not isinstance(computed, dict) or computed.get("engine_version") != V2_ENGINE_VERSION:
+    if not isinstance(computed, dict) or computed.get("engine_version") not in V2_ENGINE_VERSIONS:
         return None
     cars = _safe_json_obj(record.cars_selected, default=[])
     response = dict(computed.get("response") or {})
@@ -87,7 +89,7 @@ def _v2_detail(record) -> Optional[Dict]:
     return {
         "id": record.id,
         "created_at": record.created_at.isoformat(),
-        "engine_version": V2_ENGINE_VERSION,
+        "engine_version": computed["engine_version"],
         "cars_selected_list": cars if isinstance(cars, list) else [],
         "v2_result": response,
         "model_name": record.model_name,
