@@ -15,7 +15,12 @@ from __future__ import annotations
 import abc
 from typing import Any, Dict, List, Optional
 
-ENGINE_VERSION = "comparison-v2/1"
+# V2/2: JEV answers many narrow Score questions; code composes the decision.
+ENGINE_VERSION = "comparison-v2/2"
+# Stored V2/1 rows (broad JEV Choice decisions) stay readable through their
+# own result contract; new comparisons never use it.
+ENGINE_VERSION_V21 = "comparison-v2/1"
+READABLE_ENGINE_VERSIONS = (ENGINE_VERSION_V21, ENGINE_VERSION)
 ENRICHMENT_CONTRACT_VERSION = "official-enrichment/1"
 SNAPSHOT_CONTRACT_VERSION = "canonical-vehicle-snapshot/1"
 
@@ -61,7 +66,7 @@ PROGRESS_LABELS_HE = {
     "enriching_car_3": "משלים מידע מאתרי היצרן — רכב 3",
     "validating_sources": "מאמת את המקורות",
     "comparing_facts": "משווה את הנתונים",
-    "evaluating_decision": "מחשב את ההכרעה",
+    "evaluating_decision": "שוקל את ההבדלים לפי הצרכים שלך",
     "writing_summary": "מנסח את הסיכום",
     "complete": "הושלם",
 }

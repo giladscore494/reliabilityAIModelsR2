@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
-"""TypeSafe JEV client: ONE structured-judgment call per comparison.
+"""TypeSafe JEV client: ONE System One call carrying many narrow judgments.
 
-Flow: validated canonical vehicle data -> deterministic evidence -> one
-``POST /v1/systemone`` call carrying every applicable category (plus
-``overall``) as ``choice`` questions -> structured decisions.
+JEV never discovers facts, never validates sources and never picks a winner.
+The request is built by ``judgments.JevJudgmentRegistry`` (compact validated
+state + independent ``score`` questions); this module sends it once and
+parses every answer with strict, typed, per-question validation. A malformed
+answer makes only that question ``judgment_unavailable``.
 
-JEV never discovers facts and never validates sources. Its state contains
-only validated data: sanitized canonical snapshots, deterministic atomic
-comparisons, coverage, missing/conflicted field names and the buyer profile.
-No HTML, no web search results, no Gemini prose, no source URLs, no rejected
-or model-generic claims.
+``confidence`` is JEV's own measure of how concentrated its answer
+distribution is. It is stored as returned, never computed or averaged here,
+and it is not a probability of being correct.
 
 The model id is taken from ``JEV_MODEL`` and verified against
 ``GET /v1/models`` before use; an unverified id is never used.
@@ -18,75 +18,24 @@ The model id is taken from ``JEV_MODEL`` and verified against
 from __future__ import annotations
 
 import logging
+import math
 import os
 import threading
 import time
+from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional, Tuple
-
-from app.services.comparison_v2.contracts import (
-    CHOICE_INSUFFICIENT,
-    CHOICE_TIE,
-    DECISION_UNAVAILABLE,
-    choices_for,
-)
-from app.services.comparison_v2.deterministic_engine import CATEGORY_LABELS_HE
 
 logger = logging.getLogger("comparison_v2")
 
 DEFAULT_TYPESAFE_BASE_URL = "https://api.typesafe.ai"
 MODELS_CACHE_TTL_SEC = 6 * 3600
 
-CATEGORY_GUIDANCE_EN = {
-    "safety": (
-        "Level 1.5 government safety data is the base. safety_score and safety_equipment_level share the "
-        "correlation group gov_safety_rating and the 19 driver-assistance systems are one group (adas_equipment): "
-        "count each correlation group once, not each metric."
-    ),
-    "performance": (
-        "Power, torque, 0-100 km/h and top speed. There is no power-to-weight ratio: gross_weight_kg is gross "
-        "permitted mass, not curb weight."
-    ),
-    "efficiency": (
-        "Fuel consumption (L/100km) and electric energy consumption (kWh/100km) are different units and are never "
-        "compared with each other. Only results with status 'compared' are like-for-like."
-    ),
-    "electric_and_charging": (
-        "Battery, electric range and charging. Electric range is comparable only under the same measurement "
-        "standard; results marked not_comparable must not decide the category."
-    ),
-    "practicality": (
-        "Seats, doors, body style and dimensions are contextual: a larger vehicle is not automatically better. "
-        "Cargo volume can favour practical use. Use buyer_profile (family size, cargo needs, main use) to judge fit."
-    ),
-    "towing_and_utility": "Government towing capacities (braked/unbraked). gross_weight_kg is descriptive only.",
-    "environment": (
-        "Government emission data. co2_wltp and co2_city/co2_highway are different measurements and are only "
-        "compared within the same measurement. A missing emission value is missing, not zero."
-    ),
-    "official_price_and_warranty": (
-        "Only Israeli official prices and warranties. Warranty terms are not evidence of reliability."
-    ),
-}
+STATUS_OK = "ok"
+STATUS_UNAVAILABLE = "judgment_unavailable"
 
-OVERALL_WITH_PROFILE = (
-    "Based only on the validated evidence available in this comparison and the user's stated preferences "
-    "(state.buyer_profile), which vehicle currently has the stronger evidence-supported fit?"
-)
-OVERALL_NO_PROFILE = (
-    "Based only on the available validated evidence, which vehicle has the stronger overall evidence-supported "
-    "package, while treating missing data neutrally?"
-)
-
-COMMON_RULES_EN = (
-    "Use only the data in state. Missing data is neutral: never count a missing value against a car, and never "
-    "treat higher data coverage as an advantage. Conflicted fields were excluded and must not be inferred. "
-    "Use buyer_profile only to weigh what matters; it never changes facts. Do not use outside knowledge about "
-    "these vehicles. Choose insufficient_evidence when the compared evidence does not support a decision, and tie "
-    "when differences are balanced or not meaningful."
-)
-
-_OFFICIAL_FACT_KEYS = ("value", "unit", "source_level", "source_type", "source_market", "measurement_standard", "currency")
-_ATOMIC_KEYS = ("metric", "kind", "direction", "unit", "correlation_group", "values", "status", "leader", "margin", "reason", "missing", "conflicted")
+# Expected value vs. distribution may differ slightly by rounding.
+SCORE_CONSISTENCY_TOLERANCE = 0.25
+PROBABILITY_SUM_TOLERANCE = 0.02
 
 
 class JevUnavailable(Exception):
@@ -99,143 +48,6 @@ def jev_model_configured() -> str:
 
 def typesafe_base_url() -> str:
     return (os.environ.get("TYPESAFE_BASE_URL") or DEFAULT_TYPESAFE_BASE_URL).rstrip("/")
-
-
-# ---------------------------------------------------------------------------
-# state construction (validated data only)
-# ---------------------------------------------------------------------------
-def sanitize_snapshot_for_jev(snapshot: Dict[str, Any]) -> Dict[str, Any]:
-    identity = snapshot["identity"]
-    official = snapshot.get("official_enrichment") or {}
-    official_facts = {}
-    for key, fact in (official.get("facts") or {}).items():
-        if not fact.get("validated") or fact.get("variant_scope") != "variant":
-            continue
-        official_facts[key] = {k: fact.get(k) for k in _OFFICIAL_FACT_KEYS if fact.get(k) is not None}
-    return {
-        "identity": {
-            "display_name": identity.get("display_name"),
-            "manufacturer": identity.get("make_display"),
-            "model": identity.get("model"),
-            "model_year": identity.get("model_year"),
-            "trim": identity.get("trim"),
-            "official_model_code": identity.get("official_model_code"),
-        },
-        "government_level_1_5": {
-            "facts": {k: v for k, v in snapshot["government"]["facts"].items() if v is not None},
-            "driver_assistance_systems": {k: v for k, v in snapshot["government"]["equipment"].items() if v is not None},
-        },
-        "official_level_2": {
-            "facts": official_facts,
-            "conflicted_fields": sorted({c.get("field") for c in official.get("conflicts") or [] if c.get("field")}),
-            "missing_fields": list(official.get("missing") or []),
-            "enrichment_status": official.get("status"),
-        },
-        "derived": {
-            "powertrain_family": snapshot["derived"].get("powertrain_family"),
-            "is_plugin": snapshot["derived"].get("is_plugin"),
-        },
-    }
-
-
-def _compact_atomic(result: Dict[str, Any]) -> Dict[str, Any]:
-    out = {k: result.get(k) for k in _ATOMIC_KEYS if result.get(k) not in (None, [], {})}
-    prov = result.get("provenance") or {}
-    out["source_level"] = {slot: (p or {}).get("source_level") for slot, p in prov.items() if p}
-    if result.get("details"):
-        out["details"] = result["details"]
-    return out
-
-
-def build_deterministic_evidence(comparison: Dict[str, Any], categories: List[str]) -> Dict[str, Any]:
-    evidence = {}
-    for cat in categories:
-        ev = comparison["categories"][cat]
-        evidence[cat] = {
-            "evidence_status": ev["status"],
-            "atomic_results": [_compact_atomic(r) for r in ev["atomic_results"] if r["status"] != "descriptive"],
-            "correlation_groups": ev["group_results"],
-            "contextual_facts": [{"metric": c["metric"], "values": c["values"]} for c in ev["contextual_facts"]],
-            "not_comparable": [{"metric": n["metric"], "reason": n["reason"]} for n in ev["not_comparable"]],
-            "missing_metrics": ev["missing_metrics"],
-            "conflicted_metrics": ev["conflicted_metrics"],
-            "coverage": ev["coverage"],
-        }
-    return evidence
-
-
-def build_jev_request(
-    model: str,
-    snapshots: Dict[str, Dict[str, Any]],
-    comparison: Dict[str, Any],
-    ask_categories: List[str],
-    buyer_context: Optional[Dict[str, Any]],
-    context_categories: Optional[List[str]] = None,
-) -> Dict[str, Any]:
-    """``context_categories`` (e.g. cross-powertrain descriptive data) are
-    included in the evidence for the overall question but get no question."""
-    slots = list(snapshots.keys())
-    state: Dict[str, Any] = {slot: sanitize_snapshot_for_jev(snap) for slot, snap in snapshots.items()}
-    state["deterministic_evidence"] = build_deterministic_evidence(comparison, list(ask_categories) + list(context_categories or []))
-    state["coverage"] = comparison["coverage"]
-    state["buyer_profile"] = buyer_context or {}
-
-    questions: Dict[str, Any] = {}
-    for cat in ask_categories:
-        questions[cat] = {
-            "type": "choice",
-            "instructions": (
-                f"Category: {cat}. Using only state.deterministic_evidence.{cat} and the validated vehicle data in "
-                f"state, which vehicle has a meaningful evidence-supported advantage in {cat}? "
-                f"{CATEGORY_GUIDANCE_EN.get(cat, '')} {COMMON_RULES_EN}"
-            ),
-            "criteria": _criteria(slots, snapshots, scope=cat),
-        }
-    questions["overall"] = {
-        "type": "choice",
-        "instructions": f"{OVERALL_WITH_PROFILE if buyer_context else OVERALL_NO_PROFILE} {COMMON_RULES_EN}",
-        "criteria": _criteria(slots, snapshots, scope="overall"),
-    }
-    return {"model": model, "state": state, "questions": questions}
-
-
-def _criteria(slots: List[str], snapshots: Dict[str, Dict[str, Any]], scope: str) -> Dict[str, str]:
-    criteria = {}
-    for slot in slots:
-        name = snapshots[slot]["identity"].get("display_name") or slot
-        number = slot.split("_")[-1]
-        criteria[slot] = f"Meaningful evidence-supported advantage for car {number} ({name})"
-    criteria[CHOICE_TIE] = "Differences are balanced or not meaningful"
-    criteria[CHOICE_INSUFFICIENT] = "Available evidence is insufficient"
-    assert list(criteria) == choices_for(slots)
-    return criteria
-
-
-# ---------------------------------------------------------------------------
-# response parsing
-# ---------------------------------------------------------------------------
-def parse_choice_answer(answer: Any, allowed: List[str]) -> Optional[Dict[str, Any]]:
-    """Keep JEV's own choice/confidence/probabilities; never compute them."""
-    if not isinstance(answer, dict):
-        return None
-    choice = answer.get("choice")
-    if choice not in allowed:
-        return None
-    confidence = answer.get("confidence")
-    if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
-        confidence = None
-    probs_raw = answer.get("probabilities")
-    probabilities = None
-    if isinstance(probs_raw, dict):
-        probabilities = {
-            str(k): float(v) for k, v in probs_raw.items() if isinstance(v, (int, float)) and not isinstance(v, bool)
-        }
-    return {
-        "type": answer.get("type") or "choice",
-        "choice": choice,
-        "confidence": float(confidence) if confidence is not None else None,
-        "probabilities": probabilities,
-    }
 
 
 class TypeSafeJevClient:
@@ -340,58 +152,191 @@ def verify_model(client: TypeSafeJevClient) -> Tuple[bool, Optional[str]]:
     return True, None
 
 
-def unavailable_decisions(categories: List[str], reason: str) -> Dict[str, Any]:
+# ---------------------------------------------------------------------------
+# typed answers
+# ---------------------------------------------------------------------------
+@dataclass
+class JevMicroJudgmentResult:
+    question_id: str
+    type: str  # score | noul | choice
+    status: str  # ok | judgment_unavailable
+    reason: Optional[str] = None
+    score: Optional[float] = None  # expected level, 0..levels-1 (score)
+    level_count: Optional[int] = None
+    noul: Optional[float] = None  # probability (noul)
+    choice: Optional[str] = None  # (choice)
+    confidence: Optional[float] = None  # JEV's own value, stored as returned
+    probabilities: Optional[Dict[str, float]] = None
+    legend: Optional[Dict[str, str]] = None
+    score_consistent: Optional[bool] = None
+
+    @property
+    def ok(self) -> bool:
+        return self.status == STATUS_OK
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+def _finite(value: Any) -> Optional[float]:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if math.isfinite(value) else None
+
+
+def _unavailable(qid: str, qtype: str, reason: str) -> JevMicroJudgmentResult:
+    return JevMicroJudgmentResult(question_id=qid, type=qtype, status=STATUS_UNAVAILABLE, reason=reason)
+
+
+def _probabilities(raw: Any, allowed_keys: List[str]) -> Tuple[Optional[Dict[str, float]], Optional[str]]:
+    if raw is None:
+        return None, None
+    if not isinstance(raw, dict) or not raw:
+        return None, "probabilities_not_object"
+    out: Dict[str, float] = {}
+    for key, val in raw.items():
+        key = str(key)
+        if key not in allowed_keys:
+            return None, "probability_key_unknown"
+        num = _finite(val)
+        if num is None or not 0.0 <= num <= 1.0:
+            return None, "probability_value_invalid"
+        out[key] = num
+    if abs(sum(out.values()) - 1.0) > PROBABILITY_SUM_TOLERANCE:
+        return None, "probabilities_do_not_sum_to_1"
+    return out, None
+
+
+def _confidence(raw: Any) -> Tuple[Optional[float], Optional[str]]:
+    if raw is None:
+        return None, None
+    num = _finite(raw)
+    if num is None or not 0.0 <= num <= 1.0:
+        return None, "confidence_invalid"
+    return num, None
+
+
+def parse_score_answer(qid: str, answer: Any, level_count: int) -> JevMicroJudgmentResult:
+    if not isinstance(answer, dict):
+        return _unavailable(qid, "score", "missing_answer" if answer is None else "answer_not_object")
+    if answer.get("type") not in (None, "score"):
+        return _unavailable(qid, "score", "unexpected_type")
+    score = _finite(answer.get("score"))
+    if score is None:
+        return _unavailable(qid, "score", "score_not_finite_number")
+    if not 0.0 <= score <= level_count - 1:
+        return _unavailable(qid, "score", "score_out_of_range")
+    probs, err = _probabilities(answer.get("probabilities"), [str(i) for i in range(level_count)])
+    if err:
+        return _unavailable(qid, "score", err)
+    conf, err = _confidence(answer.get("confidence"))
+    if err:
+        return _unavailable(qid, "score", err)
+    consistent = None
+    if probs:
+        expected = sum(int(k) * p for k, p in probs.items())
+        consistent = abs(expected - score) <= SCORE_CONSISTENCY_TOLERANCE
+        if not consistent:
+            return _unavailable(qid, "score", "score_inconsistent_with_distribution")
+    legend_raw = answer.get("legend")
+    legend = None
+    if isinstance(legend_raw, dict):
+        legend = {str(k): str(v)[:300] for k, v in legend_raw.items() if str(k) in {str(i) for i in range(level_count)}}
+    return JevMicroJudgmentResult(question_id=qid, type="score", status=STATUS_OK, score=score, level_count=level_count,
+                                  confidence=conf, probabilities=probs, legend=legend, score_consistent=consistent)
+
+
+def parse_noul_answer(qid: str, answer: Any) -> JevMicroJudgmentResult:
+    if not isinstance(answer, dict):
+        return _unavailable(qid, "noul", "missing_answer" if answer is None else "answer_not_object")
+    if answer.get("type") not in (None, "noul"):
+        return _unavailable(qid, "noul", "unexpected_type")
+    p = _finite(answer.get("noul"))
+    if p is None or not 0.0 <= p <= 1.0:
+        return _unavailable(qid, "noul", "noul_invalid")
+    return JevMicroJudgmentResult(question_id=qid, type="noul", status=STATUS_OK, noul=p)
+
+
+def parse_choice_answer(qid: str, answer: Any, allowed: List[str]) -> JevMicroJudgmentResult:
+    if not isinstance(answer, dict):
+        return _unavailable(qid, "choice", "missing_answer" if answer is None else "answer_not_object")
+    if answer.get("type") not in (None, "choice"):
+        return _unavailable(qid, "choice", "unexpected_type")
+    choice = answer.get("choice")
+    if choice not in allowed:
+        return _unavailable(qid, "choice", "choice_not_allowed")
+    probs, err = _probabilities(answer.get("probabilities"), list(allowed))
+    if err:
+        return _unavailable(qid, "choice", err)
+    conf, err = _confidence(answer.get("confidence"))
+    if err:
+        return _unavailable(qid, "choice", err)
+    return JevMicroJudgmentResult(question_id=qid, type="choice", status=STATUS_OK, choice=choice, confidence=conf, probabilities=probs)
+
+
+def parse_answers(data: Dict[str, Any], questions: Dict[str, Dict[str, Any]]) -> Tuple[Dict[str, JevMicroJudgmentResult], List[str]]:
+    """Validate each requested question independently; ignore unrequested ids."""
+    answers = data.get("answers") if isinstance(data.get("answers"), dict) else {}
+    out: Dict[str, JevMicroJudgmentResult] = {}
+    for qid, q in questions.items():
+        raw = answers.get(qid)
+        if q["type"] == "score":
+            out[qid] = parse_score_answer(qid, raw, len(q["criteria"]))
+        elif q["type"] == "noul":
+            out[qid] = parse_noul_answer(qid, raw)
+        else:
+            out[qid] = parse_choice_answer(qid, raw, list(q["criteria"]))
+    unexpected = sorted(str(k) for k in answers if k not in questions)
+    return out, unexpected
+
+
+# ---------------------------------------------------------------------------
+# the single call
+# ---------------------------------------------------------------------------
+def _usage(data: Dict[str, Any]) -> Dict[str, Optional[int]]:
+    usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
     return {
-        "status": "failed",
-        "reason": reason,
-        "decisions": {cat: {"choice": DECISION_UNAVAILABLE, "confidence": None, "probabilities": None} for cat in categories + ["overall"]},
-        "response_model": None,
-        "usage": None,
+        k: (usage.get(k) if isinstance(usage.get(k), int) and not isinstance(usage.get(k), bool) else None)
+        for k in ("input_tokens", "output_tokens")
     }
 
 
-def evaluate_with_jev(
-    client: Optional[TypeSafeJevClient],
-    snapshots: Dict[str, Dict[str, Any]],
-    comparison: Dict[str, Any],
-    ask_categories: List[str],
-    buyer_context: Optional[Dict[str, Any]],
-    context_categories: Optional[List[str]] = None,
-) -> Dict[str, Any]:
-    """Exactly one systemone call (or zero on failure/unconfigured)."""
+def run_system_one(client: Optional[TypeSafeJevClient], body_builder, questions: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    """Send every question in ONE request (zero requests when there is nothing to ask).
+
+    ``body_builder(model) -> request body`` keeps the model id out of the
+    question registry. Returns a JSON-serialisable run record.
+    """
+    base = {"question_count": len(questions), "answers": {}, "unexpected_answer_ids": [], "response_model": None,
+            "requested_model": getattr(client, "model", None) or None, "usage": None, "duration_ms": None}
+    if not questions:
+        return {**base, "status": "not_needed", "reason": "no_questions"}
     if client is None:
-        return unavailable_decisions(ask_categories, "jev_disabled")
+        return {**base, "status": "failed", "reason": "jev_disabled"}
     ok, reason = verify_model(client)
     if not ok:
-        return unavailable_decisions(ask_categories, reason or "jev_unverified")
-    payload = build_jev_request(client.model, snapshots, comparison, ask_categories, buyer_context, context_categories)
+        return {**base, "status": "failed", "reason": reason or "jev_unverified"}
+    payload = body_builder(client.model)
     started = time.perf_counter()
     try:
         data = client.systemone(payload)
     except Exception as exc:
         logger.warning("comparison_v2 jev_failed error=%s", type(exc).__name__)
-        out = unavailable_decisions(ask_categories, f"jev_error:{type(exc).__name__}")
-        out["duration_ms"] = int((time.perf_counter() - started) * 1000)
-        return out
-
-    allowed = choices_for(list(snapshots.keys()))
-    answers = data.get("answers") if isinstance(data.get("answers"), dict) else {}
-    decisions: Dict[str, Any] = {}
-    for qid in list(ask_categories) + ["overall"]:
-        parsed = parse_choice_answer(answers.get(qid), allowed)
-        decisions[qid] = parsed or {"choice": DECISION_UNAVAILABLE, "confidence": None, "probabilities": None}
-    usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+        return {**base, "status": "failed", "reason": f"jev_error:{type(exc).__name__}",
+                "duration_ms": int((time.perf_counter() - started) * 1000)}
+    parsed, unexpected = parse_answers(data, questions)
+    usable = sum(1 for r in parsed.values() if r.ok)
     return {
-        "status": "ok",
-        "reason": None,
-        "decisions": decisions,
+        **base,
+        "status": "ok" if usable else "failed",
+        "reason": None if usable else "no_usable_answers",
+        "answers": {qid: r.to_dict() for qid, r in parsed.items()},
+        "unexpected_answer_ids": unexpected,
         "response_model": data.get("model") if isinstance(data.get("model"), str) else None,
-        "requested_model": client.model,
-        "usage": {
-            "input_tokens": usage.get("input_tokens") if isinstance(usage.get("input_tokens"), int) else None,
-            "output_tokens": usage.get("output_tokens") if isinstance(usage.get("output_tokens"), int) else None,
-        },
+        "usage": _usage(data),
         "duration_ms": int((time.perf_counter() - started) * 1000),
+        "usable_answers": usable,
     }
 
 
@@ -403,10 +348,6 @@ def redacted_request_shape(payload: Dict[str, Any]) -> Dict[str, Any]:
         "body": {
             "model": payload.get("model"),
             "state_keys": sorted(payload.get("state", {}).keys()),
-            "questions": {qid: {"type": q["type"], "criteria": list(q["criteria"])} for qid, q in payload.get("questions", {}).items()},
+            "questions": {qid: {"type": q["type"], "criteria_count": len(q["criteria"])} for qid, q in payload.get("questions", {}).items()},
         },
     }
-
-
-def category_label_he(category: str) -> str:
-    return CATEGORY_LABELS_HE.get(category, category)

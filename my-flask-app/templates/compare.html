@@ -223,6 +223,52 @@
         .v2-step-done::before { content:"✓ " !important; }
         .v2-step-active { color:#1f57e6; font-weight:700; }
         .v2-step-active::before { content:"● " !important; }
+        /* --- Comparison V2/2: personalization step + composed result --- */
+        .v2-personalize { border-top:1px solid var(--yr-border,#e3e8ef); padding-top:1.25rem; }
+        .v2-mode-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:.75rem; border:0; padding:0; margin:0; }
+        @media (min-width:640px) { .v2-mode-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+        .v2-mode-option, .v2-choice { display:flex; gap:.6rem; align-items:flex-start; border:2px solid var(--yr-border,#e3e8ef); border-radius:14px; background:#fff; padding:.8rem .9rem; cursor:pointer; color:#1c2530; }
+        .v2-mode-option span, .v2-choice span { display:flex; flex-direction:column; gap:.15rem; }
+        .v2-mode-option small, .v2-choice small { color:#6b7480; font-size:.75rem; }
+        .v2-mode-option:has(input:checked), .v2-choice:has(input:checked) { border-color:#2f6bff; background:rgba(47,107,255,.06); }
+        .v2-mode-option input, .v2-choice input { margin-top:.2rem; }
+        .v2-field-error { color:#b42318; font-size:.85rem; font-weight:700; }
+        .v2-group { border:1px solid var(--yr-border,#e3e8ef); border-radius:16px; background:rgba(255,255,255,.7); padding:1rem; margin:0; min-width:0; }
+        .v2-group-title { font-weight:800; color:#1c2530; padding:0 .35rem; }
+        .v2-field { display:block; font-size:.85rem; color:#2a313b; font-weight:600; }
+        .v2-field input, .v2-field select { margin-top:.3rem; }
+        .v2-priority-list { display:grid; grid-template-columns:minmax(0,1fr); gap:.6rem; }
+        .v2-priority-row { border:0; padding:0; margin:0; min-width:0; display:flex; flex-direction:column; gap:.3rem; }
+        @media (min-width:900px) { .v2-priority-row { flex-direction:row; align-items:center; } .v2-priority-name { width:11rem; flex:none; } }
+        .v2-priority-name { font-size:.85rem; font-weight:700; color:#1c2530; float:none; padding:0; }
+        .v2-seg { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:.25rem; flex:1; min-width:0; max-width:36rem; }
+        .v2-seg-option { position:relative; display:block; }
+        .v2-seg-option input { position:absolute; opacity:0; inset:0; width:100%; height:100%; margin:0; cursor:pointer; }
+        .v2-seg-option span { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:2.6rem; text-align:center; font-size:.68rem; line-height:1.15; color:#46505c; border:1px solid var(--yr-border,#d4dbe5); border-radius:10px; background:#fff; padding:.2rem .1rem; }
+        .v2-seg-option span b { font-size:.85rem; color:#1c2530; }
+        .v2-seg-option input:checked + span { background:#1f57e6; border-color:#1f57e6; color:#fff; }
+        .v2-seg-option input:checked + span b { color:#fff; }
+        .v2-seg-option input:focus-visible + span { outline:2px solid #2f6bff; outline-offset:2px; }
+        .v2-unsupported { list-style:none; padding:0; margin:.8rem 0 0; font-size:.78rem; color:#6b7480; display:flex; flex-wrap:wrap; gap:.4rem 1rem; }
+        .v2-unsupported span { font-weight:700; }
+        .v2-choice-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:.5rem; margin-top:.4rem; }
+        @media (min-width:640px) { .v2-choice-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+        .v2-feature-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:.35rem .75rem; margin-top:.4rem; font-size:.82rem; color:#2a313b; }
+        .v2-feature { display:flex; align-items:center; gap:.4rem; }
+        .v2-profile-summary { border:1px solid var(--yr-border,#e3e8ef); border-radius:14px; background:#fff; padding:.75rem .9rem; }
+        .v2-chip { font-size:.75rem; color:#1c2530; border:1px solid var(--yr-border,#e3e8ef); border-radius:9999px; padding:.15rem .6rem; background:#f7f9fc; }
+        .v2-chip-muted { color:#6b7480; }
+        .v2-warning { border:1px solid rgba(180,35,24,.35); background:rgba(180,35,24,.06); color:#7a1b12; border-radius:12px; padding:.6rem .8rem; font-size:.85rem; }
+        .v2-unknown-note { font-size:.8rem; color:#46505c; }
+        .v2-unknown-note > summary { cursor:pointer; font-weight:700; }
+        .v2-reasons { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:.35rem; font-size:.9rem; color:#1c2530; }
+        .v2-reasons li { border-inline-start:3px solid #1f9d57; padding-inline-start:.6rem; line-height:1.6; }
+        .v2-reasons-against li { border-inline-start-color:#9aa3af; color:#46505c; font-size:.82rem; }
+        .v2-layers { margin:0; display:flex; flex-direction:column; gap:.45rem; }
+        .v2-layer dt { font-size:.72rem; font-weight:800; color:#6b7480; }
+        .v2-layer dd { margin:0; font-size:.88rem; line-height:1.65; color:#1c2530; }
+        .v2-layer[data-layer="influence"] dd { font-weight:600; }
+        .v2-judgments li { border-bottom:1px dashed var(--yr-border,#e3e8ef); padding-bottom:.35rem; }
         @keyframes ring-pulse { 0%, 100% { opacity:1; } 50% { opacity:0.5; } }
         .ring-overtime { animation:ring-pulse 1s ease-in-out infinite; }
     </style>
@@ -274,7 +320,7 @@
 
                 {% if comparison_v2_enabled %}
                 <!-- Comparison V2: exact variant picker (Level 1.5 demo catalog) -->
-                <div id="compareV2Picker" class="space-y-4" data-engine="comparison-v2/1">
+                <div id="compareV2Picker" class="space-y-4" data-engine="comparison-v2/2">
                     <p class="text-sm text-slate-400">בחרו שתי גרסאות מדויקות. הנתונים הממשלתיים נטענים לפי הגרסה — אין צורך לבחור מנוע או תיבת הילוכים.</p>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {% for n in [1, 2, 3] %}
@@ -491,14 +537,155 @@
                 </div>
                 {% endif %}
                 
+                {% if comparison_v2_enabled %}
+                {% set opt = comparison_v2_profile_options %}
+                <!-- Comparison V2/2: explicit personalization step (buyer-profile/2) -->
+                <section id="v2Personalization" class="v2-personalize mt-6 space-y-5" aria-labelledby="v2PersonalizationTitle">
+                    <div>
+                        <h3 id="v2PersonalizationTitle" class="text-xl font-bold text-primary" style="font-family:'Rubik','Heebo',sans-serif;">איך להשוות?</h3>
+                        <p class="text-sm text-slate-400 mt-1">ההעדפות קובעות מה חשוב בהכרעה — הן לעולם אינן משנות את הנתונים העובדתיים של הרכבים.</p>
+                    </div>
+                    <fieldset class="v2-mode-grid" aria-describedby="v2ModeError">
+                        <legend class="sr-only">סוג ההשוואה</legend>
+                        <label class="v2-mode-option">
+                            <input type="radio" name="v2_mode" value="personalized">
+                            <span><strong>השוואה מותאמת אליי</strong><small>מגדירים שימוש, דרישות ומה חשוב לכם</small></span>
+                        </label>
+                        <label class="v2-mode-option">
+                            <input type="radio" name="v2_mode" value="general">
+                            <span><strong>השוואה כללית</strong><small>משקל שווה ({{ opt.priority_levels[opt.balanced_priority][1] }}) לכל התחומים, ללא דרישות</small></span>
+                        </label>
+                    </fieldset>
+                    <p id="v2ModeError" role="alert" class="v2-field-error hidden"></p>
+
+                    <div id="v2PersonalizedFields" class="hidden space-y-6">
+                        <fieldset class="v2-group">
+                            <legend class="v2-group-title">השימוש שלך</legend>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <label class="v2-field">מה השימוש העיקרי ברכב? <span class="text-secondary">*</span>
+                                    <select id="v2_main_use" class="yr-select w-full bg-white border-slate-700 rounded-xl text-primary" aria-required="true">
+                                        <option value="">בחרו...</option>
+                                        {% for value, label in opt.main_use %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                                    </select>
+                                </label>
+                                <label class="v2-field">כמה ק״מ אתה נוסע בערך בשנה?
+                                    <input id="v2_annual_km" type="number" inputmode="numeric" min="0" max="150000" step="1000" class="yr-input w-full bg-white border-slate-700 rounded-xl text-primary" placeholder="לא יודע/ת — אפשר לדלג">
+                                </label>
+                                <label class="v2-field">כמה אנשים נוסעים ברכב בדרך כלל, כולל הנהג?
+                                    <input id="v2_regular_passengers" type="number" inputmode="numeric" min="1" max="9" step="1" class="yr-input w-full bg-white border-slate-700 rounded-xl text-primary" placeholder="1–9">
+                                </label>
+                            </div>
+                        </fieldset>
+
+                        <fieldset class="v2-group" id="v2Priorities">
+                            <legend class="v2-group-title">מה חשוב לך?</legend>
+                            <p class="text-xs text-slate-400 mb-3">0 = לא חשוב · 4 = קריטי. תחום שסומן „לא חשוב” לא ישפיע על ההכרעה (הנתונים שלו עדיין יוצגו).</p>
+                            <div class="v2-priority-list">
+                                {% for key, name in opt.priorities + [opt.ev_priority] %}
+                                <fieldset class="v2-priority-row{% if key == opt.ev_priority[0] %} hidden{% endif %}" {% if key == opt.ev_priority[0] %}data-ev-only{% endif %} data-priority-key="{{ key }}">
+                                    <legend class="v2-priority-name">{{ name }}</legend>
+                                    <div class="v2-seg">
+                                        {% for value, label in opt.priority_levels %}
+                                        <label class="v2-seg-option">
+                                            <input type="radio" name="v2_pri_{{ key }}" value="{{ value }}" {% if value == opt.balanced_priority %}checked{% endif %}>
+                                            <span><b>{{ value }}</b> {{ label }}</span>
+                                        </label>
+                                        {% endfor %}
+                                    </div>
+                                </fieldset>
+                                {% endfor %}
+                            </div>
+                            <ul class="v2-unsupported" aria-label="תחומים שאינם נכללים בגרסה הזו">
+                                {% for key, label in opt.unsupported %}
+                                <li><label><input type="checkbox" disabled aria-disabled="true"> {{ label }} — <span>עדיין לא נכלל בגרסה הזו</span></label></li>
+                                {% endfor %}
+                            </ul>
+                        </fieldset>
+
+                        <fieldset class="v2-group">
+                            <legend class="v2-group-title">צרכים ודרישות נוספות</legend>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <label class="v2-field">תקציב מקסימלי לרכישה
+                                    <input id="v2_budget_max_ils" type="number" inputmode="numeric" min="10000" max="5000000" step="1000" class="yr-input w-full bg-white border-slate-700 rounded-xl text-primary" placeholder="₪ (אופציונלי)">
+                                </label>
+                                <label class="v2-field">עד כמה החניה שלך מגבילה את גודל הרכב?
+                                    <select id="v2_parking_constraint" class="yr-select w-full bg-white border-slate-700 rounded-xl text-primary">
+                                        <option value="">לא צוין</option>
+                                        {% for value, label in opt.parking %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                                    </select>
+                                </label>
+                                <label class="v2-field">הנעה כפולה
+                                    <select id="v2_awd_requirement" class="yr-select w-full bg-white border-slate-700 rounded-xl text-primary">
+                                        <option value="">לא צוין</option>
+                                        {% for value, label in opt.awd %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                                    </select>
+                                </label>
+                                <label class="v2-field">תנאי דרך
+                                    <select id="v2_road_conditions" class="yr-select w-full bg-white border-slate-700 rounded-xl text-primary">
+                                        <option value="">לא צוין</option>
+                                        {% for value, label in opt.road %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                                    </select>
+                                </label>
+                                <div class="v2-field">
+                                    <label class="flex items-center gap-2"><input id="v2_towing_toggle" type="checkbox" class="rounded border-slate-600 bg-white"> אני צריך לגרור</label>
+                                    <label class="v2-field mt-2">משקל גרירה נדרש עם בלמים
+                                        <input id="v2_towing_braked_required_kg" type="number" inputmode="numeric" min="100" max="5000" step="50" disabled class="yr-input w-full bg-white border-slate-700 rounded-xl text-primary disabled:opacity-50" placeholder="ק״ג">
+                                    </label>
+                                </div>
+                            </div>
+                            <fieldset class="mt-4">
+                                <legend class="v2-field">כמה תא מטען חשוב לך בפועל?</legend>
+                                <div class="v2-choice-grid">
+                                    {% for value, label, example in opt.cargo %}
+                                    <label class="v2-choice"><input type="radio" name="v2_cargo_need" value="{{ value }}"> <span><strong>{{ label }}</strong><small>לדוגמה: {{ example }}</small></span></label>
+                                    {% endfor %}
+                                </div>
+                            </fieldset>
+                        </fieldset>
+
+                        <fieldset class="v2-group hidden" id="v2EvSection" data-ev-only>
+                            <legend class="v2-group-title">טעינה ונסיעות חשמליות</legend>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <label class="v2-field">איפה תוכל/י לטעון?
+                                    <select id="v2_charging_access" class="yr-select w-full bg-white border-slate-700 rounded-xl text-primary">
+                                        <option value="">לא צוין</option>
+                                        {% for value, label in opt.charging %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                                    </select>
+                                </label>
+                                <label class="v2-field">נסיעה יומית טיפוסית
+                                    <input id="v2_typical_daily_km" type="number" inputmode="numeric" min="0" max="1000" class="yr-input w-full bg-white border-slate-700 rounded-xl text-primary" placeholder="ק״מ">
+                                </label>
+                                <label class="v2-field">אורך נסיעה ארוכה שחוזרת על עצמה
+                                    <input id="v2_frequent_long_trip_km" type="number" inputmode="numeric" min="0" max="3000" class="yr-input w-full bg-white border-slate-700 rounded-xl text-primary" placeholder="ק״מ">
+                                </label>
+                            </div>
+                        </fieldset>
+
+                        <fieldset class="v2-group">
+                            <legend class="v2-group-title">אבזור</legend>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <fieldset>
+                                    <legend class="v2-field">אבזור שחייב להיות</legend>
+                                    <div class="v2-feature-list">
+                                        {% for value, label in opt.features %}<label class="v2-feature"><input type="checkbox" name="v2_must" value="{{ value }}"> {{ label }}</label>{% endfor %}
+                                    </div>
+                                </fieldset>
+                                <fieldset>
+                                    <legend class="v2-field">אבזור שהיית שמח/ה שיהיה</legend>
+                                    <div class="v2-feature-list">
+                                        {% for value, label in opt.features %}<label class="v2-feature"><input type="checkbox" name="v2_nice" value="{{ value }}"> {{ label }}</label>{% endfor %}
+                                    </div>
+                                </fieldset>
+                            </div>
+                            <p class="text-xs text-slate-400 mt-2">אבזור חובה שאין לגביו מידע מאומת יסומן „לא ידוע” — הוא לעולם לא ייחשב כחסר.</p>
+                        </fieldset>
+                    </div>
+                </section>
+                {% else %}
                 <details id="buyerProfilePanel" class="yr-tile p-4 md:p-5">
                     <summary class="cursor-pointer text-lg font-bold" style="font-family:'Rubik','Heebo',sans-serif;">התאמה לשימוש שלי</summary>
                     <p class="mt-3 text-xs text-slate-400 leading-relaxed">
-                        {% if comparison_v2_enabled %}
-                        ההעדפות משפיעות על מה שחשוב בהכרעה — לא על הנתונים העובדתיים של הרכבים.
-                        {% else %}
                         הפרטים האלה משפיעים רק על התאמת ההסבר אליך, לא על הנתונים העובדתיים של הרכבים.
-                        {% endif %}
                     </p>
                     <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
                         <label class="space-y-1 text-sm text-slate-300">תקציב מינימלי
@@ -537,10 +724,8 @@
                         <label class="flex items-center gap-2"><input data-priority="comfort" type="checkbox" class="buyer-priority rounded border-slate-600 bg-white"> נוחות</label>
                         <label class="flex items-center gap-2"><input data-priority="cost" type="checkbox" class="buyer-priority rounded border-slate-600 bg-white"> עלות אחזקה</label>
                     </div>
-                    {% if comparison_v2_enabled %}
-                    <p id="v2ReliabilityNote" role="note" class="hidden mt-3 text-xs text-primary bg-primary/10 border border-primary/30 rounded-lg p-2">אמינות ארוכת טווח עדיין אינה נכללת בגרסת ההשוואה הזו.</p>
-                    {% endif %}
                 </details>
+                {% endif %}
 
                 <div class="pt-4 space-y-8">
                     <label
@@ -1634,7 +1819,7 @@
             
             const record = data.data;
 
-            if (record && record.engine_version === 'comparison-v2/1' && record.v2_result) {
+            if (record && record.v2_result && CompareV2 && CompareV2.isV2Result(record.v2_result)) {
                 const v2Result = record.v2_result;
                 const v2Cars = record.cars_selected_list || v2Result.cars_selected_list || [];
                 if (COMPARE_V2_ENABLED && CompareV2) {
@@ -1854,6 +2039,16 @@
             alert('לא ניתן להשוות רכבים זהים. אנא בחר רכבים שונים.');
             return;
         }
+        // V2/2: the user must explicitly choose personalized or general.
+        let v2Profile = null;
+        if (COMPARE_V2_ENABLED && CompareV2) {
+            const collected = CompareV2.collectProfile();
+            if (!collected.ok) {
+                CompareV2.showProfileError(collected.error, collected.focusId);
+                return;
+            }
+            v2Profile = collected.profile;
+        }
         
         // UI state
         resetCompareResultFlowState();
@@ -1885,10 +2080,12 @@
             // Start timing banner before API call
             startCompareTimingBanner();
             
-            const buyerProfile = collectBuyerProfile();
             const comparePayload = { cars, legal_confirm: true };
-            if (buyerProfile) {
-                comparePayload.buyer_profile = buyerProfile;
+            if (COMPARE_V2_ENABLED && CompareV2) {
+                comparePayload.buyer_profile = v2Profile;
+            } else {
+                const buyerProfile = collectBuyerProfile();
+                if (buyerProfile) comparePayload.buyer_profile = buyerProfile;
             }
 
             const compareHeaders = {
