@@ -1,0 +1,53 @@
+/* Comparison V3 result table ("comparison-v3/1"). RTL; at most 3 car columns.
+ * Each row is its own grid with the same template, so the columns line up. Below 640px the row label moves
+ * above the values (full width) and the value cells share the width equally: no fixed widths, no horizontal
+ * scroll at 375px. */
+.v3-table { --v3-cols: 2; display: block; width: 100%; max-width: 100%; direction: rtl; text-align: right;
+    border: 1px solid var(--yr-border, #d4dbe5); border-radius: 14px; background: #fff; overflow: hidden; }
+.v3-table, .v3-table * { box-sizing: border-box; }
+.v3-table .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0, 0, 0, 0); white-space: normal; border: 0; }
+.v3-row { display: grid; grid-template-columns: minmax(7rem, 1.2fr) repeat(var(--v3-cols), minmax(0, 1fr));
+    border-top: 1px solid var(--yr-border, #e3e8ef); }
+.v3-head { border-top: 0; background: #f4f7fb; }
+.v3-label, .v3-cell { min-width: 0; padding: .55rem .7rem; font-size: .88rem; line-height: 1.45; color: #1c2530;
+    overflow-wrap: anywhere; word-break: normal; }
+.v3-car strong { display: block; font-size: .92rem; }
+.v3-car span { display: block; font-size: .76rem; color: #5b6573; }
+.v3-car .v3-price { color: #1c2530; font-weight: 700; }
+.v3-unit { font-size: .74rem; color: #6b7480; font-weight: 400; }
+.v3-lead { font-weight: 800; }
+.v3-lead-mark { color: #1f6f43; font-size: .7rem; vertical-align: middle; }
+.v3-section-head { display: block; border-top: 2px solid var(--yr-border, #d4dbe5); background: #f8fafc; }
+.v3-section-cell { padding: .5rem .7rem; min-width: 0; }
+.v3-section-title { font-size: 1rem; font-weight: 800; }
+.v3-chevron { display: inline-flex; align-items: flex-start; gap: .35rem; width: 100%; min-width: 0; padding: 0; margin: 0;
+    border: 0; background: none; color: inherit; font: inherit; text-align: right; cursor: pointer; overflow-wrap: anywhere; }
+.v3-chevron:focus-visible { outline: 2px solid #2f6bff; outline-offset: 2px; border-radius: 4px; }
+.v3-chevron-icon { flex: none; width: .55rem; height: .55rem; margin-top: .4rem; border-inline-start: 2px solid currentColor;
+    border-bottom: 2px solid currentColor; transform: rotate(45deg); transition: transform .15s ease; }
+.v3-chevron[aria-expanded="true"] .v3-chevron-icon { transform: rotate(-45deg); }
+.v3-panel { padding: .55rem .9rem .75rem; font-size: .85rem; line-height: 1.65; color: #2a313b; background: #f8fafc;
+    border-top: 1px dashed var(--yr-border, #e3e8ef); overflow-wrap: anywhere; }
+.v3-panel[hidden] { display: none; }
+.v3-section-cell .v3-panel { margin-top: .4rem; border-top: 0; padding: .3rem 0 0; background: none; }
+.v3-details { margin: .35rem 0 0; padding-inline-start: 1.1rem; list-style: disc; }
+.v3-attribution { margin-top: .6rem; font-size: .76rem; color: #5b6573; overflow-wrap: anywhere; }
+.v3-hero { text-align: right; }
+.v3-hero-title { font-size: 1.15rem; font-weight: 800; }
+.v3-hero-name { font-size: 1.35rem; margin-top: .25rem; }
+.v3-hero-sub, .v3-summary { margin-top: .5rem; line-height: 1.7; color: #2a313b; }
+.v3-chips { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .6rem; }
+.v3-chip { display: inline-block; padding: .15rem .55rem; border-radius: 999px; background: #eef3ff; color: #1f3f99; font-size: .76rem; }
+.v3-chip-muted { background: #f1f4f8; color: #46505c; }
+.v3-notes { margin-top: .6rem; padding-inline-start: 1.1rem; list-style: disc; font-size: .85rem; }
+.v3-note-blocking { color: #b42318; font-weight: 700; }
+.v3-reasons { margin-top: .7rem; font-size: .88rem; }
+.v3-reasons ul { padding-inline-start: 1.1rem; list-style: disc; }
+
+@media (max-width: 639px) {
+    .v3-row { grid-template-columns: repeat(var(--v3-cols), minmax(0, 1fr)); }
+    .v3-row > .v3-label { grid-column: 1 / -1; padding-bottom: .1rem; font-weight: 700; }
+    .v3-head > .v3-label { display: none; }
+    .v3-label, .v3-cell { padding-inline: .5rem; font-size: .84rem; }
+}

@@ -479,7 +479,7 @@ class TestPostHogServerFlows:
         assert track_event.call_args.args[0] == str(user_id)
         assert track_event.call_args.args[1] == "analyze_completed"
 
-    def test_compare_completed_emitted_on_success(self, logged_in_client, monkeypatch):
+    def test_compare_completed_emitted_on_success(self, logged_in_client, monkeypatch, legacy_compare_engine):
         client, user_id = logged_in_client
         client.post("/api/legal/accept", json={"legal_confirm": True})
         response_class = client.application.response_class

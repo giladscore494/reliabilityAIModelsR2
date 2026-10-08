@@ -24,6 +24,8 @@ from flask import url_for
 from app.services import comparison_service
 from app.services.comparison import grounding as grounding_mod
 
+pytestmark = pytest.mark.usefixtures("legacy_compare_engine")
+
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
 
