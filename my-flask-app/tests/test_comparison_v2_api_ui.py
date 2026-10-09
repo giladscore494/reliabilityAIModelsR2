@@ -33,8 +33,7 @@ PRI = dict(safety=2, performance=2, efficiency=2, practicality=2, purchase_price
 
 
 @pytest.fixture
-def v2_client(app, logged_in_client, monkeypatch):
-    monkeypatch.setenv("COMPARISON_V2_ENABLED", "true")
+def v2_client(app, logged_in_client, monkeypatch, v2_compare_engine):
     client, user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True}, headers=HEADERS)
     counters = {"provider": FakeEnrichmentProvider(), "session": FakeTypeSafeSession(), "writer": FakeSummaryWriter()}
@@ -204,15 +203,14 @@ def test_legacy_stored_comparison_still_readable(v2_client, app):
     assert detail["decision_result"]["overall_decision"]["label"] == "car_1"
 
 
-def test_flag_off_keeps_legacy_ui(app, logged_in_client, monkeypatch):
-    monkeypatch.delenv("COMPARISON_V2_ENABLED", raising=False)
+def test_legacy_engine_keeps_legacy_ui(app, logged_in_client, legacy_compare_engine):
     client, _ = logged_in_client
     html = client.get("/compare").get_data(as_text=True)
     assert 'id="car_search_1"' in html and "compareV2Picker" not in html
     assert "compare_v2.js" in html  # renderer always available for V2 history rows
 
 
-def test_flag_on_renders_v2_picker_and_personalization_step(v2_client):
+def test_v2_engine_renders_v2_picker_and_personalization_step(v2_client):
     client, _, _ = v2_client
     html = client.get("/compare").get_data(as_text=True)
     assert 'id="compareV2Picker"' in html

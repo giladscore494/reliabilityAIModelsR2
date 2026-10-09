@@ -1,7 +1,11 @@
 # Comparison V2 (`comparison-v2/2`)
 
-Feature flag: `COMPARISON_V2_ENABLED` (default `false`). With the flag off the
-legacy single-pass flow is untouched; with it on, `/compare` shows the exact
+> **Superseded.** `/compare` now runs Comparison V3 (`comparison-v3/1`, facts from TRIPY): see
+> [COMPARISON_V3.md](COMPARISON_V3.md). This document describes the V2 pipeline, which remains for stored
+> `comparison-v2/*` history rows and can be selected in code (`DEFAULT_COMPARISON_ENGINE = "v2"`);
+> `COMPARISON_V2_ENABLED` no longer selects an engine.
+
+Former feature flag: `COMPARISON_V2_ENABLED`. With the V2 engine selected, `/compare` shows the exact
 variant picker plus the personalization step, and `POST /api/compare` runs
 the V2 pipeline.
 

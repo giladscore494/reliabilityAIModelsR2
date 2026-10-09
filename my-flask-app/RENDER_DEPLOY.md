@@ -33,8 +33,12 @@ These must be present (app will hard-fail on Render without `SECRET_KEY`/`DATABA
 - `POSTHOG_HOST` (optional; default `https://us.i.posthog.com`)
 - `OWNER_EMAIL` (optional; single email address of the site owner for the owner management UI, e.g. `gilad@example.com`)
 
-### Comparison V2 (feature-flagged; see `docs/COMPARISON_V2.md`)
-- `COMPARISON_V2_ENABLED` (default `false`; `true` switches `/compare` and `POST /api/compare` to V2; set back to `false` to roll back)
+### Comparison V3 (the `/compare` engine; see `docs/COMPARISON_V3.md`)
+- `TRIPY_BASE_URL` (secret; the TRIPY deployment, e.g. `https://<tripy-host>`) and `TRIPY_FACTS_TOKEN` (secret; sent as `Authorization: Bearer`, accepted by TRIPY only on `/api/facts/v1/*`). Without them `/compare` answers `facts_unavailable` (503); it never falls back to demo data.
+- The engine is a code default (`DEFAULT_COMPARISON_ENGINE` in `app/services/comparison/model_config.py`), not an env var. Row explanations use `DEFAULT_COMPARISON_V2_MODEL_ID` (code); the summary uses `COMPARISON_SUMMARY_MODEL`; JEV uses `TYPESAFE_API_KEY` / `JEV_MODEL` below. V3 makes no enrichment calls, so the enrichment variables below apply to V2 only.
+
+### Comparison V2 (stored history; selectable in code only; see `docs/COMPARISON_V2.md`)
+- `COMPARISON_V2_ENABLED` no longer selects an engine (it is ignored).
 - `COMPARISON_ENRICHMENT_MODEL` (default `gemini-3.1-pro-preview`; grounded official-source extraction, technical + commercial task per car). If this variable is set in the Render dashboard it overrides the default — remove it (or set it to `gemini-3.1-pro-preview`).
 - `COMPARISON_SUMMARY_MODEL` (default `gemini-3.8-flash`; one ungrounded summary after the JEV decision)
 - `TYPESAFE_API_KEY` (secret; server-side only)

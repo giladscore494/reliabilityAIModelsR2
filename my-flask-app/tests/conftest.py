@@ -18,6 +18,19 @@ def _no_grounding_redirect_network(monkeypatch):
 
 
 @pytest.fixture
+def legacy_compare_engine(monkeypatch):
+    """Serve POST /api/compare with the legacy (V1) engine. V3 is the code default; tests of the older engines
+    select theirs in code (there is no env flag for it)."""
+    monkeypatch.setattr("app.services.comparison.model_config.DEFAULT_COMPARISON_ENGINE", "legacy")
+
+
+@pytest.fixture
+def v2_compare_engine(monkeypatch):
+    """Serve POST /api/compare with the Comparison V2 engine (see ``legacy_compare_engine``)."""
+    monkeypatch.setattr("app.services.comparison.model_config.DEFAULT_COMPARISON_ENGINE", "v2")
+
+
+@pytest.fixture
 def app(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "sqlite:///:memory:")
     monkeypatch.setenv("SECRET_KEY", "test-secret-key-for-pytest")

@@ -8,6 +8,9 @@ from datetime import datetime
 from main import db
 from app.models import ComparisonHistory
 from app.services.comparison_service import _safe_parse_json_cached
+import pytest
+
+pytestmark = pytest.mark.usefixtures("legacy_compare_engine")
 
 
 class TestSafeParseJsonCached:

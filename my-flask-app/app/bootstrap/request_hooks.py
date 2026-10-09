@@ -334,7 +334,7 @@ def register_request_hooks(
 
         is_ai_write = request.method in ("POST", "PUT", "PATCH", "DELETE") and path.startswith(
             ("/analyze", "/advisor_api", "/api/compare")
-        )
+        ) and path != "/api/compare/v3/availability"  # the picker's facts lookup: no model call, nothing stored
         if not is_ai_write:
             return None
 

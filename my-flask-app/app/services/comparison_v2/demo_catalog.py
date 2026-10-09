@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from app.services.comparison_v2.contracts import VehicleCatalogRepository
-from app.services.comparison_v2.source_registry import brand_display
 
 _FIXTURE_PATH = Path(__file__).resolve().parents[2] / "data" / "comparison_v2_demo_catalog.json"
 _IDENTITY_KEY_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -59,6 +58,8 @@ def _load_fixtures() -> Dict[str, Any]:
 def picker_entry(record: Dict[str, Any]) -> Dict[str, Any]:
     """Compact, display-ready picker row (no raw MoT column names)."""
     from app.services.comparison_v2.level15 import powertrain_family  # level15 imports this module
+    # imported here so the fixtures can be read (Comparison V3 offline mode) without the V2 source registry
+    from app.services.comparison_v2.source_registry import brand_display
 
     make = brand_display(record.get("manufacturer"))
     model = record.get("display_model") or record.get("model")

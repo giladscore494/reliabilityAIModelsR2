@@ -113,8 +113,22 @@ def comparison_summary_model_id() -> str:
     return _configured_model("COMPARISON_SUMMARY_MODEL", DEFAULT_COMPARISON_V2_SUMMARY_MODEL_ID)
 
 
+# Which engine serves POST /api/compare. A code default, not an env flag: Comparison V3 (facts from TRIPY) is the
+# engine after the V3 PR. Stored V2 / V1 history rows keep rendering through their own ``engine_version``.
+# ``COMPARISON_V2_ENABLED`` no longer selects an engine.
+COMPARISON_ENGINE_V3 = "v3"
+COMPARISON_ENGINE_V2 = "v2"
+COMPARISON_ENGINE_LEGACY = "legacy"
+DEFAULT_COMPARISON_ENGINE = COMPARISON_ENGINE_V3
+
+
+def comparison_engine() -> str:
+    return DEFAULT_COMPARISON_ENGINE
+
+
 def comparison_v2_enabled() -> bool:
-    return (os.environ.get("COMPARISON_V2_ENABLED") or "false").strip().lower() in ("1", "true", "yes", "on")
+    """True only when the V2 engine serves /api/compare (never, by default)."""
+    return comparison_engine() == COMPARISON_ENGINE_V2
 
 
 def validate_comparison_model_id(model_id: str, *, env_name: str = "model") -> str:
@@ -142,7 +156,7 @@ def validate_comparison_model_config(log: logging.Logger | None = None) -> None:
         validate_comparison_model_id(model_id, env_name=env_name)
     if log:
         log.info(
-            "[AI] comparison_model_config_valid stage_a_model=%s stage_a_repair_model=%s stage_b_model=%s fallback_model=%s low_cost_model=%s enrichment_model=%s summary_model=%s v2_enabled=%s",
+            "[AI] comparison_model_config_valid stage_a_model=%s stage_a_repair_model=%s stage_b_model=%s fallback_model=%s low_cost_model=%s enrichment_model=%s summary_model=%s engine=%s",
             configured["COMPARISON_STAGE_A_MODEL"],
             configured["COMPARISON_STAGE_A_REPAIR_MODEL"],
             configured["COMPARISON_STAGE_B_MODEL"],
@@ -150,5 +164,5 @@ def validate_comparison_model_config(log: logging.Logger | None = None) -> None:
             configured["COMPARISON_LOW_COST_MODEL"],
             configured["COMPARISON_ENRICHMENT_MODEL"],
             configured["COMPARISON_SUMMARY_MODEL"],
-            comparison_v2_enabled(),
+            comparison_engine(),
         )

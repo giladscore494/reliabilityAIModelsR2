@@ -72,9 +72,9 @@ def get_comparison_history(user_id: int, limit: int = 10) -> List[Dict]:
     return result
 
 
-# V2/1 rows keep their own (broad-decision) result contract; V2/2 rows carry
+# V2/1 rows keep their own (broad-decision) result contract; V2/2 and V3/1 rows carry
 # the composed decision. Both are returned exactly as stored.
-V2_ENGINE_VERSIONS = ("comparison-v2/1", "comparison-v2/2")
+V2_ENGINE_VERSIONS = ("comparison-v2/1", "comparison-v2/2", "comparison-v3/1")
 
 
 def _v2_detail(record) -> Optional[Dict]:

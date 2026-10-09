@@ -12,6 +12,9 @@ from app.services import comparison_service
 from app.quota import compute_quota_window, resolve_app_timezone
 from app.models import DailyQuotaUsage, ComparisonHistory
 from main import db
+import pytest
+
+pytestmark = pytest.mark.usefixtures("legacy_compare_engine")
 
 ROOT = Path(__file__).resolve().parents[1]
 
