@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 """``vehicle-facts/1`` (TRIPY) -> ``CanonicalVehicleSnapshot`` (``canonical-vehicle-snapshot/2``).
 
-* Government facts become Level 1.5 (``source_level`` "1.5"); open-data facts become ``open_data``.
-* Every fact keeps ``source``, ``standard``, ``definition``, ``identity_level``, ``attribution`` and ``licence`` as
-  TRIPY sent them. A field absent from the response is absent from the snapshot: never a null placeholder.
+* Government facts become Level 1.5 (``source_level`` "1.5"); the ministry's data.gov.il datasets
+  (``source_level`` "government_dataset") stay ``government_dataset``; open-data facts become ``open_data``.
+* Every fact keeps ``source``, ``standard``, ``definition``, ``identity_level``, ``attribution``, ``licence``,
+  ``resource_id`` and ``dataset_built_at`` as TRIPY sent them.
+* A list ``value`` (``recalls``, including ``[]``: a resolved model with no notice) and a dict ``value``
+  (``road_survival``) are kept as sent. A field absent from the response is absent from the snapshot: never a null placeholder.
 * TRIPY's open-data offer names are mapped to this repository's metric names (``FIELD_RENAMES``).
 * The user's asking price is a fact of its own (``asking_price_ils``, provenance ``user_supplied``).
 """
@@ -15,6 +18,7 @@ from typing import Any, Dict, Optional
 from app.services.comparison_v3.contracts import (
     SNAPSHOT_CONTRACT_VERSION,
     SOURCE_LEVEL_GOVERNMENT,
+    SOURCE_LEVEL_GOVERNMENT_DATASET,
     SOURCE_LEVEL_OPEN_DATA,
     SOURCE_LEVEL_USER,
 )
@@ -23,7 +27,7 @@ from app.services.comparison_v3.labels import FUEL_LABELS_HE, PROPULSION_LABELS_
 # TRIPY offer name -> metric name of this repository (D2). Everything else keeps its name.
 FIELD_RENAMES = {"fuel_consumption_combined_l_100km": "fuel_consumption_l_100km"}
 FACT_KEYS = ("value", "unit", "standard", "definition", "source", "identity_level", "basis", "attribution",
-             "licence", "row_ids", "dataset_year", "corroborated_by")
+             "licence", "resource_id", "dataset_built_at", "row_ids", "dataset_year", "corroborated_by")
 ADAS_PREFIX = "adas."
 
 
@@ -43,12 +47,18 @@ def _fact(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if not isinstance(raw, dict) or raw.get("value") in (None, "") and not raw.get("range"):
         return None
     fact = {k: raw[k] for k in FACT_KEYS if raw.get(k) not in (None, "", [], {})}
-    for extra in ("range", "count"):                    # government history facts (original price range)
+    if isinstance(raw.get("value"), (list, dict)):
+        fact["value"] = raw["value"]                    # recalls [] (resolved, no notice) / road_survival {...}
+    for extra in ("range", "n_prices", "count"):        # original price range (n_prices; count: older fallback)
         if raw.get(extra) not in (None, "", [], {}):
             fact[extra] = raw[extra]
     level = raw.get("source_level")
-    fact["source_level"] = SOURCE_LEVEL_GOVERNMENT if level == "government" or raw.get("source") == "government" \
-        else SOURCE_LEVEL_OPEN_DATA
+    if level == "government_dataset":
+        fact["source_level"] = SOURCE_LEVEL_GOVERNMENT_DATASET
+    elif level == "government" or raw.get("source") == "government":
+        fact["source_level"] = SOURCE_LEVEL_GOVERNMENT
+    else:
+        fact["source_level"] = SOURCE_LEVEL_OPEN_DATA
     return fact
 
 

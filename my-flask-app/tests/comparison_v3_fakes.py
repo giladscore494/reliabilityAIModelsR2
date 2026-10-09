@@ -27,6 +27,55 @@ _EPA = {"source": "epa_fueleconomy", "source_level": "open_data", "identity_leve
         "basis": "unique", "licence": "US public domain", "row_ids": ["epa-1"]}
 
 
+# TRIPY #77 (vehicle-facts/1.1): the data.gov.il government datasets, source_level "government_dataset"
+_GOV_DATASETS = {
+    "gov_new_car_prices": {"resource_id": "39f455bf-6db0-4926-859d-017f34eacbcb", "licence": "Other (Open)",
+                           "identity_level": "model_year", "basis": "tozeret_cd+degem_cd+shnat_yitzur",
+                           "attribution": "מקור: משרד התחבורה והבטיחות בדרכים, data.gov.il — מחירון רכב חדש "
+                                          "(39f455bf-6db0-4926-859d-017f34eacbcb), נכון ל-2026-10-03"},
+    "gov_recall_notices": {"resource_id": "2c33523f-87aa-44ec-a736-edbb0a82975e", "licence": "CC BY",
+                           "identity_level": "model", "basis": "canonical_make+recall_model_map+production_range",
+                           "attribution": "מקור: משרד התחבורה והבטיחות בדרכים, data.gov.il — קריאות שירות (ריקול) "
+                                          "(2c33523f-87aa-44ec-a736-edbb0a82975e), נכון ל-2026-10-03. רישיון CC BY"},
+    "gov_road_survival": {"resource_id": ["851ecab1-0622-4dbe-a6c7-f950cf82abf9", "4e6b9724-4c1e-43f0-909a-154d4cc4e046",
+                                          "ec8cbc34-72e1-4b69-9c48-22821ba0bd6c", "053cea08-09bc-40ec-8f7a-156f0677aff3"],
+                          "licence": "Other (Open)", "identity_level": "model_year",
+                          "basis": "tozeret_cd+degem_cd+first_road_year",
+                          "attribution": "מקור: משרד התחבורה והבטיחות בדרכים, data.gov.il — ביטולים סופיים של כלי רכב "
+                                         "+ מאגר כלי רכב פעילים, נכון ל-2026-10-03"},
+}
+
+
+def govds(source: str, **fields):
+    """A data.gov.il government-dataset fact as TRIPY #77 serves it."""
+    return {"source": source, "source_level": "government_dataset", "dataset_built_at": "2026-10-03",
+            **_GOV_DATASETS[source], **fields}
+
+
+def list_price(value=None, *, range=None, n_prices=None):
+    extra = {"value": value} if value is not None else {"range": range, "n_prices": n_prices}
+    return govds("gov_new_car_prices", unit="ILS", label_he="מחיר מחירון חדש מקורי", price_type="new_car_list_price",
+                 **extra)
+
+
+def recall(recall_id, year, system, fault, repair, built_from="2022-01", built_to="2023-06"):
+    return {"recall_id": recall_id, "recall_year": year, "affected_system": system, "fault_description": fault,
+            "repair_method": repair, "production_range": {"from": built_from, "to": built_to}}
+
+
+def recall_facts(notices, count=None):
+    """``recalls`` + ``recall_count`` of a RESOLVED model (an unresolved model gets neither field)."""
+    return {"recalls": govds("gov_recall_notices", value=list(notices)),
+            "recall_count": govds("gov_recall_notices", value=len(notices) if count is None else count)}
+
+
+def road_survival(shares, cohort_year=2023, cohort_size=4200):
+    return govds("gov_road_survival", value={
+        "cohort_size": cohort_size, "cancelled_share_by_age": shares, "final_cancellation_rate": 0.012,
+        "definition_he": "שיעור הרכבים מהמחזור שבוטלו סופית עד הגיל הנתון", "cohort_basis": "first_road_year",
+        "cohort_year": cohort_year, "reference_month": "2026-09"})
+
+
 def vkey(name: str) -> str:
     return hashlib.sha256(name.encode("utf-8")).hexdigest()
 
@@ -84,9 +133,9 @@ OCTAVIA = record("octavia-2023", manufacturer="סקודה", model="OCTAVIA", yea
                      "curb_weight_kg": eea(1390, "kg", definition="eu_running_order"),
                      "wheelbase_mm": eea(2686, "mm"),
                      "fuel_consumption_combined_l_100km": eea(6.1, "L/100km", standard="WLTP"),
-                     "original_new_price_ils": gov(160000, "ILS"),
-                     "recalls": gov([{"year": 2023, "system": "בלמים", "repair": "החלפת צינור בלם"}]),
-                     "road_survival": gov({"cancelled_share_by_age": {"1": 0.0, "3": 0.01, "5": 0.02}}),
+                     "original_new_price_ils": list_price(160000),
+                     **recall_facts([recall("R-1001", 2023, "בלמים", "דליפה בצינור בלם", "החלפת צינור בלם")]),
+                     "road_survival": road_survival({"3": 0.01, "5": 0.02}),
                  })
 GOLF = record("golf-2023", manufacturer="פולקסווגן", model="GOLF", year=2023, trim="LIFE 1.5 ETSI",
               propulsion="conventional", fuel_type="petrol", facts={
@@ -95,10 +144,10 @@ GOLF = record("golf-2023", manufacturer="פולקסווגן", model="GOLF", year
                   "curb_weight_kg": eea(1325, "kg", definition="eu_running_order"),
                   "wheelbase_mm": eea(2636, "mm"),
                   "fuel_consumption_combined_l_100km": eea(5.4, "L/100km", standard="WLTP"),
-                  "original_new_price_ils": gov(None, "ILS", range=[150000, 175000], count=4),
-                  "recalls": gov([{"year": 2022, "system": "חשמל", "repair": "עדכון תוכנה"},
-                                  {"year": 2023, "system": "כריות אוויר", "repair": "החלפת מודול"}]),
-                  "road_survival": gov({"cancelled_share_by_age": {"1": 0.0, "3": 0.015, "4": 0.02}}),
+                  "original_new_price_ils": list_price(range=[150000, 175000], n_prices=4),
+                  **recall_facts([recall("R-2002", 2023, "כריות אוויר", "תקלה במודול הכרית", "החלפת מודול"),
+                                  recall("R-1990", 2022, "חשמל", "תקלת תוכנה ביחידת הבקרה", "עדכון תוכנה")]),
+                  "road_survival": road_survival({"3": 0.015, "4": 0.02}),
               })
 CIVIC_NO_WHEELBASE = record("civic-2023", manufacturer="הונדה", model="CIVIC", year=2023, trim="SPORT",
                             propulsion="conventional", fuel_type="petrol", facts={

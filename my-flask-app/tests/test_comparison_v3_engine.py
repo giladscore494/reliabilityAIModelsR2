@@ -2,6 +2,7 @@
 """Comparison V3 (``comparison-v3/1``) offline: the row rule R, categories, price / budget, safety as one signal,
 hp per tonne, buyer-profile/3 migration, row explanations, TRIPY access, attribution, the no-import rule."""
 
+import copy
 import json
 import os
 import subprocess
@@ -19,6 +20,7 @@ from app.services.comparison_v3.buyer_profile import (
     normalize_buyer_profile,
 )
 from app.services.comparison_v3.engine import build_pairwise_evidence
+from app.services.comparison_v3.snapshot import build_snapshot
 from app.services.comparison_v3.metrics import (
     CATEGORIES,
     METRICS,
@@ -48,6 +50,9 @@ from comparison_v3_fakes import (
     FakeExplanationWriter,
     FakeTripySession,
     build_v3_deps,
+    list_price,
+    recall,
+    recall_facts,
     snapshots_for,
 )
 
@@ -57,6 +62,16 @@ GENERAL = {"mode": "general"}
 
 def _rows(*recs):
     return comparable_rows(snapshots_for(*recs))
+
+
+def _with_facts(rec, drop=(), **facts):
+    """A copy of a fake record with facts replaced / added (``drop``: facts removed)."""
+    out = copy.deepcopy(rec)
+    for name in drop:
+        out["facts"].pop(name, None)
+    out["facts"].update(facts)
+    out["variant_identity_key"] = out["variant_identity_key"][:-1] + ("0" if out["variant_identity_key"][-1] != "0" else "1")
+    return out
 
 
 def _ids(rows):
@@ -159,7 +174,8 @@ def test_safety_is_one_signal_and_abs_esc_never_appear():
     pair = build_pairwise_evidence(rows, ["car_1", "car_2"])["car_1__car_2"]
     assert sorted(g for g, v in pair["groups"].items() if v["dimension"] == "safety") == ["gov_safety_rating",
                                                                                           "passive_safety"]
-    text = json.dumps(rows, ensure_ascii=False).lower()
+    # the TRIPY recall-detail key "fault_description" contains "esc" as a substring; it is not an ESC row
+    text = json.dumps(rows, ensure_ascii=False).lower().replace('"fault_description"', "")
     for word in ("abs", "esc", "בלימה נגד נעילה", "בקרת יציבות"):
         assert word not in text
 
@@ -179,7 +195,7 @@ def test_history_rows_original_price_recalls_and_road_survival():
     price = rows["original_new_price_ils"]
     assert price["display_only"] and price["history"]
     assert price["cells"]["car_1"]["text"] == "₪160,000"
-    assert price["cells"]["car_2"]["text"] == "₪150,000–₪175,000 (4 מחירים לגרסאות הדגם)"
+    assert price["cells"]["car_2"]["text"] == "₪150,000–₪175,000 (4 מחירים במחירון לשנה זו)"
     # depreciation needs a single original price for every car (the Golf has a range) -> absent
     assert "depreciation_from_new" not in rows
     single = {r["row_id"]: r for r in _rows((OCTAVIA, 120000), (OCTAVIA | {"variant_identity_key": "x" * 64}, 140000))}
@@ -187,7 +203,10 @@ def test_history_rows_original_price_recalls_and_road_survival():
     assert single["depreciation_from_new"]["display_only"]
     recalls = rows["recalls"]
     assert [recalls["cells"][s]["text"] for s in ("car_1", "car_2")] == ["1", "2"]
-    assert recalls["cells"]["car_2"]["details"][1] == {"year": 2023, "system": "כריות אוויר", "repair": "החלפת מודול"}
+    assert recalls["cells"]["car_2"]["details"][0] == {
+        "recall_id": "R-2002", "recall_year": 2023, "affected_system": "כריות אוויר",
+        "fault_description": "תקלה במודול הכרית", "repair_method": "החלפת מודול",
+        "production_range": {"from": "2022-01", "to": "2023-06"}}
     survival = rows["road_survival"]
     assert survival["survival_age"] == 3 and survival["label_he"] == "ירידה מהכביש עד גיל 3"
     assert survival["cells"]["car_1"]["text"] == "1% מהרכבים"
@@ -203,6 +222,100 @@ def test_history_rows_original_price_recalls_and_road_survival():
 # ---------------------------------------------------------------------------
 # asking price / budget
 # ---------------------------------------------------------------------------
+def test_government_dataset_fact_keeps_its_level_and_provenance():
+    price = build_snapshot(copy.deepcopy(OCTAVIA), "car_1")["facts"]["original_new_price_ils"]
+    assert price["source_level"] == contracts.SOURCE_LEVEL_GOVERNMENT_DATASET == "government_dataset"
+    assert price["source_level"] != contracts.SOURCE_LEVEL_OPEN_DATA
+    assert price["source"] == "gov_new_car_prices" and price["licence"] == "Other (Open)"
+    assert price["resource_id"] == "39f455bf-6db0-4926-859d-017f34eacbcb" and price["dataset_built_at"] == "2026-10-03"
+    assert price["attribution"].startswith("מקור: משרד התחבורה והבטיחות בדרכים, data.gov.il")
+    # the plain government registry stays Level 1.5, open data stays open data
+    facts = build_snapshot(copy.deepcopy(OCTAVIA), "car_1")["facts"]
+    assert facts["horsepower"]["source_level"] == contracts.SOURCE_LEVEL_GOVERNMENT
+    assert facts["wheelbase_mm"]["source_level"] == contracts.SOURCE_LEVEL_OPEN_DATA
+    row = {r["row_id"]: r for r in _rows(OCTAVIA, GOLF)}["original_new_price_ils"]
+    assert {c["source_level"] for c in row["cells"].values()} == {"government_dataset"}
+    footer = attribution(_rows(OCTAVIA, GOLF))
+    assert contracts.GOVERNMENT_DATASET_LABEL_HE == "משרד התחבורה — מאגר data.gov.il"
+    assert footer.count(contracts.GOVERNMENT_DATASET_LABEL_HE) == 1           # three datasets, one label
+
+
+def test_resolved_model_with_no_recall_is_a_real_zero():
+    no_notice = _with_facts(GOLF, **recall_facts([]))
+    snap = build_snapshot(copy.deepcopy(no_notice), "car_2")
+    assert snap["facts"]["recalls"]["value"] == [] and snap["facts"]["recall_count"]["value"] == 0
+    rows = {r["row_id"]: r for r in _rows(OCTAVIA, no_notice)}
+    recalls = rows["recalls"]
+    assert recalls["values"] == {"car_1": 1, "car_2": 0}
+    assert [recalls["cells"][s]["text"] for s in ("car_1", "car_2")] == ["1", "0"]
+    assert recalls["leader"] is None and recalls["display_only"]
+    # one car resolved, one car with no recalls field (an unresolved model): no row
+    unresolved = _with_facts(GOLF, drop=("recalls", "recall_count"))
+    assert "recalls" not in _ids(_rows(OCTAVIA, unresolved))
+    assert "recalls" not in _ids(_rows(_with_facts(OCTAVIA, **recall_facts([])), unresolved))
+    # recall_count alone is not the field: still no row
+    assert "recalls" not in _ids(_rows(OCTAVIA, _with_facts(GOLF, drop=("recalls",))))
+
+
+def test_recall_count_falls_back_to_the_list_and_a_disagreement_has_no_cell():
+    listed_only = _with_facts(GOLF, drop=("recall_count",))
+    assert {r["row_id"]: r for r in _rows(OCTAVIA, listed_only)}["recalls"]["values"]["car_2"] == 2
+    disagree = copy.deepcopy(GOLF)
+    disagree["facts"]["recall_count"]["value"] = 3                         # two notices listed, count 3
+    assert "recalls" not in _ids(_rows(OCTAVIA, disagree))
+
+
+def test_recall_details_carry_the_tripy_keys_and_the_explanation_cites_system_and_year_only():
+    rows = {r["row_id"]: r for r in _rows(OCTAVIA, GOLF)}
+    details = rows["recalls"]["cells"]["car_1"]["details"]
+    assert details == [{"recall_id": "R-1001", "recall_year": 2023, "affected_system": "בלמים",
+                        "fault_description": "דליפה בצינור בלם", "repair_method": "החלפת צינור בלם",
+                        "production_range": {"from": "2022-01", "to": "2023-06"}}]
+    for cell in rows["recalls"]["cells"].values():
+        assert all(d["affected_system"] and d["recall_year"] for d in cell["details"])
+    names = {"car_1": "Skoda OCTAVIA", "car_2": "Volkswagen GOLF"}
+    payload = row_payload(rows["recalls"], names)
+    assert payload["recalls"] == {"Skoda OCTAVIA": [{"recall_year": 2023, "affected_system": "בלמים"}],
+                                  "Volkswagen GOLF": [{"recall_year": 2023, "affected_system": "כריות אוויר"},
+                                                      {"recall_year": 2022, "affected_system": "חשמל"}]}
+    assert "fault_description" not in json.dumps(payload) and "repair_method" not in json.dumps(payload)
+    good = "השורה מציגה את מספר קריאות הריקול לדגם. ל-Skoda OCTAVIA פורסם ריקול אחד ב-2023 שנגע לבלמים."
+    assert validate_row_text(good, payload, [], names) == good
+    severe = "השורה מציגה את מספר קריאות הריקול לדגם. הריקול של 2023 בבלמים חמור במיוחד."
+    assert validate_row_text(severe, payload, [], names) is None
+    zero = {r["row_id"]: r for r in _rows(OCTAVIA, _with_facts(GOLF, **recall_facts([])))}["recalls"]
+    assert row_payload(zero, names)["recalls"]["Volkswagen GOLF"] == []
+
+
+def test_range_price_shows_n_prices_and_depreciation_stays_single_price():
+    three = _with_facts(GOLF, original_new_price_ils=list_price(range=[150000, 171000], n_prices=3))
+    price = {r["row_id"]: r for r in _rows((OCTAVIA, 120000), (three, 110000))}
+    assert price["original_new_price_ils"]["cells"]["car_2"]["text"] == "₪150,000–₪171,000 (3 מחירים במחירון לשנה זו)"
+    assert "depreciation_from_new" not in price
+    legacy = copy.deepcopy(three)
+    legacy["facts"]["original_new_price_ils"].pop("n_prices")
+    legacy["facts"]["original_new_price_ils"]["count"] = 3                 # accepted as a fallback
+    text = {r["row_id"]: r for r in _rows(OCTAVIA, legacy)}["original_new_price_ils"]["cells"]["car_2"]["text"]
+    assert text == "₪150,000–₪171,000 (3 מחירים במחירון לשנה זו)"
+
+
+def test_road_survival_cell_keeps_the_cohort_for_the_explanation():
+    rows = {r["row_id"]: r for r in _rows(OCTAVIA, GOLF)}
+    survival = rows["road_survival"]
+    for cell in survival["cells"].values():
+        assert cell["cohort_year"] == 2023 and cell["cohort_basis"] == "first_road_year"
+        assert cell["reference_month"] == "2026-09"
+    names = {"car_1": "Skoda OCTAVIA", "car_2": "Volkswagen GOLF"}
+    payload = row_payload(survival, names)
+    assert payload["cohort"]["Skoda OCTAVIA"] == {"cohort_year": 2023, "cohort_basis": "first_road_year",
+                                                  "reference_month": "2026-09"}
+    no_reason = "השורה מציגה ירידה מהכביש עד גיל 3 של מחזור 2023. הנתון מחושב לפי שנת העלייה לכביש."
+    assert validate_row_text(no_reason, payload, [], names) is None
+    with_reason = "השורה מציגה ירידה מהכביש עד גיל 3 של מחזור 2023. סיבת הירידה מהכביש אינה ידועה."
+    assert validate_row_text(with_reason, payload, [], names) == with_reason
+    assert "אינה ידועה" in fallback_text(survival)
+
+
 def test_asking_price_row_only_with_every_price():
     assert "asking_price_ils" not in _ids(_rows(OCTAVIA, GOLF))
     assert "asking_price_ils" not in _ids(_rows((OCTAVIA, 120000), GOLF))
@@ -417,12 +530,12 @@ def test_tripy_contract_mismatch_is_unavailable():
 # attribution
 # ---------------------------------------------------------------------------
 def test_attribution_lists_exactly_the_sources_used():
-    assert attribution(_rows(OCTAVIA, GOLF)) == ["משרד התחבורה", "EEA (CC BY 4.0)"]
+    assert attribution(_rows(OCTAVIA, GOLF)) == ["משרד התחבורה", "משרד התחבורה — מאגר data.gov.il", "EEA (CC BY 4.0)"]
     assert attribution(_rows(OCTAVIA, ESCAPE_US)) == ["משרד התחבורה", "EEA (CC BY 4.0)", "Transport Canada", "EPA"]
     gov_only = [r for r in _rows(OCTAVIA, GOLF) if all(c.get("source") == "government" for c in r["cells"].values())]
     assert attribution(gov_only) == ["משרד התחבורה"]
     data = _run(_cars("octavia", "golf", prices=[120000, 110000]))["data"]
-    assert data["table"]["attribution_he"] == "מקורות: משרד התחבורה; EEA (CC BY 4.0)"
+    assert data["table"]["attribution_he"] == "מקורות: משרד התחבורה; משרד התחבורה — מאגר data.gov.il; EEA (CC BY 4.0)"
 
 
 # ---------------------------------------------------------------------------

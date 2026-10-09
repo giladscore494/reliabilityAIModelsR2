@@ -95,7 +95,10 @@
         var details = [];
         slots.forEach(function (slot) {
             ((row.cells || {})[slot] || {}).details && ((row.cells || {})[slot].details || []).forEach(function (d) {
-                details.push('<li>' + [d.year, d.system, d.repair].filter(Boolean).map(escapeHtml).join(' · ') + '</li>');
+                var range = d.production_range || {};
+                var built = (range.from || range.to) ? 'ייצור ' + [range.from, range.to].filter(Boolean).join('–') : '';
+                details.push('<li>' + [d.recall_year, d.affected_system, d.fault_description, d.repair_method, built]
+                    .filter(function (v) { return v !== undefined && v !== null && v !== ''; }).map(escapeHtml).join(' · ') + '</li>');
             });
         });
         if (details.length) html += '<ul class="v3-details">' + details.join('') + '</ul>';

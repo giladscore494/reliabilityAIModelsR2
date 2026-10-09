@@ -247,6 +247,16 @@ def test_js_table_three_columns_keyboard_chevrons_no_placeholders(v3_client, tmp
 
 
 @node_required
+def test_js_recall_details_render_the_tripy_keys(v3_client, tmp_path):
+    client, _, _ = v3_client
+    data = _post(client, _cars("octavia", "golf", prices=[120000, 110000])).get_json()["data"]
+    table = _render(tmp_path, data)["table"]
+    assert "<li>2023 · בלמים · דליפה בצינור בלם · החלפת צינור בלם · ייצור 2022-01–2023-06</li>" in table
+    assert "₪150,000–₪175,000 (4 מחירים במחירון לשנה זו)" in table
+    assert "משרד התחבורה — מאגר data.gov.il" in table
+
+
+@node_required
 def test_js_renderer_caps_columns_at_three_and_escapes(tmp_path):
     result = {"engine_version": "comparison-v3/1", "recommendation": {"title_he": "<img src=x>"},
               "table": {"slots": ["car_1", "car_2", "car_3", "car_4"],

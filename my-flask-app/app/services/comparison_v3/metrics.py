@@ -199,7 +199,8 @@ def _fact(snap: Dict[str, Any], key: str) -> Optional[Dict[str, Any]]:
 
 def _cell(value: Any, fact: Optional[Dict[str, Any]] = None, **extra) -> Dict[str, Any]:
     cell = {"value": value}
-    for k in ("standard", "definition", "source", "attribution", "licence", "source_level", "identity_level"):
+    for k in ("standard", "definition", "source", "attribution", "licence", "source_level", "identity_level",
+              "resource_id", "dataset_built_at"):
         if fact and fact.get(k) not in (None, ""):
             cell[k] = fact[k]
     cell.update({k: v for k, v in extra.items() if v is not None})
@@ -278,7 +279,8 @@ def _read_original_price(snap, metric):
     if isinstance(rng, (list, tuple)) and len(rng) == 2 and all(isinstance(x, (int, float)) for x in rng):
         if rng[0] == rng[1]:
             return _cell(rng[0], fact, single=True)
-        return _cell([rng[0], rng[1]], fact, count=fact.get("count"), single=False)
+        n_prices = fact.get("n_prices") if fact.get("n_prices") is not None else fact.get("count")
+        return _cell([rng[0], rng[1]], fact, n_prices=n_prices, single=False)
     if isinstance(fact.get("value"), (int, float)) and not isinstance(fact.get("value"), bool):
         return _cell(fact["value"], fact, single=True)
     return None
@@ -293,13 +295,26 @@ def _read_depreciation(snap, metric):
     return _cell(round(value, 3), snap["facts"].get("original_new_price_ils"), source="derived")
 
 
+RECALL_DETAIL_KEYS = ("recall_id", "recall_year", "affected_system", "fault_description", "repair_method",
+                      "production_range")
+
+
 def _read_recalls(snap, metric):
+    """TRIPY sends ``recalls`` only for a RESOLVED model (an unresolved one has no field, never ``[]``), so the field
+    itself is the resolved-model rule: ``[]`` with ``recall_count`` 0 is a real 0."""
     fact = snap["facts"].get("recalls")
     if not fact or not isinstance(fact.get("value"), list):
-        return None                                         # the field exists only for resolved models
+        return None
     items = [r for r in fact["value"] if isinstance(r, dict)]
-    details = [{k: r.get(k) for k in ("year", "system", "repair") if r.get(k) not in (None, "")} for r in items]
-    return _cell(len(items), fact, details=details)
+    listed = len(fact["value"])
+    count_fact = snap["facts"].get("recall_count") or {}
+    count = count_fact.get("value")
+    if isinstance(count, bool) or not isinstance(count, (int, type(None))):
+        return None
+    if count is not None and count != listed:
+        return None                                         # the count and the list disagree: no cell
+    details = [{k: r[k] for k in RECALL_DETAIL_KEYS if r.get(k) not in (None, "", {})} for r in items]
+    return _cell(listed if count is None else count, fact, details=details)
 
 
 def _survival_shares(snap) -> Optional[Dict[int, float]]:
@@ -321,10 +336,16 @@ def _survival_shares(snap) -> Optional[Dict[int, float]]:
     return out or None
 
 
+SURVIVAL_COHORT_KEYS = ("cohort_year", "cohort_basis", "reference_month")
+
+
 def _read_road_survival(snap, metric):
     shares = _survival_shares(snap)
     fact = snap["facts"].get("road_survival") or snap["facts"].get("road_survival.cancelled_share_by_age")
-    return _cell(shares, fact) if shares else None
+    if not shares:
+        return None
+    value = fact.get("value") if isinstance(fact.get("value"), dict) else {}
+    return _cell(shares, fact, **{k: value.get(k) for k in SURVIVAL_COHORT_KEYS if value.get(k) not in (None, "")})
 
 
 READERS: Dict[str, Callable[[Dict[str, Any], Metric], Optional[Dict[str, Any]]]] = {
@@ -362,9 +383,9 @@ def cell_text(metric: Metric, cell: Dict[str, Any], survival_age: Optional[int] 
         return f"{round(value * 100)}%"
     if metric.key == "original_new_price_ils" and not cell.get("single"):
         low, high = value
-        count = cell.get("count")
+        n_prices = cell.get("n_prices")
         text = f"₪{_num(low)}–₪{_num(high)}"
-        return text + (f" ({count} מחירים לגרסאות הדגם)" if count else "")
+        return text + (f" ({n_prices} מחירים במחירון לשנה זו)" if n_prices else "")
     if metric.key == "gearbox":
         text = GEARBOX_LABELS_HE.get(value, value_label(value))
         return text + (f", {cell['gears']} הילוכים" if cell.get("gears") else "")
@@ -495,8 +516,14 @@ def attribution(rows: List[Dict[str, Any]]) -> List[str]:
                 licence = cell.get("licence") if cell.get("source") == src else None
                 if src == "eea_co2_cars":
                     name = "EEA (CC BY 4.0)"
-                elif licence and src not in ("government",) and "OGL" not in str(licence) and "public" not in str(licence):
+                elif licence and src != "government" and not src.startswith("gov_") and "OGL" not in str(licence) \
+                        and "public" not in str(licence):
                     name = f"{name} ({licence})"
                 names.setdefault(src, name)
-    order = ["government", "eea_co2_cars", "tc_cvs", "epa_fueleconomy", "nrcan_fuel_ratings", "ademe_car_labelling"]
-    return [names[s] for s in order if s in names]
+    order = ["government", "gov_new_car_prices", "gov_recall_notices", "gov_road_survival", "eea_co2_cars", "tc_cvs",
+             "epa_fueleconomy", "nrcan_fuel_ratings", "ademe_car_labelling"]
+    out: List[str] = []
+    for src in order:
+        if src in names and names[src] not in out:          # the three data.gov.il datasets share one label
+            out.append(names[src])
+    return out

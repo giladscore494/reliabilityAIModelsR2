@@ -9,7 +9,8 @@ this buyer.
 Every row text is validated (the ``summary_writer`` checks applied per row): every number must appear in that row's
 payload; no car is named as better unless it is the row's leader; no percentage or score wording; no reference to
 another row's data; size limits; history rows never say "אמין" / "אמינות", and the road-survival text must say the
-cancellation reason is unknown. A rejected or missing row falls back to the metric's deterministic ``explain_he``
+cancellation reason is unknown. The recalls row may cite only each notice's ``affected_system`` and ``recall_year``
+(the only detail keys in its payload) and never judges a recall's severity. A rejected or missing row falls back to the metric's deterministic ``explain_he``
 (what it measures, its source and standard), which never states that anything is missing.
 
 Model: ``DEFAULT_COMPARISON_V2_MODEL_ID`` (code configuration; no env var). ``temperature=0``,
@@ -35,6 +36,9 @@ TIMEOUT_SEC = 25
 FORBIDDEN = ("%", "ציון", "/100", "אחוז", "http", "www.", "ללא ספק", "בוודאות")
 HISTORY_FORBIDDEN = ("אמין",)
 UNKNOWN_REASON_MARKERS = ("לא ידוע", "אינה ידועה", "לא ידועה", "אינו ידוע")
+SEVERITY_FORBIDDEN = ("חמור", "מסוכן", "קריטי", "מסכן", "זניח", "רציני", "קל ערך")
+RECALL_PAYLOAD_KEYS = ("recall_year", "affected_system")          # never fault / repair text, never a severity
+SURVIVAL_PAYLOAD_KEYS = ("cohort_year", "cohort_basis", "reference_month")
 WINNER_MARKERS = ("טוב יותר", "עדיף", "יתרון", "מוביל", "מנצח", "הטוב", "מתאים יותר")
 DIRECTION_EN = {1: "higher_is_better", -1: "lower_is_better", 0: "display_only"}
 
@@ -54,7 +58,16 @@ def row_payload(row: Dict[str, Any], names: Dict[str, str]) -> Dict[str, Any]:
     }
     if row.get("history"):
         out["note"] = "Government history data, display only; never describe it as reliability."
+    if row["row_id"] == "recalls":
+        out["recalls"] = {names.get(slot, slot): [{k: d[k] for k in RECALL_PAYLOAD_KEYS if d.get(k) not in (None, "")}
+                                                  for d in cell.get("details") or []]
+                          for slot, cell in row["cells"].items()}
+        out["note"] = ("Recall notices of the model and its production year (government dataset). You may mention "
+                       "only affected_system and recall_year; never judge how severe a recall is and never call it "
+                       "reliability.")
     if row["row_id"] == "road_survival":
+        out["cohort"] = {names.get(slot, slot): {k: cell[k] for k in SURVIVAL_PAYLOAD_KEYS if cell.get(k) not in (None, "")}
+                         for slot, cell in row["cells"].items()}
         out["note"] = ("Share of the model's cars cancelled from the road by the same age for every car; the "
                        "cancellation reason is unknown and must be said so. Never call it reliability.")
     return {k: v for k, v in out.items() if v not in (None, [], "")}
@@ -70,6 +83,8 @@ def build_prompt(rows: List[Dict[str, Any]], profile_headline: List[str]) -> str
         "- אל תציין רכב כעדיף אלא אם הוא ה-leader של השורה. אם leader הוא tie או חסר — אל תציין רכב עדיף.",
         "- אל תכתוב אחוזים, ציונים או מילים מוחלטות. אל תשתמש בידע שלך על הרכבים.",
         "- בשורות היסטוריה אל תכתוב 'אמינות'. בשורת הירידה מהכביש כתוב שסיבת הירידה מהכביש אינה ידועה.",
+        "- בשורת הריקולים מותר לציין רק את המערכת שנפגעה (affected_system) ואת שנת הריקול (recall_year). "
+        "אל תעריך את חומרת הריקול.",
         "- החזר JSON שבו כל מפתח הוא row_id והערך הוא ההסבר.",
         "",
         json.dumps({"buyer_profile": profile_headline, "rows": rows}, ensure_ascii=False),
@@ -103,6 +118,8 @@ def validate_row_text(text: Any, payload: Dict[str, Any], other_labels: List[str
     if history and any(f in text for f in HISTORY_FORBIDDEN):
         return None
     if payload["row_id"] == "road_survival" and not any(m in text for m in UNKNOWN_REASON_MARKERS):
+        return None
+    if payload["row_id"] == "recalls" and any(f in text for f in SEVERITY_FORBIDDEN):
         return None
     allowed = _allowed_numbers(payload)
     for num in re.findall(r"\d+(?:[.,]\d+)*", text):

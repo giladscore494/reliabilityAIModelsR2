@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from app.services.comparison_v3.contracts import GOVERNMENT_DATASET_LABEL_HE
+
 BRAND_DISPLAY = {
     "מרצדס": "Mercedes-Benz", "מרצדס בנץ": "Mercedes-Benz", "ב מ וו": "BMW", "טויוטה": "Toyota", "אאודי": "Audi",
     "אודי": "Audi", "סקודה": "Skoda", "פולקסווגן": "Volkswagen", "יונדאי": "Hyundai", "וולבו": "Volvo",
@@ -42,6 +44,10 @@ SOURCE_NAMES_HE = {
     "epa_fueleconomy": "EPA",
     "nrcan_fuel_ratings": "NRCan",
     "ademe_car_labelling": "ADEME",
+    # the ministry's data.gov.il datasets (source_level government_dataset): never labelled open data
+    "gov_new_car_prices": GOVERNMENT_DATASET_LABEL_HE,
+    "gov_recall_notices": GOVERNMENT_DATASET_LABEL_HE,
+    "gov_road_survival": GOVERNMENT_DATASET_LABEL_HE,
     "user_supplied": None,           # the user's own asking price is not a data source
 }
 

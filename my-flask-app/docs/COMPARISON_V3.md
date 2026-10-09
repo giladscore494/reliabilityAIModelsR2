@@ -12,7 +12,7 @@ dispatch is by `engine_version`: `compare_v3.js` handles `comparison-v3/1` and `
 |---|---|
 | engine / stored result | `comparison-v3/1` |
 | buyer profile | `buyer-profile/3` (a `/2` profile is migrated) |
-| snapshot | `canonical-vehicle-snapshot/2` (source levels `1.5` government, `open_data`, `user_supplied`) |
+| snapshot | `canonical-vehicle-snapshot/2` (source levels `1.5` government, `government_dataset`, `open_data`, `user_supplied`) |
 | facts | TRIPY `vehicle-facts/1` |
 
 ## Invariant
@@ -110,20 +110,25 @@ Removed from V2:
 
 ### History rows (display only, never weighted, never in JEV or the summary reasons)
 
-* `original_new_price_ils`: a single value, or a range shown as "X–Y ₪ (N מחירים לגרסאות הדגם)".
+* `original_new_price_ils`: a single value, or a range shown as "₪min–₪max (n_prices מחירים במחירון לשנה זו)".
   * The derived "ירידת ערך מהמחיר החדש" = 1 − asking / original, only when the original is a single value.
-* `recalls`: the count in the cell. The row chevron lists year · system · repair.
+* `recalls`: the count in the cell (`recall_count.value`, else the length of `recalls.value`; when both exist and
+  disagree, no cell). A resolved model with no notice is a real 0. The row exists only when every car has the
+  `recalls` field. The row chevron lists recall_year · affected_system · fault_description · repair_method ·
+  production range; the explanation may cite only `affected_system` and `recall_year`, never a severity.
 * `road_survival.cancelled_share_by_age`: X = the largest age ≥ 3 that every compared cohort has reached.
-  * The cell reads "Y% מהרכבים".
+  * The cell reads "Y% מהרכבים" and keeps `cohort_year`, `cohort_basis` and `reference_month` for the explanation.
   * The explanation never says "אמין" / "אמינות" and states that the cancellation reason is unknown.
 
-**Provisional field shapes.** TRIPY does not serve these three fields yet, and `vehicle-facts/1` allows only scalar
-values. Until the contract defines them, V3 reads:
+**Field shapes (TRIPY `vehicle-facts/1.1`, tripy #77).** The three fields come from the ministry's data.gov.il
+datasets, `source_level: "government_dataset"` (shown as "משרד התחבורה — מאגר data.gov.il", never as open data), and
+keep `attribution`, `licence`, `resource_id` and `dataset_built_at`:
 
-* `original_new_price_ils`: `{value}` or `{range: [low, high], count}`;
-* `recalls`: `value` = `[{year, system, repair}]`;
-* `road_survival`: `value` = `{cancelled_share_by_age: {age: fraction}}`, or a `road_survival.cancelled_share_by_age`
-  fact.
+* `original_new_price_ils`: `{value}` or `{range: [min, max], n_prices}` (`count` accepted as a fallback);
+* `recalls`: `value` = `[{recall_id, recall_year, affected_system, fault_description, repair_method,
+  production_range}]` (sent only for a resolved model, `[]` when it has no notice), with `recall_count` `{value: n}`;
+* `road_survival`: `value` = `{cohort_size, cancelled_share_by_age: {age: fraction}, median_age_at_final_cancellation,
+  final_cancellation_rate, definition_he, cohort_basis, cohort_year, reference_month}`.
 
 When the fields are absent, the rows are absent.
 

@@ -11,10 +11,14 @@ SLOT_KEYS = ("car_1", "car_2", "car_3")
 MIN_CARS = 2
 MAX_CARS = 3
 
-# Source levels of a fact. Government facts keep the V2 Level 1.5 label; TRIPY's open-data facts are a new level.
+# Source levels of a fact. Government facts keep the V2 Level 1.5 label; TRIPY's open-data facts are a new level;
+# the ministry's data.gov.il datasets (new-car prices, recall notices, final cancellations) are a level of their own,
+# never open data.
 SOURCE_LEVEL_GOVERNMENT = "1.5"
+SOURCE_LEVEL_GOVERNMENT_DATASET = "government_dataset"
 SOURCE_LEVEL_OPEN_DATA = "open_data"
 SOURCE_LEVEL_USER = "user_supplied"
+GOVERNMENT_DATASET_LABEL_HE = "משרד התחבורה — מאגר data.gov.il"
 
 # Decision vocabulary (identical strings to V2 so the summary validator and the UI read both).
 CHOICE_TIE = "tie"
