@@ -95,7 +95,18 @@
         return html + '</div>';
     }
 
-    function rowHtml(row, slots, idx) {
+    // The driver-assistance row: per car, exactly the systems it has (every flag that counts is visible).
+    function systemsHtml(row, slots, cars) {
+        var cells = row.cells || {};
+        if (!slots.some(function (s) { return Array.isArray((cells[s] || {}).systems_he); })) return '';
+        return '<ul class="v3-systems" data-v3-systems>' + slots.map(function (slot) {
+            var list = (cells[slot] || {}).systems_he || [];
+            return '<li data-slot="' + slot + '"><strong>' + escapeHtml((cars[slot] || {}).display_name || '') + ':</strong> ' +
+                (list.length ? list.map(escapeHtml).join(', ') : 'אף אחת מהמערכות שדווחו') + '</li>';
+        }).join('') + '</ul>';
+    }
+
+    function rowHtml(row, slots, idx, cars) {
         var panelId = 'v3-exp-' + idx;
         var unit = row.unit_he ? ' <span class="v3-unit">(' + escapeHtml(row.unit_he) + ')</span>' : '';
         var html = '<div class="v3-row" role="row" data-row="' + escapeHtml(row.row_id) + '">';
@@ -120,6 +131,7 @@
             });
         });
         if (details.length) html += '<ul class="v3-details">' + details.join('') + '</ul>';
+        html += systemsHtml(row, slots, cars || {});
         return html + '</div>';
     }
 
@@ -137,7 +149,7 @@
             html += '<div class="v3-section-head" role="row"><div role="cell" class="v3-section-cell"><button type="button" class="v3-chevron v3-section-title" aria-expanded="false" aria-controls="' +
                 secId + '" data-v3-toggle><span class="v3-chevron-icon" aria-hidden="true"></span>' + escapeHtml(section.label_he) + '</button>' +
                 '<div id="' + secId + '" class="v3-panel" hidden><p>' + escapeHtml(section.influence_he || '') + '</p></div></div></div>';
-            (section.rows || []).forEach(function (row) { html += rowHtml(row, slots, idx++); });
+            (section.rows || []).forEach(function (row) { html += rowHtml(row, slots, idx++, cars); });
             html += '</div>';
         });
         html += '</div>';

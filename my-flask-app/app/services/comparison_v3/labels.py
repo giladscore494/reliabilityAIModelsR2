@@ -36,6 +36,36 @@ BODY_LABELS_HE = {"suv": "SUV", "sedan": "סדאן", "hatchback": "האצ'בק",
 GEARBOX_LABELS_HE = {"automatic": "אוטומטית", "manual": "ידנית", "dual_clutch": "כפולת מצמדים", "cvt": "רציפה (CVT)",
                      "e_cvt": "רציפה חשמלית (e-CVT)", "single_speed": "הילוך יחיד", "automated_manual": "רובוטית"}
 
+# The 19 government driver-assistance indicators (MILO ``EQUIPMENT_INDICATORS`` order) and their Hebrew names, as in
+# ``comparison_v2.level15`` (copied: the V3 pipeline does not import V2's registry modules).
+ADAS_LABELS_HE = {
+    "bakarat_mehirut_isa": "בקרת מהירות חכמה (ISA)",
+    "bakarat_shyut_adaptivit_ind": "בקרת שיוט אדפטיבית",
+    "bakarat_stiya_activ_s": "שמירה אקטיבית על נתיב",
+    "bakarat_stiya_menativ_ind": "התרעת סטייה מנתיב",
+    "blima_otomatit_nesia_leahor": "בלימה אוטומטית בנסיעה לאחור",
+    "blimat_hirum_lifnei_holhei_regel_ofanaim": "בלימת חירום מול הולכי רגל ורוכבי אופניים",
+    "hayshaney_hagorot_ind": "חיישני חגורות בטיחות",
+    "hayshaney_lahatz_avir_batzmigim_ind": "חיישני לחץ אוויר בצמיגים",
+    "hitnagshut_cad_shetah_met": "מניעת התנגשות צידית בשטח מת",
+    "maarechet_ezer_labalam_ind": "מערכת עזר לבלימה",
+    "matzlemat_reverse_ind": "מצלמת רוורס",
+    "nitur_merhak_milfanim_ind": "ניטור מרחק מלפנים",
+    "shlita_automatit_beorot_gvohim_ind": "שליטה אוטומטית באורות גבוהים",
+    "teura_automatit_benesiya_kadima_ind": "תאורה אוטומטית בנסיעה קדימה",
+    "zihuy_beshetah_nistar_ind": "זיהוי רכב בשטח מת",
+    "zihuy_holchey_regel_ind": "זיהוי הולכי רגל",
+    "zihuy_matzav_hitkarvut_mesukenet_ind": "זיהוי התקרבות מסוכנת",
+    "zihuy_rechev_do_galgali": "זיהוי רכב דו-גלגלי",
+    "zihuy_tamrurey_tnua_ind": "זיהוי תמרורי תנועה",
+}
+ADAS_ORDER = tuple(ADAS_LABELS_HE)
+
+
+def adas_label(flag: str) -> str:
+    return ADAS_LABELS_HE.get(flag, flag)
+
+
 # Source names for the attribution footer, by TRIPY fact source.
 SOURCE_NAMES_HE = {
     "government": "משרד התחבורה",
