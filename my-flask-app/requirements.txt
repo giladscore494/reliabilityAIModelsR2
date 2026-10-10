@@ -11,7 +11,7 @@ Flask-SQLAlchemy==3.1.1
 # only psycopg2-binary is installed. Keep 2.0.x until the driver is migrated.
 SQLAlchemy==2.0.54
 Flask-Migrate==4.0.7
-alembic==1.14.0
+alembic==1.20.0
 psycopg2-binary==2.9.10
 Flask-Login==0.6.3
 Authlib==1.6.12
