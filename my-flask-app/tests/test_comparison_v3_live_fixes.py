@@ -272,10 +272,10 @@ def test_the_rules_version_is_part_of_the_request_hash(monkeypatch):
     from app.services.comparison_v3 import pipeline
     from app.services.comparison_v3.contracts import DECISION_RULES_VERSION
 
-    assert DECISION_RULES_VERSION == "v3-rules/2"
+    assert DECISION_RULES_VERSION == "v3-rules/3"
     cars = [(KEYS["live_bmw"], None), (KEYS["live_audi"], None)]
     before = pipeline.compute_request_hash(cars, GENERAL, {}, {})
-    monkeypatch.setattr(pipeline, "DECISION_RULES_VERSION", "v3-rules/1")
+    monkeypatch.setattr(pipeline, "DECISION_RULES_VERSION", "v3-rules/2")
     assert pipeline.compute_request_hash(cars, GENERAL, {}, {}) != before
 
 

@@ -8,7 +8,7 @@ SNAPSHOT_CONTRACT_VERSION = "canonical-vehicle-snapshot/2"
 FACTS_CONTRACT = "vehicle-facts/1"
 # The row / reason rules inside comparison-v3/1. Part of the request hash, so a rule change never serves a comparison
 # cached under the old rules (live fixes: one row set, N-car reasons, no body fit, CO2 across families).
-DECISION_RULES_VERSION = "v3-rules/2"
+DECISION_RULES_VERSION = "v3-rules/3"          # /3: the driver-assistance systems listed per car
 
 SLOT_KEYS = ("car_1", "car_2", "car_3")
 MIN_CARS = 2

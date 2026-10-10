@@ -123,7 +123,11 @@ class DecisionComposer:
                 signals.append({"source": "preference", "group": "awd_preference", "dimension": "practicality",
                                 "category": "practicality", "label_he": GROUP_LABEL_HE["awd_preference"], "usable": True,
                                 "value": float(AWD_PREFERENCE_STRENGTH * ((da in awd) - (db in awd))), "status": "ok"})
-        for feature in self.profile.get("nice_to_have_features") or []:
+        # a nice-to-have flag counts only when the driver-assistance row exists: its chevron lists every car's systems
+        features = self.profile.get("nice_to_have_features") or []
+        if self.row_ids is not None and "adas_systems_count" not in self.row_ids:
+            features = []
+        for feature in features:
             va, vb = feature_value(self.snapshots[a], feature), feature_value(self.snapshots[b], feature)
             if va is None or vb is None:
                 continue                                    # an unstated flag is unknown: no signal at all
