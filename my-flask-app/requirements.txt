@@ -1,7 +1,8 @@
 # SECURITY NOTE: Run `pip-audit` before each release.
 # google-genai 2.25.0: comparison V2 uses per-request HttpOptions(timeout, retry attempts=1), thinking_level and response.parsed.
-# Last audit: 2026-03-28
-Flask==3.0.3
+# Last audit: 2026-10-10 (pip-audit clean except json-repair GHSA-xf7x-x43h-rpqh, ignored in CI until 2026-11-10; see #306)
+Flask==3.1.3
+Werkzeug==3.1.9
 gunicorn==23.0.0
 pandas==2.2.3
 json-repair==0.30.0
@@ -13,8 +14,8 @@ Flask-Migrate==4.0.7
 alembic==1.14.0
 psycopg2-binary==2.9.10
 Flask-Login==0.6.3
-Authlib==1.3.2
+Authlib==1.6.12
 google-genai==2.25.0
 posthog==7.9.12
-pytest==8.3.3
+pytest==9.0.3
 openpyxl==3.1.5
