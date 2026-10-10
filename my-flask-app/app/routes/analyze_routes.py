@@ -13,7 +13,7 @@ from sqlalchemy.exc import OperationalError
 from app.extensions import db
 from app.models import SearchHistory
 from app.quota import check_and_increment_ip_rate_limit, get_client_ip, log_access_decision, PER_IP_PER_MIN_LIMIT
-from app.utils.http_helpers import api_error, api_ok, get_request_id, is_owner_user, _utcnow
+from app.utils.http_helpers import api_error, api_ok, get_request_id, is_owner_user, reliability_access_allowed, _utcnow
 from app.services import analyze_service
 from app.services.gemini_health_verdict import log_product_call_verdict_input
 from app.extensions import GEMINI_RELIABILITY_MODEL_ID
@@ -40,6 +40,10 @@ def reliability_report():
 @bp.route('/analyze', methods=['POST'])
 @login_required
 def analyze_car():
+    if not reliability_access_allowed():
+        log_access_decision('/analyze', current_user.id, 'rejected', 'owner only')
+        return api_error("forbidden", "סקירת הרכב זמינה כרגע לבעלי המערכת בלבד.", status=403)
+
     start_time_ms = int(pytime.time() * 1000)
     app_tz = current_app.config.get("APP_TZ_OBJ", ZoneInfo("UTC"))
     owner_bypass_quota = current_app.config.get("OWNER_BYPASS_QUOTA", False)

@@ -2,6 +2,9 @@
 
 ## [Unreleased] – 2026-05-01
 
+### Vehicle Review owner-only lock
+- Vehicle Review (`/app`, `POST /analyze`, public examples, reliability search history and feedback on it) is now restricted to system owners (`OWNER_EMAIL` / `OWNER_EMAILS`) via the new `RELIABILITY_OWNER_ONLY` flag (code default `1`). Non-owners are redirected to the comparison page, get 403/404 from the APIs, and no longer see Vehicle Review links in the nav, landing, dashboard, coming-soon or recommendations pages. Owners are unaffected; the engine code and stored history are unchanged.
+
 ### Comparison Decision Refactor
 - Comparison responses now include decision-based `decision_result` for practical buyer guidance.
 - Comparison UI no longer renders visible numeric score cards, category weights, or winner-score framing.

@@ -48,7 +48,7 @@ def _start_login(client):
     return query["state"][0]
 
 
-def test_google_callback_checks_state_exchanges_the_code_and_logs_in(app, client, google):
+def test_google_callback_checks_state_exchanges_the_code_and_logs_in(reliability_unlocked, app, client, google):
     state = _start_login(client)
     with client.session_transaction() as sess:
         assert any(state in key for key in sess)                  # Authlib kept the state in the session

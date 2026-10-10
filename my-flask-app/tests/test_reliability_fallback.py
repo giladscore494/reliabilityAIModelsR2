@@ -34,7 +34,7 @@ def _setup_client(logged_in_client):
     return client
 
 
-def test_analyze_returns_information_review_fields(logged_in_client, monkeypatch):
+def test_analyze_returns_information_review_fields(reliability_unlocked, logged_in_client, monkeypatch):
     client = _setup_client(logged_in_client)
 
     def fake_ai(_prompt):
@@ -73,6 +73,7 @@ def test_analyze_returns_information_review_fields(logged_in_client, monkeypatch
 
 
 def test_analyze_success_payload_includes_request_id_and_flattened_report_fields(
+    reliability_unlocked,
     logged_in_client, monkeypatch
 ):
     client = _setup_client(logged_in_client)
@@ -124,7 +125,7 @@ def test_analyze_success_payload_includes_request_id_and_flattened_report_fields
     assert data["estimated_cost_sensitivity"] == ["תיקון גיר עלול להיות יקר"]
 
 
-def test_analyze_derives_missing_source_gap(logged_in_client, monkeypatch):
+def test_analyze_derives_missing_source_gap(reliability_unlocked, logged_in_client, monkeypatch):
     client = _setup_client(logged_in_client)
 
     def fake_ai(_prompt):
@@ -145,6 +146,7 @@ def test_analyze_derives_missing_source_gap(logged_in_client, monkeypatch):
 
 
 def test_search_details_normalizes_old_history_to_information_review(
+    reliability_unlocked,
     logged_in_client, app
 ):
     client, user_id = logged_in_client
@@ -187,7 +189,7 @@ def test_search_details_normalizes_old_history_to_information_review(
 # request_id + error.message, regardless of error type.
 # ---------------------------------------------------------------------------
 
-def test_analyze_error_contract_validation_failure(logged_in_client):
+def test_analyze_error_contract_validation_failure(reliability_unlocked, logged_in_client):
     """A schema-validation error (HTTP 400) must include request_id and error.message."""
     client, _ = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
@@ -205,7 +207,7 @@ def test_analyze_error_contract_validation_failure(logged_in_client):
     assert data["error"]["message"]
 
 
-def test_analyze_error_contract_ai_failure(logged_in_client, monkeypatch):
+def test_analyze_error_contract_ai_failure(reliability_unlocked, logged_in_client, monkeypatch):
     """An AI/server failure (HTTP 500) must include request_id, ok=False, and error.message."""
     client, _ = logged_in_client
     monkeypatch.setenv("SIMULATE_AI_FAIL", "1")

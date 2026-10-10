@@ -47,6 +47,16 @@ def is_owner_user() -> bool:
     return email in owner_emails
 
 
+def reliability_access_allowed() -> bool:
+    """Vehicle Review (/app, /analyze) is owner-only unless RELIABILITY_OWNER_ONLY is off.
+
+    Missing config defaults to locked.
+    """
+    if not current_app.config.get("RELIABILITY_OWNER_ONLY", True):
+        return True
+    return is_owner_user()
+
+
 def get_redirect_uri():
     """
     Build OAuth redirect URI.

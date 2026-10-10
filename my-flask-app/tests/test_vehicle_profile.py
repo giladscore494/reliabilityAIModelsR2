@@ -154,7 +154,7 @@ def _analyze_payload():
 # Test 1: vehicle_profile passes sanitize and appears in response
 # ---------------------------------------------------------------------------
 
-def test_analyze_response_includes_vehicle_profile(logged_in_client, monkeypatch):
+def test_analyze_response_includes_vehicle_profile(reliability_unlocked, logged_in_client, monkeypatch):
     client, _ = logged_in_client
     vp = _base_vehicle_profile()
 
@@ -175,7 +175,7 @@ def test_analyze_response_includes_vehicle_profile(logged_in_client, monkeypatch
 # Test 2: optional null fields allowed
 # ---------------------------------------------------------------------------
 
-def test_vehicle_profile_optional_fields_can_be_null(logged_in_client, monkeypatch):
+def test_vehicle_profile_optional_fields_can_be_null(reliability_unlocked, logged_in_client, monkeypatch):
     client, _ = logged_in_client
     vp = _base_vehicle_profile()
     vp["official_safety"] = {
@@ -213,7 +213,7 @@ def test_vehicle_profile_optional_fields_can_be_null(logged_in_client, monkeypat
 # Test 3: numeric score in buyer_summary rejected
 # ---------------------------------------------------------------------------
 
-def test_vehicle_profile_no_numeric_score_in_buyer_summary(logged_in_client, monkeypatch):
+def test_vehicle_profile_no_numeric_score_in_buyer_summary(reliability_unlocked, logged_in_client, monkeypatch):
     client, _ = logged_in_client
     vp = _base_vehicle_profile()
     vp["buyer_summary"] = "הרכב קיבל 84/100 במבחן אמינות."
@@ -234,7 +234,7 @@ def test_vehicle_profile_no_numeric_score_in_buyer_summary(logged_in_client, mon
 # Test 4: first-person phrase in buyer_summary rejected
 # ---------------------------------------------------------------------------
 
-def test_vehicle_profile_buyer_summary_no_first_person(logged_in_client, monkeypatch):
+def test_vehicle_profile_buyer_summary_no_first_person(reliability_unlocked, logged_in_client, monkeypatch):
     client, _ = logged_in_client
     vp = _base_vehicle_profile()
     vp["buyer_summary"] = "אני ממליץ לרכוש את הרכב הזה."
@@ -304,7 +304,7 @@ def test_competitors_rendered_separately_from_uncertainties():
 # Test 8: legacy history without vehicle_profile still renders
 # ---------------------------------------------------------------------------
 
-def test_legacy_history_without_vehicle_profile_renders(logged_in_client, monkeypatch):
+def test_legacy_history_without_vehicle_profile_renders(reliability_unlocked, logged_in_client, monkeypatch):
     client, _ = logged_in_client
 
     def fake_gemini(_prompt):

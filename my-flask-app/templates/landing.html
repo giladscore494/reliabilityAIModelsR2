@@ -50,7 +50,7 @@
             <div class="max-w-6xl mx-auto">
                 <div class="text-center mb-10 fade-in">
                     <h1 class="text-4xl md:text-5xl font-extrabold mb-4" style="font-family:'Rubik','Heebo',sans-serif;">ידע רכב</h1>
-                    <p class="text-slate-400 max-w-xl mx-auto">ארבעה תחומי בדיקה מרכזיים — הכל במקום אחד</p>
+                    <p class="text-slate-400 max-w-xl mx-auto">{{ 'ארבעה' if reliability_enabled else 'שני' }} תחומי בדיקה מרכזיים — הכל במקום אחד</p>
                 </div>
                 <div class="yr-grid-2 fade-in delay-300">
                     <a href="{{ url_for('advisor.recommendations') }}" class="yr-chrome-card p-6 block group">
@@ -62,6 +62,7 @@
                         </div>
                         <p class="text-sm text-slate-400 leading-relaxed">מנוע המלצות AI שמבנה פרופיל נהג ומתאים רכבים לפי תקציב, שימוש וצרכים.</p>
                     </a>
+                    {% if reliability_enabled %}
                     <a href="{{ url_for('public.app_page') }}" class="yr-chrome-card p-6 block group">
                         <div class="flex items-center gap-3 mb-3">
                             <div class="w-10 h-10 rounded-xl bg-[rgba(31,157,87,0.1)] border border-[rgba(31,157,87,0.2)] flex items-center justify-center shrink-0">
@@ -71,6 +72,7 @@
                         </div>
                         <p class="text-sm text-slate-400 leading-relaxed">סקירת אמינות מבוססת AI — תחומי סיכון, עלויות צפויות ונקודות לבדיקה במוסך.</p>
                     </a>
+                    {% endif %}
                     <a href="{{ url_for('comparison.compare_page') }}" class="yr-chrome-card p-6 block group">
                         <div class="flex items-center gap-3 mb-3">
                             <div class="w-10 h-10 rounded-xl bg-[rgba(22,200,230,0.1)] border border-[rgba(22,200,230,0.2)] flex items-center justify-center shrink-0">
@@ -80,6 +82,7 @@
                         </div>
                         <p class="text-sm text-slate-400 leading-relaxed">השוואה מקיפה בין עד 3 רכבים — אמינות, עלויות, ביצועים ונוחות.</p>
                     </a>
+                    {% if reliability_enabled %}
                     <a href="{{ url_for('public.app_page') }}" class="yr-chrome-card p-6 block group">
                         <div class="flex items-center gap-3 mb-3">
                             <div class="w-10 h-10 rounded-xl bg-[rgba(214,138,0,0.1)] border border-[rgba(214,138,0,0.2)] flex items-center justify-center shrink-0">
@@ -89,6 +92,7 @@
                         </div>
                         <p class="text-sm text-slate-400 leading-relaxed">רגישות עלויות, טווחי תיקונים צפויים, ופערי מחיר — כדי שתדע לתמחר סיכון.</p>
                     </a>
+                    {% endif %}
                 </div>
             </div>
         </section>

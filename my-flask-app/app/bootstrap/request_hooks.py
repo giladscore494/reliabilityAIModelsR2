@@ -36,7 +36,7 @@ from app.research import (
     ensure_anon_id,
 )
 from app.utils.auth_helpers import is_owner
-from app.utils.http_helpers import api_error, get_request_id
+from app.utils.http_helpers import api_error, get_request_id, reliability_access_allowed
 
 if TYPE_CHECKING:
     import logging
@@ -151,6 +151,7 @@ def register_request_hooks(
             "is_logged_in": current_user.is_authenticated,
             "current_user": current_user,
             "is_owner": is_owner(),
+            "reliability_enabled": reliability_access_allowed(),
             "contact_email": app.config.get("CONTACT_EMAIL", CONTACT_EMAIL),
             "legal_contact_email": app.config.get("LEGAL_CONTACT_EMAIL", ""),
             "accessibility_contact_email": app.config.get("ACCESSIBILITY_CONTACT_EMAIL", ""),

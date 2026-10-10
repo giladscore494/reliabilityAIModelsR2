@@ -108,6 +108,7 @@ def _assert_shared_nav(app, html):
     ],
 )
 def test_main_pages_render_shared_nav(
+    reliability_unlocked,
     client, logged_in_client, monkeypatch, path, requires_auth
 ):
     if path == "/recommendations":
@@ -123,7 +124,7 @@ def test_main_pages_render_shared_nav(
     _assert_shared_nav(request_client.application, html)
 
 
-def test_landing_preview_uses_information_review_demo(client):
+def test_landing_preview_uses_information_review_demo(reliability_unlocked, client):
     # The landing page was intentionally simplified to a minimal premium
     # white/chrome layout: the brand title plus the four product-area cards.
     # It must keep its decision-support framing and must NOT surface a numeric
@@ -152,7 +153,7 @@ def test_redirect_www_to_apex(client):
     assert resp.headers.get("Location", "").startswith("https://yedaarechev.com/")
 
 
-def test_api_schema_error(logged_in_client):
+def test_api_schema_error(reliability_unlocked, logged_in_client):
     client, _ = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
     resp = client.post(
@@ -211,7 +212,7 @@ def test_security_scan_paths_fast_404(client):
     assert client.get("/wp-admin").status_code == 404
 
 
-def test_quota_refund_on_failure(app, logged_in_client, monkeypatch):
+def test_quota_refund_on_failure(reliability_unlocked, app, logged_in_client, monkeypatch):
     client, user_id = logged_in_client
     monkeypatch.setenv("SIMULATE_AI_FAIL", "1")
     client.post("/api/legal/accept", json={"legal_confirm": True})
@@ -235,7 +236,7 @@ def test_quota_refund_on_failure(app, logged_in_client, monkeypatch):
         assert reserved_active == 0
 
 
-def test_quota_atomic_limit(app, logged_in_client, monkeypatch):
+def test_quota_atomic_limit(reliability_unlocked, app, logged_in_client, monkeypatch):
     client, user_id = logged_in_client
     monkeypatch.setattr(main, "USER_DAILY_LIMIT", 1)
     client.post("/api/legal/accept", json={"legal_confirm": True})
@@ -289,7 +290,7 @@ def test_quota_atomic_limit(app, logged_in_client, monkeypatch):
         assert reserved_active == 0
 
 
-def test_quota_finalized_when_history_save_fails(app, logged_in_client, monkeypatch):
+def test_quota_finalized_when_history_save_fails(reliability_unlocked, app, logged_in_client, monkeypatch):
     client, user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
 
@@ -474,7 +475,7 @@ def test_dashboard_shows_clickable_advisor_history(app, logged_in_client):
     assert "/recommendations/history/" in html
 
 
-def test_dashboard_keeps_only_core_history_tabs(logged_in_client):
+def test_dashboard_keeps_only_core_history_tabs(reliability_unlocked, logged_in_client):
     client, _ = logged_in_client
     resp = client.get("/dashboard")
     assert resp.status_code == 200

@@ -27,6 +27,7 @@ These must be present (app will hard-fail on Render without `SECRET_KEY`/`DATABA
 - `OWNER_EMAILS` (comma-separated, lowercase)
 - `OWNER_BYPASS_QUOTA` (`0` or `1`, controls owner quota bypass)
 - `ADVISOR_OWNER_ONLY` (`0` or `1`, restricts advisor/recommendations to owners)
+- `RELIABILITY_OWNER_ONLY` (`0` or `1`, default `1`; restricts Vehicle Review to `OWNER_EMAIL`; no need to set it in deployment)
 - `CANONICAL_BASE_URL=https://yedaarechev.com` (callback + redirects use apex)
 - `WEB_CONCURRENCY` (optional, defaults to 2 gunicorn workers)
 - `POSTHOG_API_KEY` (optional; PostHog analytics API key. If empty/missing, analytics are silently disabled)

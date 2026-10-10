@@ -28,8 +28,13 @@
                 </svg>
             </div>
             <h1 class="text-3xl font-extrabold text-white" style="margin-bottom:10px;">בקרוב</h1>
+            {% if reliability_enabled %}
             <p class="text-slate-400" style="margin-bottom:22px;">תוכן זה יתווסף בקרוב. בינתיים ניתן להמשיך להשתמש בבדיקת האמינות.</p>
             <a href="{{ url_for('public.app_page') }}" class="yr-btn">לעבור לסקירת הרכב</a>
+            {% else %}
+            <p class="text-slate-400" style="margin-bottom:22px;">תוכן זה יתווסף בקרוב. בינתיים ניתן להמשיך להשתמש בהשוואת הרכבים.</p>
+            <a href="{{ url_for('comparison.compare_page') }}" class="yr-btn">לעבור להשוואת רכבים</a>
+            {% endif %}
         </div>
     </main>
 

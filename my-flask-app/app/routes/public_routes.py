@@ -28,6 +28,7 @@ from app.utils.http_helpers import (
     get_redirect_uri,
     get_request_id,
     is_owner_user,
+    reliability_access_allowed,
 )
 
 bp = Blueprint('public', __name__)
@@ -56,6 +57,11 @@ def index():
 # /api/vehicle-catalog endpoint and fetch lazily from JS to cut page weight.
 @bp.route('/app')
 def app_page():
+    if not reliability_access_allowed():
+        if current_user.is_authenticated:
+            flash("סקירת הרכב זמינה כרגע לבעלי המערכת בלבד.", "error")
+            return redirect(url_for('comparison.compare_page'))
+        return redirect(url_for('public.index'))
     reliability_results_acknowledged = False
     if current_user.is_authenticated:
         reliability_results_acknowledged = has_accepted_feature(
@@ -123,7 +129,9 @@ def auth():
                 "signup_completed",
                 {"request_id": request_id},
             )
-        return redirect(url_for('public.app_page'))
+        if reliability_access_allowed():
+            return redirect(url_for('public.app_page'))
+        return redirect(url_for('comparison.compare_page'))
     except MismatchingStateError:
         current_app.logger.warning(
             "[AUTH] mismatching_state request_id=%s",

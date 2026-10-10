@@ -10,6 +10,9 @@
   {'label': 'מנוע ההמלצות', 'endpoint': 'advisor.recommendations', 'active': 'advisor'},
   {'label': 'היסטוריית חיפושים', 'endpoint': 'dashboard.dashboard', 'active': 'dashboard'},
 ] %}
+{% if not reliability_enabled|default(false) %}
+  {% set nav_items = nav_items|rejectattr('endpoint', 'equalto', 'public.app_page')|list %}
+{% endif %}
 
 <meta name="csrf-token" content="{{ csrf_token }}">
 

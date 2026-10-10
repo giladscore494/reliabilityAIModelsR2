@@ -167,12 +167,14 @@
         {% endif %}
 
         <div class="flex flex-wrap gap-3 overflow-x-auto no-scrollbar pb-2">
+            {% if reliability_enabled %}
             <button type="button" data-tab="reliability" id="tab-reliability"
                     class="dashboard-tab is-active whitespace-nowrap">
                 <span>סקירת רכב</span>
             </button>
+            {% endif %}
             <button type="button" data-tab="comparisons" id="tab-comparisons"
-                    class="dashboard-tab whitespace-nowrap">
+                    class="dashboard-tab{% if not reliability_enabled %} is-active{% endif %} whitespace-nowrap">
                 <span>השוואת רכבים</span>
             </button>
             <button type="button" data-tab="advisor" id="tab-advisor"
@@ -182,6 +184,7 @@
         </div>
     </section>
 
+    {% if reliability_enabled %}
     <!-- Reliability History Tab -->
     <section id="tab-content-reliability" data-tab-panel="reliability" class="relative z-10 space-y-4">
         <div class="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
@@ -275,9 +278,10 @@
             </div>
         {% endif %}
     </section>
+    {% endif %}
 
     <!-- Comparisons History Tab -->
-    <section id="tab-content-comparisons" data-tab-panel="comparisons" class="relative z-10 hidden space-y-4">
+    <section id="tab-content-comparisons" data-tab-panel="comparisons" class="relative z-10{% if reliability_enabled %} hidden{% endif %} space-y-4">
         <div>
             <h3 class="text-xl font-bold text-white">השוואות רכבים</h3>
             <p class="text-sm text-slate-400">טעינה לפי דרישה כדי לשמור על הדשבורד מהיר ונקי.</p>
@@ -1014,6 +1018,9 @@
             showTab(this.dataset.tab);
         });
     });
+
+    var initialTab = tabButtons.find(function(btn) { return btn.classList.contains('is-active'); });
+    if (initialTab) showTab(initialTab.dataset.tab);
 
     document.addEventListener('click', function(e) {
         var card = e.target.closest('[data-search-id]');

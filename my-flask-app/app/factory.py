@@ -438,12 +438,14 @@ def create_app():
     OWNER_EMAILS = set(parse_owner_emails(owner_emails_raw))
     OWNER_BYPASS_QUOTA = os.environ.get("OWNER_BYPASS_QUOTA", "1").lower() in ("1", "true", "yes")
     ADVISOR_OWNER_ONLY = os.environ.get("ADVISOR_OWNER_ONLY", "1").lower() in ("1", "true", "yes")
+    RELIABILITY_OWNER_ONLY = os.environ.get("RELIABILITY_OWNER_ONLY", "1").lower() in ("1", "true", "yes")
     
     # Store config values for helper functions to access
     app.config['OWNER_EMAILS'] = OWNER_EMAILS
     app.config['CANONICAL_BASE'] = canonical_base
     app.config['OWNER_BYPASS_QUOTA'] = OWNER_BYPASS_QUOTA
     app.config['ADVISOR_OWNER_ONLY'] = ADVISOR_OWNER_ONLY
+    app.config['RELIABILITY_OWNER_ONLY'] = RELIABILITY_OWNER_ONLY
     app.config['PER_IP_PER_MIN_LIMIT'] = PER_IP_PER_MIN_LIMIT
     app.config['QUOTA_RESERVATION_TTL_SECONDS'] = QUOTA_RESERVATION_TTL_SECONDS
     app.config["TERMS_VERSION"] = TERMS_VERSION

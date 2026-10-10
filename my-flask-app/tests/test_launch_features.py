@@ -259,6 +259,8 @@ class TestPostHogSnippetAndCsp:
         posthog_logged_in_client,
         posthog_example_row,
     ):
+        # /example/<slug> is part of Vehicle Review, which is owner-only by default.
+        posthog_app.config["RELIABILITY_OWNER_ONLY"] = False
         anon_client = posthog_app.test_client()
         dashboard_client, _ = posthog_logged_in_client
         dashboard_client.post("/api/legal/accept", json={"legal_confirm": True})
@@ -307,7 +309,7 @@ class TestPostHogSnippetAndCsp:
 class TestExampleDetail:
     """GET /example/<slug>"""
 
-    def test_valid_slug_returns_200(self, client, example_row):
+    def test_valid_slug_returns_200(self, reliability_unlocked, client, example_row):
         resp = client.get("/example/toyota-corolla-2020")
         assert resp.status_code == 200
         assert "Toyota" in resp.data.decode()
@@ -357,7 +359,7 @@ class TestExampleDetail:
 class TestApiExamples:
     """GET /api/examples"""
 
-    def test_returns_only_public_rows(self, client, example_row, app, logged_in_client):
+    def test_returns_only_public_rows(self, reliability_unlocked, client, example_row, app, logged_in_client):
         _, user_id = logged_in_client
         with app.app_context():
             private_row = SearchHistory(
@@ -397,7 +399,7 @@ class TestPublicAccessAnonymous:
         resp = client.get("/recommendations")
         assert resp.status_code == 200
 
-    def test_example_page_anon(self, client, example_row):
+    def test_example_page_anon(self, reliability_unlocked, client, example_row):
         resp = client.get("/example/toyota-corolla-2020")
         assert resp.status_code == 200
 
@@ -435,7 +437,7 @@ class TestProtectedRoutesAnonymous:
 
 
 class TestPostHogServerFlows:
-    def test_analyze_completed_emitted_on_success(self, logged_in_client, monkeypatch):
+    def test_analyze_completed_emitted_on_success(self, reliability_unlocked, logged_in_client, monkeypatch):
         client, user_id = logged_in_client
         client.post("/api/legal/accept", json={"legal_confirm": True})
 
@@ -549,7 +551,7 @@ class TestPostHogServerFlows:
 class TestFeedback:
     """POST /api/feedback"""
 
-    def test_success(self, app, logged_in_client):
+    def test_success(self, reliability_unlocked, app, logged_in_client):
         cl, user_id = logged_in_client
         # Create a search history row
         with app.app_context():
@@ -569,7 +571,7 @@ class TestFeedback:
         data = resp.get_json()
         assert data["ok"] is True
 
-    def test_upsert(self, app, logged_in_client):
+    def test_upsert(self, reliability_unlocked, app, logged_in_client):
         """Duplicate submissions should update, not fail."""
         cl, user_id = logged_in_client
         with app.app_context():
@@ -597,7 +599,7 @@ class TestFeedback:
             assert fb is not None
             assert fb.is_positive is False
 
-    def test_unauthorized_history_rejected(self, app, logged_in_client):
+    def test_unauthorized_history_rejected(self, reliability_unlocked, app, logged_in_client):
         """Cannot submit feedback for another user's search history."""
         cl, user_id = logged_in_client
         with app.app_context():
