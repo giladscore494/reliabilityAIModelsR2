@@ -190,10 +190,85 @@ ESCAPE_US = record("escape-us-2022", manufacturer="פורד", model="ESCAPE", ye
                        "gearbox_type": epa("automatic"), "gear_count": epa(8),
                    })
 
-ALL_RECORDS: List[Dict[str, Any]] = [OCTAVIA, GOLF, CIVIC_NO_WHEELBASE, FOCUS_NEDC, BMW_530E, OUTLANDER_PHEV, ESCAPE_US]
+
+# ---------------------------------------------------------------------------
+# the first live comparison (2026-10-10): the TRIPY records of MILO 22082 / 13323 / 17715 (facts_preview), trimmed
+# to the facts the comparison reads. The Alfa has no safety score / level (registry null) and no EEA match above
+# body_powertrain (no curb weight, no wheelbase, no consumption).
+# ---------------------------------------------------------------------------
+_LIVE_ADAS_FLAGS = ("bakarat_mehirut_isa", "bakarat_shyut_adaptivit_ind", "bakarat_stiya_activ_s",
+                    "bakarat_stiya_menativ_ind", "blima_otomatit_nesia_leahor", "blimat_hirum_lifnei_holhei_regel_ofanaim",
+                    "hayshaney_hagorot_ind", "hayshaney_lahatz_avir_batzmigim_ind", "hitnagshut_cad_shetah_met",
+                    "maarechet_ezer_labalam_ind", "matzlemat_reverse_ind", "nitur_merhak_milfanim_ind",
+                    "shlita_automatit_beorot_gvohim_ind", "teura_automatit_benesiya_kadima_ind", "zihuy_beshetah_nistar_ind",
+                    "zihuy_holchey_regel_ind", "zihuy_matzav_hitkarvut_mesukenet_ind", "zihuy_rechev_do_galgali",
+                    "zihuy_tamrurey_tnua_ind")
+
+
+def _live_adas(*present):
+    return {flag: flag in present for flag in _LIVE_ADAS_FLAGS}
+
+
+def _live_gov(hp, cc, seats, braked, unbraked, co2, group, green, airbags, drivetrain, body, doors, score=None, level=None):
+    out = {"horsepower": gov(hp, "hp"), "engine_cc": gov(cc, "cc"), "seats": gov(seats, "count"),
+           "doors": gov(doors, "count"), "towing_braked_kg": gov(braked, "kg"), "towing_unbraked_kg": gov(unbraked, "kg"),
+           "co2_wltp": gov(co2, "g/km", standard="WLTP"), "pollution_group": gov(group), "green_index": gov(green),
+           "airbags": gov(airbags, "count"), "automatic": gov(True), "drivetrain": gov(drivetrain), "body_style": gov(body)}
+    if score is not None:
+        out["safety_score"] = gov(score)
+    if level is not None:
+        out["safety_equipment_level"] = gov(level)
+    return out
+
+
+LIVE_BMW_530E = record("live-22082", manufacturer="ב מ וו", model="530E", year=2020, trim="M SPORT",
+                       propulsion="plug_in", fuel_type="plug_in_hybrid",
+                       adas=_live_adas("bakarat_stiya_menativ_ind", "hayshaney_lahatz_avir_batzmigim_ind",
+                                       "maarechet_ezer_labalam_ind", "matzlemat_reverse_ind", "nitur_merhak_milfanim_ind",
+                                       "teura_automatit_benesiya_kadima_ind", "zihuy_beshetah_nistar_ind",
+                                       "zihuy_holchey_regel_ind", "zihuy_matzav_hitkarvut_mesukenet_ind"),
+                       facts={
+                           **_live_gov(184, 1998, 5, 1700, 750, 34, 2, 63, 6, "two_wheel_drive", "sedan", 4, score=1, level=1),
+                           "curb_weight_kg": eea(1910, "kg", definition="eu_running_order"),
+                           "energy_consumption_kwh_100km": eea(16.9, "kWh/100km", standard="WLTP"),
+                           "fuel_consumption_combined_l_100km": eea(1.5, "l/100km", standard="WLTP"),
+                           "wheelbase_mm": eea(2975, "mm"),
+                           "original_new_price_ils": list_price(420000),
+                           **recall_facts([]),
+                       })
+LIVE_AUDI_A7 = record("live-13323", manufacturer="אאודי", model="A7 SPORTBACK", year=2020, trim="",
+                      propulsion="plug_in", fuel_type="plug_in_hybrid",
+                      adas=_live_adas("bakarat_shyut_adaptivit_ind", "bakarat_stiya_activ_s", "bakarat_stiya_menativ_ind",
+                                      "hayshaney_lahatz_avir_batzmigim_ind", "maarechet_ezer_labalam_ind",
+                                      "matzlemat_reverse_ind", "nitur_merhak_milfanim_ind",
+                                      "shlita_automatit_beorot_gvohim_ind", "teura_automatit_benesiya_kadima_ind",
+                                      "zihuy_beshetah_nistar_ind", "zihuy_holchey_regel_ind",
+                                      "zihuy_matzav_hitkarvut_mesukenet_ind", "zihuy_rechev_do_galgali"),
+                      facts={
+                          **_live_gov(299, 1984, 5, 2000, 750, 40, 2, 65, 6, "awd", "hatchback", 5, score=2, level=2),
+                          "curb_weight_kg": eea(2140, "kg", definition="eu_running_order"),
+                          "energy_consumption_kwh_100km": eea(17.8, "kWh/100km", standard="WLTP"),
+                          "wheelbase_mm": eea(2930, "mm"),
+                          "original_new_price_ils": list_price(530000),
+                      })
+LIVE_ALFA_GIULIA = record("live-17715", manufacturer="אלפא רומיאו", model="GIULIA", year=2020, trim="MILANO",
+                          propulsion="conventional", fuel_type="petrol", route_level="body_powertrain",
+                          adas=_live_adas("bakarat_stiya_menativ_ind", "hayshaney_lahatz_avir_batzmigim_ind",
+                                          "maarechet_ezer_labalam_ind", "nitur_merhak_milfanim_ind",
+                                          "teura_automatit_benesiya_kadima_ind", "zihuy_holchey_regel_ind",
+                                          "zihuy_matzav_hitkarvut_mesukenet_ind"),
+                          facts={
+                              **_live_gov(200, 1995, 5, 1600, 745, 162, 15, 272, 6, "two_wheel_drive", "sedan", 4),
+                              "original_new_price_ils": list_price(249900),
+                          })
+LIVE_TRIO = (LIVE_BMW_530E, LIVE_AUDI_A7, LIVE_ALFA_GIULIA)
+
+
+ALL_RECORDS: List[Dict[str, Any]] = [OCTAVIA, GOLF, CIVIC_NO_WHEELBASE, FOCUS_NEDC, BMW_530E, OUTLANDER_PHEV, ESCAPE_US, *LIVE_TRIO]
 KEYS = {name: rec["variant_identity_key"] for name, rec in {
     "octavia": OCTAVIA, "golf": GOLF, "civic": CIVIC_NO_WHEELBASE, "focus_nedc": FOCUS_NEDC, "bmw_530e": BMW_530E,
-    "outlander_phev": OUTLANDER_PHEV, "escape_us": ESCAPE_US}.items()}
+    "outlander_phev": OUTLANDER_PHEV, "escape_us": ESCAPE_US, "live_bmw": LIVE_BMW_530E, "live_audi": LIVE_AUDI_A7,
+    "live_alfa": LIVE_ALFA_GIULIA}.items()}
 
 
 def snapshots_for(*records_and_prices) -> Dict[str, Dict[str, Any]]:

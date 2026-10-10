@@ -144,9 +144,13 @@ def test_wltp_is_never_compared_with_nedc():
 
 
 def test_phev_consumption_is_never_compared_with_petrol():
-    ids = _ids(_rows(OCTAVIA, BMW_530E))
-    for rid in ("fuel_consumption_l_100km", "co2_wltp", "energy_consumption_kwh_100km", "electric_range_km"):
-        assert rid not in ids
+    rows = {r["row_id"]: r for r in _rows(OCTAVIA, BMW_530E)}
+    for rid in ("fuel_consumption_l_100km", "energy_consumption_kwh_100km", "electric_range_km"):
+        assert rid not in rows
+    # the official type-approval emission figures ARE compared across families, every one with the same note (L4)
+    notes = {rows[rid]["note_he"] for rid in ("co2_wltp", "green_index", "pollution_group")}
+    assert len(notes) == 1 and "פלאג-אין" in notes.pop()
+    assert "note_he" not in rows["horsepower"]
     # two PHEVs: consumption and the conditional EV category exist
     phev = _rows(BMW_530E, OUTLANDER_PHEV)
     assert {"fuel_consumption_l_100km", "electric_range_km"} <= set(_ids(phev))
@@ -483,18 +487,16 @@ def test_tripy_request_shape_bearer_and_timeout():
     assert call["url"] == "https://tripy.test/api/facts/v1/vehicles"
     assert call["json"] == {"variant_identity_keys": [KEYS["octavia"], KEYS["golf"]]}
     assert call["headers"]["Authorization"] == "Bearer facts-secret"
-    assert call["timeout"] == 5
+    assert call["timeout"] == 20
     assert data["versions"]["contract"] == "vehicle-facts/1"
 
 
-def test_tripy_retries_once_on_5xx_only():
-    session = FakeTripySession(statuses=[502])
-    _repo(session).get_records([KEYS["octavia"]])
-    assert len(session.calls) == 2
-    session = FakeTripySession(statuses=[503, 503])
-    with pytest.raises(TripyUnavailable):
-        _repo(session).get_records([KEYS["octavia"]])
-    assert len(session.calls) == 2
+def test_tripy_facts_never_retry():
+    for statuses in ([502], [503], [504], [500]):
+        session = FakeTripySession(statuses=statuses)
+        with pytest.raises(TripyUnavailable):
+            _repo(session).get_records([KEYS["octavia"]])
+        assert len(session.calls) == 1
     session = FakeTripySession(statuses=[401])
     with pytest.raises(TripyUnavailable):
         _repo(session).get_records([KEYS["octavia"]])

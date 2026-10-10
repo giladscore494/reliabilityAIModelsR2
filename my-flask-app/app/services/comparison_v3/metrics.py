@@ -6,8 +6,17 @@ Categories, in table order: 0 פרטי הגרסה (unweighted), 1 מחיר, 2 ב
 
 The row rule (R) is ONE function, ``comparable_rows``, used by the table, the engine (atomic results, pairwise
 evidence), the JEV state and the summary payload: a row exists only when EVERY selected car has a value, under the
-same ``standard`` (WLTP with WLTP, NEDC with NEDC; a mass under the same ``definition``) and, for consumption, the
-same propulsion family. Otherwise the row is absent everywhere. A category without rows is absent.
+same ``standard`` (WLTP with WLTP, NEDC with NEDC; a mass under the same ``definition``) and, for consumption
+(L/100km, kWh/100km), the same propulsion family. Otherwise the row is absent everywhere. A category without rows is
+absent.
+
+The official type-approval emission figures (CO2 WLTP / NEDC, the green index, the pollution group) are compared across
+propulsion families: they are the ministry's own cross-propulsion classification and all of them come from the same
+type-approval test. When plug-in / electric cars are compared with combustion cars, each of these rows carries the
+same ``note_he`` (a plug-in's WLTP figure is a weighted value that assumes regular charging).
+
+A scored row has ``leader`` (one slot strictly better than EVERY other car after the tie tolerance, else ``tie``) and
+``top_slots`` (the leader, or every car within the tolerance of the best value). Texts credit only the leader.
 
 Missing is never zero and never worse; nothing here writes "no data".
 """
@@ -63,6 +72,8 @@ class Metric:
     explain_he: str = ""                       # deterministic explanation: what it measures, source, standard
     reader: Optional[str] = None               # name of a special reader (see READERS)
     history: bool = False                      # government history row: never weighted, never in JEV
+    description_en: str = ""                   # what JEV is told the row is (only rows that exist are described)
+    mixed_family_note: bool = False            # official emission figure: noted when plug-in meets combustion
 
     @property
     def scored(self) -> bool:
@@ -93,6 +104,7 @@ METRICS: Tuple[Metric, ...] = (
        explain_he="סוג תיבת ההילוכים: לפי משרד התחבורה, ולגרסאות באישור אמריקאי לפי נתוני EPA."),
     # --- 1 price ---
     _m("asking_price_ils", "מחיר מבוקש", "price", LOWER_BETTER, "ILS", group="price", tie_rel=0.02,
+       description_en="the asking price entered by the buyer",
        explain_he="המחיר שהזנת עבור הרכב. הוא משמש להשוואת המחיר ולבדיקת התקציב שהגדרת."),
     _m("original_new_price_ils", "מחיר מחירון חדש מקורי", "price", DISPLAY, "ILS", reader="original_price", history=True,
        explain_he="מחיר המחירון של הגרסה כשהייתה חדשה, לפי נתוני משרד התחבורה. מוצג לעיון בלבד."),
@@ -100,43 +112,52 @@ METRICS: Tuple[Metric, ...] = (
        explain_he="ההפרש היחסי בין המחיר שהזנת למחיר המחירון המקורי של הגרסה כשהייתה חדשה. מוצג לעיון בלבד."),
     # --- 2 safety: ONE group for the ministry's rating (its level is built from the equipment) ---
     _m("safety_score", "ניקוד בטיחות (משרד התחבורה)", "safety", HIGHER_BETTER, group="gov_safety_rating", tie_abs=0.5,
+       description_en="the official government safety score",
        explain_he="ניקוד הבטיחות שמשרד התחבורה מפרסם לגרסה, המבוסס על מערכות הבטיחות המותקנות בה."),
     _m("safety_equipment_level", "רמת אבזור בטיחותי", "safety", HIGHER_BETTER, group="gov_safety_rating",
+       description_en="the government safety-equipment level",
        explain_he="רמת אבזור הבטיחות שמשרד התחבורה קובע לגרסה לפי מערכות הבטיחות שהיצרן דיווח עליהן."),
     _m("adas_systems_count", "מערכות סיוע לנהג", "safety", HIGHER_BETTER, "count", group="gov_safety_rating",
-       same_standard=True, reader="adas_count",
+       same_standard=True, reader="adas_count", description_en="the number of driver-assistance systems",
        explain_he="מספר מערכות הסיוע לנהג שקיימות בגרסה, מתוך המערכות שדווחו למשרד התחבורה."),
     _m("airbags", "כריות אוויר", "safety", HIGHER_BETTER, "count", group="passive_safety",
+       description_en="the number of airbags",
        explain_he="מספר כריות האוויר בגרסה לפי רישום משרד התחבורה."),
     # --- 3 performance: one group ---
     _m("horsepower", "הספק", "performance", HIGHER_BETTER, "hp", group="power_output", tie_rel=0.05,
+       description_en="horsepower",
        explain_he="הספק המנוע בכוחות סוס כפי שהוא רשום במשרד התחבורה."),
     _m("hp_per_tonne", "הספק לטון", "performance", HIGHER_BETTER, "hp/t", group="power_output", tie_rel=0.05,
-       same_standard=True, reader="hp_per_tonne",
+       same_standard=True, reader="hp_per_tonne", description_en="horsepower per tonne (same mass definition)",
        explain_he="ההספק הרשום במשרד התחבורה מחולק במשקל הרכב (באותה הגדרת משקל לכל הרכבים), בכוח סוס לטון."),
     _m("curb_weight_kg", "משקל", "performance", DISPLAY, "kg", same_standard=True, reader="mass",
        explain_he="משקל הרכב מנתונים פתוחים: במצב נסיעה כולל נהג (EEA) או משקל עצמי (Transport Canada)."),
     # --- 4 consumption and environment: one consumption group, one standard, one propulsion family ---
     _m("fuel_consumption_l_100km", "צריכת דלק משולבת", "efficiency_environment", LOWER_BETTER, "L/100km",
        group="consumption", tie_abs=0.3, same_standard=True, same_family=True,
+       description_en="official fuel consumption (same standard and propulsion family)",
        explain_he="צריכת הדלק המשולבת בליטרים ל־100 ק״מ לפי תקן WLTP, מנתוני EEA."),
     _m("energy_consumption_kwh_100km", "צריכת חשמל משולבת", "efficiency_environment", LOWER_BETTER, "kWh/100km",
        group="consumption", tie_abs=0.5, same_standard=True, same_family=True,
+       description_en="official electricity consumption (same standard and propulsion family)",
        explain_he="צריכת החשמל המשולבת בקוט״ש ל־100 ק״מ לפי תקן WLTP, מנתוני EEA."),
     _m("co2_wltp", "פליטת CO₂ (WLTP)", "efficiency_environment", LOWER_BETTER, "g/km", group="consumption",
-       tie_abs=5, same_standard=True, same_family=True,
+       tie_abs=5, same_standard=True, mixed_family_note=True, description_en="official WLTP CO2 emissions",
        explain_he="פליטת הפחמן הדו-חמצני בגרם לק״מ לפי תקן WLTP, כפי שהיא רשומה במשרד התחבורה."),
     _m("co2_nedc_g_km", "פליטת CO₂ (NEDC)", "efficiency_environment", LOWER_BETTER, "g/km", group="consumption",
-       tie_abs=5, same_standard=True, same_family=True,
+       tie_abs=5, same_standard=True, mixed_family_note=True, description_en="official NEDC CO2 emissions",
        explain_he="פליטת הפחמן הדו-חמצני בגרם לק״מ לפי תקן NEDC הישן, מנתוני EEA. אינה ברת השוואה למדידת WLTP."),
     _m("green_index", "מדד ירוק", "efficiency_environment", LOWER_BETTER, group="pollution_class", tie_abs=5,
+       mixed_family_note=True, description_en="the government green index",
        explain_he="המדד הירוק של משרד התחבורה, המשקלל את פליטות המזהמים של הגרסה. ערך נמוך יותר מזהם פחות."),
     _m("pollution_group", "קבוצת זיהום", "efficiency_environment", LOWER_BETTER, group="pollution_class",
+       mixed_family_note=True, description_en="the government pollution group",
        explain_he="קבוצת הזיהום שמשרד התחבורה קובע לגרסה לפי המדד הירוק. קבוצה נמוכה יותר מזהמת פחות."),
     # --- 5 practicality: wheelbase is the only scored metric ---
     _m("seats", "מושבים", "practicality", DISPLAY, "count",
        explain_he="מספר המושבים לפי רישום משרד התחבורה. משמש לבדיקת מספר הנוסעים שהגדרת."),
     _m("wheelbase_mm", "בסיס גלגלים", "practicality", HIGHER_BETTER, "mm", group="wheelbase", tie_rel=0.02,
+       description_en="the wheelbase",
        explain_he="המרחק בין הסרן הקדמי לאחורי במילימטרים, מנתוני EEA או Transport Canada."),
     _m("length_mm", "אורך", "practicality", DISPLAY, "mm",
        explain_he="אורך הרכב במילימטרים, מנתוני Transport Canada (גרסאות באישור אמריקאי)."),
@@ -152,12 +173,14 @@ METRICS: Tuple[Metric, ...] = (
                    "סיבת הירידה מהכביש אינה ידועה.")),
     # --- 6 EV (conditional: every car EV, or every car PHEV) ---
     _m("electric_range_km", "טווח חשמלי", "ev", HIGHER_BETTER, "km", group="electric_range", tie_rel=0.03,
-       same_standard=True,
+       same_standard=True, description_en="official electric range under the same measurement standard",
        explain_he="הטווח החשמלי בקילומטרים לפי תקן WLTP, מנתוני EEA."),
     # --- 7 towing (conditional on a towing requirement for its weight) ---
     _m("towing_braked_kg", "כושר גרירה עם בלמים", "towing", HIGHER_BETTER, "kg", group="towing", tie_abs=50,
+       description_en="official braked towing capacity",
        explain_he="משקל הגרור המרבי עם בלמים שהרכב רשאי לגרור, לפי רישום משרד התחבורה."),
     _m("towing_unbraked_kg", "כושר גרירה ללא בלמים", "towing", HIGHER_BETTER, "kg", group="towing", tie_abs=50,
+       description_en="official unbraked towing capacity",
        explain_he="משקל הגרור המרבי ללא בלמים שהרכב רשאי לגרור, לפי רישום משרד התחבורה."),
 )
 METRICS_BY_KEY = {m.key: m for m in METRICS}
@@ -172,7 +195,7 @@ GROUP_LABEL_HE = {
     "price": "מחיר", "gov_safety_rating": "דירוג הבטיחות של משרד התחבורה", "passive_safety": "כריות אוויר",
     "power_output": "הספק", "consumption": "צריכה ופליטת CO₂", "pollution_class": "מדד ירוק וקבוצת זיהום",
     "wheelbase": "בסיס גלגלים", "electric_range": "טווח חשמלי", "towing": "כושר גרירה",
-    "parking_fit": "התאמה לחניה", "body_use_fit": "התאמת המרכב לשימוש", "charging_routine_fit": "התאמה לשגרת הטעינה",
+    "parking_fit": "התאמה לחניה", "charging_routine_fit": "התאמה לשגרת הטעינה",
     "awd_preference": "הנעה כפולה (רצוי)",
 }
 GROUP_DESCRIPTION_EN = {
@@ -187,6 +210,54 @@ GROUP_DESCRIPTION_EN = {
     "electric_range": "official electric range under the same measurement standard",
     "towing": "official braked/unbraked towing capacity",
 }
+# A group's label / description names the whole group only when the rows it names exist for these cars: each tuple
+# needs at least one of its rows. Otherwise the label is built from the rows that exist (a hidden row is never named:
+# without the safety score, "the ministry's safety rating" would name a row the table does not show).
+GROUP_LABEL_REQUIRES: Dict[str, Tuple[Tuple[str, ...], ...]] = {
+    "gov_safety_rating": (("safety_score",),),
+    "power_output": (("horsepower",),),
+    "consumption": (("fuel_consumption_l_100km", "energy_consumption_kwh_100km"), ("co2_wltp", "co2_nedc_g_km")),
+    "pollution_class": (("green_index",), ("pollution_group",)),
+    "towing": (("towing_braked_kg",), ("towing_unbraked_kg",)),
+}
+
+MIXED_FAMILY_NOTE_HE = {
+    "phev": "ברכב פלאג-אין ערך ה-WLTP הוא ממוצע משוקלל של בדיקת האישור, המניח טעינה סדירה מהחשמל; בנסיעה בלי טעינה "
+            "הפליטה בפועל גבוהה יותר. המדד הירוק וקבוצת הזיהום מחושבים מאותה בדיקה.",
+    "ev": "ברכב חשמלי ערך הפליטה הוא פליטה מהמפלט בלבד, לפי בדיקת האישור; המדד הירוק וקבוצת הזיהום מחושבים מאותה בדיקה.",
+}
+MIXED_FAMILY_NOTE_EN = ("a plug-in vehicle's type-approval figure is a weighted value that assumes regular charging; an "
+                        "electric vehicle's is tailpipe only")
+
+
+def _join_and_he(parts: List[str]) -> str:
+    if len(parts) < 2:
+        return "".join(parts)
+    last = parts[-1]
+    return ", ".join(parts[:-1]) + " " + ("ו" if "א" <= last[0] <= "ת" else "ו־") + last
+
+
+def _group_named_whole(group: str, metric_keys) -> bool:
+    keys = set(metric_keys)
+    return all(keys & set(alts) for alts in GROUP_LABEL_REQUIRES.get(group, ()))
+
+
+def group_label_he(group: str, metric_keys) -> str:
+    """The Hebrew label of a correlation group FOR THE ROWS THAT EXIST (``metric_keys``)."""
+    keys = list(metric_keys)
+    if not keys or _group_named_whole(group, keys):
+        return GROUP_LABEL_HE.get(group, group)
+    return _join_and_he([METRICS_BY_KEY[k].label_he for k in keys])
+
+
+def group_description_en(group: str, metric_keys, note: bool = False) -> str:
+    """What JEV is told the group is, naming only the rows that exist."""
+    keys = list(metric_keys)
+    if not keys or _group_named_whole(group, keys):
+        text = GROUP_DESCRIPTION_EN[group]
+    else:
+        text = ", ".join(METRICS_BY_KEY[k].description_en or k for k in keys)
+    return text + (f" (note: {MIXED_FAMILY_NOTE_EN})" if note else "")
 
 
 # ---------------------------------------------------------------------------
@@ -404,12 +475,25 @@ def cell_text(metric: Metric, cell: Dict[str, Any], survival_age: Optional[int] 
 # ---------------------------------------------------------------------------
 # the row rule (R)
 # ---------------------------------------------------------------------------
+def _threshold(metric: Metric, a: float, b: float) -> float:
+    return max(metric.tie_abs, metric.tie_rel * max(abs(float(a)), abs(float(b))))
+
+
 def _decide(metric: Metric, values: Dict[str, float]) -> Tuple[str, float]:
+    """The leader is strictly better than EVERY other car after the tie tolerance (it beats the second best)."""
     ordered = sorted(values.items(), key=lambda kv: kv[1] * metric.direction, reverse=True)
     (best_slot, best), (_, second) = ordered[0], ordered[1]
     margin = abs(float(best) - float(second))
-    threshold = max(metric.tie_abs, metric.tie_rel * max(abs(float(best)), abs(float(second))))
-    return (CHOICE_TIE, margin) if margin <= threshold else (best_slot, margin)
+    return (CHOICE_TIE, margin) if margin <= _threshold(metric, best, second) else (best_slot, margin)
+
+
+def top_slots(metric: Metric, values: Dict[str, Any]) -> List[str]:
+    """The cars at the top of a scored row: the leader alone, or every car within the tie tolerance of the best."""
+    if not metric.scored or len(values) < 2:
+        return []
+    nums = {s: float(v) for s, v in values.items()}
+    best = max(nums.values(), key=lambda v: v * metric.direction)
+    return sorted(s for s, v in nums.items() if abs(v - best) <= _threshold(metric, best, v))
 
 
 def leader_of(metric: Metric, values: Dict[str, Any]) -> Optional[str]:
@@ -464,6 +548,10 @@ def comparable_rows(snapshots: Dict[str, Dict[str, Any]], metrics: Tuple[Metric,
             label = f"{metric.label_he} (מתוך {next(iter(cells.values())).get('of')} שדווחו)"
         values = {s: c["value"] for s, c in cells.items()}
         leader = leader_of(metric, values) if metric.scored else None
+        families = {snapshots[s]["derived"]["powertrain_family"] for s in slots}
+        note = None
+        if metric.mixed_family_note and "combustion" in families and families & {"phev", "ev"}:
+            note = " ".join(MIXED_FAMILY_NOTE_HE[f] for f in ("phev", "ev") if f in families)
         standard = next(iter(cells.values())).get("standard")
         if metric.key == "adas_systems_count":
             standard = None                                 # internal: the stated set
@@ -483,11 +571,14 @@ def comparable_rows(snapshots: Dict[str, Dict[str, Any]], metrics: Tuple[Metric,
             "cells": {s: {**{k: v for k, v in c.items() if k not in ("value",)},
                           "text": cell_text(metric, c, survival_age)} for s, c in cells.items()},
             "leader": leader,
+            "top_slots": top_slots(metric, values) if metric.scored else [],
             "sources": sorted({src for c in cells.values() for src in ([c.get("source")] + list(c.get("sources") or []))
                                if src}),
         }
         if survival_age is not None:
             row["survival_age"] = survival_age
+        if note:
+            row["note_he"] = note
         rows.append(row)
     return rows
 

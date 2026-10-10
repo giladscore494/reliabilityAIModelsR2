@@ -32,6 +32,7 @@ from app.services.comparison_v3.contracts import (
     ASKING_PRICE_MAX,
     ASKING_PRICE_MIN,
     BUDGET_NEEDS_PRICES_HE,
+    DECISION_RULES_VERSION,
     DECISION_UNAVAILABLE,
     ENGINE_VERSION,
     FACTS_UNAVAILABLE,
@@ -47,7 +48,9 @@ from app.services.comparison_v3.explanations import (
     constraint_notes,
     reason_texts,
     recommendation_view,
+    row_leaders_for_summary,
     section_cards,
+    summary_credit_violation,
 )
 from app.services.comparison_v3.judgments import KIND_FIT, KIND_MATERIALITY, build_plan
 from app.services.comparison_v3.metrics import (
@@ -147,6 +150,7 @@ def _profile_error_message(exc: BuyerProfileError) -> str:
 def compute_request_hash(cars: List[tuple], profile: Dict[str, Any], versions: Dict[str, Any], provider_meta: Dict[str, Any]) -> str:
     material = {
         "engine": ENGINE_VERSION,
+        "rules": DECISION_RULES_VERSION,
         "snapshot": SNAPSHOT_CONTRACT_VERSION,
         "keys": [k for k, _ in cars],
         "asking_prices": [p for _, p in cars],
@@ -204,6 +208,8 @@ def build_table(slots: List[str], cars: Dict[str, Dict[str, Any]], rows: List[Di
                 item["unit_he"] = row["unit_he"]
             if row.get("standard") and not str(row["standard"]).startswith("stated:"):
                 item["standard"] = row["standard"]
+            if row.get("note_he"):
+                item["note_he"] = row["note_he"]
             if not row["display_only"]:
                 item["leader"] = leader
             out_rows.append(item)
@@ -307,7 +313,7 @@ def run_comparison_v3(data: Dict[str, Any], deps: PipelineDeps, *, user_id: Opti
             return
 
     yield _progress("comparing_facts")
-    rows = comparable_rows(snapshots)
+    rows = comparable_rows(snapshots)        # L1: the ONE row set of the table, the decision, the texts and the summary
     evidence_dims = available_dimensions(rows)
     constraints = evaluate_constraints(profile, snapshots)
     pairwise = build_pairwise_evidence(rows, slots)
@@ -322,12 +328,13 @@ def run_comparison_v3(data: Dict[str, Any], deps: PipelineDeps, *, user_id: Opti
     if jev_run["status"] == "failed" and deps.jev_client is None:
         jev_run["reason"] = deps.jev_unavailable_reason or jev_run["reason"]
     timings["jev_ms"] = int((time.perf_counter() - t0) * 1000)
-    composition = DecisionComposer(profile, snapshots, pairwise, constraints, plan.specs, jev_run, weights, evidence_dims).compose()
+    composition = DecisionComposer(profile, snapshots, pairwise, constraints, plan.specs, jev_run, weights, evidence_dims,
+                                   row_ids=[r["row_id"] for r in rows]).compose()
     names = {slot: snapshots[slot]["identity"].get("display_name") or slot for slot in slots}
     cards = section_cards(rows_by_category(rows), composition, profile, names)
     reasons = strongest_reasons(composition)
     recommendation = recommendation_view(composition, profile, names)
-    recommendation["reasons_he"] = reason_texts(reasons, composition, profile, names)
+    recommendation["reasons_he"] = reason_texts(reasons, composition, profile, names, rows)
     notes = constraint_notes(constraints, names)
     profile_summary = profile_summary_he(profile, evidence_dims)
     cars = {slot: _car_card(snapshots[slot], prices[slot]) for slot in slots}
@@ -340,7 +347,9 @@ def run_comparison_v3(data: Dict[str, Any], deps: PipelineDeps, *, user_id: Opti
     summary_cards = {k: c for k, c in cards.items() if c["dimension"]}
     summary_payload = build_summary_payload(cars, recommendation, recommendation["reasons_he"], summary_cards, notes,
                                             profile_summary, LIMITATIONS_HE)
-    summary = produce_summary(deps.summary_writer, cars, summary_payload)
+    summary_payload["row_leaders"] = row_leaders_for_summary(rows, names)
+    summary = produce_summary(deps.summary_writer, cars, summary_payload,
+                              extra_check=lambda text: summary_credit_violation(text, rows, cars))
 
     table = build_table(slots, cars, rows, cards, explanations)
     response = {

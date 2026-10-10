@@ -9,6 +9,10 @@ dimension's signal is the mean of its usable signals.
 U(a, b) = sum(w_d * s_d) / sum(w_d) over dimensions with usable evidence. A dimension with no row and no signal for
 these cars is not applicable: its weight drops and the rest renormalizes (rule 3). Constants are provisional
 (``engine``).
+
+Pairwise utilities are internal: no user-facing text is built per pair for more than two cars (``explanations``
+states row leaders over ALL cars). A signal is labelled by the rows that exist (``metrics.group_label_he``), and the
+AWD preference reads the drivetrain only when it is a row for every car.
 """
 
 from __future__ import annotations
@@ -33,7 +37,7 @@ from app.services.comparison_v3.engine import (
     vehicle_pairs,
 )
 from app.services.comparison_v3.judgments import FIT_DIMENSION, fit_question_id, materiality_question_id
-from app.services.comparison_v3.metrics import DIMENSION_CATEGORY, GROUP_LABEL_HE
+from app.services.comparison_v3.metrics import DIMENSION_CATEGORY, GROUP_LABEL_HE, group_label_he
 from app.services.comparison_v3.snapshot import fact_value
 
 from app.services.comparison_v2.decision_model import MATERIALITY_LABEL_HE
@@ -57,12 +61,15 @@ def strength_label(utility_abs: float) -> str:
 
 
 class DecisionComposer:
-    def __init__(self, profile, snapshots, pairwise, constraints, specs, jev_run, weights, evidence_dimensions):
+    def __init__(self, profile, snapshots, pairwise, constraints, specs, jev_run, weights, evidence_dimensions,
+                 row_ids=None):
         self.profile, self.snapshots, self.pairwise = profile, snapshots, pairwise
         self.constraints, self.specs, self.jev_run, self.weights = constraints, specs, jev_run, weights
         self.answers = jev_run.get("answers") or {}
         # dimensions with at least one scored row for these cars (rule 3)
         self.evidence_dimensions = set(evidence_dimensions)
+        # the rows that exist (the row rule); None: every fact the pair shares (unit tests of the composer alone)
+        self.row_ids = None if row_ids is None else set(row_ids)
 
     def _answer(self, qid: str) -> Tuple[Optional[float], str]:
         if qid not in self.specs:
@@ -82,8 +89,9 @@ class DecisionComposer:
         signals: List[Dict[str, Any]] = []
         for group, ev in sorted(((self.pairwise.get(pair_key(a, b)) or {}).get("groups") or {}).items()):
             direction = ev["direction"]
+            metrics = [m["metric"] for m in ev["metrics"]]
             base = {"source": "objective", "group": group, "dimension": ev["dimension"], "category": ev["category"],
-                    "label_he": GROUP_LABEL_HE.get(group, group), "code_direction": direction}
+                    "label_he": group_label_he(group, metrics), "metrics": metrics, "code_direction": direction}
             if direction in (CHOICE_TIE, DIRECTION_MIXED):
                 signals.append({**base, "usable": True, "value": 0.0, "status": direction})
                 continue
@@ -108,7 +116,7 @@ class DecisionComposer:
                 signals.append({**base, "usable": False, "value": None, "status": "judgment_unavailable"})
             else:
                 signals.append({**base, "usable": True, "value": fa - fb, "status": "ok"})
-        if self.profile.get("awd_requirement") == "preferred":
+        if self.profile.get("awd_requirement") == "preferred" and (self.row_ids is None or "drivetrain" in self.row_ids):
             da, db = fact_value(self.snapshots[a], "drivetrain"), fact_value(self.snapshots[b], "drivetrain")
             if da is not None and db is not None:
                 awd = ("awd", "four_wheel_drive")
@@ -225,6 +233,7 @@ def strongest_reasons(composition: Dict[str, Any], limit: int = 4) -> Dict[str, 
                     continue
                 entry = acc.setdefault(s["group"], {"group": s["group"], "label_he": s["label_he"], "dimension": dim,
                                                     "category": s.get("category"), "source": s["source"],
+                                                    "metrics": list(s.get("metrics") or []),
                                                     "contribution": 0.0, "against": {},
                                                     "materiality_label_he": s.get("materiality_label_he")})
                 entry["contribution"] += sign * s["contribution"] / len(own)
