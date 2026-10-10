@@ -55,6 +55,7 @@ def row_payload(row: Dict[str, Any], names: Dict[str, str]) -> Dict[str, Any]:
         "values": {names.get(slot, slot): cell["text"] for slot, cell in row["cells"].items()},
         "direction": DIRECTION_EN[row.get("direction") or 0],
         "leader": names.get(leader) if leader in names else ("tie" if leader == "tie" else None),
+        "comparability_note_he": row.get("note_he"),
     }
     if row.get("history"):
         out["note"] = "Government history data, display only; never describe it as reliability."
@@ -145,6 +146,8 @@ def fallback_text(row: Dict[str, Any]) -> str:
     text = metric.explain_he
     if row.get("standard") and row["standard"] in ("WLTP", "NEDC") and row["standard"] not in text:
         text += f" כל הערכים בשורה נמדדו לפי תקן {row['standard']}."
+    if row.get("note_he"):
+        text += " " + row["note_he"]
     return text
 
 

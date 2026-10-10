@@ -4,6 +4,9 @@
  * The table has at most 3 car columns, one section per category that has rows, and a chevron per row that opens
  * that row's explanation. Only data every car has is shown: there is no empty or placeholder cell.
  * Stored V2 / V1 rows keep their own renderer (compare_v2.js), selected by engine_version.
+ *
+ * The picker never shows an empty list without a reason: "טוען…" while a catalog call is in flight, a Hebrew error
+ * with a retry button when it fails, and a Hebrew explanation when TRIPY returns no items.
  */
 (function (root) {
     'use strict';
@@ -23,6 +26,20 @@
     var EV_PRIORITY_KEY = 'ev_convenience';
     var BUDGET_NEEDS_PRICES = 'כדי לבדוק תקציב יש להזין מחיר לכל רכב';
     var PRICE_MIN = 1000, PRICE_MAX = 3000000;
+    var LOADING_HE = 'טוען…';
+    var RETRY_HE = 'נסו שוב';
+    var CATALOG_ERROR_HE = {
+        manufacturers: 'לא הצלחנו לטעון את רשימת היצרנים.',
+        models: 'לא הצלחנו לטעון את רשימת הדגמים.',
+        years: 'לא הצלחנו לטעון את שנות הדגם.',
+        trims: 'לא הצלחנו לטעון את רשימת הגרסאות.'
+    };
+    var CATALOG_EMPTY_HE = {
+        manufacturers: 'לא נמצאו יצרנים בקטלוג כרגע.',
+        models: 'לא נמצאו דגמים ליצרן הזה בקטלוג.',
+        years: 'לא נמצאו שנות דגם לדגם הזה בקטלוג.',
+        trims: 'לא נמצאו גרסאות לשנה הזו בקטלוג.'
+    };
 
     function escapeHtml(value) {
         return String(value === null || value === undefined ? '' : value)
@@ -83,7 +100,8 @@
         var unit = row.unit_he ? ' <span class="v3-unit">(' + escapeHtml(row.unit_he) + ')</span>' : '';
         var html = '<div class="v3-row" role="row" data-row="' + escapeHtml(row.row_id) + '">';
         html += '<div class="v3-label" role="rowheader"><button type="button" class="v3-chevron" aria-expanded="false" aria-controls="' +
-            panelId + '" data-v3-toggle><span class="v3-chevron-icon" aria-hidden="true"></span>' + escapeHtml(row.label_he) + unit + '</button></div>';
+            panelId + '" data-v3-toggle><span class="v3-chevron-icon" aria-hidden="true"></span>' + escapeHtml(row.label_he) + unit + '</button>' +
+            (row.note_he ? '<p class="v3-row-note" data-v3-row-note>' + escapeHtml(row.note_he) + '</p>' : '') + '</div>';
         slots.forEach(function (slot) {
             var cell = (row.cells || {})[slot] || {};
             var lead = !!cell.leader && !row.display_only;
@@ -177,6 +195,8 @@
         select.disabled = true;
     }
 
+    function setLoading(select) { resetSelect(select, LOADING_HE); }
+
     async function getJson(url) {
         var resp = await fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'include' });
         var data = await resp.json();
@@ -189,11 +209,40 @@
         return '/api/compare/v3/catalog/' + kind + (q ? '?' + q : '');
     }
 
-    function showPickerError(n, message) {
+    // A Hebrew message, with a retry button when ``retry`` is given (never an unexplained empty list).
+    function showPickerError(n, message, retry) {
         var box = byId('v3_picker_error_' + n);
         if (!box) return;
         box.textContent = message || '';
+        if (message && retry && box.appendChild && typeof document !== 'undefined') {
+            var button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'v3-retry';
+            button.setAttribute('data-v3-retry', '');
+            button.textContent = RETRY_HE;
+            button.addEventListener('click', function () { showPickerError(n, ''); retry(); });
+            box.appendChild(document.createTextNode(' '));
+            box.appendChild(button);
+        }
         box.classList.toggle('hidden', !message);
+    }
+
+    // One catalog list into one select: "טוען…" while waiting, an error + retry, or the empty explanation.
+    async function loadList(n, select, kind, params, valueKey, labelFn, placeholder, itemsKey) {
+        setLoading(select);
+        showPickerError(n, '');
+        var retry = function () { return loadList(n, select, kind, params, valueKey, labelFn, placeholder, itemsKey); };
+        var items;
+        try {
+            items = (await getJson(catalogUrl(kind, params)))[itemsKey || kind] || [];
+        } catch (e) {
+            resetSelect(select, placeholder);
+            showPickerError(n, CATALOG_ERROR_HE[kind] + ' ' + RETRY_HE + '.', retry);
+            return null;
+        }
+        fillSelect(select, items, valueKey, labelFn, placeholder);
+        if (!items.length) showPickerError(n, CATALOG_EMPTY_HE[kind], retry);
+        return items;
     }
 
     function changed() {
@@ -201,41 +250,60 @@
         if (opts.onChange) opts.onChange();
     }
 
-    function initSlot(n, manufacturers) {
+    function makeLabel(m) { return m.display && m.display !== m.manufacturer ? m.display + ' (' + m.manufacturer + ')' : m.manufacturer; }
+
+    function initSlot(n) {
         var make = byId('v3_make_' + n), model = byId('v3_model_' + n), year = byId('v3_year_' + n), trim = byId('v3_trim_' + n);
         var price = byId('v3_price_' + n);
         if (!make) return;
-        fillSelect(make, manufacturers, 'manufacturer', function (m) { return m.display && m.display !== m.manufacturer ? m.display + ' (' + m.manufacturer + ')' : m.manufacturer; }, 'בחרו יצרן...');
-        make.addEventListener('change', async function () {
+        make.addEventListener('change', function () {
             resetSelect(model, 'בחרו דגם...'); resetSelect(year, 'בחרו שנה...'); resetSelect(trim, 'בחרו גרסה...');
+            showPickerError(n, '');
             changed();
             if (!make.value) return;
-            try {
-                var data = await getJson(catalogUrl('models', { manufacturer: make.value }));
-                fillSelect(model, data.models || [], 'model', function (m) { return m.model; }, 'בחרו דגם...');
-                showPickerError(n, '');
-            } catch (e) { showPickerError(n, e.message); }
+            loadList(n, model, 'models', { manufacturer: make.value }, 'model', function (m) { return m.model; }, 'בחרו דגם...');
         });
-        model.addEventListener('change', async function () {
+        model.addEventListener('change', function () {
             resetSelect(year, 'בחרו שנה...'); resetSelect(trim, 'בחרו גרסה...');
+            showPickerError(n, '');
             changed();
             if (!model.value) return;
-            try {
-                var data = await getJson(catalogUrl('years', { manufacturer: make.value, model: model.value }));
-                fillSelect(year, data.years || [], 'year', function (y) { return String(y.year); }, 'בחרו שנה...');
-            } catch (e) { showPickerError(n, e.message); }
+            loadList(n, year, 'years', { manufacturer: make.value, model: model.value }, 'year', function (y) { return String(y.year); }, 'בחרו שנה...');
         });
-        year.addEventListener('change', async function () {
+        year.addEventListener('change', function () {
             resetSelect(trim, 'בחרו גרסה...');
+            showPickerError(n, '');
             changed();
             if (!year.value) return;
-            try {
-                var data = await getJson(catalogUrl('trims', { manufacturer: make.value, model: model.value, year: year.value }));
-                fillSelect(trim, data.trims || [], 'variant_identity_key', function (t) { return t.label || t.trim || ''; }, 'בחרו גרסה...');
-            } catch (e) { showPickerError(n, e.message); }
+            loadList(n, trim, 'trims', { manufacturer: make.value, model: model.value, year: year.value }, 'variant_identity_key',
+                function (t) { return t.label || t.trim || ''; }, 'בחרו גרסה...');
         });
         trim.addEventListener('change', changed);
         if (price) price.addEventListener('change', changed);
+    }
+
+    // The manufacturers list feeds every slot: one call, "טוען…" in every slot, one retry button per slot on failure.
+    async function loadManufacturers() {
+        var selects = [];
+        for (var n = 1; n <= 3; n++) {
+            var make = byId('v3_make_' + n);
+            if (make) { setLoading(make); showPickerError(n, ''); selects.push(n); }
+        }
+        var items;
+        try {
+            items = (await getJson(catalogUrl('manufacturers'))).manufacturers || [];
+        } catch (e) {
+            selects.forEach(function (m) {
+                resetSelect(byId('v3_make_' + m), 'בחרו יצרן...');
+                showPickerError(m, CATALOG_ERROR_HE.manufacturers + ' ' + RETRY_HE + '.', loadManufacturers);
+            });
+            return null;
+        }
+        selects.forEach(function (m) {
+            fillSelect(byId('v3_make_' + m), items, 'manufacturer', makeLabel, 'בחרו יצרן...');
+            if (!items.length) showPickerError(m, CATALOG_EMPTY_HE.manufacturers, loadManufacturers);
+        });
+        return items;
     }
 
     function priceValue(n) {
@@ -413,12 +481,8 @@
             applyAvailability(null);
         }
         if (!byId('v3_make_1')) return;
-        try {
-            var data = await getJson(catalogUrl('manufacturers'));
-            for (var n = 1; n <= 3; n++) initSlot(n, data.manufacturers || []);
-        } catch (e) {
-            for (var m = 1; m <= 3; m++) showPickerError(m, e.message);
-        }
+        for (var n = 1; n <= 3; n++) initSlot(n);
+        await loadManufacturers();
     }
 
     // ==================================================================
@@ -487,6 +551,9 @@
         renderResult: renderResult,
         bindToggles: bindToggles,
         init: init,
+        loadList: loadList,
+        loadManufacturers: loadManufacturers,
+        showPickerError: showPickerError,
         getSelectedCars: getSelectedCars,
         setSelected: setSelected,
         collectProfile: collectProfile,

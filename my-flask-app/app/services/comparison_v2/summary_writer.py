@@ -16,7 +16,7 @@ import logging
 import os
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from app.services.comparison_v2.contracts import CHOICE_INSUFFICIENT, CHOICE_TIE, DECISION_UNAVAILABLE
 
@@ -220,8 +220,10 @@ class GeminiSummaryWriter:
         return {"output": output, "error_code": None, "duration_ms": int((time.perf_counter() - started) * 1000)}
 
 
-def produce_summary(writer: Optional[GeminiSummaryWriter], cars: Dict[str, Dict[str, Any]], payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Exactly one Gemini call on the immutable composed result (or none)."""
+def produce_summary(writer: Optional[GeminiSummaryWriter], cars: Dict[str, Dict[str, Any]], payload: Dict[str, Any],
+                    extra_check: Optional[Callable[[str], Optional[str]]] = None) -> Dict[str, Any]:
+    """Exactly one Gemini call on the immutable composed result (or none). ``extra_check(text)`` returns a reason to
+    reject an otherwise valid text (V3: a sentence crediting a car with a row it does not lead)."""
     fallback = deterministic_summary(payload)
     if writer is None or payload["outcome"] == DECISION_UNAVAILABLE:
         # Without a composed decision there is nothing for Gemini to explain.
@@ -231,6 +233,10 @@ def produce_summary(writer: Optional[GeminiSummaryWriter], cars: Dict[str, Dict[
         logger.warning("comparison_v2 summary_failed error=%s", result["error_code"])
         return {"text": fallback, "source": "deterministic_fallback", "reason": result["error_code"], "duration_ms": result.get("duration_ms")}
     text = validate_summary(result.get("output"), payload, cars)
+    rejected = extra_check(text) if text and extra_check is not None else None
+    if rejected:
+        logger.warning("comparison_v2 summary_failed error=SUMMARY_REJECTED check=%s", rejected)
+        text = None
     if not text:
         logger.warning("comparison_v2 summary_failed error=SUMMARY_REJECTED")
         return {"text": fallback, "source": "deterministic_fallback", "reason": "SUMMARY_REJECTED", "duration_ms": result.get("duration_ms")}

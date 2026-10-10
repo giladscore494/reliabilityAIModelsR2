@@ -3,11 +3,12 @@
 
 * materiality — one question per eligible vehicle pair and correlation group whose code direction is a car
   (never tie / mixed, never a dimension the user weighted 0, never towing without a towing requirement);
-* contextual fit (personalized mode) — ``parking_fit`` (the length / width rows), ``body_use_fit`` (body style vs
-  ``main_use``), ``charging_routine_fit`` (the electric-range row only; no charging-power inputs). No
-  ground-clearance fit (no data).
+* contextual fit (personalized mode) — ``parking_fit`` (the length / width rows), ``charging_routine_fit`` (the
+  electric-range row only; no charging-power inputs). No ground-clearance fit (no data). No body-style / use fit: it
+  was a JEV judgement without a deterministic rule and without a row, so it is not weighted.
 
-The JEV state holds row values only: a metric that is not a row (the row rule) is never sent. No URLs, no raw
+The JEV state holds row values only: a metric that is not a row (the row rule) is never sent, and a question
+describes its group by the rows that exist (``metrics.group_description_en``), never by a hidden one. No URLs, no raw
 records, no brand names.
 """
 
@@ -20,11 +21,11 @@ from app.services.comparison_v2.decision_model import FIT_LEVELS, MATERIALITY_LE
 from app.services.comparison_v3.buyer_profile import MODE_GENERAL, jev_buyer_context
 from app.services.comparison_v3.contracts import CHOICE_TIE
 from app.services.comparison_v3.engine import DIRECTION_MIXED, compact_constraints_for_jev, pair_key, vehicle_pairs
-from app.services.comparison_v3.metrics import GROUP_DESCRIPTION_EN, GROUP_DIMENSION, HIGHER_BETTER, LOWER_BETTER, METRICS_BY_KEY
+from app.services.comparison_v3.metrics import GROUP_DIMENSION, HIGHER_BETTER, LOWER_BETTER, METRICS_BY_KEY, group_description_en
 
 KIND_MATERIALITY = "materiality"
 KIND_FIT = "fit"
-FIT_DIMENSION = {"parking_fit": "practicality", "body_use_fit": "practicality", "charging_routine_fit": "ev_convenience"}
+FIT_DIMENSION = {"parking_fit": "practicality", "charging_routine_fit": "ev_convenience"}
 
 _COMMON_RULES = (
     "Rules: use only the state paths named in this question. The facts are already validated and the direction of "
@@ -87,6 +88,7 @@ def build_plan(profile: Dict[str, Any], snapshots: Dict[str, Dict[str, Any]], ro
     skipped: List[Dict[str, Any]] = []
     factor_values: Dict[str, Dict[str, Any]] = {}
     pairs_state: Dict[str, Dict[str, Any]] = {}
+    by_id = {r["row_id"]: r for r in rows}
 
     for a, b in vehicle_pairs(eligible):
         pk = pair_key(a, b)
@@ -108,13 +110,15 @@ def build_plan(profile: Dict[str, Any], snapshots: Dict[str, Dict[str, Any]], ro
             pairs_state.setdefault(pk, {})[group] = {"favours": direction,
                                                      "metric_leaders": {m["metric"]: m["leader"] for m in ev["metrics"]}}
             qid = materiality_question_id(a, b, group)
+            keys = [m["metric"] for m in ev["metrics"]]
+            description = group_description_en(group, keys, note=any((by_id.get(k) or {}).get("note_he") for k in keys))
             paths = (f"pairwise_objective_evidence.pairs.{pk}.{group}", f"pairwise_objective_evidence.factor_values.{group}",
                      "buyer_profile", "hard_constraint_results")
             specs[qid] = JudgmentSpec(
                 question_id=qid, kind=KIND_MATERIALITY, group=group, dimension=dimension, state_paths=paths,
                 pair=(a, b), code_direction=direction, criteria=tuple(MATERIALITY_LEVELS),
                 instructions=(
-                    f"Vehicles {a} and {b} differ in {GROUP_DESCRIPTION_EN[group]}. The validated values are at "
+                    f"Vehicles {a} and {b} differ in {description}. The validated values are at "
                     f"{paths[1]} (only the {a} and {b} entries apply) and the code-determined comparison for this pair "
                     f"is at {paths[0]}. Using the buyer context at buyer_profile and the statuses at "
                     f"hard_constraint_results, rate how materially this specific difference would affect this buyer's "
@@ -123,7 +127,6 @@ def build_plan(profile: Dict[str, Any], snapshots: Dict[str, Dict[str, Any]], ro
             )
 
     contextual: Dict[str, Dict[str, Any]] = {}
-    by_id = {r["row_id"]: r for r in rows}
     buyer_context = jev_buyer_context(profile)
     if profile.get("mode") != MODE_GENERAL:
         for fit_type, need in _fit_needs(profile, weights, snapshots, by_id).items():
@@ -167,16 +170,6 @@ def _fit_needs(profile, weights, snapshots, rows: Dict[str, Dict[str, Any]]) -> 
             "paths": ("buyer_profile.parking_constraint",),
             "question": "How well do this vehicle's validated exterior length and width fit the buyer's stated parking constraint?",
         }
-    if practicality and profile.get("main_use") and "body_style" in rows:
-        styles = set(rows["body_style"]["values"].values())
-        if len(styles) > 1:
-            needs["body_use_fit"] = {
-                "ready": lambda s: True, "min_ready": 2,
-                "values": lambda s: {"body_style": rows["body_style"]["values"][s]},
-                "paths": ("buyer_profile.main_use",),
-                "question": ("How well does this vehicle's validated body style fit the buyer's stated primary use? Judge "
-                             "body-style/use compatibility only; do not infer cargo volume, safety, reliability or comfort."),
-            }
     if weights.get("ev_convenience", 0) > 0 and profile.get("charging_access") and "electric_range_km" in rows:
         rng = rows["electric_range_km"]
         needs["charging_routine_fit"] = {

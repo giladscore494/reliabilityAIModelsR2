@@ -2,7 +2,10 @@
 """TRIPY data layer: the only source of vehicle data for V3.
 
     TripyClient              ``Authorization: Bearer {TRIPY_FACTS_TOKEN}`` against ``TRIPY_BASE_URL`` (Render
-                             secrets); timeout 5 s, one retry on a 5xx; any other failure is ``TripyUnavailable``
+                             secrets). Timeouts (code configuration): catalog 15 s, facts 20 s (a cold TRIPY answered
+                             the first catalog call in 6.3 s). The catalog retries ONCE, 1 s later, on a connection
+                             error / timeout or a 502 / 503 / 504; the facts call never retries. Any other failure is
+                             ``TripyUnavailable``
     TripyCatalogRepository   the picker cascade: /api/facts/v1/catalog/{manufacturers,models,years,trims}
                              (cached in process for CATALOG_CACHE_TTL_SEC like TRIPY's own picker cache)
     TripyFactsRepository     POST /api/facts/v1/vehicles -> one ``vehicle-facts/1`` record per key + TRIPY versions
@@ -26,7 +29,10 @@ from app.services.comparison_v3.labels import brand_display
 
 logger = logging.getLogger("comparison_v3")
 
-TIMEOUT_SEC = 5.0
+CATALOG_TIMEOUT_SEC = 15.0
+FACTS_TIMEOUT_SEC = 20.0
+CATALOG_RETRY_DELAY_SEC = 1.0
+RETRY_STATUSES = (502, 503, 504)
 CATALOG_CACHE_TTL_SEC = 600.0
 FACTS_PATH = "/api/facts/v1/vehicles"
 CATALOG_PATH = "/api/facts/v1/catalog/"
@@ -48,10 +54,10 @@ class TripyClient:
     """Thin HTTP client; ``session`` is injectable (tests never hit the network)."""
 
     def __init__(self, base_url: Optional[str] = None, token: Optional[str] = None, session: Any = None,
-                 timeout_sec: float = TIMEOUT_SEC):
+                 sleep=time.sleep):
         self.base_url = (base_url if base_url is not None else tripy_base_url()).rstrip("/")
         self.token = token if token is not None else tripy_token()
-        self.timeout_sec = timeout_sec
+        self.sleep = sleep
         if session is None:
             import requests
 
@@ -67,22 +73,29 @@ class TripyClient:
         return {"Authorization": f"Bearer {self.token}", "Accept": "application/json", "Content-Type": "application/json"}
 
     def request(self, method: str, path: str, *, params: Optional[Dict[str, Any]] = None,
-                body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                body: Optional[Dict[str, Any]] = None, timeout: float = FACTS_TIMEOUT_SEC,
+                retry: bool = False) -> Dict[str, Any]:
+        """One call; with ``retry`` (the catalog) one more call after CATALOG_RETRY_DELAY_SEC on a connection error /
+        timeout or a 502 / 503 / 504."""
         if not self.configured:
             raise TripyUnavailable("tripy_not_configured")
         url = f"{self.base_url}{path}"
+        attempts = 2 if retry else 1
         last = "tripy_error"
-        for attempt in range(2):                       # one retry, on a 5xx only
+        for attempt in range(attempts):
+            if attempt:
+                self.sleep(CATALOG_RETRY_DELAY_SEC)
             self.calls += 1
             try:
                 if method == "GET":
-                    resp = self.session.get(url, params=params, headers=self._headers(), timeout=self.timeout_sec)
+                    resp = self.session.get(url, params=params, headers=self._headers(), timeout=timeout)
                 else:
-                    resp = self.session.post(url, json=body, headers=self._headers(), timeout=self.timeout_sec)
-            except Exception as exc:  # noqa: BLE001 - network / timeout: unavailable, no retry
-                raise TripyUnavailable(f"tripy_request_failed:{type(exc).__name__}") from None
+                    resp = self.session.post(url, json=body, headers=self._headers(), timeout=timeout)
+            except Exception as exc:  # noqa: BLE001 - network / timeout
+                last = f"tripy_request_failed:{type(exc).__name__}"
+                continue
             status = int(getattr(resp, "status_code", 500))
-            if status >= 500:
+            if status in RETRY_STATUSES:
                 last = f"tripy_http_{status}"
                 continue
             if status >= 400:
@@ -113,7 +126,7 @@ class TripyFactsRepository(FactsRepository):
 
     def get_records(self, keys: List[str]) -> Dict[str, Any]:
         keys = [str(k) for k in keys][:MAX_CARS]
-        data = self.client.request("POST", FACTS_PATH, body={"variant_identity_keys": keys})
+        data = self.client.request("POST", FACTS_PATH, body={"variant_identity_keys": keys}, timeout=FACTS_TIMEOUT_SEC)
         if data.get("contract") != FACTS_CONTRACT or not isinstance(data.get("vehicles"), list):
             raise TripyUnavailable("tripy_contract_mismatch")
         records = {str(r.get("variant_identity_key")): r for r in data["vehicles"] if isinstance(r, dict)}
@@ -180,7 +193,8 @@ class TripyCatalogRepository(PickerCatalog):
 
     def _list(self, kind: str, key: str, **params) -> List[Dict[str, Any]]:
         def compute():
-            data = self.client.request("GET", CATALOG_PATH + kind, params=params or None)
+            data = self.client.request("GET", CATALOG_PATH + kind, params=params or None, timeout=CATALOG_TIMEOUT_SEC,
+                                       retry=True)
             items = data.get(key)
             if not isinstance(items, list):
                 raise TripyUnavailable("tripy_contract_mismatch")

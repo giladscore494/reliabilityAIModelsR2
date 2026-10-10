@@ -40,7 +40,10 @@ What V3 does not do:
 `POST {TRIPY_BASE_URL}/api/facts/v1/vehicles` with body `{"variant_identity_keys": [1-3]}`:
 
 * Auth: `Authorization: Bearer {TRIPY_FACTS_TOKEN}`. Both values are Render secrets.
-* Timeout 5 s, and one retry, on a 5xx only.
+* Timeouts (code configuration, `tripy.py`): facts 20 s, catalog 15 s. A cold TRIPY answered the first catalog call
+  in 6.3 s, so the old 5 s timeout returned 503 on the first picker load.
+* Only the catalog retries: once, 1 s later, on a connection error / timeout or a 502 / 503 / 504. The facts call
+  never retries.
 * A network error, timeout, 4xx, invalid JSON, contract mismatch or missing configuration all become
   `TripyUnavailable`.
 * `TripyUnavailable` → HTTP 503 `facts_unavailable` with "ההשוואה לא זמינה כרגע, נסו שוב בעוד כמה דקות".
@@ -48,7 +51,8 @@ What V3 does not do:
 
 The picker cascade (manufacturers → models → years → trims) goes through the server at
 `GET /api/compare/v3/catalog/<kind>` (`/api/facts/v1/catalog/*`, 600 s in-process cache). The TRIPY token never
-reaches the browser.
+reaches the browser. The picker shows "טוען…" while a list loads, a Hebrew error with a "נסו שוב" button when it
+fails, and a Hebrew explanation (also with the button) when a list comes back empty; never an unexplained empty list.
 
 `COMPARISON_V2_OFFLINE_MODE=true` serves the Level 1.5 demo fixtures as `vehicle-facts/1` records (dev and offline
 only), with no JEV, summary or explanation calls.
@@ -79,9 +83,29 @@ payload and the slider availability all read. A row exists only when:
 1. every selected car has a value;
 2. the value is under the same `standard` for every car: WLTP with WLTP, NEDC with NEDC, a mass under the same
    `definition`, an ADAS count over the same set of reported flags;
-3. for consumption / CO2, every car is in the same propulsion family (EV / PHEV / combustion).
+3. for measured consumption (L/100km, kWh/100km), every car is in the same propulsion family (EV / PHEV /
+   combustion).
 
-Otherwise the row is absent everywhere. A category without rows is absent. A dimension without a scored row has its
+Otherwise the row is absent everywhere.
+
+**One row set (L1).** The decision, the JEV questions, the reasons, the section texts, the summary and the row
+explanations all consume this output. A row missing for any car is absent from every weight, score, question and
+text, including its name: a correlation group is labelled and described by the rows that exist
+(`metrics.group_label_he` / `group_description_en`), so without the safety score the reason names "מערכות סיוע לנהג",
+never "דירוג הבטיחות של משרד התחבורה". The AWD preference counts only when the drivetrain is a row.
+
+**Official emission figures across propulsion families (L4).** CO2 WLTP / NEDC, the green index and the pollution
+group are the ministry's type-approval classification, all from the same test, and are compared across families. When
+a plug-in or electric car is compared with a combustion car, each of these rows carries the same `note_he` (shown
+under the row label and in its explanation): a plug-in's WLTP figure is a weighted value that assumes regular
+charging; an electric car's is tailpipe only.
+
+**Leaders over all cars (L2).** A scored row's `leader` is the one car strictly better than every other car after the
+tie margin, else `tie`; `top_slots` are the cars within the margin of the best. Reasons and section texts credit only
+the leader. When the rows of a reason have different leaders, the text names each row's leader ("קבוצת זיהום: תיקו
+בין A ל־B"). With three cars no text is built per pair ("X מול Y"); the pairwise utilities stay internal. The summary
+gets `row_leaders`, and a summary sentence that credits a car with a row it does not lead (or a hidden row, or a
+pairwise "X מול Y") falls back to the deterministic summary. A category without rows is absent. A dimension without a scored row has its
 slider hidden: the picker calls `POST /api/compare/v3/availability` before the personalization step.
 
 When nothing is common, the only text is "אין מספיק נתונים משותפים להשוואה בין הרכבים האלה". There is no "אין מידע",
@@ -149,7 +173,8 @@ The composer and JEV micro-judgments are the V2/2 design, applied to rows only:
 * `U(a, b) = Σ w·s / Σ w`;
 * one correlation group = one signal;
 * a dimension's weight counts only when the dimension has rows or signals;
-* fits come from rows (parking: length / width; body vs use; charging routine: the range row).
+* fits come from rows (parking: length / width; charging routine: the range row). The body-style vs use fit is not
+  weighted: it was a JEV judgement with no deterministic rule and no row of its own (L3).
 
 | constant (`comparison_v3/engine.py`) | value | status |
 |---|---|---|
@@ -199,10 +224,10 @@ The composer and JEV micro-judgments are the V2/2 design, applied to rows only:
 |---|---|
 | cold | 1 TRIPY + 1 JEV + 1 row explanations + 1 summary |
 | whole comparison cached (same keys, prices, normalized profile, TRIPY versions, models; max 24 h; not when the decision or the explanations failed) | 1 TRIPY (for its versions), 0 model calls |
-| TRIPY down | 1–2 TRIPY attempts, nothing else |
+| TRIPY down | 1 facts attempt (the catalog: up to 2), nothing else |
 | `COMPARISON_V2_OFFLINE_MODE=true` | 0 |
 
-Cache key: engine, snapshot contract, variant keys, asking prices, normalized profile, the TRIPY versions
+Cache key: engine, rules version (`DECISION_RULES_VERSION`), snapshot contract, variant keys, asking prices, normalized profile, the TRIPY versions
 (`contract`, `admission`, `snapshots_sha`, `matcher`, `zero_semantics`) and the summary / explanation / JEV models.
 
 ## Tests
@@ -211,4 +236,7 @@ Cache key: engine, snapshot contract, variant keys, asking prices, normalized pr
   explanations, TRIPY access, attribution, the no-import rule.
 * `tests/test_comparison_v3_api_ui.py`: API, cache, stream, availability, catalog, template, JS renderer (node),
   the 375 px CSS snapshot and the Chromium check, and stored V2 history.
-* Fakes: `tests/comparison_v3_fakes.py`.
+* `tests/test_comparison_v3_live_fixes.py`: the first live comparison (BMW 530E / Audi A7 SPORTBACK plug-ins, Alfa
+  Romeo GIULIA petrol): the hidden safety score nowhere, N-car reasons and ties, the summary guard, no body fit, the
+  CO2 row and its note, the TRIPY timeouts / retry, the picker loading / error / retry states (node).
+* Fakes: `tests/comparison_v3_fakes.py` (including the live trio, `LIVE_TRIO`).
