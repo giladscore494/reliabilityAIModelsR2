@@ -181,7 +181,7 @@ class TestSanitizeAnalyzeResponsePassesFields:
 # ---------------------------------------------------------------------------
 
 class TestExampleTemplateScoreContainerId:
-    def test_example_template_has_score_container(self, app, client):
+    def test_example_template_has_score_container(self, reliability_unlocked, app, client):
         """The example template must contain reliability-score-container."""
         with app.app_context():
             from main import db, SearchHistory
@@ -214,7 +214,7 @@ class TestExampleTemplateScoreContainerId:
         html = resp.get_data(as_text=True)
         assert 'id="reliability-score-container"' in html
 
-    def test_example_template_has_script_js(self, app, client):
+    def test_example_template_has_script_js(self, reliability_unlocked, app, client):
         """The example page must include script.js so the indicator renders."""
         with app.app_context():
             from main import db, SearchHistory

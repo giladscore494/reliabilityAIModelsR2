@@ -25,7 +25,7 @@ def _base_usage(**overrides):
     return usage
 
 
-def test_analyze_response_drops_removed_sections(logged_in_client, monkeypatch):
+def test_analyze_response_drops_removed_sections(reliability_unlocked, logged_in_client, monkeypatch):
     client, _ = logged_in_client
     calls = {"count": 0}
 
@@ -65,7 +65,7 @@ def test_analyze_response_drops_removed_sections(logged_in_client, monkeypatch):
     assert "sim_model" not in data1["data"]
 
 
-def test_analyze_response_uses_risk_only_reliability_report(logged_in_client, monkeypatch):
+def test_analyze_response_uses_risk_only_reliability_report(reliability_unlocked, logged_in_client, monkeypatch):
     client, _ = logged_in_client
 
     def fake_gemini(_prompt):

@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """Dashboard routes blueprint."""
 
-from flask import Blueprint, render_template, current_app, request, jsonify
+from flask import Blueprint, abort, render_template, current_app, request, jsonify
 from flask_login import current_user, login_required
 
 from app.extensions import db
 from app.models import User, QuotaReservation, DailyQuotaUsage, LegalAcceptance
-from app.utils.http_helpers import api_error, get_request_id, is_owner_user
+from app.utils.http_helpers import api_error, get_request_id, is_owner_user, reliability_access_allowed
 from app.services import history_service
 from flask_login import logout_user
 
@@ -16,12 +16,16 @@ bp = Blueprint('dashboard', __name__)
 @bp.route('/dashboard')
 @login_required
 def dashboard():
+    reliability_enabled = reliability_access_allowed()
     (
         user_searches,
         advisor_entries,
         search_error,
         advisor_error,
-    ) = history_service.fetch_dashboard_history(current_user.id)
+    ) = history_service.fetch_dashboard_history(
+        current_user.id,
+        include_searches=reliability_enabled,
+    )
     history_error = search_error or advisor_error
     searches_data = history_service.build_searches_data(user_searches)
     advisor_data = history_service.build_advisor_data(advisor_entries)
@@ -33,12 +37,15 @@ def dashboard():
         user=current_user,
         is_owner=is_owner_user(),
         history_error=history_error,
+        reliability_enabled=reliability_enabled,
     )
 
 
 @bp.route('/search-details/<int:search_id>')
 @login_required
 def search_details(search_id):
+    if not reliability_access_allowed():
+        abort(404)
     return history_service.search_details_response(search_id, current_user.id)
 
 
@@ -160,6 +167,8 @@ def history_list():
     """
     Returns list of user's search history (Reliability Analyzer only).
     """
+    if not reliability_access_allowed():
+        abort(404)
     return history_service.history_list_response(current_user.id)
 
 
@@ -169,4 +178,6 @@ def history_item(item_id):
     """
     Returns a specific search history item (current_user only).
     """
+    if not reliability_access_allowed():
+        abort(404)
     return history_service.history_item_response(item_id, current_user.id)

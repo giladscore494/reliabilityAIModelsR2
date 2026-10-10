@@ -22,15 +22,20 @@ DASHBOARD_SEARCH_LIMIT = 50
 DASHBOARD_ADVISOR_LIMIT = 50
 
 
-def fetch_dashboard_history(user_id: int) -> Tuple[list, list, Optional[str], Optional[str]]:
+def fetch_dashboard_history(
+    user_id: int,
+    include_searches: bool = True,
+) -> Tuple[list, list, Optional[str], Optional[str]]:
     search_error = None
     advisor_error = None
     logger = current_app.logger
 
+    user_searches = []
     try:
-        user_searches = SearchHistory.query.filter_by(
-            user_id=user_id
-        ).order_by(SearchHistory.timestamp.desc()).limit(DASHBOARD_SEARCH_LIMIT).all()
+        if include_searches:
+            user_searches = SearchHistory.query.filter_by(
+                user_id=user_id
+            ).order_by(SearchHistory.timestamp.desc()).limit(DASHBOARD_SEARCH_LIMIT).all()
     except Exception:
         search_error = "לא הצלחנו לטעון את ההיסטוריה כעת."
         try:

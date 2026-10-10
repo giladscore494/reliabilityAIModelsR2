@@ -142,7 +142,7 @@ class TestDashboardPerformanceSafety:
 class TestSearchDetails:
     """Tests for the /search-details/<id> detail endpoint."""
 
-    def test_detail_returns_200_and_redacts(self, logged_in_client, app):
+    def test_detail_returns_200_and_redacts(self, reliability_unlocked, logged_in_client, app):
         """Detail endpoint must return JSON 200 with PII redacted and debug removed."""
         client, user_id = logged_in_client
         client.post("/api/legal/accept", json={"legal_confirm": True})
@@ -178,7 +178,7 @@ class TestSearchDetails:
         assert '"debug"' not in dumped
         assert '"internal_score"' not in dumped
 
-    def test_detail_guardrail_meta_not_critical_after_repair(self, logged_in_client, app):
+    def test_detail_guardrail_meta_not_critical_after_repair(self, reliability_unlocked, logged_in_client, app):
         """After repair, guardrail meta should not remain critical."""
         client, user_id = logged_in_client
         client.post("/api/legal/accept", json={"legal_confirm": True})

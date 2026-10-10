@@ -3,11 +3,11 @@
 
 import json
 
-from flask import Blueprint, render_template
+from flask import Blueprint, abort, render_template
 from flask_login import current_user
 
 from app.models import SearchHistory
-from app.utils.http_helpers import api_ok, is_owner_user
+from app.utils.http_helpers import api_ok, is_owner_user, reliability_access_allowed
 from app.utils.sanitization import sanitize_analyze_response
 
 bp = Blueprint('examples', __name__)
@@ -16,6 +16,8 @@ bp = Blueprint('examples', __name__)
 @bp.route('/example/<slug>')
 def example_detail(slug):
     """Render a full public example analysis page. No auth required."""
+    if not reliability_access_allowed():
+        abort(404)
     row = SearchHistory.query.filter_by(
         is_public_example=True,
         example_slug=slug,
@@ -43,6 +45,8 @@ def example_detail(slug):
 @bp.route('/api/examples')
 def list_examples():
     """Return JSON list of all public examples for landing cards."""
+    if not reliability_access_allowed():
+        return api_ok({"examples": []})
     rows = SearchHistory.query.filter_by(is_public_example=True).all()
     examples = []
     for r in rows:

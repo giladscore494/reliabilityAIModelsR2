@@ -424,6 +424,7 @@
                     </details>
 
                     <div class="rounded-2xl border border-primary/25 bg-primary/8 p-4 md:p-5 space-y-2">
+                        {% if reliability_enabled %}
                         <p class="text-sm md:text-base font-semibold text-white">
                             כדי לבדוק נקודות סיכון על רכב ספציפי, יש להיכנס לסקירת הרכב.
                         </p>
@@ -433,6 +434,7 @@
                         <p class="text-xs md:text-sm leading-6 text-slate-300">
                             סקירת הרכב מיועדת לבדיקה ממוקדת יותר של סיכונים, עלויות נפוצות ונקודות לאימות לפני החלטה.
                         </p>
+                        {% endif %}
                         <p class="text-[11px] leading-5 text-slate-400">
                             המידע בשאלון ההמלצות אינו מחליף בדיקת רכב לפני קנייה. בנוסף, יש לבדוק עבר ביטוחי, היסטוריית טיפולים, ולבצע בדיקה אצל גורם מקצועי מוסמך לפני קנייה.
                         </p>

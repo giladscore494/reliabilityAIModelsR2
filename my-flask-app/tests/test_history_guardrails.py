@@ -28,7 +28,7 @@ def test_legacy_result_shows_caveat():
     assert result["legacy_notice"]
 
 
-def test_pii_not_exposed_in_dashboard_json(logged_in_client, app):
+def test_pii_not_exposed_in_dashboard_json(reliability_unlocked, logged_in_client, app):
     client, user_id = logged_in_client
     client.post("/api/legal/accept", json={"legal_confirm": True})
     with app.app_context():

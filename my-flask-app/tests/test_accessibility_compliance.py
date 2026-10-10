@@ -38,7 +38,7 @@ def test_configured_contacts_render_escaped(app, client):
     assert "legal@example.com" in client.get("/privacy").get_data(as_text=True)
 
 
-def test_every_ordinary_footer_page_gets_shared_analytics_controller(app, client):
+def test_every_ordinary_footer_page_gets_shared_analytics_controller(reliability_unlocked, app, client):
     app.config["POSTHOG_API_KEY"] = "ph_test"
     for route in ("/", "/app", "/compare", "/recommendations", "/terms", "/privacy", "/accessibility"):
         response = client.get(route)

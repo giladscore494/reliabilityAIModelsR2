@@ -63,3 +63,12 @@ def logged_in_client(app, client):
         sess["_fresh"] = True
 
     return client, user_id
+
+
+@pytest.fixture
+def reliability_unlocked(app):
+    """Opt-in: open Vehicle Review (/app, /analyze, examples, search history) to
+    non-owners. It is owner-only by default (RELIABILITY_OWNER_ONLY); tests that
+    exercise the engine itself request this explicitly."""
+    app.config["RELIABILITY_OWNER_ONLY"] = False
+    return app

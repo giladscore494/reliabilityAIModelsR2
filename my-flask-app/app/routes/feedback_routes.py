@@ -6,7 +6,7 @@ from flask_login import current_user, login_required
 
 from app.extensions import db
 from app.models import Feedback, SearchHistory
-from app.utils.http_helpers import api_error, api_ok, get_request_id
+from app.utils.http_helpers import api_error, api_ok, get_request_id, reliability_access_allowed
 from app.utils.analytics import track_event
 
 bp = Blueprint('feedback', __name__)
@@ -38,6 +38,8 @@ def submit_feedback():
 
     search_history_id = data.get("search_history_id")
     if search_history_id is not None:
+        if not reliability_access_allowed():
+            return api_error("forbidden", "סקירת הרכב זמינה כרגע לבעלי המערכת בלבד.", status=403)
         try:
             search_history_id = int(search_history_id)
         except (TypeError, ValueError):

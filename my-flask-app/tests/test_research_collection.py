@@ -140,7 +140,7 @@ def test_research_response_persists_session_and_answers_for_logged_in_user(
         )
 
 
-def test_reliability_and_compare_pages_render_research_panels(logged_in_client):
+def test_reliability_and_compare_pages_render_research_panels(reliability_unlocked, logged_in_client):
     client, _ = logged_in_client
     reliability_resp = client.get("/app")
     compare_resp = client.get("/compare")
