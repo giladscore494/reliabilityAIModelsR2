@@ -16,6 +16,6 @@ psycopg2-binary==2.9.10
 Flask-Login==0.6.3
 Authlib==1.6.12
 google-genai==2.25.0
-posthog==7.9.12
+posthog==7.64.1
 pytest==9.0.3
 openpyxl==3.1.5
