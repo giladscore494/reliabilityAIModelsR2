@@ -14,10 +14,10 @@ jobs:
       contents: read
     
     env:
-      DATABASE_URL: sqlite:///:memory:
+      DATABASE_URL: "sqlite:///:memory:"
       SECRET_KEY: test-secret-key-for-ci
       SKIP_CREATE_ALL: "1"
-      FLASK_APP: main:create_app
+      FLASK_APP: "main:create_app"
     
     steps:
     - name: Checkout code
