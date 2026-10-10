@@ -196,7 +196,7 @@ def build_table(slots: List[str], cars: Dict[str, Dict[str, Any]], rows: List[Di
                 cell = row["cells"][slot]
                 entry = {"text": cell["text"], "leader": bool(leader == slot and not row["display_only"])}
                 for k in ("source", "standard", "definition", "attribution", "licence", "details", "cohort_year",
-                          "cohort_basis", "reference_month"):
+                          "cohort_basis", "reference_month", "systems_he"):
                     if cell.get(k) not in (None, "", [], {}) and not (k == "standard" and str(cell[k]).startswith("stated:")):
                         entry[k] = cell[k]
                 cells[slot] = entry

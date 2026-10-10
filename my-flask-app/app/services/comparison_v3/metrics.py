@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from app.services.comparison_v3.contracts import CHOICE_TIE
-from app.services.comparison_v3.labels import GEARBOX_LABELS_HE, SOURCE_NAMES_HE, value_label
+from app.services.comparison_v3.labels import ADAS_ORDER, GEARBOX_LABELS_HE, SOURCE_NAMES_HE, adas_label, value_label
 
 HIGHER_BETTER = "higher_better"
 LOWER_BETTER = "lower_better"
@@ -321,9 +321,12 @@ def _read_adas_count(snap, metric):
     stated = snap.get("equipment") or {}
     if not stated:
         return None
-    # the "standard" of a count is the set of flags it counts: counts over different sets are not compared
-    return _cell(sum(1 for v in stated.values() if v), None, source="government",
-                 standard="stated:" + ",".join(sorted(stated)), of=len(stated))
+    # the "standard" of a count is the set of flags it counts: counts over different sets are not compared.
+    # ``systems_he``: exactly the systems the car has, in Hebrew (the row's chevron lists them, so every flag that
+    # counts, including a nice-to-have feature, is visible)
+    present = sorted((f for f, v in stated.items() if v), key=lambda f: (ADAS_ORDER.index(f) if f in ADAS_ORDER else 99, f))
+    return _cell(len(present), None, source="government", standard="stated:" + ",".join(sorted(stated)),
+                 of=len(stated), systems_he=[adas_label(f) for f in present])
 
 
 def _read_mass(snap, metric):

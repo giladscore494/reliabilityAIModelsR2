@@ -165,6 +165,9 @@ When the fields are absent, the rows are absent.
   * `warranty` / `equipment` are dropped.
 * Requirements: passengers, budget (needs every price), towing, AWD, and must-have / nice-to-have ADAS flags.
   Nice-to-have flags count in `safety`.
+  A nice-to-have flag counts only when the "מערכות סיוע לנהג" row exists (every car reports the same set of flags):
+  that row's chevron lists, per car, exactly which of the 19 government systems it has, in Hebrew
+  (`labels.ADAS_LABELS_HE`, cell `systems_he`), so every flag that affects the score is visible.
 
 ## Decision
 
